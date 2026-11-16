@@ -48,7 +48,7 @@ pub fn array(values: impl IntoIterator<Item = Value>) -> Value {
     Value::Array(Rc::new(values.into_iter().collect()))
 }
 
-/// vehicle-phase-data.js json(). Content has already rejected invalid UTF-8
+/// json(). Content has already rejected invalid UTF-8
 /// and lone surrogates, so serde's string quoting matches JSON.stringify.
 /// Nonfinite numbers become null; signed zero is the deliberate exception.
 pub fn json(value: &Value) -> Result<String, AdmitError> {

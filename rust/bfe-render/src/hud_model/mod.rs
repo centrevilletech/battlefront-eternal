@@ -45,7 +45,7 @@
 // - Damage direction: a bar at the screen edge on the side an explosion hit
 //   from, fading over a second.
 // - Outside the battlefield: LEAVING BATTLEFIELD flashing red in the middle
-//   of the screen (src/battlefield.js).
+//   of the screen.
 // - Stats, left middle: the player's KILLS, DEATHS and CP POINTS, faint at
 //   rest, for 3 s after one changes, the changed row flashing yellow or red.
 // Dead, the player has no body: until the spawn screen only the
@@ -53,7 +53,7 @@
 // - Zoomed in first person, the weapon's scope overlay: a quarter of it per
 //   screen quarter, mirrored about the centre.
 // - Seated (a vehicle's seat, a craft's as any other, or a turret), the
-//   same displays, read from the seat this page knows he holds each frame:
+//   same displays, read from the seat this client knows he holds each frame:
 //   the seat's two channels in the weapons panels, named for the seat
 //   (PILOT, MAIN GUNNER...) when he takes it; his own bar still on top and
 //   what he sits in on the second panel, with a pip per seat of the hull
@@ -84,7 +84,7 @@ use std::f64::consts::PI;
 use std::fmt::Write;
 
 // The flat block has fixed regions, with row widths supplied by the schema.
-// A browser and a native client therefore feed the same model without object
+// A client and a native client therefore feed the same model without object
 // identity, a string heap or callbacks on the frame boundary. Latest-value
 // state rows have dirty bits; real events enter the model synchronously.
 pub const MAX_POSTS: usize = 128;

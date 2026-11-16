@@ -1,4 +1,4 @@
-//! Animated prop clocks, doors, triggers and creature holds (src/props.js).
+//! Animated prop clocks, doors, triggers and creature holds.
 //! Prop poses and grab-node transforms are native. Soldier rider sampling,
 //! deaths and removal remain calls into their owning systems.
 use crate::pose::{Clip, Pose};
@@ -99,7 +99,7 @@ pub trait World {
     /// The soldier's root from its rider clip, before the prop places it.
     fn rider_root(&mut self, prop: &Animated, unit: &Body, clip: StrId, time: f64) -> Option<(Vector3, Quaternion)>;
 }
-// The clock, door and easing numerics are shared with the page's prop
+// The clock, door and easing numerics are shared with the client's prop
 // presentation (bfe_pose::prop), so both hosts draw a prop alike.
 use bfe_pose::prop::length;
 fn within(point: Vector3, reach: f64, feet: Vector3) -> bool {

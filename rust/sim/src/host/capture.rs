@@ -1,11 +1,11 @@
-//! The page's presentation capture (src/runtime/entity-presentation-events.js
+//! The client's presentation capture (src/runtime/entity-presentation-events.js
 //! `attachPresentationCapture` and src/runtime/network-entity-combat.js
 //! `CombatCapture.emit`): a journal record the presentation crate accepts
 //! becomes a presentation record (schema 8) in the wire's combat capture,
 //! which the publisher sends as a cosmetic event. The event's fields are
 //! what `bfe_presentation::ordnance::events::capture` orders for the kind,
 //! encoded by the wire's presentation encoder (`wire_presentation_run` op 2)
-//! from the same tokens the page's `event()` wrote, then emitted as the
+//! from the same tokens the client's `event()` wrote, then emitted as the
 //! page's `WireCombat.emit` did: a capture key, its expiry, its commit.
 use crate::abi::context::Context;
 use crate::gen::{
@@ -37,7 +37,7 @@ pub fn decode_view(tick: f64, schema: f64, payload: &[u8]) -> Result<View, Strin
     })
 }
 
-/// wire-presentation.js `ERRORS`: the message of each event writer error.
+/// `ERRORS`: the message of each event writer error.
 const PRESENTATION_ERRORS: [&str; 15] = [
     "",
     "Invalid presentation exchange",
@@ -83,7 +83,7 @@ pub struct Capture {
 }
 
 /// What `capture_bolt` answered for a launched round (src/runtime/
-/// network-entity-combat.js `captureBolt`), kept until its terminal. The
+/// `captureBolt`), kept until its terminal. The
 /// page passed these numbers through JSON, where a value that is not finite
 /// is null and reads back as 0 (`expiry` stays raw: a terminal replaces a
 /// null expiry with `tick + 18`).
@@ -137,7 +137,7 @@ pub struct View {
 }
 
 impl Capture {
-    /// `eventValue` (src/sim/wasm/runtime/wire-presentation.js): null 0,
+    /// `eventValue`: null 0,
     /// number 1 v, boolean 2 b, string 3 id, array 4 n then up to three
     /// children, undefined 6; the event's words are the kind, the blowApart amount, the
     /// entry count, then key id and value for each entry.
@@ -239,7 +239,7 @@ impl Capture {
 
     /// `capture.emit(presentationRecord({id: allocateCapture(capture),
     /// generation, tick, event, native: service}))`: false when the
-    /// capture is full (the page dropped the record), as `WireCombat.emit`.
+    /// capture is full (the client dropped the record), as `WireCombat.emit`.
     pub fn emit(
         &self,
         context: &Context,

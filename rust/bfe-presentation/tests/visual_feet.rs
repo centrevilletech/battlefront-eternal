@@ -1,5 +1,4 @@
-//! Synthetic unit-foot plant and cold cycle-height tests ported from
-//! `tests/visual-feet.test.js`.
+//! Synthetic unit-foot plant and cold cycle-height tests.
 //!
 //! These cases exercise `bfe_presentation::feet::{heights, Content, Feet}`
 //! directly over synthetic JSON descriptors without requiring game assets.
@@ -43,7 +42,6 @@ fn step_single_foot(
     feet.output[start * o::STRIDE + o::COUNT]
 }
 
-// Mirrors `tests/visual-feet.test.js`:
 // "a falling foot plants once, preserves primitive turns, and resets on a new generation"
 //
 // When `detection` is false and `length` is 0, `Foot` uses fallback descent
@@ -122,7 +120,6 @@ fn falling_foot_plants_once_preserves_primitive_turns_and_resets_on_new_generati
     assert_eq!(step_single_foot(&mut feet, start, 1.0, 2.0, &matrix), 1.0);
 }
 
-// Mirrors `tests/visual-feet.test.js`:
 // "cold cycle samples retain scales, bind positions and f32 rounding"
 //
 // Two-bone chain: bone 0 scales Y by 2, bone 1 has bind Y = 0.5 and foot
@@ -180,7 +177,6 @@ fn cold_cycle_samples_retain_scales_bind_positions_and_f32_rounding() {
     assert_eq!(heights(&content), vec![vec![1.5, 2.5, 1.5, 2.5]]);
 }
 
-// Mirrors `tests/visual-feet.test.js`:
 // "an oversized authored foot class is bounded at registration"
 //
 // A class declaring 4096 feet is truncated to `lim::PER_BODY` (16) at

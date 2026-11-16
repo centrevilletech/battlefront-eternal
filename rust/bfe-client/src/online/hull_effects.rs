@@ -1,4 +1,4 @@
-//! What a hull shows beyond its model (vehicle-effects.js): its thrust
+//! What a hull shows beyond its model: its thrust
 //! while a flyer is in the air, its damage smoke and fire by health band, a
 //! dying walker's explosions, and the dust a wreck raises. The hulls owner
 //! says each frame what should burn where (`want`) and what goes off once

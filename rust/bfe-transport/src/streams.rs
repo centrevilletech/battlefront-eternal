@@ -1,4 +1,4 @@
-//! connection.js's independent SendStream and ReceiveStream owners. Absolute
+//! independent SendStream and ReceiveStream owners. Absolute
 //! offsets address retained rings; message delivery borrows one assembly bank.
 use crate::{Error,Result,codec::{Ranges,Reader,Writer},layout::limits as lim};
 // Half-open stream byte span [offset, offset + length) emitted into a STREAM frame.

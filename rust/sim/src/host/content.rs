@@ -1,12 +1,12 @@
 //! What the host's records name from the battle's content that the
 //! recorded admission cannot give it: the ordnance definitions' classes (a
 //! grenade record's `def`) and the combat registry ids of the explosions.
-//! The page's capture named an explosion by
+//! The client's capture named an explosion by
 //! `registry.combat.definitionId(def)`, the id of the definition object
-//! (src/runtime/network-combat-registry.js), and the store source's tables
+//!, and the store source's tables
 //! carry the ordnance and item definitions' ids but no explosion's. An
-//! explosion the page registered while it wrote an ordnance or item
-//! definition's fields (`writeFields`, src/sim/wasm/ordnance-sim.js) is the
+//! explosion the client registered while it wrote an ordnance or item
+//! definition's fields (`writeFields`) is the
 //! object that definition holds under the field naming it, so its id is
 //! that object's in the registry the content crate builds from the same
 //! content (`createCombatRegistry(registryContent(data))`).
@@ -24,7 +24,7 @@ use bfe_content::files::{DirFiles, Files};
 use bfe_content::registry::{combat_registry, registry_content};
 use bfe_content::value::Value;
 
-/// world-hash.mjs's page query for the row's options.
+/// page query for the row's options.
 fn query(options: &Options) -> String {
     let era = if options.side == "rep" || options.side == "cis" {
         "cw"
@@ -119,10 +119,9 @@ pub fn content_tables_from_registry(
         }
     }
     // A class's or a hull's explosion: the object its content definition
-    // holds (`unit.classDef.explosion` in src/sim/wasm/f3-items.js,
-    // `vehicle.def.explosion` and `finalExplosion || explosion` in
-    // src/sim/wasm/f3-hulls.js).
-    // LiveObjects.buildings (src/props.js): the props instances whose model
+    // holds (`unit.classDef.explosion`,
+    // `vehicle.def.explosion` and `finalExplosion || explosion`).
+    // LiveObjects.buildings: the props instances whose model
     // the props name, in order, that are traps, power-up stations, armed
     // buildings or command posts; a building's explosion is its instance's.
     let props = tree.get("props");

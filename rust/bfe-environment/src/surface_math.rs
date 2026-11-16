@@ -3,7 +3,7 @@
 //! following the camera phase's host-math boundary.
 
 // Native replay uses the server's V8 arithmetic, matching Node captures.
-// desktop host binds its own primitives to preserve the page's rounding; its
+// desktop host binds its own primitives to preserve the client's rounding; its
 // output is checked separately by the cross-build GPU comparisons.
 pub trait Math {
     fn sin(x: f64) -> f64;
@@ -34,7 +34,7 @@ extern "C" {
 pub struct Page;
 #[cfg(target_arch = "wasm32")]
 impl Math for Page {
-    // SAFETY: these imports are the page's scalar Math builtins. They cannot
+    // SAFETY: these imports are the client's scalar Math builtins. They cannot
     // touch phase storage or re-enter any environment export.
     fn sin(x: f64) -> f64 { unsafe { surface_sin(x) } }
     fn cos(x: f64) -> f64 { unsafe { surface_cos(x) } }

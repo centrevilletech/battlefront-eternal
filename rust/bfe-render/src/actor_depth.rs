@@ -1,4 +1,4 @@
-//! CasterPass's actor depth material/geometry reader. The page supplies live
+//! CasterPass's actor depth material/geometry reader. The client supplies live
 //! world/bind matrices and one bounded skin bank; Rust owns slots and raster.
 use crate::{core::{Core,MultiDraw},actor_layout::{depth as R,limit as L},post,shadow as S,math};
 use glow::HasContext;

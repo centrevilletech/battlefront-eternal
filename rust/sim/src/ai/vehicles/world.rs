@@ -24,7 +24,7 @@ pub struct Ref {
     pub generation: f64,
 }
 
-/// The classifiers (src/ai/classic/nav/units.js KIND). Kinds stay f64:
+/// The classifiers (KIND). Kinds stay f64:
 /// the JavaScript compares them with `===` against these numbers.
 pub mod kind {
     pub const SOLDIER: f64 = 0.0;
@@ -42,7 +42,7 @@ pub mod kind {
 /// A unit's class as the vehicle AI reads it (`unit.classDef`): for a
 /// control, src/seats.js vehicleClassView (or a gunner's or a turret's
 /// view, with no speed); for a soldier, its class data. A field the class
-/// lacks is `None` (the JavaScript's undefined).
+/// lacks is `None`.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ClassView {
     /// `AISizeType`, as the string it is (a number written as JavaScript's
@@ -68,7 +68,7 @@ pub struct ClassView {
     pub bounds: Option<[[f64; 3]; 2]>,
     /// `NoEnterVehicles` as Number.parseFloat reads it (`?? 0` first).
     pub no_enter_vehicles: f64,
-    /// roleOf(classDef) (src/ai/classic/controller.js): the class's role.
+    /// roleOf(classDef): the class's role.
     pub role: f64,
 }
 
@@ -127,7 +127,7 @@ pub struct SeatView {
     pub pitch_limits: Option<Rc<str>>,
 }
 
-/// A hull (src/vehicles.js Vehicle) as the vehicle AI reads it.
+/// A hull (Vehicle) as the vehicle AI reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HullView {
     pub obj: Obj,
@@ -172,7 +172,7 @@ pub struct HullView {
     pub own_system: bool,
 }
 
-/// A turret (src/props.js Turret) as the vehicle AI reads it.
+/// A turret (Turret) as the vehicle AI reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TurretView {
     pub prepared_limits:Option<[[f64;2];2]>,
@@ -192,7 +192,7 @@ pub struct TurretView {
     pub has_hold_yaw: bool,
 }
 
-/// A seat's lease (src/seats.js SeatLease) as the vehicle AI reads it.
+/// A seat's lease (SeatLease) as the vehicle AI reads it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LeaseView {
     pub obj: Obj,
@@ -208,7 +208,7 @@ pub struct LeaseView {
 }
 
 /// What a control's steering reads of the controller driving it
-/// (src/ai/classic/controller.js) and of its agent's movement helper.
+/// and of its agent's movement helper.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ControllerView {
     pub obj: Obj,
@@ -307,7 +307,7 @@ pub struct StuckAt {
 
 /// A control's steering bag (steering.js steerState: `unit.steer`), each
 /// field `None` where the bag lacks it: a flyer's pilot input makes the
-/// bag `{}` when it has none (src/flight/ai.js `unit.steer ||= {}`), and
+/// bag `{}` when it has none (`unit.steer ||= {}`), and
 /// the fields are written one by one from then on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Steer {
@@ -337,7 +337,7 @@ pub struct Steer {
 }
 
 impl Steer {
-    /// steerState's bag (steering.js:49).
+    /// steerState's bag.
     pub fn full() -> Steer {
         Steer {
             moving_turn_at: Some(f64::NEG_INFINITY),
@@ -397,13 +397,13 @@ impl Steer {
     }
 }
 
-/// A number field as JavaScript reads it: undefined is NaN in arithmetic.
+/// A number field it: undefined is NaN in arithmetic.
 pub fn num(x: Option<f64>) -> f64 {
     x.unwrap_or(f64::NAN)
 }
 
 /// The vehicle fields a control's analogs write into its intent
-/// (steering.js seatAnalogs).
+/// (seatAnalogs).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatIntent {
     pub up: f64,
@@ -415,7 +415,7 @@ pub struct SeatIntent {
 }
 
 /// The analogs of one input step (`out`, and the vehicle fields of
-/// steering.js's `full`).
+/// `full`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Stick {
     pub forward: f64,
@@ -604,7 +604,7 @@ pub trait World: Draws {
     fn notify_relation(&mut self, a: f64, b: f64) -> f64 { self.relation(a, b) }
     /// world.los(a, b) (None: the world has none).
     fn los(&mut self, a: &Vector3, b: &Vector3) -> Option<bool>;
-    /// A unit's bounding sphere this tick (world.js sphere).
+    /// A unit's bounding sphere this tick (sphere).
     fn sphere(&mut self, x: Obj) -> Sphere;
 
     // ---- calls: seats, hulls, turrets
@@ -629,7 +629,7 @@ pub trait World: Draws {
     fn human_target(&mut self, hull: Obj) -> Option<Obj>;
     /// Vehicle.damage(amount).
     fn damage(&mut self, hull: Obj, amount: f64);
-    /// pilotInput(unit, request, aim, dt, env, out) (src/flight/ai.js): the
+    /// pilotInput(unit, request, aim, dt, env, out): the
     /// stick. It makes the control's bag `{}` when it has none: the caller
     /// does that in its own state, before the call.
     fn pilot_input(&mut self, control: Obj, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, env: &PilotEnv) -> Stick;

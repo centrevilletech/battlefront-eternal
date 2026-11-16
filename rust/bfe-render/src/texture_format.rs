@@ -25,7 +25,7 @@ impl Capabilities {
 
 // This exception is mandatory at every quality setting: choosing High must
 // not turn emulated BC7 back on and multiply the texture's resident bytes.
-// gpu-info.js's Mesa exception. Check ASCII word boundaries as its regexp
+// Mesa exception. Check ASCII word boundaries as its regexp
 // does, so an unrelated renderer containing these letters cannot lose BC7.
 pub fn unpacks_bc7(renderer: &str) -> bool {
     // The interface warning and uploader consume one device-policy table.

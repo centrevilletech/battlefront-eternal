@@ -33,12 +33,12 @@ Measure the release build and workload on the actual target device.
 
 | Work | Owner | What to observe |
 | --- | --- | --- |
-| World phases | `rust/sim/rust/world/step.rs` | Completed ticks, step cost, catch-up debt, allocations and ordered output. |
-| AI | `rust/sim/rust/ai/owned/` | Decision/LOS budgets, native queries, held intent publication and allocations. |
-| Collision and movement | `rust/sim/rust/collision/`, `rust/sim/rust/movement/` | Query visits, retained scratch, dynamic-body state and exact final positions. |
-| Hulls, riders and weapons | `rust/sim/rust/vehicles/`, `rust/sim/rust/units/` | Native substeps, rig sampling, touched rows and callback order. |
-| Snapshots | `rust/sim/rust/wire/` | Publication bytes, recipients, budgets, queues and retained baselines. |
-| Prediction and displayed poses | `rust/sim/rust/client/`, `rust/bfe-presentation` | Pending replay ticks, correction work, sampled poses and observed readbacks. |
+| World phases | `rust/sim/src/world/step.rs` | Completed ticks, step cost, catch-up debt, allocations and ordered output. |
+| AI | `rust/sim/src/ai/owned/` | Decision/LOS budgets, native queries, held intent publication and allocations. |
+| Collision and movement | `rust/sim/src/collision/`, `rust/sim/src/movement/` | Query visits, retained scratch, dynamic-body state and exact final positions. |
+| Hulls, riders and weapons | `rust/sim/src/vehicles/`, `rust/sim/src/units/` | Native substeps, rig sampling, touched rows and callback order. |
+| Snapshots | `rust/sim/src/wire/` | Publication bytes, recipients, budgets, queues and retained baselines. |
+| Prediction and displayed poses | `rust/sim/src/client/`, `rust/bfe-presentation` | Pending replay ticks, correction work, sampled poses and observed readbacks. |
 | Drawing | `rust/bfe-render` | Submitted work, GPU completion, shadows, uploads, target size and frame pacing. |
 | Sound | `rust/audio-control`, `rust/audio` | Active voices, decode/stream credits, device quanta and master-chain cost. |
 

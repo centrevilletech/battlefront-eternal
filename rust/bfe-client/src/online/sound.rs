@@ -572,7 +572,7 @@ impl Sound {
         self.pending_effects.push(row);
     }
 
-    // presentEntityEvent "vo" hands Chatter.say (src/audio/chatter.js) the
+    // presentEntityEvent "vo" hands Chatter.say the
     // speaker and the property. The line is the speaker's class sound for
     // that property; a hull speaks with its occupant's class. A speaker this
     // client doesn't know, or one whose class has no sounds, says nothing.
@@ -609,7 +609,7 @@ impl Sound {
     }
 
     // presentEntityEvent "bounce"/"pickup": GameAudio's bounce and pickup
-    // handlers (src/audio/game.js) play the combat definition's class sound,
+    // handlers play the combat definition's class sound,
     // CollisionOtherSound or PowerupSound, where it happened. An unknown
     // definition or a missing point plays nothing.
     fn ordnance(&self, source: &EventInput) -> Option<[f64; event::STRIDE]> {
@@ -622,7 +622,7 @@ impl Sound {
         Some(super::sound_events::placed(kind, class, source.position?))
     }
 
-    // presentEntityEvent "serve": SceneSounds.served (src/audio/scene.js)
+    // presentEntityEvent "serve": SceneSounds.served
     // plays the station's class PowerupSound at the station. The record
     // names it by its place among the live buildings.
     fn serve(&self, source: &EventInput) -> Option<[f64; event::STRIDE]> {
@@ -631,7 +631,7 @@ impl Sound {
     }
 
     // presentEntityEvent "towAttach"/"towRelease": GameAudio.towSound
-    // (src/audio/game.js) plays the cable weapon's attach or release sound
+    // plays the cable weapon's attach or release sound
     // at the hull, the snowspeeder's when the weapon's bank has none. The
     // browser finds the weapon among the hull's seats; the record's registry
     // id names the same weapon here.
@@ -759,7 +759,7 @@ impl Sound {
             }
             // applyWorldPresentation, schema 7: a building's state leads its
             // record, after its place among the live buildings. Only "built"
-            // is alive (props.js Building.alive).
+            // is alive (Building.alive).
             if field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 7. {
                 use serde::de::IgnoredAny as Rest;
                 type State<'a> = (usize, &'a str, Rest, Rest, Rest, Rest, Rest, Rest, Rest, Rest, Rest);
@@ -1547,7 +1547,7 @@ fn registered(table: &[usize], id: usize) -> Option<usize> {
 /// applyWorldSummary's post sounds: a post that changed hands is captured by
 /// its new team or lost by its old one; a destructible post whose building
 /// died goes inactive with its owner kept and is lost by that owner, as the
-/// local battle's CommandPost.destroy event is (src/commandposts.js). The
+/// local battle's CommandPost.destroy event is. The
 /// first sample of a post only initializes it.
 fn apply_post_summary(posts: &mut [(usize, [f64; post::STRIDE])], building: &[bool], effects: &mut Vec<[f64; event::STRIDE]>, b: &[u8]) {
     let id = u16::from_le_bytes([b[0], b[1]]) as usize;

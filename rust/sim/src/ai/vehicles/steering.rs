@@ -16,12 +16,12 @@ const WALKER_STUCK_RADIUS: f64 = 10.0;
 const REQUEST_LIFE: f64 = 0.5;
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 
-/// `Math.cos((5 * Math.PI) / 180)` (steering.js:36), with V8's cos.
+/// `Math.cos((5 * Math.PI) / 180)`, with V8's cos.
 fn cos5() -> f64 {
     cos((5.0 * PI) / 180.0)
 }
 
-/// sign(0) = +1, as the 2004 game's (steering.js:46).
+/// sign(0) = +1, as the 2004 game's.
 fn sign(v: f64) -> f64 {
     if v < 0.0 {
         -1.0
@@ -50,13 +50,13 @@ pub struct Env {
     pub controller: Option<Obj>,
 }
 
-/// steerState(unit) (steering.js:49): the control's bag, made whole the
+/// steerState(unit): the control's bag, made whole the
 /// first time.
 pub fn steer_state<W: World + ?Sized, R>(w: &mut W, control: Obj, f: impl FnOnce(&mut Steer) -> R) -> R {
     w.edit_steer(control, |slot| f(slot.get_or_insert_with(Steer::full)))
 }
 
-/// arrivalRadius(unit) (steering.js:87).
+/// arrivalRadius(unit).
 pub fn arrival_radius(unit: &UnitView) -> f64 {
     let k = unit.kind;
     if k == 0.0 || k == 1.0 {
@@ -68,7 +68,7 @@ pub fn arrival_radius(unit: &UnitView) -> f64 {
     4.0
 }
 
-/// bodyForward(unit, out) (steering.js:95).
+/// bodyForward(unit, out).
 fn body_forward(unit: &UnitView) -> Vector3 {
     let yaw = unit.body_yaw;
     let mut out = Vector3::new(sin(yaw), 0.0, cos(yaw));
@@ -78,7 +78,7 @@ fn body_forward(unit: &UnitView) -> Vector3 {
     *out.normalize()
 }
 
-/// translate's answer (steering.js:106).
+/// translate's answer.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Move {
     pub forward: f64,
@@ -86,7 +86,7 @@ pub struct Move {
     pub near: bool,
 }
 
-/// translate(unit, request, maxForward, maxStrafe, hasPath, out) (steering.js:106).
+/// translate(unit, request, maxForward, maxStrafe, hasPath, out).
 pub fn translate(unit: &UnitView, request: Option<&Request>, max_forward: f64, max_strafe: f64, has_path: bool) -> Move {
     let mut out = Move::default();
     let Some(request) = request.filter(|r| r.valid) else { return out };
@@ -124,7 +124,7 @@ pub fn translate(unit: &UnitView, request: Option<&Request>, max_forward: f64, m
     out
 }
 
-/// facingPoint(unit, request, aim, near, maxStrafe, out) (steering.js:149).
+/// facingPoint(unit, request, aim, near, maxStrafe, out).
 fn facing_point(unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, near: bool, max_strafe: f64) -> Vector3 {
     let valid = request.is_some_and(|r| r.valid);
     let use_aim = max_strafe > 0.0001 || !valid || near;
@@ -146,7 +146,7 @@ fn facing_point(unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3
     request.unwrap().steering_target
 }
 
-/// nonlinearYaw(unit, point) (steering.js:168).
+/// nonlinearYaw(unit, point).
 pub fn nonlinear_yaw(unit: &UnitView, point: &Vector3) -> f64 {
     let mut q = Vector3::default();
     q.sub_vectors(point, &unit.position);
@@ -169,7 +169,7 @@ pub fn nonlinear_yaw(unit: &UnitView, point: &Vector3) -> f64 {
     sign(t) * t * t
 }
 
-/// nonlinearPitch(unit, point) (steering.js:186).
+/// nonlinearPitch(unit, point).
 pub fn nonlinear_pitch<W: World + ?Sized>(w: &mut W, unit: &UnitView, point: &Vector3) -> f64 {
     let origin = w.origin(unit.obj);
     let mut q = Vector3::default();
@@ -201,7 +201,7 @@ pub struct Angles {
     pub pitch: f64,
 }
 
-/// linearAim(unit, point, dt, yawRate, pitchRate, fast, out) (steering.js:207).
+/// linearAim(unit, point, dt, yawRate, pitchRate, fast, out).
 pub fn linear_aim<W: World + ?Sized>(w: &mut W, unit: &UnitView, point: &Vector3, dt: f64, yaw_rate: f64, pitch_rate: f64, fast: bool) -> Angles {
     let mut out = Angles::default();
     let origin = w.origin(unit.obj);
@@ -231,12 +231,12 @@ pub fn linear_aim<W: World + ?Sized>(w: &mut W, unit: &UnitView, point: &Vector3
     out
 }
 
-/// The facing choice's "already arrived" (steering.js:242).
+/// The facing choice's "already arrived".
 fn arrived(m: &Move, env: &Env) -> bool {
     m.near && !env.has_path
 }
 
-/// hoverInput(unit, request, aim, dt, env, out) (steering.js:248).
+/// hoverInput(unit, request, aim, dt, env, out).
 pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, _dt: f64, env: &Env, out: &mut Stick) {
     let c = unit.class.clone().unwrap_or_default();
     steer_state(w, unit.obj, |_| ());
@@ -281,7 +281,7 @@ pub fn hover_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Optio
     hover_recovery(w, unit, env, out);
 }
 
-/// hoverRecovery(unit, env, st, out) (steering.js:307).
+/// hoverRecovery(unit, env, st, out).
 fn hover_recovery<W: World + ?Sized>(w: &mut W, unit: &UnitView, env: &Env, out: &mut Stick) {
     let now = env.now;
     steer_state(w, unit.obj, |st| {
@@ -314,7 +314,7 @@ fn hover_recovery<W: World + ?Sized>(w: &mut W, unit: &UnitView, env: &Env, out:
     });
 }
 
-/// walkerInput(unit, request, aim, dt, env, out) (steering.js:340).
+/// walkerInput(unit, request, aim, dt, env, out).
 pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, env: &Env, out: &mut Stick) {
     let c = unit.class.clone().unwrap_or_default();
     let holding = steer_state(w, unit.obj, |st| {
@@ -390,7 +390,7 @@ pub fn walker_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
     if let Some(another) = replan_kind { replan(w, env, another); }
 }
 
-/// The analogs' `env.replan(another)` (index.js analogs): another post, or
+/// The analogs' `env.replan(another)` (analogs): another post, or
 /// the movement helper's trip planned again.
 fn replan<W: World + ?Sized>(w: &mut W, env: &Env, another: bool) {
     let Some(c) = env.controller else { return };
@@ -407,7 +407,7 @@ fn replan<W: World + ?Sized>(w: &mut W, env: &Env, another: bool) {
     }
 }
 
-/// walkerYields(self, other) (steering.js:416). `other` is `{ kind,
+/// walkerYields(self, other). `other` is `{ kind,
 /// position, velocity, classDef: { bounds } }`.
 pub fn walker_yields(me: &UnitView, other_kind: f64, other_position: &Vector3, other_velocity: &Vector3, other_bounds: Option<[[f64; 3]; 2]>) -> bool {
     if other_kind != kind::WALKER && other_kind != kind::HOVER {
@@ -435,20 +435,20 @@ pub fn walker_yields(me: &UnitView, other_kind: f64, other_position: &Vector3, o
     -d.dot(&p) < d.dot(&q)
 }
 
-/// volume(unit) (steering.js:431).
+/// volume(unit).
 fn volume(bounds: Option<[[f64; 3]; 2]>) -> f64 {
     let Some(b) = bounds else { return 1.0001 };
     (b[1][0] - b[0][0]) * (b[1][1] - b[0][1]) * (b[1][2] - b[0][2]) + 0.0001
 }
 
-/// walkerContact(unit, other, now) (steering.js:438).
+/// walkerContact(unit, other, now).
 pub fn walker_contact<W: World + ?Sized>(w: &mut W, me: &UnitView, other_kind: f64, other_position: &Vector3, other_velocity: &Vector3, other_bounds: Option<[[f64; 3]; 2]>, now: f64) {
     if me.kind == kind::WALKER && walker_yields(me, other_kind, other_position, other_velocity, other_bounds) {
         steer_state(w, me.obj, |st| st.hold_since = Some(now));
     }
 }
 
-/// stationaryInput(unit, request, aim, dt, env, out) (steering.js:444).
+/// stationaryInput(unit, request, aim, dt, env, out).
 pub fn stationary_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, aim: Option<&Vector3>, dt: f64, out: &mut Stick) {
     out.forward = 0.0;
     out.right = 0.0;
@@ -463,7 +463,7 @@ pub fn stationary_input<W: World + ?Sized>(w: &mut W, unit: &UnitView, aim: Opti
     out.pitch = angles.pitch;
 }
 
-/// orbitInput(unit) (steering.js:472): the orbit's movement request while
+/// orbitInput(unit): the orbit's movement request while
 /// pattern 15 holds one and its walker lives, with the tow pass's weapon
 /// switches; None when no orbit steers.
 pub fn orbit_input<W: World + ?Sized>(w: &mut W, unit: &UnitView) -> Option<Request> {
@@ -507,7 +507,7 @@ pub fn orbit_input<W: World + ?Sized>(w: &mut W, unit: &UnitView) -> Option<Requ
     Some(r)
 }
 
-/// seatAnalogs(unit, request, aim, dt, out, env) (steering.js:506): the
+/// seatAnalogs(unit, request, aim, dt, out, env): the
 /// analogs, with the vehicle fields written into the control's intent.
 pub fn seat_analogs<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Option<&Request>, aim: Option<&Vector3>, dt: f64, env: &Env) -> Stick {
     let mut full = Stick::default();
@@ -516,7 +516,7 @@ pub fn seat_analogs<W: World + ?Sized>(w: &mut W, unit: &UnitView, request: Opti
         k if k == kind::FLYER => {
             let orbit = orbit_input(w, unit);
             let request = orbit.as_ref().or(request);
-            // src/flight/ai.js `const st = unit.steer ||= {}`.
+            // `const st = unit.steer ||= {}`.
             w.edit_steer(unit.obj, |s| { s.get_or_insert_with(Steer::empty); });
             let pilot = PilotEnv { has_path: env.has_path, min_fly_height: env.min_fly_height, max_fly_height: env.max_fly_height };
             full = w.pilot_input(unit.obj, request, aim, dt, &pilot);

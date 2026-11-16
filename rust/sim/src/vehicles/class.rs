@@ -3,7 +3,7 @@
 //! hoverClass), a walker's legs (`fx.legs`), each seat's aim rates for a bot
 //! (aimCrew), and what its destruction reads (setHealth: `fx.dying.span`,
 //! `fx.explosionOffset`, `explosion`). The hull's own fields (its speeds,
-//! box, probes) are the store's (rust/sim/schema/vehicles.mjs).
+//! box, probes) are the store's (rust/sim/schema/vehicles.json).
 
 use super::hull::{HoverClass, Legs, Spring};
 use bfe_content::odf::{class_setting, num};

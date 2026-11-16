@@ -1,7 +1,7 @@
 //! The collision world the content crate installs (bfe_content::install):
 //! its trees, terrain grid and fixed sets put in this module's collision
 //! state as src/ray-kernel.js puts the JavaScript's, so a world made from
-//! content in Rust casts as the JavaScript's CollisionWorld does
+//! content in Rust casts
 //! (rust/content/tests/collision.rs proves it on the game's maps).
 
 use bfe_content::collision::TriangleGrid;

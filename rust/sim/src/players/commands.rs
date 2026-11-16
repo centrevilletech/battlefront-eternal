@@ -47,7 +47,7 @@ fn squad(w: &mut World, p: &Player, unit: Ref<Unit>, index: usize, kind: f64, ti
 }
 
 /// `u.combat.remotes.look(x, y, scale, invert)`: the recon context's own
-/// look command (f3-recon.js context.look).
+/// look command (context.look).
 fn remote_look(w: &mut World, context: Ref<ReconContext>, x: f64, y: f64, scale: f64, invert: bool) {
     let Some(c) = w.sim.store.recon_context.get(context) else { return };
     let binding = F3ReconBinding { action: F3ReconAction::Look, key: c.key, owner: c.owner.clone(), seed: 0, droid: None, dx: x, dy: y, sensitivity: scale, flag: invert };
@@ -56,7 +56,7 @@ fn remote_look(w: &mut World, context: Ref<ReconContext>, x: f64, y: f64, scale:
 }
 
 /// `(u.soldier.lookRaw || u.soldier.look)(x / zoom, y / zoom, scale, invert)`:
-/// a soldier's raw pointer counts, a droideka's look (f3-sim.js look).
+/// a soldier's raw pointer counts, a droideka's look (look).
 fn body_look(w: &mut World, unit: Ref<Unit>, x: f64, y: f64, scale: f64, invert: bool) {
     let defs = crate::combat::module::defs_in(&mut w.combat);
     let Some(u) = w.sim.store.unit.get_mut(unit) else { return };
@@ -122,8 +122,8 @@ impl InputReader for FlightReader<'_> {
     fn button(&mut self, index: usize) -> Result<bool, Self::Error> { Ok(self.pad.is_some_and(|(_, buttons)| index < 32 && buttons & (1 << index) != 0)) }
 }
 
-/// boarding.js seatInput for a network pilot (no steering assistance), as
-/// vehicle-phase-data.js flightKeys encodes it: an absent key is NaN.
+/// seatInput for a network pilot (no steering assistance), as
+/// flightKeys encodes it: an absent key is NaN.
 fn seat_keys(w: &World, p: &mut Player, names: &super::owner::Names, hull: Ref<Vehicle>, index: usize, command: &Command) -> FlightInput {
     let nan = f64::NAN;
     let blank = FlightInput { forward: 0.0, right: 0.0, turn: 0.0, pitch: nan, up: nan, down: nan, takeoff: nan, stick_x: None, stick_y: None,
@@ -144,7 +144,7 @@ fn seat_keys(w: &World, p: &mut Player, names: &super::owner::Names, hull: Ref<V
     }
 }
 
-/// boarding.js seatInput's `brake`: the driving keys' Space, else nothing.
+/// seatInput's `brake`: the driving keys' Space, else nothing.
 fn seat_brake(w: &World, p: &Player, names: &super::owner::Names, hull: Ref<Vehicle>, index: usize) -> bool {
     w.sim.store.vehicle.get(hull).and_then(|v| seat_control(v, index)) == Some(SeatControl::Drive) && p.controls.has(names.space)
 }
@@ -204,7 +204,7 @@ pub fn apply(w: &mut World, players: &mut Players, key: usize, unit: Ref<Unit>, 
             }
         }
     } else {
-        // Fire and seat keys as his seat reads them now (src/boarding.js seatScheme).
+        // Fire and seat keys as his seat reads them now (seatScheme).
         let flying = seat_of(w, unit).and_then(|(_, hull, _, _)| hull).and_then(|hull| w.sim.store.vehicle.get(hull)).is_some_and(|v| v.flying);
         let (primary, secondary): (&[StrId], &[StrId]) = if flying { (&names.flight_fire_primary, &names.flight_fire_secondary) } else { (&names.fire_primary, &names.fire_secondary) };
         intent.buttons = [f64::from(p.controls.held(primary)), f64::from(p.controls.held(secondary))];
@@ -215,7 +215,7 @@ pub fn apply(w: &mut World, players: &mut Players, key: usize, unit: Ref<Unit>, 
     intent.up = Some(f64::from(p.controls.has(names.space)));
     intent.down = Some(f64::from(p.controls.has(names.control_left)));
     // Mouse counts are clamped a sample at a time; a flown droid takes them
-    // whole, a body divides them by its zoom (soldier.js lookRaw).
+    // whole, a body divides them by its zoom (lookRaw).
     let scale = v8math::min(command.mouse_scale.unwrap_or(mouse_scale), 2.0);
     let remotes_active = crate::recon::module::active_in(w, unit) == Some(true);
     let context = crate::recon::module::context_in(w, unit);
@@ -255,7 +255,7 @@ pub fn apply(w: &mut World, players: &mut Players, key: usize, unit: Ref<Unit>, 
             intent.pitch = -vertical * scale * 60.0 / 2048.0 * if command.invert_mouse { -1.0 } else { 1.0 };
         }
     } else if intent.r#use && !remotes_active {
-        // What his E reaches, by the player's rules (src/boarding.js mountInReach).
+        // What his E reaches, by the player's rules (mountInReach).
         match seats::mount_in_reach_in(w, unit, true) {
             Some(Mount::Hull(index)) => {
                 if let Some(&hull) = w.sim.store.vehicles.vehicles.get(index) {

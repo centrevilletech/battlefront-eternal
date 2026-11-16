@@ -144,7 +144,7 @@ fn sound_id(names: &BTreeMap<String, usize>, v: Option<&Value>) -> f64 {
         names.get(&key(name)).map_or(-1., |id| *id as f64)
     }
 }
-// keyOf (src/audio/hash.js) as a number: a `0x`-prefixed hash names itself,
+// keyOf as a number: a `0x`-prefixed hash names itself,
 // anything else hashes. A chatter line's property crosses the presentation
 // boundary by name and finds its class sound through this hash.
 pub(super) fn key_hash(s: &str) -> u32 {
@@ -1064,7 +1064,7 @@ impl Prepared {
             posts.push((slot+1,row));
             post_building.push(!name.starts_with('#') && objectives.contains(&name.as_str()));
         }
-        // LiveObjects.buildings (src/props.js), in the order a "serve" record
+        // LiveObjects.buildings, in the order a "serve" record
         // counts them: each building's sound class, where it stands
         // (`setFromMatrixPosition`) and whether it is a supply station (a
         // PowerupStation, the only building with `serve`). A class the

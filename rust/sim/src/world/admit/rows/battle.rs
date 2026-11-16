@@ -7,7 +7,7 @@ use crate::gen::*;
 
 /// The random-stream registry the owners share through `Cx::streams`.
 pub mod streams;
-/// game.js 3110-3126 headless: the viewpoint's adoption, the factory's
+/// 3110-3126 headless: the viewpoint's adoption, the factory's
 /// reservation and the prepared stock, between the world owners and F4Live.
 pub mod stock;
 /// F4Live, F4Battle and F4Tail construction with the AI's activation and the
@@ -17,7 +17,7 @@ pub mod live;
 pub mod bindings;
 /// The animated props' rigs, births and grip classes (props.js AnimatedProp, f4-live.js bindAnimated).
 pub mod animated;
-/// The command posts and createNativeAI's host-object imports (commandposts.js, post-data.js).
+/// The command posts and createNativeAI's host-object imports.
 pub mod posts;
 
 pub const MAX_TEAM_SIZE: u32 = 32;
@@ -186,8 +186,8 @@ pub fn connections(character_count: usize) -> Result<u32, AdmitError> { Ok(setup
 /// caller retaining a callback can supply its generated F4RosterNames state
 /// directly on BoundRows instead of reconstructing a generator.
 pub fn roster(options: &Options, factions: &[f64], local: Option<Ref<Character>>, army_size: Option<f64>, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4RosterSetup, AdmitError> {
-    // createNativeAI publishes a SpawningMirror without JS callback or
-    // names properties. F4Roster therefore transports empty fallback lists.
+    // The AI's spawning roster names no properties, so the roster carries
+    // empty fallback lists.
     let mut row = roster_from_names(None, factions, local, army_size, intern)?;
     row.classic = options.bots.fielded;
     row.has_ai = options.bots.fielded;
@@ -274,7 +274,7 @@ pub fn bound(battle: &ContentBattle, options: &Options, facts: &Facts, factions:
 }
 
 impl BoundRows {
-    /// Relative export order from game.js: live first, then the F4Battle
+    /// Relative export order: live first, then the F4Battle
     /// super-constructor inside F4Tail, its tail records, then the server's
     /// connections and roster. Mirror handle reads interleave these calls;
     /// those handles are results of the owning sequence, not content rows.

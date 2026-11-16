@@ -1,4 +1,4 @@
-//! LiveObjects.update (src/props.js): supply, regeneration and idle turret
+//! LiveObjects.update: supply, regeneration and idle turret
 //! pose, then animated collision/grabs and log-trap crush in insertion order.
 //! Objects and prepared settings persist across phases. Unit and hull services
 //! provide native reader views; this scheduler never calls a JS object method.

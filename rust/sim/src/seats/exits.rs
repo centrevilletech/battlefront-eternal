@@ -27,7 +27,7 @@ fn f32r(x: f64) -> f64 {
     x as f32 as f64
 }
 
-/// seats.js exitCandidates: behind, left, right, the four diagonals, in
+/// exitCandidates: behind, left, right, the four diagonals, in
 /// front and the vehicle's own spot, each 1 m up, at R = the radius + 0.684.
 pub fn exit_candidates(radius: f64) -> [[f64; 3]; 9] {
     let r = f32r(f32r(radius) + EXIT_EXTRA);
@@ -35,14 +35,14 @@ pub fn exit_candidates(radius: f64) -> [[f64; 3]; 9] {
     [[0.0, 1.0, -r], [-r, 1.0, 0.0], [r, 1.0, 0.0], [-d, 1.0, -d], [d, 1.0, -d], [d, 1.0, d], [-d, 1.0, d], [0.0, 1.0, r], [0.0, 1.0, 0.0]]
 }
 
-/// seats.js exitSupportOffsets: the sample itself, then ±0.72 m along the
+/// exitSupportOffsets: the sample itself, then ±0.72 m along the
 /// world's axes.
 pub fn exit_support_offsets() -> [[f64; 3]; 5] {
     let s = SUPPORT_STEP;
     [[0.0, 0.0, 0.0], [s, 0.0, s], [s, 0.0, -s], [-s, 0.0, s], [-s, 0.0, -s]]
 }
 
-/// seats.js highestSupport: of support heights (None where a sample found
+/// highestSupport: of support heights (None where a sample found
 /// none), the index of the highest; equal heights keep the earlier. -1
 /// when none.
 pub fn highest_support(heights: &[Option<f64>]) -> i32 {
@@ -77,7 +77,7 @@ pub struct ExitSpot {
     pub candidate: i32,
 }
 
-/// seats.js classicSeatExit (303): the 2004 game's seat exit placement.
+/// classicSeatExit (303): the 2004 game's seat exit placement.
 /// Each of the first eight candidates needs a clear line from the
 /// vehicle's centre (the vehicle left out); a candidate is taken if any of
 /// its five support samples finds a floor (a 5 m ray up, the sample rising
@@ -151,11 +151,11 @@ pub struct HullFrame {
     /// Its box's height (`size.y`).
     pub height: f64,
     pub body: Option<Ref<Body>>,
-    /// boarding.js inFlight: a craft off the ground.
+    /// inFlight: a craft off the ground.
     pub airborne: bool,
 }
 
-/// vehicles.js safeExitPoint (320): outward from the hull, a floor, room for
+/// safeExitPoint (320): outward from the hull, a floor, room for
 /// the body, and a clear line from the vehicle. A craft in flight needs no
 /// floor under the spot (he bails out at its height). Writes the spot
 /// (feet) to out and says whether one was found.
@@ -193,7 +193,7 @@ pub fn safe_exit_point<W: SeatWorld + ?Sized>(w: &mut W, v: &HullFrame, out: &mu
     false
 }
 
-/// vehicles.js personExitPoint (341): the search above, or, in flight or
+/// personExitPoint (341): the search above, or, in flight or
 /// forced (`anywhere`), above the hull when it finds nothing. False: boxed
 /// in on the ground, he stays aboard.
 pub fn person_exit_point<W: SeatWorld + ?Sized>(w: &mut W, v: &HullFrame, out: &mut Vector3, anywhere: bool) -> bool {

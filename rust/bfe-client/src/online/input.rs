@@ -75,8 +75,7 @@ pub struct Sender {
     last_ack: f64,
     turns: Vec<(f64, [f64; 2])>,
     // Instant Action's lead: one tick above the local world's next tick,
-    // raised a tick when the world takes a command late (Electron's local
-    // InputLead keeps the same feedback).
+    // raised a tick when the world takes a command late.
     local: bool,
     extra: f64,
     cooldown: u32,
@@ -88,7 +87,7 @@ pub struct Sender {
     stamps: Box<[(u32, f64); 256]>,
     acked: f64,
     acked_server_tick: f64,
-    // Online lead feedback (the page's InputLead with recover): acknowledgements still to
+    // Online lead feedback (the client's InputLead with recover): acknowledgements still to
     // pass before lateness may raise the margin again, and on-time ticks in a row.
     lead_cooldown: f64,
     lead_calm: f64,
@@ -96,7 +95,7 @@ pub struct Sender {
     pub late: u64,
     pub late_ticks: f64,
 }
-/// The furthest ahead of the server an online command may be stamped (the page's 24 ticks).
+/// The furthest ahead of the server an online command may be stamped (the client's 24 ticks).
 const ONLINE_MAX_LEAD: f64 = 24.;
 // ClientCommand.held bit order, then a pilot's boost and roll lock (the
 // world's own keys for them), which only a craft's command carries.
@@ -214,7 +213,7 @@ impl Sender {
         self.local_next = Some(next);
     }
     /// The server ran an acknowledged command `late` ticks after the tick it was stamped for
-    /// (`elapsed` server ticks since the previous acknowledgement). As the page's online
+    /// (`elapsed` server ticks since the previous acknowledgement). As the client's online
     /// InputLead: a late one raises the extra margin by its lateness, at most once per 30
     /// acknowledged ticks (commands in flight were stamped before the raise); after 60 on-time
     /// ticks in a row the margin sheds a tenth of a tick per tick, so a stall does not leave
@@ -315,7 +314,7 @@ impl Sender {
         if !receiver.welcomed || receiver.spectator || receiver.corrections == 0 {
             return;
         }
-        // game.js applyLook and NetworkSession's view context use the same
+        // applyLook and NetworkSession's view context use the same
         // mouse settings. Advertising a fixed scale made the server turn
         // twice as far as the default desktop prediction requested.
         self.mouse_scale = if c.has_mouse_scale && c.mouse_scale.is_finite() && c.mouse_scale > 0. { c.mouse_scale.min(2.) } else { 1. };
@@ -812,7 +811,7 @@ mod tests {
         assert!((sender.extra - 4.).abs() < 1e-9);
         sender.online_lateness(0., 10.);
         assert!((sender.extra - 3.).abs() < 1e-9);
-        // Never past the page's 24 ticks.
+        // Never past the client's 24 ticks.
         sender.online_lateness(60., 60.);
         assert_eq!(sender.extra, ONLINE_MAX_LEAD);
         assert_eq!(sender.late, 4);

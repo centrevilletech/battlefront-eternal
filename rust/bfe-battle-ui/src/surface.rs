@@ -1,8 +1,8 @@
 //! `BattleUiSurface` abstraction, `HudBatchSurface` adapter, `OwnedUiSurface` test/demo surface,
-//! font slot constants, and `BattleUiAssets` (`src/interface/surface.js`, `src/interface/fonts.js`).
+//! font slot constants, and `BattleUiAssets`.
 //!
 //! Decouples all in-battle interface views (Classic spawn screen, Classic scoreboard,
-//! and pause menu) from a concrete WebGL/OpenGL renderer. Every screen queries
+//! and pause menu) from a concrete OpenGL renderer. Every screen queries
 //! viewport geometry (`height`, `aspect`), bitmap font metrics (`font_height`,
 //! `font_width`, `glyph_height`, `caps_middle`), localized strings, and named
 //! texture handles through [`BattleUiSurface`], while emitting 2D/3D-projected
@@ -23,7 +23,7 @@ pub const FONT_MEDIUM: usize = 2;
 /// Large bitmap font slot (`gamefont_large`, index `3`, used for main title banners).
 pub const FONT_LARGE: usize = 3;
 
-/// Font name strings matching `common.json` (`src/interface/fonts.js`).
+/// Font name strings matching `common.json`.
 /// Tiny bitmap font name (`"gamefont_tiny"`).
 pub const FONT_NAME_TINY: &str = "gamefont_tiny";
 /// Small bitmap font name (`"gamefont_small"`).
@@ -87,12 +87,12 @@ pub trait BattleUiSurface {
         self.font_height(font_index_by_name(font_name))
     }
 
-    /// Deepest glyph reach by font name (`glyphHeight` in `src/interface/fonts.js`).
+    /// Deepest glyph reach by font name (`glyphHeight`).
     fn glyph_height_by_name(&self, font_name: &str) -> f64 {
         glyph_height(self.font(font_index_by_name(font_name)))
     }
 
-    /// Vertical midpoint of capital `'A'` (`capsMiddle` in `src/interface/fonts.js`).
+    /// Vertical midpoint of capital `'A'` (`capsMiddle`).
     fn caps_middle(&self, font_name: &str) -> f64 {
         let f = self.font(font_index_by_name(font_name));
         if let Some(g) = f.glyphs.get(&(b'A' as u16)) {

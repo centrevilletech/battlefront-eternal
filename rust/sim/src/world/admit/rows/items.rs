@@ -1,4 +1,4 @@
-//! ItemsSim's item definitions and pool rows (items-sim.js).
+//! ItemsSim's item definitions and pool rows.
 //!
 //! Side drops, dispensers and placed items all enter the same identity table.
 //! A caller visits these at its construction seam, so shared definitions keep
@@ -142,7 +142,7 @@ pub fn build(cx:&mut super::Cx)->Result<super::Calls,AdmitError> {
     Ok(calls)
 }
 
-/// spawnPlacedItems (src/placed-items.js), run by the headless host right
+/// spawnPlacedItems, run by the headless host right
 /// after attachF3: every power-up the map places (props.json `items`, an
 /// entry with an item definition and a 16-element matrix) is spawned as an
 /// ordinary item at the matrix's translation, heading along its forward

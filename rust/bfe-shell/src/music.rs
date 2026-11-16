@@ -1,4 +1,4 @@
-//! Shell music cycle (`ShellMusic` in `src/shell/audio.js`).
+//! Shell music cycle (`ShellMusic`).
 
 use crate::data::MusicTrack;
 use audio_control::{
@@ -8,19 +8,19 @@ use audio_control::{
 use std::collections::BTreeMap;
 
 /// Default shell soundtrack group name.
-/// Mirrors `SOUNDTRACK` in `src/shell/audio.js`.
+/// Mirrors `SOUNDTRACK`.
 pub const SOUNDTRACK: &str = "shell_soundtrack";
 
 /// Cue name that halts music playback (`set(Some(STOP))`).
-/// Mirrors `STOP` in `src/shell/audio.js`.
+/// Mirrors `STOP`.
 pub const STOP: &str = "STOP";
 
 /// Default silence between tracks in seconds (`SetShellMusicInterval`).
-/// Mirrors `INTERVAL` in `src/shell/audio.js`.
+/// Mirrors `INTERVAL`.
 pub const INTERVAL: f64 = 10.0;
 
 /// Bus gains (`shellmusic = 0.6`, `shellfx = 0.3`).
-/// Mirrors `BUSES` in `src/shell/audio.js`.
+/// Mirrors `BUSES`.
 pub mod buses {
     /// Shell music bus gain (`0.6` of `musicVolume`).
     pub const SHELL_MUSIC: f64 = 0.6;
@@ -29,7 +29,7 @@ pub mod buses {
 }
 
 /// Playback phase of [`ShellMusic`].
-/// Mirrors `PHASES = ["stopped", "playing", "gap"]` in `src/shell/audio.js`.
+/// Mirrors `PHASES = ["stopped", "playing", "gap"]`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MusicPhase {
     /// No cue is active (`"stopped"`).
@@ -42,7 +42,7 @@ pub enum MusicPhase {
 
 impl MusicPhase {
     /// Returns the string label (`"stopped"`, `"playing"`, or `"gap"`).
-    /// Mirrors `PHASES[row[M.PHASE]]` in `src/shell/audio.js`.
+    /// Mirrors `PHASES[row[M.PHASE]]`.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Stopped => "stopped",
@@ -66,7 +66,7 @@ pub struct MusicStep {
 }
 
 /// Pure shell music timeline controller wrapping `audio_control::shell_music::Music`.
-/// Mirrors `ShellMusic` in `src/shell/audio.js`.
+/// Mirrors `ShellMusic`.
 pub struct ShellMusic {
     /// Authored shell music tracks loaded from `shell.json`.
     tracks: Vec<MusicTrack>,
@@ -90,7 +90,7 @@ impl ShellMusic {
     /// Constructs a `ShellMusic` controller from `tracks` and `interval`
     /// (default [`INTERVAL`]).
     ///
-    /// Mirrors `new ShellMusic({ tracks, interval })` in `src/shell/audio.js`.
+    /// Mirrors `new ShellMusic({ tracks, interval })`.
     pub fn new(tracks: Vec<MusicTrack>, interval: f64) -> Self {
         let mut groups: BTreeMap<String, usize> = BTreeMap::new();
         let mut members: Vec<Vec<usize>> = Vec::new();
@@ -107,7 +107,7 @@ impl ShellMusic {
         };
 
         // Resolve authored string membership while loading so runtime frames
-        // operate on stable group and track indices (`src/shell/audio.js`).
+        // operate on stable group and track indices.
         for (i, t) in tracks.iter().enumerate() {
             if let Some(props) = &t.properties {
                 let mut seen = Vec::new();
@@ -148,7 +148,7 @@ impl ShellMusic {
     }
 
     /// Returns the current playback phase (`Stopped`, `Playing`, or `Gap`).
-    /// Mirrors `get phase()` in `src/shell/audio.js`.
+    /// Mirrors `get phase()`.
     pub fn phase(&self) -> MusicPhase {
         match self.kernel.row[r::PHASE] as u32 {
             phase::PLAYING => MusicPhase::Playing,
@@ -158,13 +158,13 @@ impl ShellMusic {
     }
 
     /// Returns the shared cycle index (`-1.0` before the first track starts).
-    /// Mirrors `get cycle()` in `src/shell/audio.js`.
+    /// Mirrors `get cycle()`.
     pub fn cycle(&self) -> f64 {
         self.kernel.row[r::CYCLE]
     }
 
     /// Returns the elapsed silence in seconds during a `Gap`.
-    /// Mirrors `get silent()` in `src/shell/audio.js`.
+    /// Mirrors `get silent()`.
     pub fn silent(&self) -> f64 {
         self.kernel.row[r::SILENT]
     }
@@ -183,7 +183,7 @@ impl ShellMusic {
 
     /// Returns whether `name` is the currently active music cue (even during the
     /// silence gap between tracks).
-    /// Mirrors `ShellMusic.playing(name)` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.playing(name)`.
     pub fn playing(&self, name: Option<&str>) -> bool {
         let Some(name) = name.filter(|s| !s.is_empty()) else {
             return false;
@@ -193,7 +193,7 @@ impl ShellMusic {
 
     /// Writes a command into the [`MusicKernel`] row, steps `kernel.frame()`,
     /// and translates `STOP` / `START` outputs into a [`MusicStep`].
-    /// Mirrors `ShellMusic.command(op, dt, group, name)` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.command(op, dt, group, name)`.
     fn command(&mut self, op_code: u32, dt: f64, group: usize, name: Option<String>) -> MusicStep {
         self.kernel.row[r::ENABLED] = if name.as_ref().is_some_and(|s| !s.is_empty()) {
             1.0
@@ -231,7 +231,7 @@ impl ShellMusic {
     /// Sets the active music cue (`Some("shell_soundtrack")`, `Some("STOP")`,
     /// `None` to keep current).
     ///
-    /// Mirrors `ShellMusic.set(name)` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.set(name)`.
     pub fn set(&mut self, name: Option<&str>) -> MusicStep {
         let Some(name) = name else {
             return MusicStep::default();
@@ -247,14 +247,14 @@ impl ShellMusic {
     }
 
     /// Stops music playback immediately without rewinding the shared track cycle.
-    /// Mirrors `ShellMusic.halt()` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.halt()`.
     pub fn halt(&mut self) -> MusicStep {
         self.current = None;
         self.command(op::HALT, 0.0, 0, None)
     }
 
     /// Advances immediately to the next track in the active group.
-    /// Mirrors `ShellMusic.next()` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.next()`.
     #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> MusicStep {
         let name = self.current.clone();
@@ -265,7 +265,7 @@ impl ShellMusic {
     /// silence `Gap` until `interval` elapses. If `handle` does not match the
     /// current active handle, the call is ignored.
     ///
-    /// Mirrors `ShellMusic.ended(handle)` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.ended(handle)`.
     pub fn ended(&mut self, handle: Option<TrackHandle>) -> MusicStep {
         if let Some(h) = handle {
             if self.handle.map(|(cur, _)| cur) != Some(h) {
@@ -286,7 +286,7 @@ impl ShellMusic {
     /// Advances the silence timer by `dt` seconds; starts the next track in the
     /// cycle once `silent >= interval`.
     ///
-    /// Mirrors `ShellMusic.update(dt)` in `src/shell/audio.js`.
+    /// Mirrors `ShellMusic.update(dt)`.
     pub fn update(&mut self, dt: f64) -> MusicStep {
         let name = self.current.clone();
         self.command(op::TICK, dt, 0, name)

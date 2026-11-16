@@ -479,8 +479,7 @@ mod tests {
         Ok((method, route, headers, body))
     }
 
-    // Reconstructs the master server's authentication check from
-    // `battlefront-eternal-master/src/auth.js`:
+    // Reconstructs the master server's authentication check:
     // 1. Verifies `x-bfe-notice == ONLINE_NOTICE_VERSION`.
     // 2. Decodes the 44-byte SPKI DER `x-bfe-key` and checks `ED25519_SPKI_PREFIX`.
     // 3. Recomputes `{method}\n{route}\n{time}\n{nonce}\n{sha256_hex(body)}` and

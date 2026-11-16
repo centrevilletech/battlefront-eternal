@@ -84,7 +84,7 @@ impl Classes {
         }))
     }
 
-    /// mineWeapon (classes.js): the first usable persistent mine dispenser.
+    /// mineWeapon: the first usable persistent mine dispenser.
     pub fn mine_weapon(&self,context:ReadContext<'_>,unit:&AiLifeHandle,keys:&dyn DispenserKeys)->Option<usize> {let store=context_store!(context);
         let row=unit.unit(store)?;
         (0..row.combat.weapons.len()).find(|&i| {
@@ -93,7 +93,7 @@ impl Classes {
                 && self.dispenser_available(context,unit,i,keys)==Some(true)
         })
     }
-    /// serviceWeapon (classes.js): quantity preserves service-table presence
+    /// serviceWeapon: quantity preserves service-table presence
     /// and the distinct BuildingRebuild/BuildingBuild bare-health fallback.
     pub fn service_weapon(&self,context:ReadContext<'_>,unit:&AiLifeHandle,health_type:f64,ammo:bool,keys:&dyn DispenserKeys)->Option<usize> {let store=context_store!(context);
         let row=unit.unit(store)?;

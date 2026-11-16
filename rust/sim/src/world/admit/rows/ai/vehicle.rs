@@ -1,4 +1,4 @@
-//! hullFacts and vehicleClassView (seats.js). The raw target and cooked
+//! hullFacts and vehicleClassView. The raw target and cooked
 //! controls intentionally use different class definitions for one hull.
 use super::AiInterner;
 use super::{class_facts, optional_string, scalar};
@@ -29,7 +29,7 @@ pub struct HullFacts<'a> {
     pub seats: Vec<(&'a Value, u32)>,
 }
 
-/// setting in seats.js: authored names take precedence over the folded
+/// setting: authored names take precedence over the folded
 /// hash key. Null coalesces to the hash while other false values survive.
 pub fn setting<'a>(settings: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let settings = settings?;
@@ -132,7 +132,7 @@ pub fn vehicle_class_view(input: &HullFacts<'_>) -> Value {
     match input.base {
         "flyer" => {
             // flightSpeeds reads classSetting and flightHandling reads
-            // body-only turn/pitch, before the same defaults as the page.
+            // body-only turn/pitch, before the same defaults as the client.
             n(
                 "MinSpeed",
                 number(class_setting(input.definition, "MinSpeed"), 10.0, false),

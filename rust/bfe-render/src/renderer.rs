@@ -10,7 +10,7 @@
 //
 // It is made of passes, each a module of its own, sharing the core
 // (core.rs: the context, programs, geometries, textures, inputs, GL state).
-// A frame is drawn in phases, each a call from the page at its point in
+// A frame is drawn in phases, each a call from the client at its point in
 // three's frame, which draws its passes in order: the far scene (far_frame;
 // far_mirror_frame from a water's mirror camera and far_probe_frame for a
 // sky probe's faces, both before the frame's own),
@@ -19,11 +19,11 @@
 // first-person view (view_frame), the temporal upscaler's motion of the
 // bodies that move on their own (motion_frame), the post passes (post_frame)
 // and, over the finished frame, the HUD (hud_frame). A mirror's render of the near scene
-// (water.js) draws the near phase's passes for its own camera
+// draws the near phase's passes for its own camera
 // (mirror_frame), then what it blends, as the frame's own render does
 // (mirror_transparent_frame, and its segments).
 //
-// The page writes the frame's inputs (camera, lights, each soldier) into
+// The client writes the frame's inputs (camera, lights, each soldier) into
 // `input` and `bones` before a phase (web/, src/rust-render/).
 use crate::canopies::CanopiesPass;
 use crate::core::{Core, MultiDraw, Stats, VIEW_FAR, VIEW_FAR_MIRROR, VIEW_FIRST_PERSON, VIEW_NEAR, VIEW_SPARE};
@@ -122,7 +122,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.core.end_phase()
     }
 
-    // A face of a sky probe's capture (sky-probe.js), into the cube face
+    // A face of a sky probe's capture, into the cube face
     // three bound: the far pass for the face's camera, with a frame block of
     // the probe's own for the face (far.rs draw_probe).
     pub(crate) fn far_probe_frame(&mut self, face: usize) -> Result<Stats, String> {
@@ -133,7 +133,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // The near scene's phase, inside three's near-scene pass right after the
     // far scene's image: the tree canopies, then the static world and the
-    // soldiers (records: how many the page wrote), terrain and foliage, and
+    // soldiers (records: how many the client wrote), terrain and foliage, and
     // the Enhanced ocean's surface (the far pass's items from the near scene).
     pub(crate) fn frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
@@ -173,9 +173,9 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // What the near scene blends (transparent.rs), at the start of three's
     // transparent list: every source's items sorted as three sorts, three's
-    // own remaining items (`three` keys the page wrote) merged in, and the
+    // own remaining items (`three` keys the client wrote) merged in, and the
     // first segment drawn; transparent_segment draws the others. image: the
-    // post steps the page wrote for the far scene's image (graphics.background,
+    // post steps the client wrote for the far scene's image (graphics.background,
     // the last of the near scene's opaque objects, which three then leaves
     // out), drawn first: right after three's last opaque item.
     pub(crate) fn transparent_frame(&mut self, three: usize, image: usize) -> Result<Stats, String> {
@@ -184,7 +184,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // A batch of the effects drawn into a texture of its own before the
     // transparent phase reads it (the steam's volumes into their target), with
-    // the near view's frame block as the page wrote it for that phase. The
+    // the near view's frame block as the client wrote it for that phase. The
     // page has three bind its own framebuffer again after.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn fx_into_frame(&mut self, batch: usize, target: u32, width: i32, height: i32, count: usize, at: usize, capacity: usize) -> Result<Stats, String> {
@@ -203,7 +203,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.transparent_list(three, VIEW_SPARE, image)
     }
 
-    // The transparent phase for the camera whose values the page wrote last
+    // The transparent phase for the camera whose values the client wrote last
     // (the frame's own, or a mirror's), with its frame block in `frame`'s
     // buffer.
     fn transparent_list(&mut self, three: usize, frame: usize, image: usize) -> Result<Stats, String> {
@@ -230,7 +230,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         list.frame = frame;
         if list.items.is_empty() {
             // Nothing to draw: no GL call at all (but the image's), so three's
-            // state stands (the page skips its reset).
+            // state stands (the client skips its reset).
             list.view = Some(view);
             self.transparent.list = list;
             return if image > 0 { core.end_phase() } else { Ok(core.stats) };
@@ -254,7 +254,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
 
     // The first-person view scene's phase, after the depth clear three makes
-    // for it: its parts (records: how many the page wrote), read with the
+    // for it: its parts (records: how many the client wrote), read with the
     // view camera's frame block.
     pub(crate) fn view_frame(&mut self, records: usize) -> Result<Stats, String> {
         let core = &mut self.core;
@@ -281,7 +281,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // A full-screen pass outside the post chain, drawn on its own (the
     // storm's cloud panorama into its target, the underwater tint over the
-    // finished frame): the steps the page wrote, each with its own state
+    // finished frame): the steps the client wrote, each with its own state
     // (post.rs draw_screen).
     pub(crate) fn screen_frame(&mut self, steps: usize) -> Result<Stats, String> {
         self.core.begin_phase();
@@ -300,7 +300,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     }
 
     // A shadow cascade's pass (shadow.rs), in three's shadow pass's place: the
-    // map cleared or given its cache's depth, then the casters the page wrote.
+    // map cleared or given its cache's depth, then the casters the client wrote.
     pub(crate) fn shadow_frame(&mut self) -> Result<Stats, String> {
         self.core.begin_phase();
         let drawn = self.shadow.draw(&mut self.core);
@@ -310,7 +310,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
 
     // The temporal upscaler's motion phase, once the scenes are drawn: the
     // moving bodies' proxies and the first-person view's locked mask into the
-    // velocity target (motion.rs; records: how many the page wrote).
+    // velocity target (motion.rs; records: how many the client wrote).
     pub(crate) fn motion_frame(&mut self, records: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         let timer=self.core.profile.begin(&self.core.gl);

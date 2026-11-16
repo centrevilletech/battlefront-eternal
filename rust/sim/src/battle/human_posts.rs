@@ -1,4 +1,4 @@
-//! Human spawn choices (human-spawn.js and flight/spawn.js). Human picks use
+//! Human spawn choices. Human picks use
 //! gameplay uniforms, including a draw for a one-point path; Classic bot
 //! choices retain their separate raw-modulo RNG path in spawning.rs.
 use super::{mobile, posts::{self, SpawnFacts}, world::PostsWorld};
@@ -102,6 +102,9 @@ impl Choices {
         Some((name,*points.get(chosen)?))
     }
     pub(crate) fn name(&self,index:usize)->StrId {self.rows[index].name}
+    /// Every prepared hull and the post name it is offered under when landed.
+    #[cfg(test)]
+    pub(crate) fn hull_names(&self)->impl Iterator<Item=(Ref<Vehicle>,StrId)>+'_ {self.hulls.iter().flatten().copied()}
     pub fn named(&self,name:Option<StrId>)->Option<usize> {self.rows.iter().position(|p|Some(p.name)==name)}
     fn friendly(p:&Candidate,team:f64,relation:&mut impl FnMut(f64,f64)->f64)->bool {
         if !p.facts.active || p.facts.owner==0.0 {return false;}

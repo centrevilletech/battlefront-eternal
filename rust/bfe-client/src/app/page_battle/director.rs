@@ -26,7 +26,7 @@ fn forward(q: &Quaternion) -> V {
     v.apply_quaternion(q);
     v
 }
-/// Seconds a shot is held (HOLD in the browser's director.js).
+/// Seconds a shot is held.
 const HOLD: f64 = 11.;
 impl Director {
     pub fn new(shots: Vec<CameraShot>) -> Self {

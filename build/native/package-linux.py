@@ -115,9 +115,10 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             'Recommends: libvulkan1, libx11-6',
             'Maintainer: Battlefront Eternal Contributors <contact@battlefronteternal.com>',
             'Homepage: https://battlefronteternal.com',
-            'Description: Star Wars Battlefront II (2005) preservation and remaster runtime',
-            ' Battlefront Eternal is a native client and dedicated server runtime for',
-            ' Star Wars Battlefront II (2005).',
+            'Description: Fan-made engine for Star Wars: Battlefront (2004)',
+            ' Battlefront Eternal is a fan-made engine, written in Rust, that plays',
+            ' Star Wars: Battlefront (2004) from the player\'s own Steam or GOG copy.',
+            ' It includes the game client and the dedicated server.',
             '',
         ]
         control_file = debian_dir / 'control'
@@ -160,7 +161,7 @@ def build_appimage(
         appimage_desktop = '\n'.join([
             '[Desktop Entry]',
             'Name=Battlefront Eternal',
-            'Comment=Star Wars Battlefront II (2005) preservation and remaster runtime',
+            'Comment=Fan-made engine for Star Wars: Battlefront (2004)',
             'Exec=bfe-client %U',
             'Icon=battlefront-eternal',
             'Terminal=false',

@@ -1,5 +1,5 @@
 //! Local battle admission precedes body and worker loading. An unavailable
-//! class must fail here, before the page waits for the worker's first body.
+//! class must fail here, before the client waits for the worker's first body.
 use crate::gen::{F4RosterClasses, F4StartupClass};
 
 // Borrow bounded slices rather than allocating a copy of the cold rosters.

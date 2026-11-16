@@ -8,6 +8,7 @@ content-addressed update payload packer (build/native/update-payload.py):
   <out-dir>/
     bfe-client[.exe]
     bfeserver[.exe]              (when --server-bin is provided)
+    resources/host-runtime/      (Linux, with bfeserver: what servers set up before it update through)
     battlefront-eternal          (Linux symlink -> bfe-client)
     resources/
       bfe-tree.json
@@ -310,8 +311,24 @@ def stage_tree(
         shutil.copy2(rel_src, resources / 'bfe-release.json')
         (resources / 'bfe-release.json').chmod(0o644)
 
+    if server_bin is not None and not is_windows:
+        stage_host_runtime(resources / 'host-runtime', out_dir / server_name, repo_root)
+
     clean_bytecode(resources)
     return build_tree_index(out_dir, platform)
+
+
+def stage_host_runtime(dst: Path, server: Path, repo_root: Path = REPO_ROOT) -> None:
+    """resources/host-runtime/: what dedicated servers set up before bfeserver run and update
+    through (docs/server-updates.md). Their updater installs only resources/host-runtime/,
+    resources/tools/ and resources/toolchain/ of a release, starts server/src/main.js, and moves
+    itself to the release's update/. So the tree carries the launcher that runs bfeserver, a copy
+    of bfeserver beside it, the contract and content checks the updater asks, and that updater."""
+    shutil.copytree(repo_root / 'build' / 'native' / 'host-runtime', dst)
+    shutil.copy2(server, dst / 'server' / 'bfeserver')
+    for path in dst.rglob('*'):
+        if path.is_file():
+            path.chmod(0o755 if path.name == 'bfeserver' else 0o644)
 
 
 def main() -> None:

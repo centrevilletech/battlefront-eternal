@@ -1,4 +1,4 @@
-//! Prepared LiveObjects construction (src/props.js, src/traps.js). Generated
+//! Prepared LiveObjects construction. Generated
 //! birth records decode geometry and clips once; ordinary phases retain them.
 use super::{animated::{Animated, Grab, Settings, Trigger, Victim}, live_phase};
 use crate::gen::*;

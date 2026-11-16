@@ -1,13 +1,12 @@
-//! Keyboard and mouse input for the Classic spawn screen (`src/spawn-screen/input.js`).
+//! Keyboard and mouse input for the Classic spawn screen.
 
 use crate::spawn::model::{SpawnModel, SpawnPort, SpawnState, TeamSwitchSource};
 
 /// Repeat interval in seconds when `Tab` is held to cycle command posts
-/// (`src/spawn-screen/input.js` `TAB_REPEAT = 0.2`).
+/// (`TAB_REPEAT = 0.2`).
 pub const TAB_REPEAT: f64 = 0.2;
 
-/// Hotspot target returned by the spawn view's `hit(x, y)` query
-/// (`src/spawn-screen/classic/view.js`).
+/// Hotspot target returned by the spawn view's `hit(x, y)` query.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpawnHitTarget {
     /// Spinning faction logo (`com_icon_*`).
@@ -95,7 +94,7 @@ pub enum SpawnInputAction {
     Spawn,
 }
 
-/// Input controller for the Classic spawn screen (`src/spawn-screen/input.js` `SpawnInput`).
+/// Input controller for the Classic spawn screen (`SpawnInput`).
 #[derive(Clone, Debug)]
 pub struct SpawnInput {
     /// Cursor position in the `1024xH` interface plane.

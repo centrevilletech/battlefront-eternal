@@ -1,4 +1,4 @@
-//! battle-stats.js observe: read canonical bodies and native mount facts.
+//! observe: read canonical bodies and native mount facts.
 //! Display labels and weapon channels are prepared once with content handles.
 use super::stats::Seen;
 use crate::gen::{F4StatsClass, F4StatsHull, F4StatsWeapon, Vehicle, SeatLease, Store, Unit};

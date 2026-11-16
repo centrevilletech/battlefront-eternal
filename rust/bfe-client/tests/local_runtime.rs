@@ -1344,7 +1344,7 @@ fn native_local_controls_move_authority_and_keep_the_applied_heading() {
 fn native_local_battle_reserves_the_player_under_the_profile_name() {
     let Some(root) = std::env::var_os("BFE_CONTENT_DIR").map(std::path::PathBuf::from) else { return; };
     std::thread::Builder::new().stack_size(8 << 20).spawn(move || {
-        // The page's session strips control characters and outer spaces.
+        // The client's session strips control characters and outer spaces.
         let options = options::Options { root, battle: vec!["--map".into(), "nab2".into(), "--side".into(), "rep".into(), "--seed".into(), "1".into()], audio: false, duration: None, name: Some(" Scout\u{7} One ".into()), bots: Default::default() };
         let prepared = local::launch::Prepared::new(&options).unwrap();
         let mut runtime = runtime::Runtime::new(*prepared.engine, *prepared.admission, 1000., 1_700_000_000_000.).unwrap();

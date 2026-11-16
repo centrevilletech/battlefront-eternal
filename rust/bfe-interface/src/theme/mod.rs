@@ -6,22 +6,22 @@ use crate::fonts::Font;
 use crate::space::{rotate_x, rotate_y, rotate_z, Batch, Color, Matrix, IDENTITY, UV};
 use crate::surface::Surface;
 
-/// White RGBA (`[1.0, 1.0, 1.0, 1.0]`, `WHITE` in `src/menus/themes/classic/draw.js`).
+/// White RGBA (`[1.0, 1.0, 1.0, 1.0]`, `WHITE`).
 pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 
-/// Black RGBA (`[0.0, 0.0, 0.0, 1.0]`, `BLACK` in `src/menus/themes/classic/draw.js`).
+/// Black RGBA (`[0.0, 0.0, 0.0, 1.0]`, `BLACK`).
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 
-/// Disabled grey RGBA (`[128/255, 128/255, 128/255, 1.0]`, `GREY` in `src/menus/themes/classic/draw.js`).
+/// Disabled grey RGBA (`[128/255, 128/255, 128/255, 1.0]`, `GREY`).
 pub const GREY: Color = [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
 
-/// Yellow footer note colour (`rgba(223, 223, 32)` in `src/menus/themes/classic/index.js`).
+/// Yellow footer note colour (`rgba(223, 223, 32)`).
 pub const NOTE_YELLOW: Color = [223.0 / 255.0, 223.0 / 255.0, 32.0 / 255.0, 1.0];
 
-/// Dimming factor (`150 / 255`) for an unfocused menu row bar (`DIMMED` in `draw.js`).
+/// Dimming factor (`150 / 255`) for an unfocused menu row bar (`DIMMED`).
 pub const DIMMED: f64 = 150.0 / 255.0;
 
-/// Full-screen modal backdrop dimming overlay (`[0, 0, 0, 128/255]`, `DIM` in `classic/index.js`).
+/// Full-screen modal backdrop dimming overlay (`[0, 0, 0, 128/255]`, `DIM`).
 pub const DIM: Color = [0.0, 0.0, 0.0, 128.0 / 255.0];
 
 /// Left offset of row and header 3-piece bars (`BAR_X = -4.7` in `classic/index.js` and `render.rs`).
@@ -30,22 +30,22 @@ pub const BAR_X: f64 = -4.7;
 /// Left offset of row labels (`TEXT_X = 0.8` in `classic/index.js` and `render.rs`).
 pub const TEXT_X: f64 = 0.8;
 
-/// Horizontal inset of bottom-edge `BACK` / `ACCEPT` buttons (`BUTTON_INSET = 21.0` in `classic/index.js`).
+/// Horizontal inset of bottom-edge `BACK` / `ACCEPT` buttons (`BUTTON_INSET = 21.0`).
 pub const BUTTON_INSET: f64 = 21.0;
 
-/// Dimming factor for unfocused slider bars (`SLIDER_DIM = 0.5` in `classic/draw.js`).
+/// Dimming factor for unfocused slider bars (`SLIDER_DIM = 0.5`).
 pub const SLIDER_DIM: f64 = 0.5;
 
-/// Alpha for scrollbar track (`TRACK_ALPHA = 0.5` in `classic/index.js`).
+/// Alpha for scrollbar track (`TRACK_ALPHA = 0.5`).
 pub const TRACK_ALPHA: f64 = 0.5;
 
-/// Alpha for scrollbar thumb (`THUMB_ALPHA = 0.33` in `classic/index.js`).
+/// Alpha for scrollbar thumb (`THUMB_ALPHA = 0.33`).
 pub const THUMB_ALPHA: f64 = 0.33;
 
-/// Period in seconds (`0.7s`) of one full button/bar pulse cycle (`PULSE` in `src/menus/stack.js`).
+/// Period in seconds (`0.7s`) of one full button/bar pulse cycle (`PULSE`).
 pub const PULSE_PERIOD: f64 = 0.7;
 
-/// Minimum alpha reached halfway through the pulse (`PULSE.low = 0.3` in `src/menus/stack.js`).
+/// Minimum alpha reached halfway through the pulse (`PULSE.low = 0.3`).
 pub const PULSE_LOW: f64 = 0.3;
 
 /// Computes the horizontal shift that centers an angled stack of `count` rows
@@ -53,7 +53,7 @@ pub const PULSE_LOW: f64 = 0.3;
 /// `rows_shift` in `rust/bfe-shell/src/render.rs`).
 pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
     // Odd row counts start one `pitch` wider at the top row (`count % 2 === 1 ? pitch : 0`
-    // in `rowsShift` in `src/menus/themes/classic/index.js`).
+    // in `rowsShift`).
     let mut w = width + if count % 2 == 1 { pitch } else { 0.0 };
     let mut widest = 0.0_f64;
     let half = count / 2;
@@ -99,7 +99,7 @@ pub fn selected_color(a: f64) -> Color {
     [1.0, g / 255.0, 100.0 / 255.0, a]
 }
 
-/// Pulse factor (`0.3..1.0`) for focused buttons and bars (`PULSE` in `src/menus/stack.js`
+/// Pulse factor (`0.3..1.0`) for focused buttons and bars (`PULSE`
 /// and `menu_pulse` in `rust/bfe-shell/src/render.rs`).
 ///
 /// Evaluates a triangle wave of period `PULSE_PERIOD = 0.7s` oscillating between `1.0` and
@@ -128,11 +128,11 @@ pub fn cursor_pulse(time: f64) -> f64 {
     }
 }
 
-/// Builds a 3D Euler rotation matrix in degrees (`rotation` in `src/menus/themes/classic/index.js`
+/// Builds a 3D Euler rotation matrix in degrees (`rotation`
 /// and `rotation_euler` in `rust/bfe-shell/src/render.rs`).
 ///
 /// Defaults to `YXZ` intrinsic order (`xyz_order == false`) to match `new THREE.Euler(rx, ry, rz, "YXZ")`
-/// in `classic/index.js`, or `XYZ` when `xyz_order` is `true`.
+///, or `XYZ` when `xyz_order` is `true`.
 pub fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order: bool) -> Matrix {
     let rx = rot_x_deg.to_radians();
     let ry = rot_y_deg.to_radians();
@@ -144,14 +144,14 @@ pub fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order:
     }
 }
 
-/// Multiplies the alpha channel of `c` by `a` (`tint(color, a)` in `src/menus/themes/classic/draw.js`).
+/// Multiplies the alpha channel of `c` by `a` (`tint(color, a)`).
 #[inline]
 pub fn tint_color(c: Color, a: f64) -> Color {
     [c[0], c[1], c[2], c[3] * a]
 }
 
 /// Scales the RGB channels of `c` by `k` and its alpha channel by `a`
-/// (`scaled(color, k)` + `tint` in `src/menus/themes/classic/draw.js`).
+/// (`scaled(color, k)` + `tint`).
 #[inline]
 pub fn scaled_color(c: Color, k: f64, a: f64) -> Color {
     [c[0] * k, c[1] * k, c[2] * k, c[3] * a]
@@ -204,7 +204,7 @@ pub(super) fn encode_utf16_stack<'a>(s: &str, buf: &'a mut [u16; 160]) -> &'a [u
 }
 
 /// Zero-allocation string draw matching `draw_str` in `rust/bfe-shell/src/render.rs`
-/// and `Fonts.draw` in `src/interface/fonts.js`.
+/// and `Fonts.draw`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_str(
     font: &Font,
@@ -222,7 +222,7 @@ pub fn draw_str(
 }
 
 /// Zero-allocation string width measurement matching `str_width` in `rust/bfe-shell/src/render.rs`
-/// and `Fonts.width` in `src/interface/fonts.js`.
+/// and `Fonts.width`.
 pub fn str_width(font: &Font, text: &str) -> f64 {
     let mut buf = [0u16; 160];
     let slice = encode_utf16_stack(text, &mut buf);
@@ -230,7 +230,7 @@ pub fn str_width(font: &Font, text: &str) -> f64 {
 }
 
 /// Emits a textured quad or its geometric fallback (`piece_quad` in `rust/bfe-shell/src/render.rs`
-/// and `quad` in `src/menus/themes/classic/draw.js`).
+/// and `quad`).
 #[allow(clippy::too_many_arguments)]
 pub fn piece_quad(
     batch: &mut Batch,
@@ -276,7 +276,7 @@ pub fn piece_quad(
 
 /// Draws a 3-piece horizontal bar (`buttonleft`/`buttonmid`/`buttonright` or
 /// `headerbuttonleft`/`headerbuttonmid`/`headerbuttonright`), matching `draw_bar`
-/// in `rust/bfe-shell/src/render.rs` and `bar` in `src/menus/themes/classic/draw.js`.
+/// in `rust/bfe-shell/src/render.rs` and `bar`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_bar(
     batch: &mut Batch,
@@ -315,7 +315,7 @@ pub fn draw_bar(
 }
 
 /// Draws a 9-slice window or cursor frame centered on `(x, y)`, matching `draw_frame`
-/// in `rust/bfe-shell/src/render.rs` and `frame` in `src/menus/themes/classic/draw.js`.
+/// in `rust/bfe-shell/src/render.rs` and `frame`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_frame(
     batch: &mut Batch,
@@ -349,7 +349,7 @@ pub fn draw_frame(
         return;
     }
     // Decompose into a 3x3 grid with 16-unit corners and UV cuts at `[0.0, 0.25, 0.75, 1.0]`,
-    // collapsing the middle column or row if `w < 32` or `h < 32` (`nineSlice` in `shapes.js`).
+    // collapsing the middle column or row if `w < 32` or `h < 32` (`nineSlice`).
     let corner = 16.0;
     let mut xs = [-w * 0.5, -w * 0.5 + corner, w * 0.5 - corner, w * 0.5];
     let mut ys = [-h * 0.5, -h * 0.5 + corner, h * 0.5 - corner, h * 0.5];
@@ -381,7 +381,7 @@ pub fn draw_frame(
 }
 
 /// Draws a vertical scrollbar (`slider_bg` track + `slider_fg` thumb), matching
-/// `draw_scroll_bar` in `rust/bfe-shell/src/render.rs` and `scrollBar` in `classic/index.js`.
+/// `draw_scroll_bar` in `rust/bfe-shell/src/render.rs` and `scrollBar`.
 ///
 /// The track is 16 units wide at `TRACK_ALPHA = 0.5`, and the thumb spans the visible slice
 /// `[first / count, (first + shown) / count]` (clamped to at least 6 units tall) at `THUMB_ALPHA = 0.33`.
@@ -428,7 +428,7 @@ pub fn draw_scroll_bar(
     );
 }
 
-/// Draws a horizontal slider (`slider` / `NewHSlider` in `src/menus/themes/classic/draw.js`):
+/// Draws a horizontal slider (`slider` / `NewHSlider`):
 /// navy `slider_bg` track `x0..x1`, `y0..y1`, and orange `slider_fg` thumb `0.1 * w` wide
 /// at fraction `ratio` (`focused` is solid alpha `1.0`, unfocused is `SLIDER_DIM = 0.5`).
 #[allow(clippy::too_many_arguments)]

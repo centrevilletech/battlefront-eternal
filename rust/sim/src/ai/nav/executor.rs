@@ -1,9 +1,9 @@
-//! Following one path (nav/executor.js). The executor's control is
+//! Following one path. The executor's control is
 //! reached through `ExecutorHost` (its segment consumption, its
 //! movement-request writes and its remembered sidestep side); the Nav
 //! service implements it for the control that owns the executor. The
 //! unit is the snapshot of units.rs, taken mutably because the
-//! sidestep zeroes the soldier's contact vector (executor.js:273).
+//! sidestep zeroes the soldier's contact vector.
 
 use super::math::{d2, f32, near_waypoint, normalize, same, tiny, Vec3, FLT_MAX};
 use super::planner::{PathNode, PathStore};
@@ -17,7 +17,7 @@ pub trait ExecutorHost {
     fn avoid_side(&mut self) -> &mut f64;
 }
 
-/// PathExecutor (executor.js:31). `path` is its AIPath in the store.
+/// PathExecutor. `path` is its AIPath in the store.
 #[derive(Clone, Debug)]
 pub struct PathExecutor {
     pub path: usize,
@@ -45,7 +45,6 @@ fn node_vec(n: &PathNode) -> Vec3 {
 }
 
 impl PathExecutor {
-    /// executor.js:34.
     pub fn new(store: &mut PathStore, host: &mut dyn ExecutorHost, path: usize, control: usize, unit: &mut NavUnit) -> Self {
         let mut e = PathExecutor {
             path,
@@ -83,18 +82,18 @@ impl PathExecutor {
         e
     }
 
-    /// The current node (executor.js:67): None past the end, where the
+    /// The current node: None past the end, where the
     /// JavaScript reads undefined.
     pub fn node<'a>(&self, store: &'a PathStore) -> Option<&'a PathNode> {
         store.paths[self.path].nodes.get(self.index)
     }
 
     pub fn last(&self, store: &PathStore) -> bool {
-        // executor.js:71: index >= nodes.length - 1, in f64 as written.
+        // index >= nodes.length - 1, in f64 as written.
         self.index as f64 >= store.paths[self.path].nodes.len() as f64 - 1.0
     }
 
-    /// One tick (executor.js:76).
+    /// One tick.
     pub fn tick(&mut self, store: &mut PathStore, host: &mut dyn ExecutorHost, dt: f64, unit: &mut NavUnit) {
         if store.paths[self.path].nodes.is_empty() {
             return;
@@ -106,7 +105,7 @@ impl PathExecutor {
         self.steer(host, unit);
     }
 
-    /// Stuck bookkeeping (executor.js:84).
+    /// Stuck bookkeeping.
     pub fn progress(&mut self, dt: f64, unit: &NavUnit) {
         let droideka = unit.kind == kind::DROIDEKA;
         let stationary_limit = if droideka { 6.0 } else { 3.0 };
@@ -142,7 +141,6 @@ impl PathExecutor {
         }
     }
 
-    /// executor.js:113.
     pub fn reached(&self, store: &PathStore, unit: &NavUnit) -> bool {
         let r = if self.last(store) { near_radius(unit) } else { pass_radius(unit) };
         let dx = self.waypoint.x - unit.position.x;
@@ -150,7 +148,6 @@ impl PathExecutor {
         dx * dx + dz * dz < r * r
     }
 
-    /// executor.js:122.
     pub fn passed(&self, unit: &NavUnit) -> bool {
         let sx = self.waypoint.x - self.prev.x;
         let sz = self.waypoint.z - self.prev.z;
@@ -165,7 +162,7 @@ impl PathExecutor {
         sx * vx + sz * vz > 0.0
     }
 
-    /// Consume one node (executor.js:135).
+    /// Consume one node.
     pub fn advance(&mut self, store: &mut PathStore, host: &mut dyn ExecutorHost, unit: &mut NavUnit) {
         let flagged = self.node(store).map(|n| n.flag & 1 != 0).unwrap_or(false);
         if !self.complete && flagged {
@@ -187,7 +184,7 @@ impl PathExecutor {
         self.no_progress = 0.0;
     }
 
-    /// Segment setup for the current node (executor.js:153).
+    /// Segment setup for the current node.
     pub fn setup(&mut self, store: &mut PathStore, host: &mut dyn ExecutorHost, start: Vec3, unit: &mut NavUnit) {
         self.prev = start;
         self.waypoint = node_vec(self.node(store).expect("setup names a node"));
@@ -223,7 +220,7 @@ impl PathExecutor {
         self.steer(host, unit);
     }
 
-    /// Append a further path (executor.js:186).
+    /// Append a further path.
     pub fn append(&mut self, store: &mut PathStore, host: &mut dyn ExecutorHost, path: usize, unit: &mut NavUnit, flag_last: bool) {
         if self.complete {
             if let Some(n) = store.paths[self.path].nodes.get_mut(self.index) {
@@ -256,7 +253,7 @@ impl PathExecutor {
         self.setup(store, host, prev, unit);
     }
 
-    /// Follow's continuing stream (executor.js:208), cap 30 by default.
+    /// Follow's continuing stream, cap 30 by default.
     pub fn append_point(&mut self, store: &mut PathStore, host: &mut dyn ExecutorHost, point: Vec3, unit: &mut NavUnit, cap: f64) {
         if self.complete {
             if let Some(n) = store.paths[self.path].nodes.get_mut(self.index) {
@@ -274,7 +271,7 @@ impl PathExecutor {
         self.setup(store, host, prev, unit);
     }
 
-    /// The steering point (executor.js:221).
+    /// The steering point.
     pub fn steer(&mut self, host: &mut dyn ExecutorHost, unit: &mut NavUnit) {
         let mut target = self.waypoint;
         let p = unit.position;
@@ -293,7 +290,6 @@ impl PathExecutor {
         host.write_request(target, self.waypoint, self.direction, self.mode, -1.0, 1.0);
     }
 
-    /// executor.js:245.
     pub fn release(&self, store: &mut PathStore) {
         store.release(self.path);
     }
@@ -304,7 +300,7 @@ fn speed(unit: &NavUnit) -> f64 {
     v8math::sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 }
 
-/// Soldier and Droideka steering (executor.js:256).
+/// Soldier and Droideka steering.
 fn contact_sidestep(exec: &mut PathExecutor, host: &mut dyn ExecutorHost, unit: &mut NavUnit, target: &mut Vec3) {
     let p = unit.position;
     let contact = unit.soldier.as_ref().and_then(|s| s.avoidance);
@@ -331,7 +327,7 @@ fn contact_sidestep(exec: &mut PathExecutor, host: &mut dyn ExecutorHost, unit: 
     }
 }
 
-/// Segment lookahead (executor.js:281). The `out` of the JavaScript is
+/// Segment lookahead. The `out` of the JavaScript is
 /// overwritten on every path, so this returns the point.
 pub fn lookahead(a: Vec3, b: Vec3, p: Vec3, ahead: f64, _out: Vec3) -> Vec3 {
     let (ax, az, bx, bz) = (a.x, a.z, b.x, b.z);
@@ -353,7 +349,6 @@ pub fn lookahead(a: Vec3, b: Vec3, p: Vec3, ahead: f64, _out: Vec3) -> Vec3 {
     Vec3::new(bx, y, bz)
 }
 
-/// executor.js:300.
 pub fn near_radius(unit: &NavUnit) -> f64 {
     let k = unit.kind;
     if k == kind::SOLDIER || k == kind::DROID {
@@ -365,7 +360,6 @@ pub fn near_radius(unit: &NavUnit) -> f64 {
     4.0
 }
 
-/// executor.js:309.
 pub fn pass_radius(unit: &NavUnit) -> f64 {
     let k = unit.kind;
     if k == kind::FLYER {
@@ -377,7 +371,7 @@ pub fn pass_radius(unit: &NavUnit) -> f64 {
     1.0
 }
 
-/// Flyer circle steering (executor.js:319). `unit.forward` is the
+/// Flyer circle steering. `unit.forward` is the
 /// snapshot's forward when the unit has the method, else (0, 0, 1).
 fn flyer_steer(exec: &mut PathExecutor, unit: &NavUnit, target: &mut Vec3) {
     let turn = v8math::max(unit.class_def.as_ref().and_then(|d| d.turn_rate).unwrap_or(2.0), 1.5);
@@ -390,7 +384,7 @@ fn flyer_steer(exec: &mut PathExecutor, unit: &NavUnit, target: &mut Vec3) {
     *target = flyer_circle(exec.waypoint, exec.direction, unit.position, f, r, exec.side, *target);
 }
 
-/// Circle construction (executor.js:334).
+/// Circle construction.
 pub fn flyer_circle(q: Vec3, u: Vec3, p: Vec3, v: Vec3, r: f64, side: f64, _out: Vec3) -> Vec3 {
     let mut big_u = Vec3::new(u.x, 0.0, u.z);
     normalize(&mut big_u);

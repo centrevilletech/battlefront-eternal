@@ -1,5 +1,5 @@
 //! What other parts of the battle ask of a unit's body between its ticks
-//! (src/soldier.js, src/droideka.js): a player's mouse look, the aim's
+//!: a player's mouse look, the aim's
 //! pitch range, a droideka's shield (toggled by its secondary trigger,
 //! taking damage first), its guns in turn and where it sees from, and a
 //! body's spawn.
@@ -10,7 +10,7 @@ use crate::gen::{Air, Droideka, LastGun, Posture, Soldier};
 use crate::rig::droideka::DroidekaRig;
 use three::{clamp, Vector3};
 
-/// soldier.js ENGINE: the mouse's counts per radian per unit of
+/// ENGINE: the mouse's counts per radian per unit of
 /// MaxTurnSpeed, the rate a mouse may ask for (in stick units), and the
 /// prone pitch limit.
 const LOOK_SCALE: f64 = 2048.0;
@@ -19,7 +19,7 @@ const PRONE_PITCH: f64 = 0.4;
 const DOWN: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
 
 impl Soldier {
-    /// `mode.turn` (soldier.js MODES): the posture's turn scale.
+    /// `mode.turn` (MODES): the posture's turn scale.
     pub fn mode_turn(&self) -> f64 {
         match self.air {
             Some(Air::Jet) => 1.0,
@@ -40,7 +40,7 @@ impl Soldier {
         self.pitch_limits
     }
 
-    /// look(dx, dy, sensitivity, invert) (soldier.js:244): mouse look in raw
+    /// look(dx, dy, sensitivity, invert): mouse look in raw
     /// counts, the rate a tick may take capped.
     pub fn look(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool) {
         if self.lock > 0.0 {
@@ -58,7 +58,7 @@ impl Soldier {
         self.aim_pitch = clamp(self.aim_pitch, low, high);
     }
 
-    /// lookRaw(dx, dy, sensitivity, invert) (soldier.js:261): pointer counts
+    /// lookRaw(dx, dy, sensitivity, invert): pointer counts
     /// as displacement, uncapped.
     pub fn look_raw(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool) {
         if self.lock > 0.0 {
@@ -70,7 +70,7 @@ impl Soldier {
         self.aim_pitch = clamp(self.aim_pitch + (if invert { dy } else { -dy }) * sensitivity * rate, low, high);
     }
 
-    /// spawn(x, y, z, yaw) (soldier.js:201): fresh, on the ground under the
+    /// spawn(x, y, z, yaw): fresh, on the ground under the
     /// point (a ray down from 1.5 m above it, 50 m long).
     pub fn spawn(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
         self.spawn_with(x, y, z, yaw, |origin, direction, far| world.cast(origin, direction, far));
@@ -105,7 +105,7 @@ impl Soldier {
 }
 
 impl Droideka {
-    /// look(dx, dy, sensitivity, invert) (droideka.js:344): its tick turns
+    /// look(dx, dy, sensitivity, invert): its tick turns
     /// and pitches by what the mouse gave.
     pub fn look(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool) {
         self.look_x += dx * sensitivity;
@@ -133,7 +133,7 @@ impl Droideka {
         shield.on = !shield.on && shield.value > 0.0;
     }
 
-    /// absorb(amount, onShield) (droideka.js:226): the shield takes the
+    /// absorb(amount, onShield): the shield takes the
     /// damage first, by the attack's ShieldScale; returns what is left for
     /// health. `hit(body, taken)` is onShieldHit, called where the
     /// JavaScript calls it (after the shield took its part, before it drops).
@@ -155,7 +155,7 @@ impl Droideka {
         amount * (1.0 - taken / on_shield)
     }
 
-    /// nextGun(out) (droideka.js:237): the next gun's muzzle, in turn (its
+    /// nextGun(out): the next gun's muzzle, in turn (its
     /// barrels alternating), off the hidden gun rig.
     pub fn next_gun(&mut self, rig: &mut DroidekaRig) -> Option<Vector3> {
         let guns = rig.barrels.len() as f64;
@@ -170,7 +170,7 @@ impl Droideka {
         self.gun_at(rig, self.last_gun.clone())
     }
 
-    /// gunAt(out, selected) (droideka.js:246): a barrel's place in the world.
+    /// gunAt(out, selected): a barrel's place in the world.
     pub fn gun_at(&self, rig: &mut DroidekaRig, selected: Option<LastGun>) -> Option<Vector3> {
         let s = selected?;
         if s.index < 0.0 || s.barrel < 0.0 || s.index.fract() != 0.0 || s.barrel.fract() != 0.0 {
@@ -179,13 +179,13 @@ impl Droideka {
         rig.gun_at(s.index as usize, s.barrel as usize)
     }
 
-    /// spawn(x, y, z, yaw) (droideka.js:319) up to its mode: on the ground
+    /// spawn(x, y, z, yaw) up to its mode: on the ground
     /// under the point, still, its shield full and down. The caller enters
     /// mode 0 and resets the rig's animator.
     pub fn spawn_place(&mut self, x: f64, y: f64, z: f64, yaw: f64, world: &mut dyn UnitsWorld) {
         self.spawn_with(x,y,z,yaw,|p,d,far|world.cast(p,d,far));
     }
-    /// Droideka.spawn uses this same reset beside the page collision owner.
+    /// Droideka.spawn uses this same reset beside the client collision owner.
     /// The query is native; only its resource mirrors return to the host.
     pub fn spawn_with(&mut self,x:f64,y:f64,z:f64,yaw:f64,
         mut cast:impl FnMut(&Vector3,&Vector3,f64)->Option<super::world::CastHit>) {

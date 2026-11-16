@@ -11,7 +11,7 @@ const GRASS_TURNS: [f64; 10] = [0., -0.05, 0.1, -0.15, 0.2, 0., 0.05, -0.1, 0.15
 const LEAF_TURNS: [f64; 10] = [0., -1., 2., -3., 4., 0., 1., -2., 3., -4.];
 const ATLAS: [[f64; 4]; 4] = [[0., 0.5, 0.5, 1.], [0.5, 0.5, 1., 1.], [0., 0., 0.5, 0.5], [0.5, 0., 1., 0.5]];
 
-// Only authored class values cross the cold boundary; the page cannot choose
+// Only authored class values cross the cold boundary; the client cannot choose
 // vertex types, shader locations or alpha policy through a descriptor facade.
 #[derive(Deserialize, Default)]
 #[serde(rename_all = "PascalCase")]

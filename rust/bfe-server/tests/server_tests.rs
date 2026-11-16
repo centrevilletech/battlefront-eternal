@@ -88,7 +88,7 @@ fn temp_dir(prefix: &str) -> PathBuf {
 /// requiring an external multi-gigabyte SWBF1 asset directory.
 /// Builds a minimal valid BfE content directory (`version.json`, map manifest, mode descriptors,
 /// and heightmap/asset stubs) matching the layout checked by `check_content` (`config.rs`, porting
-/// `checkContent` in `packages/bfe-server/src/config.js`) and loaded by `NativeWorldHost`
+/// `checkContent`) and loaded by `NativeWorldHost`
 /// (`world_worker.rs`, porting `packages/bfe-server/src/world-worker.js`).
 fn minimal_content_dir(dir: &Path) -> PathBuf {
     let root = dir.join("content");
@@ -245,7 +245,7 @@ fn minimal_content_dir(dir: &Path) -> PathBuf {
 }
 
 /// Verifies `NetworkContract::current()` and `validate_network_contract` against the frozen
-/// constants in `bfe_transport::layout::network_contract` (`src/network-contract.js`).
+/// constants in `bfe_transport::layout::network_contract`.
 #[test]
 /// Verifies that `network_contract_summary()` (`network_contract.rs`, porting
 /// `packages/bfe-server/src/network-contract.js`) reports the exact transport protocol version,
@@ -268,7 +268,7 @@ fn network_contract_matches_transport_schema() {
 }
 
 /// Verifies that `ServerIdentity::load` generates and persists an Ed25519 keypair in SPKI DER
-/// base64 + PKCS#8 PEM format (`identity.json` in `src/identity.js`) and verifies signatures.
+/// base64 + PKCS#8 PEM format (`identity.json`) and verifies signatures.
 #[test]
 /// Verifies that `ServerIdentity::load_or_create` (`identity.rs`, porting
 /// `packages/bfe-server/src/identity.js`) generates an Ed25519 keypair, persists RFC 7468
@@ -292,11 +292,10 @@ fn server_identity_persists_ed25519_spki_and_pkcs8_pem() {
 }
 
 /// Verifies `ServerConfig::load_checked`, `save_to_dir`, and `check_state_budget` defaults
-/// (`defaults`, `config`, and `save()` in `src/main.js`).
+/// (`defaults`, `config`, and `save()`).
 #[test]
 /// Verifies `ServerConfig` JSON serialization, default fallbacks, playlist rotation query parsing,
-/// `check_state_budget` (`512..=1200` B), and content directory verification (`config.rs`, porting
-/// `packages/bfe-server/src/config.js`).
+/// `check_state_budget` (`512..=1200` B), and content directory verification (`config.rs`, porting).
 fn config_round_trip_and_state_budget_validation() {
     let dir = temp_dir("config");
     let cfg = ServerConfig::load_checked(&dir).unwrap();
@@ -326,7 +325,7 @@ fn config_round_trip_and_state_budget_validation() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Mock `BanRequester` serving `/v1/info` and `/v1/bans` for `BanCache` tests (`src/bans.js`).
+/// Mock `BanRequester` serving `/v1/info` and `/v1/bans` for `BanCache` tests.
 struct MockBanMaster {
     info: Mutex<Value>,
     bans: Mutex<Value>,
@@ -404,7 +403,7 @@ fn ban_list_signature_covers_the_payload_bytes_as_the_master_sent_them() {
 
 /// Verifies `BanCache` trust-on-first-use (TOFU) master key pinning (`master-ban-key`),
 /// Ed25519 signature verification over `JSON.stringify(payload)`, expiry rejection, and
-/// key-mismatch rejection (`BanCache` in `src/bans.js`).
+/// key-mismatch rejection (`BanCache`).
 #[test]
 /// Verifies `BanCache` (`bans.rs`, porting `packages/bfe-server/src/bans.js`):
 /// - Trust-On-First-Use (TOFU) pinning of the master server's Ed25519 public key in `master-ban-key.pem`
@@ -469,7 +468,7 @@ fn ban_cache_tofu_pins_master_key_and_rejects_tampered_or_expired_lists() {
 }
 
 /// Verifies `clean_browser_info`, `sponsor_of` HTTPS filtering, `browser_info` battle summary,
-/// and `NetMetrics` rolling 1 Hz bandwidth/RTT snapshot (`src/browser-info.js`, `src/net-metrics.js`).
+/// and `NetMetrics` rolling 1 Hz bandwidth/RTT snapshot.
 #[test]
 /// Verifies `browser_info` (`browser_info.rs`, porting `packages/bfe-server/src/browser-info.js`)
 /// and `NetMetrics` (`net_metrics.rs`, porting `packages/bfe-server/src/net-metrics.js`) JSON
@@ -492,7 +491,7 @@ fn browser_info_and_net_metrics_match_node_format() {
         Some("https://example.com/cantina")
     );
 
-    // Non-HTTPS sponsor URLs must be stripped (`httpsUrl` in `src/browser-info.js`).
+    // Non-HTTPS sponsor URLs must be stripped (`httpsUrl`).
     let insecure_sponsor = json!({"name": "Bad", "url": "http://insecure.example.com"});
     assert_eq!(sponsor_of(Some(&insecure_sponsor)).unwrap().url, None);
 
@@ -523,7 +522,7 @@ fn browser_info_and_net_metrics_match_node_format() {
 }
 
 /// Verifies `clean_lan_server`, `LanDiscoveryResponder`, and `discover_lan` over live UDP sockets
-/// (`startLanDiscovery` and `discoverLan` in `src/lan.js`).
+/// (`startLanDiscovery` and `discoverLan`).
 #[test]
 /// Verifies `LanDiscoveryResponder`, `discover_lan`, and `clean_lan_server` (`lan.rs`, porting
 /// `packages/bfe-server/src/lan.js`) over live loopback/broadcast UDP sockets, including nonce
@@ -632,7 +631,7 @@ impl OperatorControl for DummyControl {
 
 /// Verifies `OperatorStore` (`rusqlite` bundled), `OperatorHttpServer` (`GET /healthz` and
 /// `POST /admin`), and `operator_request` across `status`, `ban`, `unban`, `scores`, `stats`,
-/// `message`, and `restart` (`src/operator.js` and `src/main.js`).
+/// `message`, and `restart`.
 #[test]
 /// Verifies `OperatorStore` (`operator.rs`, porting `packages/bfe-server/src/operator.js` using
 /// `rusqlite` with `bundled` SQLite) and `OperatorHttpServer`:
@@ -675,6 +674,7 @@ fn operator_sqlite_and_http_admin_and_healthz_round_trip() {
     let body_start = resp_str.find("\r\n\r\n").unwrap() + 4;
     let health: Value = serde_json::from_str(&resp_str[body_start..]).unwrap();
     assert_eq!(health.get("service").and_then(Value::as_str), Some("bfeserver"));
+    assert_eq!(health.get("ok").and_then(Value::as_bool), Some(true));
     assert_eq!(health.get("multiplayerReady").and_then(Value::as_bool), Some(true));
     assert_eq!(health.get("tick").and_then(Value::as_u64), Some(420));
 
@@ -741,7 +741,7 @@ fn operator_sqlite_and_http_admin_and_healthz_round_trip() {
 ///    when `Context::world_admit` admitted the world, so a server whose world was not admitted
 ///    (this test's synthetic content is refused) never falsely reports `multiplayerReady: true`.
 /// 2. `OperatorStore` (`operator.sqlite` via `rusqlite` bundled) preserves existing `bans`,
-///    `scores`, and `audit` rows across database re-opens with the exact schema of `src/operator.js`.
+///    `scores`, and `audit` rows across database re-opens with the exact schema.
 #[test]
 fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_compatibility() {
     let dir = temp_dir("healthz-honesty");
@@ -843,8 +843,7 @@ fn local_dedicated_server_healthz_reports_multiplayer_ready_truth_and_sqlite_com
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Encodes a sample `BNI1` (`0x31494e42`) binary client input datagram matching `encodeEntityInput`
-/// in `src/runtime/network-entity-input.js`:
+/// Encodes a sample `BNI1` (`0x31494e42`) binary client input datagram matching `encodeEntityInput`:
 /// - 1 view (`flags = 32` -> `mouseScale = 1.25`)
 /// - 1 command (`seq`, `tick`, `KeyW` held in bit 0, `look = [0.5, -0.25]`)
 /// - 2 discrete edges (`kind = 2` team select `1`, `kind = 3` spawn `class = 1, post = 2`)
@@ -894,7 +893,7 @@ fn build_sample_bni1_packet(epoch: u32, generation: u32, seq: u32, tick: u32) ->
 }
 
 /// Verifies `valid_incoming_state_payload`, `decode_snapshot_ack_keepalive` (`BNA1`), and
-/// `decode_entity_input` (`BNI1`) (`src/udp-peer.js` and `src/runtime/network-entity-input.js`).
+/// `decode_entity_input` (`BNI1`).
 #[test]
 /// Verifies `decode_entity_input` (46-byte `BFEI` v2 client command frame) and
 /// `decode_snapshot_ack_or_keepalive` (9-byte `0x02` snapshot-ack / `0x03` keepalive frame) in
@@ -1092,7 +1091,7 @@ fn build_multi_client_publication(
 
 /// Verifies `decode_publication_block` against a `WirePublicationOutput` block containing shared
 /// `BNS1` datagrams, per-client `BNO1` datagrams, `input-ack`, `entity-edge-results`, and
-/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route` in `src/game-session.js`).
+/// `gameplay-events` (`publish()` in `src/world-worker.js` and `WorldRouter.route`).
 #[test]
 /// Verifies `decode_publication_block` and `NativeWorldHost::step_and_drain_publications` in
 /// `world_worker.rs` (porting `packages/bfe-server/src/world-worker.js`):
@@ -1131,7 +1130,7 @@ fn decode_publication_block_emits_acks_edges_gameplay_events_and_state_packets()
     );
 }
 
-/// End-to-end integration test for `LocalDedicatedServer` (`startLocalServer` in `src/local-server.js`):
+/// End-to-end integration test for `LocalDedicatedServer` (`startLocalServer`):
 /// 1. Queries `GET /info` over TCP on the game port.
 /// 2. Connects a native `bfe_transport::endpoint::Endpoint` over `BFE-UDP/1`.
 /// 3. Verifies receipt of `entity-registry` followed by `welcome` on the `events` lane.
@@ -1605,7 +1604,7 @@ fn udp_endpoint_client_joins_bfeserver_and_exchanges_events_and_snapshots() {
 /// Multi-client fan-out test: connects 16 concurrent `bfe_transport::endpoint::Endpoint` clients
 /// to `LocalDedicatedServer`, sends `start` RPCs and `BNI1` + `BNA1` input datagrams from all 16,
 /// and verifies that all 16 receive `entity-registry`, `welcome`, `reply`, `input-ack`, `BNS1`,
-/// and `BNO1` (`WorldRouter` fan-out in `src/game-session.js`).
+/// and `BNO1` (`WorldRouter` fan-out).
 #[test]
 /// 16-client concurrency and multi-client `Publication` fan-out gate for `LocalDedicatedServer`:
 /// - Connects 16 concurrent `bfe_transport::Client` instances across distinct virtual `/24` prefixes
@@ -1815,12 +1814,10 @@ fn sixteen_concurrent_clients_join_and_exchange_state_with_local_dedicated_serve
 
 /// Verifies `OnlineServer` and `MasterClient` directory registration (`POST /v1/servers`),
 /// signal-ticket acquisition (`POST /v1/signal-ticket`), WebSocket rendezvous (`offer` -> `answer`
-/// and `matchProbe` -> `matchReady`), and graceful unregistration (`DELETE /v1/servers/:id`)
-/// (`src/online-server.js` and `src/master-client.js`).
+/// and `matchProbe` -> `matchReady`), and graceful unregistration (`DELETE /v1/servers/:id`).
 #[test]
 /// End-to-end test for `OnlineServer` (`online_server.rs`, porting
-/// `packages/bfe-server/src/online-server.js`) and `MasterClient` (`master_client.rs`, porting
-/// `packages/bfe-server/src/master-client.js`):
+/// `packages/bfe-server/src/online-server.js`) and `MasterClient` (`master_client.rs`, porting):
 /// - Spawns a mock master HTTP + WebSocket server + STUN responder.
 /// - Verifies Ed25519-signed `POST /api/servers/heartbeat`, `GET /api/bans` TOFU verification,
 ///   STUN `srflx` discovery, WebSocket ticket upgrade (`/api/servers/ws-ticket`), and bidirectional
@@ -2035,7 +2032,7 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 }
 
 // ============================================================================
-// Host-Qualification Suite (`tools/host-qualification.mjs`)
+// Host-Qualification Suite
 // ============================================================================
 //
 // The three tests below port the Node host-qualification harness (`tools/host-qualification.mjs`,
@@ -2043,7 +2040,7 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 // `tools/net-probe-shaping.mjs`) directly into the `bfe-server` integration test suite so
 // every build verifies:
 //
-// 1. **World Lifecycle Qualification (`qualifyLifecycle` in `lifecycle.mjs`)**:
+// 1. **World Lifecycle Qualification (`qualifyLifecycle`)**:
 //    - Sequential battle cycling: 24 consecutive battle instances opened, populated with a
 //      joining human player, stepped for 120 ticks (2.0s), vacated (`remove_player`),
 //      re-populated with a rejoining player, stepped to tick 240 (4.0s), and dropped.
@@ -2056,7 +2053,7 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 //      with periodic `BNI1` player inputs confirm zero heap capacity growth across `op_words`,
 //      `op_heap`, and `facts_words`.
 //
-// 2. **64-Client Service & Memory Qualification (`qualifyService` in `service.mjs`)**:
+// 2. **64-Client Service & Memory Qualification (`qualifyService`)**:
 //    - 64 concurrent `bfe_transport::endpoint::Endpoint` clients connect to `LocalDedicatedServer`
 //      (`max_players = 64`, `max_players_per_address = 64`).
 //    - Every client completes the 3-packet `BFE-UDP/1` handshake (`INITIATION` -> `RESPONSE` ->
@@ -2065,19 +2062,19 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 //      receives `reply`, `input-ack`, shared `BNS1` entity snapshots, and per-client `BNO1`
 //      own-player state datagrams on `Lane::State`.
 //    - Every 8th client (`idx % 8 == 0`) withholds `BNA1` snapshot acknowledgements (`withholdAck`
-//      in `service.mjs`) to verify that unacknowledged clients do not stall snapshot fanout for
+//     ) to verify that unacknowledged clients do not stall snapshot fanout for
 //      acknowledged peers.
 //    - Full 64-client disconnect and reconnect wave (`wave = 0` -> `wave = 1`) verifies that
 //      closed sessions release their stream/fragment buffers immediately on entering the 2-second
 //      `DRAIN_MS` window (`Connection::release_closed_buffers`) and that process `VmRSS` stays
 //      well below the 1 GiB (`1,048,576` kB) qualification ceiling.
 //
-// 3. **Network Shaping & Blackout Recovery Qualification (`shapeProbeTraffic` in `net-probe-shaping.mjs`)**:
+// 3. **Network Shaping & Blackout Recovery Qualification (`shapeProbeTraffic`)**:
 //    - 16 concurrent `Connection` sessions across 4 `/24` subnets (`10.244.1..4.x`) exchange 60 Hz
 //      `BNI1` inputs, 20 Hz `BNS1` snapshots, and 1 Hz reliable `Lane::Events` messages across an
 //      impaired link with 50 ms base delay, +/-15 ms per-packet jitter (inducing packet reordering),
 //      and 5% steady-state random packet loss.
-//    - Injects a 3.0-second (`180`-tick) 100% packet-loss blackout (`loss 100%` in `service.mjs`)
+//    - Injects a 3.0-second (`180`-tick) 100% packet-loss blackout (`loss 100%`)
 //      and verifies that all 16 sessions survive without hitting the 20-second idle timeout,
 //      retransmit unacknowledged `Lane::Events` spans via RACK/PTO recovery, and resume fresh
 //      `Lane::State` snapshot delivery immediately after the blackout lifts.
@@ -2093,7 +2090,7 @@ fn online_server_registers_with_master_and_relays_signaling_over_websocket() {
 //   `Connection::release_closed_buffers` immediately drops its stream, fragment, and datagram
 //   vectors so reconnect waves cannot accumulate duplicate closed buffers.
 //
-/// Host-qualification lifecycle gate (`qualifyLifecycle` in `tools/host-qualification/lifecycle.mjs`):
+/// Host-qualification lifecycle gate (`qualifyLifecycle`):
 /// 1. **Sequential battles (`24` battles x `240` ticks)**:
 ///    Opens `NativeWorldHost`, admits/joins a player, steps 120 ticks, removes the player,
 ///    joins a second player with the same identity, steps another 120 ticks, and drops the world.
@@ -2224,19 +2221,19 @@ fn host_qualification_lifecycle_sequential_battles_isolation_and_stress_ticks() 
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// Host-qualification 64-client service gate (`qualifyService` in `tools/host-qualification/service.mjs`):
+/// Host-qualification 64-client service gate (`qualifyService`):
 /// - Connects 64 concurrent `bfe_transport::endpoint::Endpoint` clients to `LocalDedicatedServer`
 ///   (`max_players = 64`, `max_players_per_address = 64`).
 /// - Verifies that all 64 clients complete the `BFE-UDP/1` handshake, receive `entity-registry` and
 ///   `welcome`, send `start` RPCs plus `BNI1` + `BNA1` input frames, and receive shared `BNS1`
 ///   entity snapshots, per-client `BNO1` own-player datagrams, and `input-ack`s.
 /// - Exercises deliberate ACK withholding on every 8th client (`i % 8 == 0`) followed by a full
-///   64-client disconnect and reconnect wave (`result.reconnects++` in `service.mjs`), verifying
+///   64-client disconnect and reconnect wave (`result.reconnects++`), verifying
 ///   that all 64 reconnected sessions receive fresh state snapshots.
 #[test]
 fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
     // Configure a 64-player `LocalDedicatedServer` bound to an ephemeral loopback UDP port (`0`)
-    // with `max_players = 64` and `max_players_per_address = 64` matching `service.mjs`.
+    // with `max_players = 64` and `max_players_per_address = 64`.
     let dir = temp_dir("sixty-four-clients");
     let admitted_dir = std::env::var("BFE_CONTENT_DIR")
         .ok()
@@ -2266,7 +2263,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
 
     // Prepare a 64-byte `BNI1` entity-input datagram and a 10-byte `BNA1` snapshot-ack datagram.
     // Every 8th client (`idx % 8 == 0`) intentionally withholds `BNA1` to exercise the server's
-    // unacknowledged baseline fallback path (`withholdAck` in `tools/host-qualification/service.mjs`).
+    // unacknowledged baseline fallback path (`withholdAck`).
     let server_addr_str = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port).to_string();
     let bni1 = if use_admitted {
         let mut p = build_sample_bni1_packet(1, 1, 1, 30);
@@ -2385,7 +2382,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
                     .unwrap();
                     let _ = c.endpoint.send(Lane::Events, true, &call);
                     let _ = c.endpoint.send(Lane::State, false, &bni1);
-                    // Withhold BNA1 ACK on every 8th client (`i % 8 === 0` in `service.mjs`)
+                    // Withhold BNA1 ACK on every 8th client (`i % 8 === 0`)
                     if idx % 8 != 0 {
                         let _ = c.endpoint.send(Lane::State, false, &bna1);
                     }
@@ -2403,7 +2400,7 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
                 }
             }
 
-            // Once all 64 clients have joined the world worker, inject a 64-player publication
+            // Once all 64 clients have joined the local world thread, inject a 64-player publication
             // block so `LocalDedicatedServer` fans out `BNS1`, 64 per-client `BNO1` frames, and `input-ack`s.
             if all_welcomed && !pushed_pub {
                 let stats = server.stats();
@@ -2455,13 +2452,13 @@ fn sixty_four_concurrent_clients_join_reconnect_and_stream_snapshots() {
 }
 
 /// Host-qualification network shaping & blackout recovery gate (`qualifyService` with `mode = "network"`
-/// in `tools/host-qualification/service.mjs` and `shapeProbeTraffic` in `tools/net-probe-shaping.mjs`):
+/// in `tools/host-qualification/service.mjs` and `shapeProbeTraffic`):
 /// - Drives 16 concurrent `bfe_transport::connection::Connection` clients against `bfe_transport::server::ServerEndpoint`
 ///   through an impaired deterministic link matching `shapeClients` (`delayMs = 50`, `jitterMs = 15`,
 ///   `lossPercent = 5`, `queuePackets = 32`, `upKbps = 1000`, `downKbps = 2000`) plus packet
 ///   reordering induced by variable per-packet jitter.
 /// - At `t = 55%` of the run, injects a 3-second (`blackoutSeconds = 3.0` = `3,000` ms) 100% packet
-///   loss blackout (`tc qdisc change ... loss 100%` in `service.mjs`), then restores 5% loss and
+///   loss blackout (`tc qdisc change ... loss 100%`), then restores 5% loss and
 ///   verifies that all 16 sessions survive without dropping, retransmit unacknowledged reliable
 ///   `Lane::Events` frames (`entity-registry`, `welcome`, `gameplay-events`), and resume delivering
 ///   fresh `BNS1`/`BNO1` `Lane::State` snapshots after the blackout lifts.
@@ -2610,7 +2607,7 @@ fn host_qualification_network_shaping_jitter_loss_reorder_and_blackout_recovery(
 
     // Simulate 15 seconds (900 ticks @ 60 Hz):
     // - Ticks 1..480 (0.0s .. 8.0s): 5% loss, 50ms +/- 15ms delay/jitter/reordering.
-    // - Ticks 480..=660 (8.0s .. 11.0s, 3.0s blackout): 100% packet loss (`loss 100%` in `service.mjs`).
+    // - Ticks 480..=660 (8.0s .. 11.0s, 3.0s blackout): 100% packet loss (`loss 100%`).
     // - Ticks 661..=900 (11.0s .. 15.0s): recovery under 5% loss, 50ms +/- 15ms delay/jitter.
     for tick in 1..=900u32 {
         let now_ms = 100.0 + tick as f64 * (1000.0 / 60.0);

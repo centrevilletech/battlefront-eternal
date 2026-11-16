@@ -1,6 +1,6 @@
 //! What taking and leaving a seat does to a body (src/seats.js seatBody,
 //! unseatBody, placeOnFoot, dropBody): its unit's seat-side fields, its
-//! soldier's state and the combat flags a seat sets. What only a page draws
+//! soldier's state and the combat flags a seat sets. What only a client draws
 //! (a body's presentation, its animator's gunner pose, its model's root) is
 //! not here: no world reads it.
 
@@ -45,7 +45,7 @@ pub fn soldier(u: &Unit) -> Option<&Soldier> {
     }
 }
 
-/// seats.js seatBody (393): into a seat, the body stops being a soldier on
+/// seatBody (393): into a seat, the body stops being a soldier on
 /// foot: no sight target, mounted, not zoomed, not in the air, at rest.
 pub fn seat_body(u: &mut Unit, combat: &mut CombatFlags) {
     u.targetable = Some(false);
@@ -60,7 +60,7 @@ pub fn seat_body(u: &mut Unit, combat: &mut CombatFlags) {
     }
 }
 
-/// seats.js unseatBody (409): out of a seat, every way out: a sight target
+/// unseatBody (409): out of a seat, every way out: a sight target
 /// again, at rest, out of the air, on no dive or lock, looking level as his
 /// pitch range lets him.
 pub fn unseat_body(u: &mut Unit, combat: &mut CombatFlags) {
@@ -84,7 +84,7 @@ pub fn unseat_body(u: &mut Unit, combat: &mut CombatFlags) {
     }
 }
 
-/// seats.js placeOnFoot (349): a body put down where a seat let it out,
+/// placeOnFoot (349): a body put down where a seat let it out,
 /// standing, at rest, facing yaw, its jet fuel kept. midair: out of a craft
 /// in flight it stays where it was put, falling, unless the ground is right
 /// there.
@@ -108,7 +108,7 @@ pub fn place_on_foot<W: SeatWorld + ?Sized>(w: &mut W, u: &mut Unit, position: &
     s.velocity = [0.0, 0.0, 0.0];
 }
 
-/// seats.js dropBody (376): a body let go where it rode (killed on its
+/// dropBody (376): a body let go where it rode (killed on its
 /// seat), its feet at `position`, at rest and falling from there. mount: a
 /// body it falls through (a riding animal's collision encloses its rider).
 pub fn drop_body(u: &mut Unit, position: &Vector3, mount: Option<Ref<Body>>) {

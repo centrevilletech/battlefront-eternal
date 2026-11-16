@@ -1,4 +1,4 @@
-//! The map's rain (weather.js, rain-impacts.js, rain-sheets.js) over the
+//! The map's rain over the
 //! shared Weather state of bfe-environment: falling drops placed by the
 //! vertex shader from fixed seeds and the rain's clock, cut off under roofs
 //! by a small cache of cover heights. rainEffects picks the look: Classic is
@@ -311,7 +311,7 @@ fn cover_desc(size: usize) -> String {
     serde_json::json!({"width":size,"height":size,"depth":1,"target":glow::TEXTURE_2D,"format":1028,"dataType":1015,"srgb":false}).to_string()
 }
 
-/// The map's snow (snow.js) over the shared Snow state: flakes in a 5 m
+/// The map's snow over the shared Snow state: flakes in a 5 m
 /// box repeated through every grid cell in view, each flake's position and
 /// turn in a small float texture, the cells in another, cut off under
 /// roofs by the same kind of cover cache as the rain. Snow has one look.

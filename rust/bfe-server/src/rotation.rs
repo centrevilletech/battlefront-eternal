@@ -1,4 +1,4 @@
-//! main.js rotate's playlist position, fresh match token and admission deadline.
+//! rotate's playlist position, fresh match token and admission deadline.
 //! Scheduling is cold: keep the finished world visible until its delay expires.
 use bfe_server::{
     config::{query_for_rotation, with_friendly_fire, ServerConfig},

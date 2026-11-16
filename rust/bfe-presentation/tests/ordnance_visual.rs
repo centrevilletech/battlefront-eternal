@@ -5,7 +5,7 @@
 //! `bfe_presentation::lights::Lights` over synthetic records without requiring
 //! game assets.
 //!
-//! Coverage from `tests/ordnance-visual.test.js`:
+//! Coverage:
 //! - Bolt tail convergence from the displayed muzzle offset `(0.3, -0.2, 0)`
 //!   back onto the gameplay ray over `MERGE` (`8m`), tilting the streak axis.
 //! - First-draw bolt span extension back to the muzzle when a fast bolt has
@@ -17,7 +17,7 @@
 //! - Default `GlowLength = 3 * LaserLength` (`3.6m` vs. `1.2m` core) and
 //!   stopped sniper `FadeOutTime` thinning (`0.9 * fade + 0.1`) and fading.
 //!
-//! Coverage from `tests/ordnance-presentation.test.js`:
+//! Coverage:
 //! - `Lights` pool ranking: keeping the strongest eight lights by
 //!   `(r + g + b) * scale * radius`, preserving emitter order on ties, and
 //!   decaying timed flashes back to zero once their duration elapses.
@@ -67,7 +67,6 @@ fn register_style(
     o.set_style(index);
 }
 
-// Mirrors `tests/ordnance-visual.test.js`:
 // "a bolt's tail meets the muzzle it was drawn from, then lines up with its path"
 // "a bolt first drawn several metres out reaches back to the muzzle once, then keeps its length"
 // "a bolt whose shooter has mounted or moved away is drawn on its ray, not from the vehicle"
@@ -199,7 +198,6 @@ fn bolt_tail_converges_from_muzzle_reaches_back_on_first_draw_and_detaches_when_
     assert_eq!(&axis[0..3], &[0.0, 0.0, 1.0]);
 }
 
-// Mirrors `tests/ordnance-visual.test.js`:
 // "beams draw without a ReferenceError and without mutating the caller's vectors"
 // "a bolt without GlowLength defaults its glow to three times its core and tapers both ends"
 // "a stopped sniper bolt thins and fades over FadeOutTime instead of vanishing on impact"
@@ -274,7 +272,6 @@ fn beams_glow_defaults_and_stopped_sniper_fade_out_match_classic_rules() {
     assert!((o.calls()[cl::A + 2] - (5.0 - (100.0 / 60.0) / 2.0)).abs() < 1e-6);
 }
 
-// Mirrors `tests/ordnance-presentation.test.js`:
 // "LightPool ranks the strongest eight lights and fades flashes"
 #[test]
 fn light_pool_ranks_eight_strongest_lights_and_decays_flashes() {

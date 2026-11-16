@@ -26,7 +26,7 @@ pub trait Math {
     fn pow(x: f64, y: f64) -> f64;
 }
 
-// Native records use the server's V8 arithmetic. A browser host binds its
+// Native records use the server's V8 arithmetic. A client host binds its
 // own standard math library; the phase still owns every camera operation.
 pub struct V8;
 impl Math for V8 {

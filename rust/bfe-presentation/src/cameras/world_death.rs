@@ -1,4 +1,4 @@
-//! DeathCamera.update from src/camera.js. This is the authoritative 60 Hz
+//! DeathCamera.update. This is the authoritative 60 Hz
 //! view used by Classic scheduling. The displayed death replay is separate:
 //! it must never advance the world's camera on a render-only frame.
 // The death camera, following the 2004 engine's. From the soldier's death
@@ -116,7 +116,7 @@ impl State {
         self.position = mix(self.position, target, t);
         self.quaternion = slerp::<M>(self.quaternion, want, t);
         // The fixed-tick camera publishes the current endpoint. Rendered
-        // interpolation belongs to the page's independent DeathShot owner.
+        // interpolation belongs to the client's independent DeathShot owner.
         cam.p = mix_vectors(self.previous_position, self.position, 1.0);
         cam.q = slerp_vectors::<M>(self.previous_quaternion, self.quaternion, 1.0);
         cam.fov = 2.0 * M::atan(M::tan(self.hfov / 2.0) / cam.aspect) * (180.0 / PI);

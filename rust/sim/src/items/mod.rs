@@ -1,8 +1,8 @@
-//! The things lying about (src/items.js), in Rust: mines and power-ups,
+//! The things lying about, in Rust: mines and power-ups,
 //! thrown by dispensers, dropped by the dead, placed by the world. Each
 //! function transliterates the JavaScript method it names and reaches the
 //! rest of the battle through the ordnance's [`World`] (its items' part,
-//! ItemsWorld in src/ordnance-world.js), as rust/sim/src/ordnance does.
+//! ItemsWorld), as rust/sim/src/ordnance does.
 //!
 //! An item taken or set off is marked gone and stays in the list until the
 //! next update's filter, as the JavaScript's does (a dispenser's count and
@@ -44,7 +44,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.defs().item(id)
     }
 
-    /// items.js spawn: a new item, unless the world has no room for its
+    /// spawn: a new item, unless the world has no room for its
     /// kind (counted over the list, the gone not yet filtered included).
     pub fn spawn(&mut self, def: DefId, position: Vec3, velocity: Vec3, yaw: f64, owner: ItemOwner, team: f64) -> Option<Ref<Item>> {
         let prepared = self.w.prepared_item(def);
@@ -105,7 +105,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         Some(r)
     }
 
-    /// items.js dispense: a dispenser's throw; an owner already with
+    /// dispense: a dispenser's throw; an owner already with
     /// `max_items` of this weapon's items about loses the oldest first.
     #[allow(clippy::too_many_arguments)]
     pub fn dispense(&mut self, weapon: &str, max_items: f64, def: DefId, position: Vec3, velocity: Vec3, yaw: f64, owner: ItemOwner, team: f64) -> Option<Ref<Item>> {
@@ -154,7 +154,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         made
     }
 
-    /// items.js dropFor: a soldier's drop at death, one roll down the
+    /// dropFor: a soldier's drop at death, one roll down the
     /// class's drop list.
     pub fn drop_for(&mut self, drops: &[Drop], position: Vec3, velocity: Vec3, yaw: f64) -> Option<Ref<Item>> {
         let mut r = self.w.drop_roll();
@@ -173,7 +173,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         None
     }
 
-    /// items.js destroy: gone without a blast (a mine pops).
+    /// destroy: gone without a blast (a mine pops).
     pub fn destroy(&mut self, r: Ref<Item>) {
         if self.item(r).gone == Some(true) {
             return;
@@ -191,13 +191,13 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// items.js remove.
+    /// remove.
     fn remove_item(&mut self, r: Ref<Item>) {
         self.item(r).gone = Some(true);
         self.w.item_changed(r,false);
     }
 
-    /// items.js expire: the end of an item's LifeSpan (a time bomb goes off).
+    /// expire: the end of an item's LifeSpan (a time bomb goes off).
     fn expire(&mut self, r: Ref<Item>) {
         if self.item(r).gone == Some(true) {
             return;
@@ -213,7 +213,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// items.js hurt: damage to one item (a mine at 0 health pops).
+    /// hurt: damage to one item (a mine at 0 health pops).
     pub fn hurt(&mut self, r: Ref<Item>, amount: f64) {
         {
             let i = self.item(r);
@@ -228,7 +228,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// items.js blast: an explosion's damage to the mines lying about.
+    /// blast: an explosion's damage to the mines lying about.
     #[allow(clippy::neg_cmp_op_on_partial_ord)] // `!(damage > 0)`: NaN included, as the JavaScript tests it
     pub fn blast(&mut self, explosion: DefId, position: Vec3) {
         let mut at = 0;
@@ -262,7 +262,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// items.js update: each item ages and flies, a mine watches for an
+    /// update: each item ages and flies, a mine watches for an
     /// enemy, a power-up for a taker (`targets` of them, the world's), then
     /// the list keeps the items not gone and each dispenser's list its own.
     pub fn items_update(&mut self, dt: f64, targets: usize) {
@@ -332,7 +332,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
     }
 
-    /// items.js fly: gravity in two half steps around the move.
+    /// fly: gravity in two half steps around the move.
     fn fly(&mut self, r: Ref<Item>, dt: f64) {
         let def = self.item(r).def;
         let g = -GRAVITY * self.item_def(def).gravity.or_nullish(1.0);
@@ -359,7 +359,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.place(r);
     }
 
-    /// items.js contact: what the item meets between where it was and where
+    /// contact: what the item meets between where it was and where
     /// it is.
     fn contact(&mut self, r: Ref<Item>) {
         let (position, previous, def) = {
@@ -405,7 +405,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         i.velocity = add_scaled(v, n, rebound * -d);
     }
 
-    /// items.js place: the model upright on its surface, facing its way.
+    /// place: the model upright on its surface, facing its way.
     fn place(&mut self, r: Ref<Item>) {
         let i = self.item(r);
         if i.turn.is_none() {
@@ -422,7 +422,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         i.turn = Some(from_basis(right, up, forward));
     }
 
-    /// items.js watch: a mine, set off by an enemy near enough and no longer
+    /// watch: a mine, set off by an enemy near enough and no longer
     /// closing in, unless a friend is near.
     fn watch(&mut self, r: Ref<Item>, targets: usize) {
         let (landed, def, team, position, owner) = {
@@ -466,7 +466,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.remove_item(r);
     }
 
-    /// items.js offer: a power-up, taken by the first soldier touching it
+    /// offer: a power-up, taken by the first soldier touching it
     /// that gets something.
     fn offer(&mut self, r: Ref<Item>, targets: usize) {
         let (landed, age, center, turn, position, radius, def) = {
@@ -499,7 +499,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 }
 
-/// items.js settle: landed, upright on what it touches.
+/// settle: landed, upright on what it touches.
 fn settle(i: &mut Item, normal: Vec3) {
     i.landed = true;
     i.sinking = false;

@@ -1,4 +1,4 @@
-//! A dedicated match's connected players (src/runtime/multiplayer-world.js):
+//! A dedicated match's connected players:
 //! their command queues, the players' phase of the world tick, their
 //! controls on their bodies and the facts the AI and unit phases read of
 //! them. The host admits connections and input through `module`; nothing

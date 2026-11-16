@@ -1,4 +1,4 @@
-//! The page camera owner beside its collision world. Algorithms and records
+//! The client camera owner beside its collision world. Algorithms and records
 //! live in bfe-presentation; this module binds the existing native ray store
 //! and the host's scalar Math library, with one coarse call per page frame.
 use bfe_presentation::{
@@ -128,7 +128,7 @@ pub(crate) fn camera_add_definition_in(w: &mut crate::world::owner::World, id: u
 // Buffer accessors are cold bindings, never one call per selected camera.
 // Their lengths and offsets come from the shared generated presentation schema.
 // Invalid owners return null without touching another clock's record.
-// The page caches all addresses and only checks memory.buffer on later frames.
+// The client caches all addresses and only checks memory.buffer on later frames.
 // Matrices and flags remain primitive records rather than imported scene objects.
 pub(crate) fn camera_input_ptr_in(w: &mut crate::world::owner::World, id: u32) -> Option<&mut [f64]> {
     phase(&mut w.cameras, id).map_or(None, |p| Some(&mut p.input[..]))

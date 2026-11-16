@@ -1,4 +1,4 @@
-//! The vehicle AI service (src/ai/classic/vehicles/index.js VehicleAI): the
+//! The vehicle AI service (VehicleAI): the
 //! services the Classic controller, agents, combat and scheduler call for
 //! anything to do with vehicles and turrets, and the state it keeps (seat
 //! reservations, the notifier's counter, the pads bots keep off, the fire
@@ -19,9 +19,9 @@ use super::notify::Notifier;
 use super::world::{kind, ExitOptions, HelperKind, LeaseView, Obj, Origin, QueryFilter, Request, Stick, UnitView, World};
 
 /// Stands of 20 to 30 s a pilot makes at a support point before it asks
-/// for another post (index.js SUPPORT_HOLDS).
+/// for another post (SUPPORT_HOLDS).
 const SUPPORT_HOLDS: f64 = 3.0;
-/// How near two hulls' footprints count as touching (index.js CONTACT_MARGIN).
+/// How near two hulls' footprints count as touching (CONTACT_MARGIN).
 const CONTACT_MARGIN: f64 = 0.5;
 
 /// The boarding interruption test reads only bodies, its controller and
@@ -61,7 +61,7 @@ pub struct VehicleAI {
     /// `supportCache`: post -> numeric mask/rounded-radius identity -> hubs.
     pub support_cache: Vec<(Obj, SupportKeys)>,
     support_prepared:Option<SupportPrepared>,
-    /// The attack run's distances (patterns.js `run`).
+    /// The attack run's distances (`run`).
     pub run: AttackRun,
 }
 
@@ -115,7 +115,7 @@ fn js_space(c: char) -> bool {
     bfe_content::js::is_js_space(c)
 }
 
-/// degrees(value, fallback) (index.js): two numbers of the setting's
+/// degrees(value, fallback): two numbers of the setting's
 /// text, in radians, else the fallback's.
 fn degrees(value: Option<&str>, fallback: [f64; 2]) -> [f64; 2] {
     let text = value.unwrap_or("");
@@ -1192,7 +1192,7 @@ fn character_of<W: World + ?Sized>(w: &W, u: Obj) -> bool {
 /// a tie to the larger, "-" before a negative (but not -0).
 pub use super::support_key::to_fixed_1;
 
-/// footprint(v) (index.js): a hull's collision box from above: its centre,
+/// footprint(v): a hull's collision box from above: its centre,
 /// forward and half extents across and along.
 struct Footprint {
     cx: f64,
@@ -1220,7 +1220,7 @@ fn footprint(v: &super::world::HullView) -> Footprint {
     }
 }
 
-/// footprintsTouch(a, b, margin) (index.js): separating axes.
+/// footprintsTouch(a, b, margin): separating axes.
 fn footprints_touch(a: &super::world::HullView, b: &super::world::HullView, margin: f64) -> bool {
     let fa = footprint(a);
     let fb = footprint(b);
@@ -1348,7 +1348,7 @@ pub fn mount_reach<W:MountWorld+?Sized>(w:&mut W,unit:Option<Obj>,point:&Vector3
     mount_angles(w,lease.vehicle,lease.turret,lease.index,Origin::Lease(lease.obj),point)
 }
 
-/// mountAngles(lease, point) (index.js): the angular reach of one mount:
+/// mountAngles(lease, point): the angular reach of one mount:
 /// the point's yaw and pitch in the body's frame from the mount's pivot,
 /// inside the mount's limits.
 pub fn mount_angles<W: MountWorld + ?Sized>(w: &mut W, vehicle: Option<Obj>, turret: Option<Obj>, index: f64, origin: Origin, point: &Vector3) -> bool {
@@ -1400,7 +1400,7 @@ pub fn mount_angles<W: MountWorld + ?Sized>(w: &mut W, vehicle: Option<Obj>, tur
     a >= yaw_limits[0] && a <= yaw_limits[1] && p >= pitch_limits[0] && p <= pitch_limits[1]
 }
 
-/// StationaryHelper (index.js): a movement helper for controls that cannot
+/// StationaryHelper: a movement helper for controls that cannot
 /// move: every goto is accepted and goes nowhere; the request stays empty.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StationaryHelper {

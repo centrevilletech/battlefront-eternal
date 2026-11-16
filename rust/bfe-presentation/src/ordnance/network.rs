@@ -34,7 +34,7 @@ impl Bolt {
             speed: e.speed, life: e.life, merge: e.merge, flight: e.launch,
             execution: e.execution, started: false }
     }
-    // network-entity-combat.js reach and stopBolt. Retain the operation order
+    // reach and stopBolt. Retain the operation order
     // of the dot product, and the minimum merge distance of fading streaks.
     fn reach(&mut self, point: Vector3, stop: bool) {
         let along = max(0.0, (point.x-self.position.x)*self.direction.x
@@ -323,7 +323,7 @@ pub fn feedback(a: &[f64], out: &mut [f64]) {
         out[o::ANGLE]=v8math::atan2(-x*v8math::cos(yaw)+z*v8math::sin(yaw),
             x*v8math::sin(yaw)+z*v8math::cos(yaw));
     } else {out[o::DEATH]=target as u8 as f64;}
-    // targeting-facts.js radarRelation: locals retain their authored colour
+    // radarRelation: locals retain their authored colour
     // except when the viewer belongs to that same team.
     out[o::RELATION]=if a[i::ATTACKER_TEAM]==0.0{0.0}
         else if a[i::ATTACKER_TEAM]!=a[i::OWN_TEAM]&&a[i::LOCALS]!=0.0{3.0}

@@ -28,7 +28,7 @@ pub fn body(w: &mut World, p: &Player) -> Option<Ref<Unit>> { view(w, p)?.unit }
 fn alive(w: &World, unit: Ref<Unit>) -> bool { w.sim.store.unit.get(unit).is_some_and(|u| u.alive) }
 
 /// connections.command(op, p, className, post): the connection's native
-/// lifecycle (src/f4-connections.js), qualified by his Character.
+/// lifecycle, qualified by his Character.
 fn connection(w: &mut World, p: &Player, op: F4ConnectionOp, class_name: Option<StrId>, post: Option<StrId>) {
     let Some(target) = p.character.clone() else { return };
     let command = F4ConnectionCommand { op, target, class_name, post, ordinal: p.ordinal, auto_respawn: p.auto_respawn };
@@ -36,7 +36,7 @@ fn connection(w: &mut World, p: &Player, op: F4ConnectionOp, class_name: Option<
     crate::battle::f4_connections::f4_connection_command_in(w);
 }
 
-/// roster.release / roster.switchTeam (src/f4-roster.js command): true
+/// roster.release / roster.switchTeam (command): true
 /// when the roster accepted the change.
 fn roster(w: &mut World, p: &mut Player, op: RoOperation, team: f64, empty: StrId) -> bool {
     let Some(target) = p.character.clone() else {
@@ -83,7 +83,7 @@ fn roster(w: &mut World, p: &mut Player, op: RoOperation, team: f64, empty: StrI
 }
 
 /// remoteWorld.retire(p.id): his recon context retires with his place; a
-/// droid still flying keeps flying (src/f3-recon.js retire).
+/// droid still flying keeps flying (retire).
 fn retire_recon(w: &mut World, key: u32) {
     let Some(context) = crate::units::f3::recon_context_by_key_in(w, key) else { return };
     let Some(c) = w.sim.store.recon_context.get(context) else { return };

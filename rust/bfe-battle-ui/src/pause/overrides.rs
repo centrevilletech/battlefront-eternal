@@ -1,4 +1,4 @@
-// URL query parameter overrides for `RESTART MISSION` (`src/pause/overrides.js`).
+// URL query parameter overrides for `RESTART MISSION`.
 //
 // When `RESTART MISSION` reloads the battle's URL, any query parameter that overrides
 // an option setting (`ai`, `tier`, `heroes`, `size`, `scale`, `sens`, `invert`, `shadows`)
@@ -7,9 +7,9 @@
 //
 // Without this rewrite, reloading a battle URL that was initially launched with a one-visit
 // query override (e.g. `?tier=hard&invert=1`) would revert any changes the player made
-// inside `OPTIONS` during the match (`OVERRIDES` in `src/pause/overrides.js`).
+// inside `OPTIONS` during the match (`OVERRIDES`).
 
-/// Trait providing read access to option settings rewritten by `with_settings` (`src/pause/overrides.js`).
+/// Trait providing read access to option settings rewritten by `with_settings`.
 ///
 /// Decouples URL rewriting from concrete storage so both in-memory `BTreeMap` test fixtures
 /// and live `Settings` models can supply current option values.
@@ -53,7 +53,7 @@ fn override_value(param_key: &str, settings: &dyn PauseSettingsLookup) -> Option
     }
 }
 
-/// Decodes `%XX` hex escape sequences in a query parameter key (`decodeURIComponent` in `src/pause/overrides.js`).
+/// Decodes `%XX` hex escape sequences in a query parameter key (`decodeURIComponent`).
 fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -92,7 +92,7 @@ fn percent_encode_component(input: &str) -> String {
 }
 
 /// Rewrites setting-override query keys in `href` to their current values in `settings`,
-/// leaving non-override keys (including bare flags like `?noreload`) unchanged (`withSettings` in `src/pause/overrides.js`).
+/// leaving non-override keys (including bare flags like `?noreload`) unchanged (`withSettings`).
 ///
 /// Preserves the original URL path, hash fragment, and raw key spelling before `=`.
 /// Parameters not present in the original query string are never added.

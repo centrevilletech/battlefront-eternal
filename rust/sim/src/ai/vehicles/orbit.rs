@@ -9,10 +9,10 @@ use v8math::{abs, acos, atan2, cos, hypot, sin};
 
 use super::world::Orbit;
 
-/// The literal (0, 7, 0) over the target's position (orbit.js:39).
+/// The literal (0, 7, 0) over the target's position.
 const RISE: f64 = 7.0;
 
-/// orbitResult() (orbit.js:103).
+/// orbitResult().
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct OrbitResult {
     pub point: Vector3,
@@ -22,7 +22,7 @@ pub struct OrbitResult {
     pub tow_pass: bool,
 }
 
-/// squash(v, origin, axis, k, out) (orbit.js:53): v with its part along
+/// squash(v, origin, axis, k, out): v with its part along
 /// `axis` (from `origin`) scaled by k.
 fn squash(v: &Vector3, origin: &Vector3, axis: &Vector3, k: f64) -> Vector3 {
     let d = axis.x * (v.x - origin.x) + axis.y * (v.y - origin.y) + axis.z * (v.z - origin.z);
@@ -40,7 +40,7 @@ fn or_one(k: f64) -> f64 {
     }
 }
 
-/// orbitSteer(position, forward, hull, orbit, out) (orbit.js:61): the
+/// orbitSteer(position, forward, hull, orbit, out): the
 /// craft's position and forward, the target hull's position and matrix.
 pub fn orbit_steer(position: &Vector3, forward: &Vector3, hull_position: &Vector3, hull_matrix: &Matrix4, orbit: &Orbit, out: &mut OrbitResult) {
     let offset = orbit.offset;

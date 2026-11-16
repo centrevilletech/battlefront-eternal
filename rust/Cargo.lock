@@ -669,7 +669,7 @@ dependencies = [
 [[package]]
 name = "bink-decoder"
 version = "0.1.0"
-source = "git+https://github.com/centrevilletech/bink-decoder?rev=6bcf57407cd0a6b0322c06cce286ce15f4a059e9#6bcf57407cd0a6b0322c06cce286ce15f4a059e9"
+source = "git+https://github.com/centrevilletech/bink-decoder?rev=e4adde43667875328c5afa61f3b3aed61bac70b7#e4adde43667875328c5afa61f3b3aed61bac70b7"
 
 [[package]]
 name = "bit-set"

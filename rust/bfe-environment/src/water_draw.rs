@@ -1,7 +1,7 @@
 //! Water.prepareSurface's draw values and sampler-frame selection.
 //! Real GPU sampler identities enter once after resource registration. Every
 //! view supplies camera/light facts; native retained rows resolve all animated
-//! slots and quality/far rules without page-side record reconstruction.
+//! slots and quality/far rules without client-side record reconstruction.
 use crate::effect_layout::{
     water_reflection as reflection, water_textured as textured, water_tint as tint,
 };
@@ -65,7 +65,7 @@ impl Draws {
         &mut self.values[slot.min(5)]
     }
     // All three records begin with the same generated camera fields. These
-    // matrices are observed facts; this owner does not update a browser camera
+    // matrices are observed facts; this owner does not update a client camera
     // or derive another transform while preparing the upload packet.
     pub fn prepare(&mut self, slot: usize, result: &[f64], p: &[f64]) {
         let slot = slot.min(5);
@@ -84,7 +84,7 @@ impl Draws {
         let get = |ids: &[f64], index: f64, fallback: f64| {
             ids.get(index as usize).copied().unwrap_or(fallback)
         };
-        // Each resource kind has its own generated record. The page never
+        // Each resource kind has its own generated record. The client never
         // tests for optional uniform fields or derives a sampler pair.
         // Tint can read opaque colour/depth independently of reflection. Its
         // underwater flag uses the gameplay level while display animation
@@ -189,7 +189,7 @@ impl Draws {
     // Water.applyQuality previously chose both the preset and pass visibility.
     // Keep the original high default for unrecognised settings and the ocean
     // early return, while returning only numeric policy to the resource host.
-    // The page supplies setting strings and actual resource availability.
+    // The client supplies setting strings and actual resource availability.
     // Preset numbers and anchor visibility belong to the native water policy.
     // Enhanced ocean selection keeps the original planar-target early return.
     pub fn mode(&mut self, data: &Value) -> Value {

@@ -1,4 +1,4 @@
-//! weapon-targeting.js lockPick's view search. Hulls and stationary turrets
+//! lockPick's view search. Hulls and stationary turrets
 //! differ in their foreign query and sight contracts, but retain/acquire order,
 //! volume scoring and first-equal selection are shared.
 use super::*;

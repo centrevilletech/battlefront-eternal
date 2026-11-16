@@ -15,26 +15,26 @@ understood the world's rain, so four things the 2004 engine draws on many
 maps never reached the port. They now do, at the Classic look (the formats
 and the engine's rules are in docs/formats.md, "Sky and effects config"):
 
-- **FogCloud** (`rust/sim` (`atmosphere`)): the band of big soft squares 90 to
+- **FogCloud** (`rust/bfe-environment` (`atmosphere`)): the band of big soft squares 90 to
   120 m out, 16 m over the ground, drifting with the wind and slowly turning.
   Geonosis (brownmist), Endor, Rhen Var Citadel and both Yavins. The same
   random pattern repeats every 256 m and scrolls; each frame the points
   inside the view's slab are stood on the terrain (a cache of terrain
   heights on an 8 m grid) and drawn, faded at both ends of the range.
-- **Dust and mist** (`rust/sim` (`atmosphere`)): the `dusteffect` objects placed in
+- **Dust and mist** (`rust/bfe-environment` (`atmosphere`)): the `dusteffect` objects placed in
   the world. Geonosis's 23 copies of brown dust blowing across the plain,
   Hoth's blowing snow dust and mist, Kamino's and Yavin's mist, the Dune Sea's
   dust and the Citadel's clouds rolling below the walls. Each class's few
   dozen particles run once a frame and every copy in view draws them,
   flattened by the class's height scale, faded by distance as the engine
   fades them.
-- **Snow** (`rust/sim` (`snow`)): Hoth's `Precipitation` is `Type("Quads")`; the
+- **Snow** (`rust/bfe-environment` (`snow`)): Hoth's `Precipitation` is `Type("Quads")`; the
   port drew it as rain streaks (and, Enhanced, as rain sheets and splashes).
   It now falls as the engine's flakes: 100 spinning `fx_snow` squares 3 cm
   across in a 5 m box, the box repeated over the world grid through the
   view to 15 m, blown by the gusting wind. Roofs stop it, as they stop the
   rain. Rain is unchanged.
-- **Placed effects** (`tools/zero_environment.py`, `rust/sim` (`environment-effects`)):
+- **Placed effects** (`tools/zero_environment.py`, `rust/bfe-environment` (`environment`)):
   every effect a placed object's ODF attaches, on every map, not only
   Theed's fountains and Cloud City's steam. Geonosis's smoking Techno Union
   wreck, Endor's 95 Ewok fires, Kashyyyk's bonfire and torches, the Dune
@@ -44,8 +44,8 @@ and the engine's rules are in docs/formats.md, "Sky and effects config"):
   Effects without an Enhanced form play their stock effect in either mode,
   out to the near scene's end; steam vents take the Enhanced steam like
   Cloud City's.
-- **The sky's models** (`tools/extract.py`, `rust/sim` (`world`),
-  `rust/sim` (`graphics`)): the importer kept only a map's first `DomeModel`. The
+- **The sky's models** (`tools/extract.py`, `rust/bfe-environment`
+  (`sky`)): the importer kept only a map's first `DomeModel`. The
   rest now draw in order after the dome: Hoth's mountains and ion cannon,
   Endor's Death Star, satellite and tree line, Geonosis's arena, spire and
   rim, Rhen Var Citadel's cloud layers, Kamino's city, Kashyyyk's and Naboo
@@ -57,11 +57,9 @@ and the engine's rules are in docs/formats.md, "Sky and effects config"):
   Islands) keeps the whole sky and reflects it (docs/rendering.md, "The storm
   keeps the sky's horizon models" and the section after it).
 
-The haze and snow are page-side presentation like the rain: the same code
-draws them on the page whether the world worker or a server runs the
-battle. Costs, measured in Chromium (SwiftShader) with drawing off: the
-haze 0.03 to 0.2 ms of CPU a frame (Hoth's 584 dust squares the most), snow
-0.05 ms, Endor's fires 0.3 ms. Each haze texture is one instanced draw of
+The haze and snow are client-side presentation like the rain: the same
+code draws them whether the local world thread or a server runs the
+battle. Each haze texture is one instanced draw of
 at most 4,096 squares, sorted back to front; snow is one instanced draw of
 at most 32,768 flakes. Dust squares are large and blended, so their cost
 is mostly fill rate, as in the original.
@@ -124,23 +122,23 @@ A map prepared before generation 15 has no `sky/` and draws no ships.
 Generation 16 adds the Enhanced lists and models (below); a map prepared at
 15 draws only the original's ships in either mode.
 
-The Rust sky phase (`rust/bfe-environment`, `sky.rs`) flies them page-side, in
-every host (the page, under a world worker and online): launches, flight,
-fades, placement, the Enhanced far-plane reach and haze, and the far-to-near
-order of each class's draws, as instance records the page reads in place.
-`rust/sim` (`sky-flyers`) keeps the meshes, the materials and the sky probe. It
-stops with the rest of the presentation while the game is paused. Each page flies its own ships (`?seed=` repeats them).
+The Rust sky phase (`rust/bfe-environment`, `sky.rs`) flies them in the
+client, in single player and online alike: launches, flight, fades,
+placement, the Enhanced far-plane reach and haze, and the far-to-near order
+of each class's draws, as instance records the renderer reads in place. It
+keeps the meshes, the materials and the sky probe, and stops with the rest
+of the presentation while the game is paused. Each client flies its own
+ships.
 Cost: one instanced draw per model part of each class the battle draws
 (Geonosis 6, the others 1 or 2), at most about 5,000 triangles (Geonosis:
 2 + 20 + 20 + 8 ships of 74 to 200 triangles), a custom shader of a few
 lines with no fog, shadow or lamp work, and per frame a few dozen ships
 stepped, sorted far to near per class and their matrices and fades
-uploaded (at most 20 a class, 1.3 KB). Measured on Geonosis (SwiftShader
-host): the far scene went from 17 draws and 24,106 triangles to 23 and
-29,030, and the update took 0.03 ms a frame.
+uploaded (at most 20 a class, 1.3 KB). On Geonosis the far scene went
+from 17 draws and 24,106 triangles to 23 and 29,030.
 
 Under the temporal upscaler each class also draws its ships' motion
-(`motion-vectors.js`, `addExtra`), in both modes: from each ship's true
+(`rust/bfe-render` `motion.rs`), in both modes: from each ship's true
 placement now and a frame ago, only where the near scene drew nothing. Read
 back from the upscaler's velocity target, a droid fighter crossing a 15
 degree view at 378 m moves 0.00877, 0.00052 of the screen a frame there
@@ -175,7 +173,7 @@ above, unchanged. Enhanced keeps the original's flight and adds:
   it inside, so its image is the same, and its depth is put just inside the
   far plane in the order of its true distance: the far terrain still hides
   it and nearer ships still cover it. Far off and low over the horizon it
-  takes on up to 70% of the sky behind it (`sky-probe.js`, a 64-pixel cube
+  takes on up to 70% of the sky behind it (the sky probe, a 64-pixel cube
   of the far scene's sky, redrawn about once a second), so a Star Destroyer
   1,500 m past Cloud City's 500 m far plane reads as part of the sunset
   rather than pasted on.
@@ -187,11 +185,9 @@ above, unchanged. Enhanced keeps the original's flight and adds:
 - **No holes.** Fading ships write no depth and draw after the solid ones,
   so one fading in front never cuts a ship behind it.
 
-Cost (SwiftShader host, far scene, one render): Geonosis 17 draws without
-the ships, 23 with them in Classic, 29 in Enhanced (each class's fading
-ships are a second instanced draw per part, only while some fade), 29,030
-triangles in both; the update 0.024 ms a frame in Classic and 0.079 ms in
-Enhanced, the sky probe included. Cloud City's Galactic Civil War battle,
+Cost (far scene, one render): Geonosis 17 draws without the ships, 23 with
+them in Classic, 29 in Enhanced (each class's fading ships are a second
+instanced draw per part, only while some fade), 29,030 triangles in both. Cloud City's Galactic Civil War battle,
 which has no ships in Classic, draws 2 more (672 triangles) in Enhanced.
 
 Checks: `cargo test --locked --workspace` (a recorded 700-frame sky
@@ -234,18 +230,13 @@ This writes only `public/maps/<map>/environment/`: emitter definitions and trans
 ## Verification and reproduction
 
 ```sh
-cargo test --locked --workspace
+cd rust && cargo test --locked -p bfe-environment -p bfe-render && cargo xtask check
 python3 -m unittest discover -s tests -p test_environment_export.py
-# With the native client running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
-# Theed fountain stills, Classic beside Enhanced (see "Fountain rework"):
-cargo xtask check
 ```
 
-The browser test checks foreground occlusion, an opaque surface slicing through fog, the view from inside a volume, near-plane intersections, jump displacement and wake clearing, actual reflected geometry, animated water, liquid/spray rendering, one shared depth capture, MSAA, and restoration of the classic water material and renderer state. Unit checks cover bounded wake storage, movement rates, teleports, culling, mode switching, attachment order, native effect dependencies, and disposal.
+Unit checks cover bounded wake storage, movement rates, teleports, culling,
+mode switching, attachment order, effect dependencies, and disposal.
 
-The benchmark compares identical fixed map views with effects missing (the pre-change visual state), restored Classic, and Enhanced. It includes reflection work and synchronizes each frame with a one-pixel GPU readback. Its SwiftShader results are software-rendering measurements, not hardware gaming FPS. Timings on this shared machine vary; draw counts and effect-update costs are more useful than claiming a precise FPS uplift.
-
-`cargo test --locked --workspace` records a scripted walking and jumping path (640×400, 4× MSAA, bloom, no shadows) and writes each frame's timings and draw counts to `measurements.json` beside the frames. With a frozen copy of an earlier tree in `ENV_BEFORE_ROOT` it alternates frames between that tree and the working tree to reduce shared-machine drift. It serves both trees itself, with file watching off and explicit the native client entry points, so no dev server needs to be running. It is a visual-review workload, not a frame-rate budget.
 
 ```sh
 cargo test --locked -p bfe-environment
@@ -278,7 +269,7 @@ Classic's. The design below is the third.
 The jet leaves at 12.5 m/s (stock: 11.6-13) under ordinary gravity, so the
 water rises 8 m and opens into an umbrella. It falls back into the inner tier,
 which Enhanced fills to its lip, and the tier overflows into the outer pool
-(`rust/sim` (`fountain-jets`); the pools are in `rust/sim` (`fountain-water`)).
+(`rust/bfe-client` (`online::fountains`); the pools are in `rust/bfe-client` (`online::fountains`)).
 
 - **Ropes.** Per fountain, 170 ropes and 160 fine strands fall into the tier,
   and 28 long arcs clear its lip and land in the outer pool. Each is one
@@ -344,7 +335,7 @@ which Enhanced fills to its lip, and the tier overflows into the outer pool
   block of instances per fountain in view and picks its fountain from the
   instance number, so fountains out of view cost nothing. (Before this, the
   four unseen fountains' vertices dominated the software-rendered frame.)
-- **Pools** (`rust/sim` (`fountain-water`)). The tier's pool churns where the
+- **Pools** (`rust/bfe-client` (`online::fountains`)). The tier's pool churns where the
   umbrella lands and at the jet's foot, with chop, drop rings and a swell,
   and foam carried out to the lip. The outer pool shows white water along
   the overflow's foot, ripples running out from it, and the arcs' landings.
@@ -354,9 +345,9 @@ which Enhanced fills to its lip, and the tier overflows into the outer pool
   plume, so the plume's reflection is analytic, hidden where the tier's wall
   is in the way.
 - **Fixed slots.** Each fountain keeps a fixed slot, and with it the levels
-  of its pools (`environment-effects.js`): the tier filled to its lip (0.8 m
+  of its pools (`rust/bfe-environment` (`environment`)): the tier filled to its lip (0.8 m
   above the stock water) and the outer pool. Wading splashes follow those
-  levels (`fountain-spray.js`). Bespin's steam is unchanged.
+  levels. Bespin's steam is unchanged.
 
 Measured on the review views (`cargo test --locked --workspace`,
 800×500), over the pixels the fountain changes:
@@ -392,13 +383,8 @@ The spray's two composites add a full-screen pass each, which is cheap where
 there is no spray. Enhanced shades a third as many fragments as Classic, but
 each costs more: a depth fetch, the lighting and, for clear water, a read of
 the frame copy. The copy is one blit and one mipmap build a frame.
-SwiftShader frame times on this shared machine are noisy (around a hundred
-milliseconds run to run). At the map-check view Enhanced measured
-0.83-0.91 s a frame against 0.61-0.63 s for Classic and 0.56-0.60 s with
-effects missing; at the gameplay view, 0.91-1.0 s against 0.65-0.72 s and
-0.49-0.61 s. The second replacement measured 1.1-1.2 s. Per-frame CPU work
-is a few uniforms and instance counts, and nothing is allocated. No hardware
-GPU was measured.
+Per-frame CPU work is a few uniforms and instance counts, and nothing is
+allocated.
 
 `cargo test --locked --workspace` renders both looks from the map-check
 view, a third-person distance (7.5 m, eye 1.9 m), a far view (35 m), a

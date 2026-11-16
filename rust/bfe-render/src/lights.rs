@@ -2,7 +2,7 @@
 // decides it for three: the masks every pass that lights with them uses.
 use crate::math::{self, Mat4};
 
-// point-lights.js lightMask: bit i for each packed light whose sphere
+// lightMask: bit i for each packed light whose sphere
 // reaches one of the boxes (those `visible` marks, when given).
 pub fn light_mask(lights: &[f64], count: usize, boxes: &[([f64; 3], [f64; 3])], visible: Option<&[u8]>) -> u32 {
     let mut mask = 0u32;

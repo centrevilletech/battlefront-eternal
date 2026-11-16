@@ -1,5 +1,5 @@
 //! One page camera phase, replacing game.js's exclusive camera branch,
-//! camera-shake.js and the spawn-shot override. First-person attachments
+//! and the spawn-shot override. First-person attachments
 //! consume the pre-shake record; rendering and sound consume the final one.
 pub mod death;
 pub mod math;
@@ -120,7 +120,7 @@ fn seat(
     }
 }
 impl Phase {
-    // Ports cold camera construction, independent of a browser or scene.
+    // Ports cold camera construction, independent of a client or scene.
     // Generated capacities exceed all authored soldier and spawn-shot tables.
     // Excess rows are dropped as complete records, preserving admitted ids.
     // Definitions never compact or move when another class is registered.
@@ -205,7 +205,7 @@ impl Phase {
             .best(point, &self.content.spawn_shots)
             .map_or(-1, |i| i as i32)
     }
-    // SoldierCamera.setDef used to retain a class object on the page.
+    // SoldierCamera.setDef used to retain a class object on the client.
     // The host now resolves that identity to this stable cold numeric handle.
     // Refusing a full table never renames or replaces an earlier definition.
     // Invalid frame handles use the immutable default section instead.
@@ -219,8 +219,8 @@ impl Phase {
         self.content.definitions.push(def);
         Some(id)
     }
-    // Ports the camera block in game.js, including its pre-shake consumers.
-    // This is the only displayed camera advancement for a page frame.
+    // Ports the camera block, including its pre-shake consumers.
+    // This is the only displayed camera advancement for a client frame.
     // Both camera matrices and inverse/projection matrices are outputs.
     // The host never reconstructs a lens or resolves a camera collision.
     // All candidate inputs are facts from already-owned clocks and poses.
@@ -333,7 +333,7 @@ impl Phase {
         }
         let dead = flag(a, f::DEATH_ACTIVE);
         let mode;
-        // game.js: death, flown recon, driven vehicle, manned turret, own
+        // death, flown recon, driven vehicle, manned turret, own
         // soldier. These are exclusive even if stale leases overlap a death.
         // DeathCamera.update/apply in camera.js is an authority camera too.
         // Classic AI schedules and aim queries can observe it in a world tick.
@@ -341,7 +341,7 @@ impl Phase {
         // A cold start derives its anchor from the current camera heading.
         // Later ticks consume body and killer facts sampled by the world host.
         // When the body is gone its last middle remains the framed point.
-        // The page's death shot instead follows its current ribcage node.
+        // The client's death shot instead follows its current ribcage node.
         // The serial identifies a new death even across a missing alive frame.
         // Its killer carries generation-checked identity facts from the host.
         // A stale or absent killer is represented as absence, never a zero id.
@@ -613,9 +613,9 @@ impl Phase {
             // Using the latter applies pitch twice on sloped emplacements.
             // The frame itself is needed to place TrackCenter and EyePointOffset.
             // Canonical seat eyes and directions retain their authority tick.
-            // Preview-only angles retain the page's own input clock.
+            // Preview-only angles retain the client's own input clock.
             // The enclosure test uses the building's model-local bounds.
-            // This result controls retained drum/gun visibility on the page.
+            // This result controls retained drum/gun visibility on the client.
             // It is published only when the turret is the selected owner.
             let root = matrix(a, f::TURRET_ROOT);
             let pivot = transformed(vector(a, f::TURRET_PIVOT), &root);
@@ -758,7 +758,7 @@ impl Phase {
             put_v(out, o::WORLD_DEATH_ANCHOR, state.anchor);
             out[o::WORLD_DEATH_HFOV] = state.hfov;
         }
-        // game.js exposed this pose to first-person arms before camera shake.
+        // exposed this pose to first-person arms before camera shake.
         // Its Euler mirror is produced beside the quaternion, not in Three.
         // Compose precedes inverse, with no parent transform on these cameras.
         // The host applies these fields with callbacks disabled by raw writes.
@@ -811,7 +811,7 @@ impl Phase {
         // The selected horizontal lens has already become vertical degrees.
         // Half-angle tangent is evaluated before the viewport-width multiply.
         // Keep left/right and top/bottom construction, including zero signs.
-        // Native makePerspective uses the WebGL depth convention of the page.
+        // makePerspective with OpenGL's -1..1 depth convention.
         // Projection inverse follows that exact matrix, without host inversion.
         // Temporal jitter and renderer-specific derived views remain consumers.
         let top = cam.near * T::tan(DEG * 0.5 * cam.fov);

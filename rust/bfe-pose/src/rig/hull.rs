@@ -1,5 +1,5 @@
 //! A hull's rig as src/vehicles.js builds it (the Vehicle constructor and
-//! attachVehicleBatches in src/vehicle-rig.js): the root, the model's bones
+//! attachVehicleBatches): the root, the model's bones
 //! with their bind pose, the static bone the batches hang their rigid parts
 //! from, and the markers the constructor hangs on bones for fire points;
 //! then, per seat, the turret node, its pivot and up at rest and the rider's

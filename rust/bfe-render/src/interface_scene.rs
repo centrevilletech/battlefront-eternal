@@ -1,5 +1,5 @@
 // InterfaceSurface.drawFrame, ClassicView's room/models and SpawnStage's
-// room/projector/holomap share this phase. The page publishes values and retained
+// room/projector/holomap share this phase. The client publishes values and retained
 // resource ids; Rust sorts the draw records, selects raster state and draws.
 // No Three program, reflection or draw is needed, including after context loss.
 use crate::core::{Core, MultiDraw, PASS_HUD};

@@ -2,18 +2,18 @@
 
 `Destruction effects` in the graphics menu selects **Classic** or **Enhanced**
 (the default; the Performance preset picks Classic). Classic is the 2004
-behaviour, unchanged: the class's explosion sprites and `rust/sim` (`debris`)
+behaviour, unchanged: the class's explosion sprites and `rust/sim` (`battle::debris`)
 pieces. Enhanced is decided by the Rust destruction phase
 (`rust/bfe-environment`, `destruction.rs`, `solver.rs` and `fx.rs`): every
 blast, droid short-out, flying piece (a rigid body: bounces, rolls, rests,
 tips over, crumbles) and wreck's smoulder, in a fixed order from one seeded
-random stream. The page's `rust/sim` (`destruction`) tells it what happened as
-commands (a droid blown apart, a droid died, a droideka's blast, a blast, a
-clear) with the numbers only the page has (a body's bones, where its chunks
+random stream. The client tells it what happened as commands (a droid
+blown apart, a droid died, a droideka's blast, a blast, a clear) with the
+numbers only the client has (a body's bones, where its chunks
 were, how a wreck's box sits), and applies what the phase answers: lights,
-sounds, bodies to hide, wrecks to glow. `rust/sim` (`destruction-debris`) keeps the
+sounds, bodies to hide, wrecks to glow. `rust/bfe-environment` (`solver`) keeps the
 pieces' models (heated copies of the game's materials) and
-`rust/sim` (`destruction-fx`) the meshes the particles and arcs are drawn from;
+`rust/bfe-environment` (`fx`) the meshes the particles and arcs are drawn from;
 their records live in the phase's memory and are read in place.
 
 ### How the boundary is bounded
@@ -25,7 +25,7 @@ on the field, and each is a degradation, never a failure: a model past the
 shapes throws no piece, a droid with no slot blows apart at once, the oldest
 piece gives way at 40. Commands queue up to 256 and the queue is run (with no
 time passing) before it can fill, so a load or a pause with no frame cannot
-overflow it; the page pairs the pieces with the phase's own records by id, so
+overflow it; the client pairs the pieces with the phase's own records by id, so
 nothing it missed can leave the two out of step. Sizes and offsets are
 generated from `rust/bfe-environment/layout.json`
 (`cargo xtask schema`).
@@ -57,7 +57,7 @@ The simulation is untouched. It still rolls `ChunkFrequency` with the
 gameplay random stream, still sets off the class explosion (damage, push,
 sound, the AI's explosion event), and still keeps the dead body's hit shapes
 for its linger time. Enhanced reads bodies and settings and draws. It isn't
-built in the headless or worker world, and it never uses the gameplay random
+built in the world (headless, local or on a server), and it never uses the gameplay random
 stream. The only change to the explosion is that its stock `Effect` sprite is
 left out, because Enhanced draws its own blast. Its damage, sound and light
 are unchanged.
@@ -81,7 +81,7 @@ explosion is not set off a second time).
 **A droideka** shorts out the same way for its whole death clip. Small pops
 replace the stock 0.4 s blasts. Rolled, it goes up at once, as in Classic.
 
-Every body of a model shares that model's geometry (`actor.js`), so what is
+Every body of a model shares that model's geometry, so what is
 worked out once per model is kept by geometry as bone indices and bind-pose
 data only, and always read through the dying body's own bones: its arcs,
 sparks and light are on its own body, whichever body of the class died first.
@@ -161,27 +161,15 @@ Switching to Classic clears everything Enhanced has out.
 - One battle droid's death peaks at about 120 hot particles, 100 smoke
   particles and 10 arcs, and settles within ~3 s to a few dozen. A
   smouldering wreck keeps about 20 to 60 smoke particles.
-- A busy moment, measured in headless Chromium on the development machine
-  (JavaScript time, not GPU): six droids dying at once (two killed on their
-  feet and a droideka among them) and two ammo droids wrecked. That is 35
-  pieces in flight, and peaks of ~700 hot and ~990 smoke particles, 47 arcs
-  and 41 draws. `Destruction.update` took 1.1 ms a frame on average (median
-  0.3 ms, 95th percentile 4.3 ms) over 6 s. Of that, rigid pieces were the
-  larger part: 2.8 ms at the 95th percentile while all 35 flew, nearly all
-  of it in collision rays. A battle droid's blast and pieces cost ~2 ms in
-  the frame it dies. The initial droideka to die costs ~10 ms once, when its
-  pieces are matched to its bones; later ones reuse that.
 - Shader programs (the pools, the arcs, the heated piece and wreck
-  materials) compile in `graphics.warmup()` before play. `prepare()` builds
-  one model of every droid class's chunks and held weapons at load, so the
-  first death loads nothing.
+  materials) compile while the battle loads, and one model of every droid
+  class's chunks and held weapons is built at load, so the first death
+  loads nothing.
 
 ## Checks
 
 ```sh
-cargo test --locked --workspace
-# With the native client running; set PLAYWRIGHT_MODULE if Playwright is installed elsewhere:
-cargo test --locked --workspace
+cd rust && cargo test --locked -p bfe-environment
 ```
 
 The unit tests cover settling on a face without sinking, a rod landing on its
@@ -199,22 +187,9 @@ chunk matching, blasts in mid-air, clearing on a switch to Classic,
 when rebuilt, and the pools' expiry, upload ranges across undrawn frames,
 caps, headroom and arcs.
 
-The browser test runs the same scripted kills on Theed with each setting
-(battle droid blown apart and killed on its feet, super battle droid,
-droideka deployed and rolled, and an ammo droid destroyed, with frames over
-100 s). The simulation's event journal, gameplay random state, units and
-power-up droids must come out identical. Enhanced pieces must all come to rest
-on the floor, none standing on end. Classic must throw its stock pieces with
-Enhanced drawing nothing. The player playing a battle droid and a droideka
-must come apart too. Last, three battle droids and then three droidekas
-(each set three bodies on one model geometry) are killed in turn on their
-feet: each must short out with every arc on its own bones and every spark,
-flash and light within 3 m of it, then blow apart (`second-droid-*` frames).
-`DESTRUCTION_OUTPUT` sets the directory the frames go to.
-
 `cargo test --locked --workspace` is the wider simulation check. It
-replays 720 scripted ticks of a Classic-AI battle through two local server
-sessions and requires the two authoritative worlds to match.
+replays 720 scripted ticks of a Classic-AI battle through two worlds and
+requires them to match.
 
 ## Limits
 
@@ -231,15 +206,10 @@ sessions and requires the two authoritative worlds to match.
   (as in Classic for a droid blown apart), though nothing is drawn there.
 - There is no heat shimmer: the renderer has no refraction pass to bend the
   frame behind a blast.
-- The frames were judged in SwiftShader (software WebGL), not on GPU
-  hardware, so no GPU timing is claimed. The browser test films with the
-  upscaler off, since its frames are far apart. A separate pass with the
-  default temporal upscaler, drawing every frame through a blast, showed no
-  ghosting of flying pieces.
 
 ## Droideka death presentation
 
-Once a body blows apart, a generation-scoped page latch prevents later unit
+Once a body blows apart, a generation-scoped client latch prevents later unit
 summaries, pose records or own corrections from restoring its visibility.
 Droidekas hold the final death pose (or their rolled pose) and dissolve for
 0.5 seconds; other blown-apart droids hide immediately. A new life clears the

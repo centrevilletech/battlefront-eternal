@@ -1,8 +1,8 @@
-//! JavaScript's `Math` as the production server computes it, bit for bit:
-//! V8 13.6, the V8 in Node 24, whose results the game server's world
-//! simulation produces. Rust code that must agree with that simulation to
-//! the last bit calls these functions and never Rust's own `sin`, `exp` and
-//! so on, whose last bits differ.
+//! The transcendental functions the world simulation uses, computed as
+//! V8 13.6 computes JavaScript's `Math` (the engine the simulation was first
+//! written for), bit for bit and the same on every platform. Code that must
+//! agree with the simulation to the last bit calls these functions and never
+//! Rust's own `sin`, `exp` and so on, whose last bits differ by platform.
 
 #![forbid(unsafe_code)]
 

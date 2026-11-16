@@ -1,4 +1,4 @@
-//! F4's synchronous AI hooks (src/ai/index.js). Resolve the canonical
+//! F4's synchronous AI hooks. Resolve the canonical
 //! Character or post before calling Core; no mirror or deferred callback can
 //! move an objective draw past the spawn/death operation that requested it.
 use super::runtime::{Runtime,World};

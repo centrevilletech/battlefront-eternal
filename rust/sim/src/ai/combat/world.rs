@@ -1,6 +1,5 @@
 //! What the AI's perception and combat code reads of the battle and asks of
-//! it (src/ai/classic/perception.js, combat.js, aim.js, weapons-ai.js,
-//! src/ai/enhanced/aim.js).
+//! it.
 
 use crate::ai::{owned::scratch::List,control::world::SharedRows};
 use std::rc::Rc;
@@ -14,7 +13,7 @@ pub use super::perception::Perception;
 /// entry, a controller, an agent, a Character, a hint, a post, a hull).
 pub type Obj = u64;
 
-/// `{ unit, generation }`: a weak reference (perception.js:323 `refOf`).
+/// `{ unit, generation }`: a weak reference (`refOf`).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ref {
     pub obj: Obj,
@@ -109,7 +108,7 @@ pub struct SoldierView {
     pub max_speed: Js,
 }
 
-/// A seat lease as the alerts read it (src/seats.js SeatLease).
+/// A seat lease as the alerts read it (SeatLease).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct LeaseView {
     pub obj: Obj,
@@ -123,7 +122,7 @@ pub struct LeaseView {
     pub unit_controller: Option<Obj>,
 }
 
-/// One weapon of an arsenal (src/weapons.js Weapon), as this package reads
+/// One weapon of an arsenal (Weapon), as this package reads
 /// it, and the AI settings it writes on it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WeaponView {
@@ -154,7 +153,7 @@ pub struct WeaponView {
     pub yaw_spread_override: Option<f64>,
     pub kick: f64,
     pub floor: f64,
-    /// The Enhanced aim's mark (src/ai/enhanced/aim.js playerSpread).
+    /// The Enhanced aim's mark (playerSpread).
     pub enhanced_floor: bool,
 }
 
@@ -183,8 +182,8 @@ impl WeaponSettings {
     }
 }
 
-/// Which arsenal a unit holds: a soldier's (src/weapons.js Arsenal) or a
-/// seat control's (src/seats.js seatArsenal), which select differently.
+/// Which arsenal a unit holds: a soldier's (Arsenal) or a
+/// seat control's (seatArsenal), which select differently.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ArsenalKind {
     #[default]
@@ -203,7 +202,7 @@ pub struct ArsenalView {
 }
 
 impl ArsenalView {
-    /// `arsenal.current(channel)` (weapons.js:511; a seat's, seats.js:563).
+    /// `arsenal.current(channel)` (weapons.js:511; a seat's).
     pub fn current(&self, channel: f64) -> Option<usize> {
         match self.kind {
             ArsenalKind::Soldier => {
@@ -333,7 +332,7 @@ impl UnitView {
     }
 }
 
-/// A cover hint as combat reads it (src/ai/classic/nav/hints.js records).
+/// A cover hint as combat reads it (records).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HintView {
     pub obj: Obj,
@@ -378,7 +377,7 @@ pub struct Curves {
     pub s: Option<f64>,
 }
 
-/// A targeted-shot or damage alert on a controller (controller.js:419).
+/// A targeted-shot or damage alert on a controller.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ShotAlert {
     pub pending: bool,
@@ -388,7 +387,7 @@ pub struct ShotAlert {
     pub source: Option<Obj>,
 }
 
-/// A danger alert on a controller (controller.js:418).
+/// A danger alert on a controller.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DangerAlert {
     pub pending: bool,
@@ -402,7 +401,7 @@ pub struct JetRequest {
     pub vector: Vector3,
 }
 
-/// A controller (src/ai/classic/controller.js UnitController) as this
+/// A controller (UnitController) as this
 /// package reads and writes it: the control core holds one per controller.
 /// `perception` is this package's own (created at each bind).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -446,18 +445,18 @@ pub struct Ctl {
 }
 
 impl Ctl {
-    /// controller.js:381 `lookAt`.
+    /// `lookAt`.
     pub fn look_at(&mut self, point: &Vector3) {
         self.aim_state = 1.0;
         self.aim_point = *point;
     }
 
-    /// controller.js:390 `lookAlongPath`.
+    /// `lookAlongPath`.
     pub fn look_along_path(&mut self) {
         self.aim_state = 2.0;
     }
 
-    /// controller.js:396 `setStance`.
+    /// `setStance`.
     pub fn set_stance(&mut self, stance: f64) {
         self.stance = stance;
         if self.nav_stance.is_some() {
@@ -465,13 +464,13 @@ impl Ctl {
         }
     }
 
-    /// controller.js:386 `aimAt(ref)`.
+    /// `aimAt(ref)`.
     pub fn aim_at(&mut self, r: Option<Ref>) {
         self.aim_state = 0.0;
         self.aim_target = r;
     }
 
-    /// controller.js:439 `notifyShot`.
+    /// `notifyShot`.
     pub fn notify_shot(&mut self, source: Option<Obj>, known: bool, point: Option<Vector3>) {
         let Some(source) = source else { return };
         self.shot.pending = true;
@@ -484,13 +483,13 @@ impl Ctl {
         }
     }
 
-    /// controller.js:432 `notifyDanger`.
+    /// `notifyDanger`.
     pub fn notify_danger(&mut self, point: &Vector3) {
         self.danger.pending = true;
         self.danger.point = *point;
     }
 
-    /// controller.js:449 `addAcoustic` (20 at most).
+    /// `addAcoustic` (20 at most).
     pub fn add_acoustic(&mut self, r: Ref) {
         if self.acoustic.len() < 20 {
             self.acoustic.push(r);
@@ -547,7 +546,7 @@ impl QueryFilter {
 }
 
 /// The draws: the AI's shared generator A, the game's B, and the Enhanced
-/// aim's own (C), each a ClassicRandom (src/ai/random.js) the world keeps;
+/// aim's own (C), each a ClassicRandom the world keeps;
 /// `int` and `range` are its methods over the uniform drawn.
 pub trait Draws {
     fn uniform_a(&mut self) -> f64;
@@ -555,7 +554,7 @@ pub trait Draws {
     fn uniform_c(&mut self) -> f64;
 }
 
-/// random.js:41 `int(lo, hi)` on generator `which` (no draw when hi <= lo).
+/// `int(lo, hi)` on generator `which` (no draw when hi <= lo).
 pub fn draw_int(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> f64 {
     if !(hi > lo) {
         return lo;
@@ -564,7 +563,7 @@ pub fn draw_int(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> 
     v8math::trunc(v8math::fround(v8math::fround(u * v8math::fround(hi - lo + 1.0)) + lo))
 }
 
-/// random.js:49 `range(lo, hi)`.
+/// `range(lo, hi)`.
 pub fn draw_range(d: &mut (impl Draws + ?Sized), which: Gen, lo: f64, hi: f64) -> f64 {
     let u = uniform(d, which);
     v8math::fround(v8math::fround(lo) + v8math::fround(u * v8math::fround(hi - lo)))
@@ -680,7 +679,7 @@ pub trait World: Draws {
     /// refused while the channel's weapon is busy; a seat's: always).
     fn arsenal_select(&mut self, u: Obj, index: usize) -> bool;
     /// useClassicRandom: the unit's weapons draw their spread from
-    /// generator A from now on (weapons-ai.js:999).
+    /// generator A from now on.
     fn use_classic_random(&mut self, u: Obj);
 
     // -- The registry.
@@ -693,7 +692,7 @@ pub trait World: Draws {
     fn relation(&mut self, a: f64, b: f64) -> f64;
     /// `units.living()`: every living member, in registry order.
     fn living(&mut self) -> List<Obj>;
-    /// game.js `los(from, to, a, b)`: the segment is clear.
+    /// `los(from, to, a, b)`: the segment is clear.
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>) -> bool;
 
     // -- Controllers and agents (the control core's).
@@ -802,6 +801,6 @@ pub trait World: Draws {
     fn request_jet(&mut self, controller: Obj, vector: &Vector3);
 
     // -- Squads.
-    /// squads.js emitVo(ai, unit, { event, property }).
+    /// emitVo(ai, unit, { event, property }).
     fn emit_vo(&mut self, unit: Obj, event: &str, property: &str);
 }
