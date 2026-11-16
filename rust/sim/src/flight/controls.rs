@@ -1,7 +1,7 @@
-//! src/flight/controls.js flightInput and src/boarding.js seatInput's
+//! flightInput and src/boarding.js seatInput's
 //! flight part: a pilot's flight keys from his held keys, his queued
 //! actions and his game pad, as the world reads a network pilot's
-//! (src/runtime/network-vehicle.js networkVehicleInput, every tick in the
+//! (networkVehicleInput, every tick in the
 //! players' phase). The keys a binding names are his command's flight
 //! bindings over FLIGHT_BINDINGS (`flightBindings`).
 

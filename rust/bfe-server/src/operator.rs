@@ -1,5 +1,5 @@
 //! Operator SQLite store (`operator.sqlite`), token authentication (`operator-token`),
-//! and local HTTP `/admin` + `/healthz` listener (`src/operator.js` and `src/main.js`).
+//! and local HTTP `/admin` + `/healthz` listener.
 
 use crate::identity::{is_hex_64, write_mode_600};
 use bfe_transport::crypto::random;
@@ -16,7 +16,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// One row from the `bans` table returned by `OperatorStore::bans`
-/// (`SELECT id,expires,reason FROM bans` in `OperatorStore.bans` in `src/operator.js`).
+/// (`SELECT id,expires,reason FROM bans` in `OperatorStore.bans`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalBan {
     /// 64-character lowercase SHA-256 hex digest of the banned player's Ed25519 SPKI public key.
@@ -28,7 +28,7 @@ pub struct LocalBan {
 }
 
 /// Aggregated player statistics row returned by `OperatorStore::stats`
-/// (`OperatorStore.stats` in `src/operator.js`).
+/// (`OperatorStore.stats`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerStatRow {
@@ -49,7 +49,7 @@ pub struct PlayerStatRow {
 }
 
 /// Input row passed to `OperatorStore::scores` at battle completion or periodic score flush
-/// (`OperatorStore.scores(match, players)` in `src/operator.js`).
+/// (`OperatorStore.scores(match, players)`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScoreInput {
     /// 64-character lowercase SHA-256 hex player identity.
@@ -65,7 +65,7 @@ pub struct ScoreInput {
 }
 
 /// Persistent SQLite backing store for local operator bans, per-match player scores,
-/// and administrative audit log entries (`export class OperatorStore` in `src/operator.js`).
+/// and administrative audit log entries (`export class OperatorStore`).
 pub struct OperatorStore {
     /// Mutex-guarded `rusqlite::Connection`; `None` after `OperatorStore::close` is called.
     db: Mutex<Option<Connection>>,
@@ -74,7 +74,7 @@ pub struct OperatorStore {
 impl OperatorStore {
     /// Opens or initializes `<dir>/operator.sqlite` with mode `0600`, enables `WAL`
     /// journal mode, and creates the `bans`, `scores`, and `audit` tables if absent
-    /// (`new OperatorStore(directory)` in `src/operator.js`).
+    /// (`new OperatorStore(directory)`).
     pub fn open(dir: &Path) -> Result<Self, String> {
         fs::create_dir_all(dir).map_err(|e| format!("failed to create state dir: {e}"))?;
         let file = dir.join("operator.sqlite");
@@ -82,7 +82,7 @@ impl OperatorStore {
             .map_err(|e| format!("failed to open {}: {e}", file.display()))?;
 
         // Restrict operator.sqlite to owner read/write (0o600), matching chmodSync(..., 0o600)
-        // in OperatorStore.constructor in src/operator.js.
+        // in OperatorStore.constructor.
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -104,7 +104,7 @@ impl OperatorStore {
         })
     }
 
-    /// Current Unix epoch time in milliseconds (`Date.now()` in `src/operator.js`).
+    /// Current Unix epoch time in milliseconds (`Date.now()`).
     fn now_ms() -> i64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -113,7 +113,7 @@ impl OperatorStore {
     }
 
     /// Appends an entry to the `audit` table (`OperatorStore.audit(action, id, reason)`
-    /// in `src/operator.js`). Reasons are truncated to 240 characters.
+    ///). Reasons are truncated to 240 characters.
     pub fn audit(&self, action: &str, id: Option<&str>, reason: &str) {
         let guard = self.db.lock().unwrap();
         let Some(conn) = guard.as_ref() else {
@@ -127,7 +127,7 @@ impl OperatorStore {
     }
 
     /// Inserts or replaces a player ban and records an audit row
-    /// (`OperatorStore.ban(id, hours, reason='')` in `src/operator.js`).
+    /// (`OperatorStore.ban(id, hours, reason='')`).
     ///
     /// Rejects non-64-hex identities or `hours` outside `0.0..=8760.0` (one year).
     /// When `hours == 0`, `expires` is stored as `0` (permanent ban).
@@ -157,7 +157,7 @@ impl OperatorStore {
     }
 
     /// Removes a player ban and records an `"unban"` audit entry
-    /// (`OperatorStore.unban(id)` in `src/operator.js`).
+    /// (`OperatorStore.unban(id)`).
     pub fn unban(&self, id: &str) -> Result<(), String> {
         if !is_hex_64(id) {
             return Err("Invalid identity".to_string());
@@ -175,7 +175,7 @@ impl OperatorStore {
     }
 
     /// Returns `true` if `id` is currently banned (`expires == 0 || expires > Date.now()`)
-    /// (`OperatorStore.banned(id)` in `src/operator.js`).
+    /// (`OperatorStore.banned(id)`).
     pub fn banned(&self, id: &str) -> bool {
         let guard = self.db.lock().unwrap();
         let Some(conn) = guard.as_ref() else {
@@ -197,7 +197,7 @@ impl OperatorStore {
     }
 
     /// Lists up to 1000 active bans ordered by `id`
-    /// (`OperatorStore.bans()` in `src/operator.js`).
+    /// (`OperatorStore.bans()`).
     pub fn bans(&self) -> Vec<LocalBan> {
         let guard = self.db.lock().unwrap();
         let Some(conn) = guard.as_ref() else {
@@ -222,7 +222,7 @@ impl OperatorStore {
     }
 
     /// Records per-player match scores inside a single SQLite transaction
-    /// (`OperatorStore.scores(match, players)` in `src/operator.js`).
+    /// (`OperatorStore.scores(match, players)`).
     ///
     /// Skips rows whose `id` is not a 64-character hex identity or whose `kills`,
     /// `deaths`, or `points` have magnitude `>= 1_000_000`.
@@ -272,7 +272,7 @@ impl OperatorStore {
     }
 
     /// Queries aggregated player score statistics across matches, optionally filtered
-    /// to a single 64-character hex player identity (`OperatorStore.stats(id)` in `src/operator.js`).
+    /// to a single 64-character hex player identity (`OperatorStore.stats(id)`).
     pub fn stats(&self, id: Option<&str>) -> Result<Vec<PlayerStatRow>, String> {
         if let Some(target_id) = id {
             if !is_hex_64(target_id) {
@@ -317,7 +317,7 @@ impl OperatorStore {
         }
     }
 
-    /// Explicitly closes the underlying SQLite connection (`OperatorStore.close()` in `src/operator.js`).
+    /// Explicitly closes the underlying SQLite connection (`OperatorStore.close()`).
     pub fn close(&self) {
         let mut guard = self.db.lock().unwrap();
         if let Some(conn) = guard.take() {
@@ -333,7 +333,7 @@ impl Drop for OperatorStore {
 }
 
 /// Loads or creates the 64-character hex bearer token in `<dir>/operator-token`
-/// with mode `0600` (`operatorHandler` in `src/operator.js`).
+/// with mode `0600` (`operatorHandler`).
 pub fn operator_token(dir: &Path) -> Result<String, String> {
     fs::create_dir_all(dir).map_err(|e| format!("failed to create state dir: {e}"))?;
     let file = dir.join("operator-token");
@@ -358,7 +358,7 @@ pub fn operator_token(dir: &Path) -> Result<String, String> {
 }
 
 /// Constant-time comparison of the HTTP `Authorization` header against
-/// `"Bearer <expected_token>"` (`timingSafeEqual(auth, token)` in `operatorHandler` in `src/operator.js`).
+/// `"Bearer <expected_token>"` (`timingSafeEqual(auth, token)` in `operatorHandler`).
 fn check_auth(header: Option<&str>, expected_token: &str) -> bool {
     let Some(header) = header else {
         return false;
@@ -376,7 +376,7 @@ fn check_auth(header: Option<&str>, expected_token: &str) -> bool {
     diff == 0
 }
 
-/// Callback interface implemented by the running service (`serve` in `src/main.js`)
+/// Callback interface implemented by the running service (`serve`)
 /// to answer `/healthz` probes and `/admin` control commands.
 pub trait OperatorControl: Send + Sync {
     /// Current service lifecycle state (`"setup"`, `"loading"`, `"running"`, or `"fault"`).
@@ -406,7 +406,7 @@ pub trait OperatorControl: Send + Sync {
 }
 
 /// Loopback TCP HTTP listener serving `POST /admin` and `GET /healthz`
-/// (`operatorHandler` in `src/operator.js` and `createServer` in `src/main.js`).
+/// (`operatorHandler` and `createServer`).
 pub struct OperatorHttpServer {
     /// Bound loopback TCP port (`PORT` env var or `18450`).
     pub port: u16,
@@ -416,7 +416,7 @@ pub struct OperatorHttpServer {
 
 impl OperatorHttpServer {
     /// Binds `127.0.0.1:<port>` and spawns the operator HTTP accept loop
-    /// (`operatorHandler` in `src/operator.js` + `serve` in `src/main.js`).
+    /// (`operatorHandler` in `src/operator.js` + `serve`).
     pub fn start(
         port: u16,
         dir: &Path,
@@ -471,8 +471,8 @@ impl Drop for OperatorHttpServer {
 }
 
 /// Handles one HTTP request on the loopback operator socket:
-/// - `GET /healthz`: unauthenticated readiness/health JSON (`serve` in `src/main.js`).
-/// - `POST /admin`: bearer-authenticated JSON command (`operatorHandler` in `src/operator.js`).
+/// - `GET /healthz`: unauthenticated readiness/health JSON (`serve`).
+/// - `POST /admin`: bearer-authenticated JSON command (`operatorHandler`).
 /// - Any other path: `404 Not Found`.
 fn handle_operator_connection(
     mut stream: TcpStream,
@@ -528,7 +528,7 @@ fn handle_operator_connection(
             )?;
             return Ok(());
         }
-        // Mirrors the `/healthz` handler in `serve()` in `src/main.js`:
+        // Mirrors the `/healthz` handler in `serve()`:
         // returns HTTP 200 when `status == "running" || status == "setup"`, else HTTP 503.
         // Importantly, `multiplayerReady` is `true` only when `control.multiplayer_ready()` is `true`
         // (which requires `NativeWorldHost` to have admitted a real world via `Context::world_admit`).
@@ -551,7 +551,7 @@ fn handle_operator_connection(
         return write_json_response(&mut stream, http_status, &payload);
     }
 
-    // Verify `Authorization: Bearer <token>` in constant time (`timingSafeEqual` in `src/operator.js`).
+    // Verify `Authorization: Bearer <token>` in constant time (`timingSafeEqual`).
     if !check_auth(auth_header.as_deref(), token) {
         return write_json_response(&mut stream, 401, &json!({"error": "Unauthorized"}));
     }
@@ -564,7 +564,7 @@ fn handle_operator_connection(
         return write_json_response(&mut stream, 400, &json!({"error": "JSON POST required"}));
     }
 
-    // Enforce the 4096-byte request body cap from `operatorHandler` in `src/operator.js`.
+    // Enforce the 4096-byte request body cap from `operatorHandler`.
     let body_start = header_end + 4;
     if content_length > 4096 || buf.len().saturating_sub(body_start) > 4096 {
         return write_json_response(&mut stream, 400, &json!({"error": "Request too large"}));
@@ -598,7 +598,7 @@ fn handle_operator_connection(
     }
 }
 
-/// Dispatches a parsed `/admin` JSON command (`handleOperator` in `src/main.js`).
+/// Dispatches a parsed `/admin` JSON command (`handleOperator`).
 ///
 /// Supported actions: `status`, `stop`, `restart`, `stats`, `metrics`,
 /// `reset-metrics`, `unban`, `ban`, `kick`, and `message`.
@@ -711,7 +711,7 @@ fn write_json_response(
 }
 
 /// Sends an authenticated JSON command to `http://127.0.0.1:<port>/admin` using the
-/// bearer token from `<dir>/operator-token` (`export async function operatorRequest` in `src/operator.js`).
+/// bearer token from `<dir>/operator-token` (`export async function operatorRequest`).
 pub fn operator_request(dir: &Path, value: &Value, port: u16) -> Result<Value, String> {
     let token_raw = fs::read_to_string(dir.join("operator-token"))
         .map_err(|e| format!("failed to read operator-token: {e}"))?;

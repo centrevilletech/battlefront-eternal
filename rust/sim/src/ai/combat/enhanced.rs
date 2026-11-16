@@ -1,8 +1,8 @@
-//! Enhanced aim (src/ai/enhanced/aim.js): a reaction time per new target,
+//! Enhanced aim: a reaction time per new target,
 //! a wandering aim error that grows with range and the bot's own speed, an
 //! acquisition bias that fades, a slew limit, and the player's spread rules
 //! for a bot's weapons. Its draws come from its own generator (C), seeded
-//! from the match seed. f64 throughout, as the JavaScript computes it.
+//! from the match seed. f64 throughout it.
 
 use std::collections::HashMap;
 use three::Vector3;
@@ -14,7 +14,7 @@ use super::world::{uniform, Draws, Gen, Obj, World};
 
 const DEG: f64 = std::f64::consts::PI / 180.0;
 
-/// aim.js:38 `AIM_PROFILES`.
+/// `AIM_PROFILES`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Profile {
     pub reaction: f64,
@@ -35,7 +35,7 @@ pub fn profile(tier: f64) -> Profile {
     }
 }
 
-/// aim.js:44 `AIM_MODEL`.
+/// `AIM_MODEL`.
 const TAU: f64 = 0.25;
 const BIAS: f64 = 2.5;
 const REACTION_SPREAD: f64 = 0.25;
@@ -44,7 +44,7 @@ const VARIATION: f64 = 0.1;
 const RETAIN: f64 = 1.5;
 const SCOPE: f64 = 0.5;
 
-/// aim.js:64 `EnhancedAimer` (its generator is the battle's C).
+/// `EnhancedAimer` (its generator is the battle's C).
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnhancedAimer {
     pub profile: Profile,
@@ -98,20 +98,20 @@ impl EnhancedAimer {
         }
     }
 
-    /// aim.js:79 `gaussian()`.
+    /// `gaussian()`.
     pub(crate) fn gaussian<W: Draws + ?Sized>(w: &mut W) -> f64 {
         let u = v8math::max(uniform(w, Gen::C), 1e-12);
         let v = uniform(w, Gen::C);
         v8math::sqrt(-2.0 * v8math::log(u)) * v8math::cos(2.0 * std::f64::consts::PI * v)
     }
 
-    /// aim.js:85 `reset(direction)`.
+    /// `reset(direction)`.
     pub fn reset(&mut self, direction: &Vector3) {
         self.direction = *direction;
         self.started = true;
     }
 
-    /// aim.js:92 `observe(target, now)`: a new target starts a reaction
+    /// `observe(target, now)`: a new target starts a reaction
     /// time and an acquisition bias.
     pub fn observe<W: World + ?Sized>(&mut self, w: &mut W, target: Option<Obj>, now: f64) {
         let key = target.map(|t| {
@@ -144,19 +144,19 @@ impl EnhancedAimer {
         self.bias[1] = BIAS * Self::gaussian(w);
     }
 
-    /// aim.js:112 `reacting(now)`.
+    /// `reacting(now)`.
     pub fn reacting(&self, now: f64) -> bool {
         self.key.is_some() && now < self.ready_at
     }
 
-    /// aim.js:118 `sigma(d, speedFraction, scoped)`.
+    /// `sigma(d, speedFraction, scoped)`.
     pub fn sigma(&self, d: f64, speed_fraction: f64, scoped: bool) -> f64 {
         let range = 0.7 + 0.3 * v8math::min(v8math::max(d / 25.0, 0.0), 4.0);
         let scope = if scoped { SCOPE } else { 1.0 };
         self.profile.sigma25 * DEG * self.skill * range * (1.0 + MOVEMENT * speed_fraction) * scope
     }
 
-    /// aim.js:125 `update(desired, dt, options)`: the gun direction.
+    /// `update(desired, dt, options)`: the gun direction.
     #[allow(clippy::too_many_arguments)]
     pub fn update<W: Draws + ?Sized>(&mut self, w: &mut W, desired: &Vector3, dt: f64, distance: f64, speed_fraction: f64, scoped: bool, now: f64, hero: bool) -> Vector3 {
         if !self.started {
@@ -205,25 +205,25 @@ impl EnhancedAimer {
     }
 }
 
-/// aim.js:174 `playerSpread(weapon)`: no extra spread or sniper error, and
+/// `playerSpread(weapon)`: no extra spread or sniper error, and
 /// the player's spread floor.
 pub fn player_spread<W: World + ?Sized>(w: &mut W, unit: Obj, index: usize) {
     let def = def_at(w, unit, index);
     w.edit_weapon(unit,index,|wv|wv.player_spread(&def));
 }
 
-/// aim.js:192 `enhancedCombat(world, { tier, seed })`'s state: the profile,
+/// `enhancedCombat(world, { tier, seed })`'s state: the profile,
 /// the Characters' skills, the hook flag. Its generator is the world's C,
 /// `ClassicRandom((seed ^ 0x51ed270b) >>> 0)`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnhancedCombat {
     pub profile: Profile,
-    /// aim.js:197 `skills`: a stable skill factor per Character.
+    /// `skills`: a stable skill factor per Character.
     pub skills: HashMap<Obj, f64>,
     pub hooked: bool,
 }
 
-/// The seed of the Enhanced aim's generator (aim.js:195).
+/// The seed of the Enhanced aim's generator.
 pub fn seed_c(seed: f64) -> u32 {
     v8math::to_uint32(seed) ^ 0x51ed_270b
 }
@@ -233,7 +233,7 @@ impl EnhancedCombat {
         EnhancedCombat { profile: profile(tier), skills: HashMap::new(), hooked: false }
     }
 
-    /// aim.js:201 `aimerOf(controller)`: made at first ask, with its
+    /// `aimerOf(controller)`: made at first ask, with its
     /// Character's skill (drawn once a Character).
     fn ensure_aimer<W: World + ?Sized>(&mut self, w: &mut W, controller: Obj) -> bool {
         if w.ctl(controller).perception.is_none() {
@@ -262,7 +262,7 @@ impl EnhancedCombat {
         r
     }
 
-    /// aim.js:214 `updateAim(controller, dt)`.
+    /// `updateAim(controller, dt)`.
     pub fn update_aim<W: World + ?Sized>(&mut self, w: &mut W, cx: &CombatAi, controller: Obj, dt: f64) -> Option<Vector3> {
         let unit = w.ctl(controller).unit?;
         if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
@@ -315,7 +315,7 @@ impl EnhancedCombat {
         Some(direction)
     }
 
-    /// aim.js:236 `consumeFire(controller, unit, step, intent)`: held while
+    /// `consumeFire(controller, unit, step, intent)`: held while
     /// reacting.
     pub fn consume_fire<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi, controller: Obj, unit: Obj, step: f64, intent: bool) {
         if self.ensure_aimer(w, controller) {
@@ -338,7 +338,7 @@ impl EnhancedCombat {
         }
     }
 
-    /// aim.js:248 `aim(controller, dt)`.
+    /// `aim(controller, dt)`.
     pub fn aim<W: World + ?Sized>(&mut self, w: &mut W, cx: &CombatAi, controller: Obj, dt: f64) -> Option<Vector3> {
         self.hooked = true;
         let direction = self.update_aim(w, cx, controller, dt);

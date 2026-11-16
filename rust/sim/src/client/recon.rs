@@ -21,7 +21,7 @@ const WEAPONS: usize = 32;
 // F3 reserves these gather bounds before launch as well. Overflow keeps the
 // bounded prefix rather than growing a paused or malformed display frame.
 // Gather caps match the authoritative recon solver's scratch reservation.
-// The page reads the same contacts without delegating a triangle operation
+// The client reads the same contacts without delegating a triangle operation
 // to JavaScript or changing the global collision world's ownership.
 const TRIANGLES: usize = 4096;
 fn v(a: [f64; 3]) -> Vector3 {
@@ -34,7 +34,7 @@ fn bit(bits: u32, action: ClientAction) -> bool {
 // This store belongs to one flown resource, never to the authoritative F3
 // world. It keeps the same generation-qualified native ownership links so
 // the shared core can apply its usual launch, exit and retirement rules.
-// The page only borrows the final mutable state until its next correction.
+// The client only borrows the final mutable state until its next correction.
 pub(super) struct Session {
     authority: Authority,
     store: Store,
@@ -234,7 +234,7 @@ impl Session {
         }
         self.flags.clear();
         self.flags.extend(flags.iter().map(|&f| u8::from(f != 0.)));
-        // A missing correction must not make the page replay an unbounded
+        // A missing correction must not make the client replay an unbounded
         // blackout. Keep the original two-second horizon and command order.
         // An input stamped before the checkpoint can still carry an action;
         // the core consumes it on the first eligible replay tick below.
@@ -342,10 +342,10 @@ impl Session {
             if let Some(value) = aspect.filter(|a| a.is_finite() && *a > 0.) {
                 row.aspect = value;
             }
-            // F3 consumes the same action names the page previously handed
+            // F3 consumes the same action names the client previously handed
             // to its JavaScript controller. Primary held fire remains distinct
             // from a discrete press, and cycling a weapon hands control back.
-            // These flags are quiet intent, never calls into the page owner.
+            // These flags are quiet intent, never calls into the client owner.
             let input = Input {
                 forward: axis(held, FORWARD, BACKWARD),
                 right: axis(held, RIGHT, LEFT),
@@ -367,7 +367,7 @@ impl Session {
         }
         let d = self.store.recon_droid.get(self.droid).unwrap();
         let c = self.store.recon_context.get(self.context).unwrap();
-        // Publication is a single stable block. Preserve every value the page
+        // Publication is a single stable block. Preserve every value the client
         // still reads, including the camera, ammo and pending strike basis.
         // The host copies into retained resources and restores its saved block
         // before applying another correction; no physics callback escapes here.
@@ -417,7 +417,7 @@ impl Session {
     }
 }
 
-// F3's World operations borrow the page's collision geometry directly. No
+// F3's World operations borrow the client's collision geometry directly. No
 // foreign callback or per-ray WASM crossing occurs inside recon replay.
 // Native collision borrows the same immutable world as normal prediction.
 // Gathered polygons and ray candidates are private scratch; the environment
@@ -456,7 +456,7 @@ impl World for Environment<'_> {
             normal: Vector3::new(h.nx, h.ny, h.nz),
         })
     }
-    // The old replay environment exposed the page collision world's nearest
+    // The old replay environment exposed the client collision world's nearest
     // wall query here too. Retain its filtering and tie order instead of
     // introducing a different static-only broad phase for the chase camera.
     fn static_cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {

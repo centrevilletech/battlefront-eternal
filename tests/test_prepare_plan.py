@@ -24,22 +24,23 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(has_maps)
         return [step[0] for step in steps], steps
 
-    def test_the_native_client_lists_the_movies_instead_of_converting_them(self):
-        prepare.MOVIE_INDEX = True
+    def test_no_step_converts_the_movies(self):
+        # The client plays the Bink files from the game's archives; the catalog step lists them.
+        keys, steps = self.keys()
+        self.assertEqual([k for k in keys if "movie" in k], [])
+        self.assertEqual([k for k in prepare.ADD_ON_STEPS if "movie" in k], [])
+        calls = []
+        original = prepare.run_tool
+        prepare.run_tool = lambda script, *args, prefix="": calls.append((script, [str(a) for a in args])) or True
         try:
-            keys, steps = self.keys()
+            steps[0][5]()
         finally:
-            prepare.MOVIE_INDEX = False
-        self.assertEqual(keys[:2], ["catalog", "movie-index"])
-        self.assertNotIn("movies", keys)
-        step = {item[0]: item for item in steps}["movie-index"]
-        self.assertEqual(step[2], "Listing the movies")
-        self.assertTrue(step[4], "needs no ffmpeg")
-        self.assertIn("movie-index", prepare.ADD_ON_STEPS)
+            prepare.run_tool = original
+        self.assertEqual(calls, [("zero_shell.py", ["--catalog"])])
 
     def test_sides_once_then_common_shell_then_maps_then_catalog_update(self):
         keys, steps = self.keys()
-        self.assertEqual(keys[:2], ["catalog", "movies"])
+        self.assertEqual(keys[0], "catalog")
         sides = [k for k in keys if k.startswith("side:")]
         self.assertEqual(sides, ["side:rep", "side:cis", "side:all", "side:imp", "side:geo", "side:ewk"])
         maps = [k for k in keys if k.startswith("map:")]
@@ -73,7 +74,6 @@ class PlanTests(unittest.TestCase):
         _, steps = self.keys()
         core = [k for k, phase, *_ in steps if phase == "core"]
         self.assertTrue(all(k in core for k in ("catalog", "side:rep", "common", "shell", "map:bes1", "catalog-update", "hud")))
-        self.assertNotIn("movies", core)
         steps, has_maps = prepare.plan(8, maps=[], locals_of={})
         self.assertFalse(has_maps)
         self.assertEqual([k for k, *_ in steps if k in ("common", "shell", "catalog-update")], [])
@@ -89,9 +89,8 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(owners["side:rep"], (), "the game's own armies stay the game's")
         self.assertEqual(owners["audio:abc1cw"], ("abc1",))
         self.assertEqual(owners["audio:geo1cw"], ())
-        for key in ("catalog", "common", "shell", "map:geo1", "movies", "environment", "catalog-update"):
+        for key in ("catalog", "common", "shell", "map:geo1", "environment", "catalog-update"):
             self.assertEqual(owners[key], ())
-        self.assertEqual({item[0]: item[2] for item in steps}["movies"], "Converting the movies")
 
     def test_map_sides_keep_era_order_then_locals(self):
         self.assertEqual(prepare.map_sides(MAPS[0], LOCALS), ["rep", "cis", "all", "imp"])
@@ -111,11 +110,10 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(after["audio:bes1cw"], ("map:bes1",))
         self.assertEqual(after["audio:bes1gcw"], ("map:bes1",))
         self.assertEqual(after["audio:geo1cw"], ("map:geo1", "audio:bes1cw"))  # the era's voice-over is made once
-        self.assertEqual(after["movies"], ("catalog",))
         self.assertIn("map:", after["textures"])
         self.assertEqual(prepare.needs(steps[0])["cores"], 1)
-        self.assertEqual({item[0]: prepare.needs(item)["cores"] for item in steps if item[0] in ("textures", "audio:bes1cw", "movies")},
-                         {"textures": 4, "audio:bes1cw": 4, "movies": 4})
+        self.assertEqual({item[0]: prepare.needs(item)["cores"] for item in steps if item[0] in ("textures", "audio:bes1cw")},
+                         {"textures": 4, "audio:bes1cw": 4})
         self.assertEqual(prepare.batch_of("side:rep"), "side")
         self.assertEqual(prepare.batch_of("map:bes1"), "map")
         for key in ("catalog", "common", "shell", "audio:bes1cw", "catalog-update"):
@@ -210,7 +208,7 @@ class SchedulerTests(unittest.TestCase):
         log, finished = self.run_plan([
             ("catalog", (), 1, True), ("side:a", ("catalog",), 1, True), ("side:b", ("catalog",), 1, False),
             ("map:x", ("catalog",), 1, True), ("map:y", ("catalog",), 1, True), ("map:z", ("catalog",), 1, True),
-            ("common", ("side:",), 1, True), ("movies", ("catalog",), 2, True), ("audio:x", ("map:x",), 2, True),
+            ("common", ("side:",), 1, True), ("hud", ("catalog",), 2, True), ("audio:x", ("map:x",), 2, True),
             ("textures", ("map:", "common"), 4, True),
         ], jobs=4, workers=2)
         started = [entry[1] for entry in log]

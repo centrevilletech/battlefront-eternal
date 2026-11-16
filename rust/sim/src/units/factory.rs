@@ -1,4 +1,4 @@
-//! The factory's pools (src/units.js UnitFactory): a unit's body goes back
+//! The factory's pools (UnitFactory): a unit's body goes back
 //! to its class's pool when it is removed, and a spawn of that class takes
 //! the last one returned (a stack), or a new one built when none is free.
 

@@ -9,7 +9,7 @@ use crate::{Error, Result, crypto};
 /// Fixed 32-bit STUN magic cookie (`0x2112a442`) from RFC 8489 Section 5.
 pub const MAGIC: u32 = 0x2112_a442;
 
-/// STUN and TURN 12-bit method numbers (`src/net/stun.js` `METHOD`).
+/// STUN and TURN 12-bit method numbers (`METHOD`).
 pub mod method {
     /// RFC 8489 Binding method (`0x001`) for reflexive address discovery.
     /// RFC 8656 TURN Allocate (`0x003`), Refresh (`0x004`), Send (`0x006`),
@@ -23,7 +23,7 @@ pub mod method {
     pub const CHANNEL_BIND: u16 = 0x009;
 }
 
-/// 2-bit STUN message class values (`src/net/stun.js` `CLASS`).
+/// 2-bit STUN message class values (`CLASS`).
 pub mod class {
     /// Request (`0b00`), Indication (`0b01`), Success Response (`0b10`),
     /// and Error Response (`0b11`).
@@ -33,7 +33,7 @@ pub mod class {
     pub const ERROR: u8 = 3;
 }
 
-/// 16-bit STUN and TURN attribute type codes (`src/net/stun.js` `ATTR`).
+/// 16-bit STUN and TURN attribute type codes (`ATTR`).
 pub mod attr {
     /// Comprehension-required (`0x0000..=0x7fff`) and comprehension-optional
     /// (`0x8000..=0xffff`) STUN/TURN attribute identifiers.
@@ -56,7 +56,7 @@ pub mod attr {
 }
 
 /// Interleaves a 12-bit STUN `method` and 2-bit `klass` into the 16-bit wire
-/// message type field (`src/net/stun.js` `messageType`).
+/// message type field (`messageType`).
 pub const fn message_type(method: u16, klass: u8) -> u16 {
     (method & 0x0f)
         | ((method & 0x70) << 1)
@@ -66,7 +66,7 @@ pub const fn message_type(method: u16, klass: u8) -> u16 {
 }
 
 /// Extracts the 12-bit `(method, klass)` pair from a 16-bit STUN message type
-/// header word (`src/net/stun.js` `splitType`).
+/// header word (`splitType`).
 pub const fn split_type(raw: u16) -> (u16, u8) {
     let method = (raw & 0x0f) | ((raw >> 1) & 0x70) | ((raw >> 2) & 0xf80);
     let klass = (((raw >> 4) & 1) | ((raw >> 7) & 2)) as u8;
@@ -75,7 +75,7 @@ pub const fn split_type(raw: u16) -> (u16, u8) {
 
 /// Returns `true` if `packet` has at least a 20-byte header, a leading byte in
 /// `0..=3` (per RFC 7983), and the RFC 8489 `MAGIC` cookie at bytes `4..8`
-/// (`src/net/stun.js` `isStun`).
+/// (`isStun`).
 pub fn is_stun(packet: &[u8]) -> bool {
     packet.len() >= 20
         && packet[0] < 4
@@ -83,19 +83,19 @@ pub fn is_stun(packet: &[u8]) -> bool {
 }
 
 /// Returns `true` if `packet` starts with a TURN ChannelData channel number
-/// in `0x4000..=0x4fff` (`src/net/stun.js` `isChannelData`).
+/// in `0x4000..=0x4fff` (`isChannelData`).
 pub fn is_channel_data(packet: &[u8]) -> bool {
     packet.len() >= 4 && (0x40..=0x4f).contains(&packet[0])
 }
 
 /// Generates a cryptographically random 96-bit (12-byte) STUN transaction ID
-/// (`src/net/stun.js` `newTransaction`).
+/// (`newTransaction`).
 pub fn new_transaction() -> Result<[u8; 12]> {
     crypto::random()
 }
 
 /// Encodes an IPv4 (8-byte) or IPv6 (20-byte) STUN address attribute body
-/// (`src/net/stun.js` `encodeAddress`). When `xor` is `true`, XORs the port
+/// (`encodeAddress`). When `xor` is `true`, XORs the port
 /// with the high 16 bits of `MAGIC` and the IP octets with `MAGIC || transaction`.
 pub fn encode_address(addr: SocketAddr, transaction: &[u8; 12], xor: bool) -> Vec<u8> {
     let mut mask = [0u8; 16];
@@ -133,7 +133,7 @@ pub fn encode_address(addr: SocketAddr, transaction: &[u8; 12], xor: bool) -> Ve
 }
 
 /// Decodes an IPv4 (`family = 1`) or IPv6 (`family = 2`) STUN address attribute
-/// payload (`src/net/stun.js` `decodeAddress`), reversing XOR masking when `xor` is `true`.
+/// payload (`decodeAddress`), reversing XOR masking when `xor` is `true`.
 pub fn decode_address(value: &[u8], transaction: &[u8; 12], xor: bool) -> Result<SocketAddr> {
     if value.len() < 8 {
         return Err(Error("invalid STUN address"));
@@ -181,7 +181,7 @@ pub fn decode_address(value: &[u8], transaction: &[u8; 12], xor: bool) -> Result
     }
 }
 
-/// `src/net/stun.js` `encodeMessage(method, klass, transaction, attributes)`:
+/// `encodeMessage(method, klass, transaction, attributes)`:
 /// encodes a STUN message with 4-byte padded attributes and trailing
 /// `FINGERPRINT` (`0x8028`).
 pub fn encode_message(
@@ -216,13 +216,13 @@ pub fn encode_message(
 }
 
 /// Encodes a minimal STUN Binding Request (`method::BINDING`, `class::REQUEST`)
-/// with no body attributes beyond the trailing `FINGERPRINT` (`src/net/stun.js` `encodeBindingRequest`).
+/// with no body attributes beyond the trailing `FINGERPRINT` (`encodeBindingRequest`).
 pub fn encode_binding_request(transaction: &[u8; 12]) -> Vec<u8> {
     encode_message(method::BINDING, class::REQUEST, transaction, &[])
 }
 
 /// Encodes a STUN Binding Success Response carrying `mapped` inside an
-/// `XOR-MAPPED-ADDRESS` (`0x0020`) attribute (`src/net/stun.js` `encodeBindingResponse`).
+/// `XOR-MAPPED-ADDRESS` (`0x0020`) attribute (`encodeBindingResponse`).
 pub fn encode_binding_response(transaction: &[u8; 12], mapped: SocketAddr) -> Vec<u8> {
     let encoded = encode_address(mapped, transaction, true);
     encode_message(
@@ -234,7 +234,7 @@ pub fn encode_binding_response(transaction: &[u8; 12], mapped: SocketAddr) -> Ve
 }
 
 /// Zero-copy view over a decoded STUN packet and its TLV attributes
-/// (`src/net/stun.js` `decodeMessage` return object).
+/// (`decodeMessage` return object).
 #[derive(Clone, Debug)]
 pub struct StunMessage<'a> {
     /// Decoded 12-bit STUN method (`method::BINDING`, etc.).
@@ -275,7 +275,7 @@ impl<'a> StunMessage<'a> {
     }
 
     /// Parses an RFC 8489 `ERROR-CODE` (`0x0009`) attribute into `(status_code, reason_phrase)`
-    /// where `status_code = class * 100 + number` (`src/net/stun.js` `errorCode`).
+    /// where `status_code = class * 100 + number` (`errorCode`).
     pub fn error_code(&self) -> Option<(u16, String)> {
         let value = self.attr(attr::ERROR_CODE)?;
         if value.len() < 4 {
@@ -287,7 +287,7 @@ impl<'a> StunMessage<'a> {
     }
 }
 
-/// Validates and parses a STUN packet (`src/net/stun.js` `decodeMessage`).
+/// Validates and parses a STUN packet (`decodeMessage`).
 /// Enforces 4-byte message length alignment, bounds-checks each TLV attribute,
 /// and stops parsing attributes after `MESSAGE_INTEGRITY` except for `FINGERPRINT`.
 pub fn decode_message(packet: &[u8]) -> Option<StunMessage<'_>> {

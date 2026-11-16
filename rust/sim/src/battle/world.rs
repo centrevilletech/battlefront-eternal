@@ -2,7 +2,7 @@
 //! registry's team questions, the units and their combat (whether one
 //! lives, what a Character controls, a kill), the hulls on the command
 //! vehicles' pads, the spawn manager's counts, the live objects' buildings,
-//! and the announcements the page shows. Each method is a call the
+//! and the announcements the client shows. Each method is a call the
 //! JavaScript makes; the replays serve them from captures
 //! (rust/sim/tests/replay_battle.rs).
 
@@ -11,7 +11,7 @@ use super::stats::Seen;
 use crate::gen::{Building, Character, MobilePost, PostEvent, SpawnPost, Store, Unit, Vehicle};
 use crate::store::{Ref, StrId};
 
-/// What the battlefield reads of a Character's body (battlefield.js:76).
+/// What the battlefield reads of a Character's body.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Body {
     pub removed: bool,
@@ -89,7 +89,7 @@ impl<T: BattleWorld + ?Sized> SpawningWorld for T {
 
 pub trait BattleWorld {
     fn spawn_goal(&mut self, _: Ref<Character>) -> Option<[f64; 3]> { None }
-    // ---- The registry (src/registry.js).
+    // ---- The registry.
 
     /// units.relation(a, b).
     fn relation(&mut self, a: f64, b: f64) -> f64;
@@ -101,7 +101,7 @@ pub trait BattleWorld {
 
     /// unit.alive.
     fn unit_alive(&mut self, unit: Ref<Unit>) -> bool;
-    /// observe(character) (src/battle-stats.js): what his tallies see of
+    /// observe(character): what his tallies see of
     /// him this tick; None without a body (or a removed one).
     fn observe(&mut self, character: Ref<Character>, unit: Option<Ref<Unit>>) -> Option<Seen>;
     /// What the battlefield reads of his body.
@@ -116,14 +116,14 @@ pub trait BattleWorld {
     /// vehicle.lastAttacker = null; vehicle.damage(Infinity).
     fn wreck(&mut self, s: &mut Store, vehicle: Ref<Vehicle>);
 
-    // ---- The hulls (src/vehicles.js).
+    // ---- The hulls.
 
     /// The hulls on a vehicle pad (a command vehicle's post's: its index).
     fn pad(&mut self, slot: f64) -> Pad;
     /// vehicle.position.
     fn vehicle_position(&mut self, vehicle: Ref<Vehicle>) -> [f64; 3];
     /// A command vehicle's post's class spawn points where its hull is now
-    /// (src/mobile-posts.js commandSpawnPoint: through the hull's frame, then
+    /// (commandSpawnPoint: through the hull's frame, then
     /// back toward its centre to the first static surface).
     fn class_spawn_world(&mut self, post: Ref<MobilePost>) -> Vec<[f64; 4]>;
 
@@ -131,7 +131,7 @@ pub trait BattleWorld {
 
     /// world.spawnUnit(character, className, post, at, yaw): a body for
     /// him, or None; the world sets his unit and class on him as it makes
-    /// one (src/game.js spawnUnit).
+    /// one (spawnUnit).
     #[allow(clippy::too_many_arguments)]
     fn spawn_unit(&mut self, s: &mut Store, character: Ref<Character>, class_name: Option<StrId>, post: SpawnPost, at: [f64; 3], yaw: Option<f64>) -> Option<Ref<Unit>>;
     /// forceKill(character): character.unit.combat.damage(Infinity).
@@ -139,7 +139,7 @@ pub trait BattleWorld {
     /// unit.combat.health (0 without one).
     fn health(&mut self, unit: Ref<Unit>) -> f64;
     /// objectives.request(character): a bot draws a fresh objective
-    /// (src/ai/classic/goals.js ClassicObjectives), which it may set on him.
+    /// (ClassicObjectives), which it may set on him.
     fn request_objective(&mut self, s: &mut Store, character: Ref<Character>);
     /// objectives.republish(character).
     fn republish(&mut self, s: &mut Store, character: Ref<Character>);
@@ -153,7 +153,7 @@ pub trait BattleWorld {
     /// A destructible post's building: whether it stands.
     fn building_alive(&mut self, building: Ref<Building>) -> bool;
 
-    // ---- The battle phase's glue (src/game.js updateBattle).
+    // ---- The battle phase's glue (updateBattle).
 
     /// units.all(): the registry's members in its order, as updateBattle
     /// reads them.
@@ -170,7 +170,7 @@ pub trait BattleWorld {
     /// death path that follows credits the battle and tells the spawn
     /// manager (onDeath).
     fn kill_victim(&mut self, s: &mut Store, victim: Victim);
-    /// presentEffect(name, point): what the page shows.
+    /// presentEffect(name, point): what the client shows.
     fn effect(&mut self, name: &str, at: [f64; 3]);
     /// A post captured, neutralized or lost: the audio's, the AI's
     /// (ai.postEvent, which may send Characters to new objectives) and the
@@ -180,7 +180,7 @@ pub trait BattleWorld {
     /// AI's.
     fn mobile_event(&mut self, s: &mut Store, event: &MobileEvent);
 
-    // ---- The multiplayer roster (src/runtime/multiplayer-roster.js).
+    // ---- The multiplayer roster.
     /// classic.detach(character): the AI lets him go.
     fn ai_detach(&mut self, s: &mut Store, character: Ref<Character>);
     /// classic.attach(character): the AI takes him (a bot).
@@ -188,7 +188,7 @@ pub trait BattleWorld {
     /// His body out of the battle (the roster's retire): out of any seat
     /// (unplaced), no longer a player's, removed.
     fn retire_unit(&mut self, s: &mut Store, character: Ref<Character>, unit: Ref<Unit>);
-    // ---- What the page shows.
+    // ---- What the client shows.
 
     /// battle.onOver(loser): Victory or Defeat.
     fn battle_over(&mut self, loser: f64);

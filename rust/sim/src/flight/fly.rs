@@ -1,4 +1,4 @@
-//! A flyer's tick (src/vehicles.js `Vehicle.tick`, its flyer path, and
+//! A flyer's tick (`Vehicle.tick`, its flyer path, and
 //! `Vehicle.fly`): the last pose moved on, then, for a craft that is alive
 //! and awake or manned, its crew's aim and its flight: pilotless, or the
 //! flight model on its pilot's input (a network player's flight keys, a
@@ -9,8 +9,8 @@ use super::{FlightState, FlightWorld};
 use crate::vehicles::Hull;
 
 impl Hull {
-    /// captureTick's flyer part (vehicles.js captureTick): the frame at the
-    /// tick's start, which a page draws the craft from between ticks
+    /// captureTick's flyer part (captureTick): the frame at the
+    /// tick's start, which a client draws the craft from between ticks
     /// (`flightTickQ`). The hulls' captureTick takes the rest.
     pub fn capture_flight_tick(&mut self) {
         if self.flying {
@@ -73,7 +73,7 @@ impl Hull {
     }
 }
 
-/// What a flyer's shot carries of its lock (vehicles.js emitShot): the
+/// What a flyer's shot carries of its lock (emitShot): the
 /// locked target's id once the lock is Locked (-1 before), and the lock's
 /// generation (whatever its state).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,7 +82,7 @@ pub struct ShotTarget {
     pub target_generation: f64,
 }
 
-/// What a flyer's missile is given after it is fired (vehicles.js emitShot,
+/// What a flyer's missile is given after it is fired (emitShot,
 /// through the rounds' `Cx::flight_missile`): it steers by its class's
 /// seeker, lives the class's missile lifetime, and flies at its missile
 /// speed along its velocity.
@@ -121,7 +121,7 @@ impl Hull {
 }
 
 impl Hull {
-    /// initFlight (src/flight/model.js) for a craft named `name` (its class
+    /// initFlight for a craft named `name` (its class
     /// by flightClass) whose definition's keys are `config`: the hull's turn
     /// rate and top speed from the configuration, then its flight as a
     /// craft landed with full power (state.rs Flight::init).
@@ -132,7 +132,7 @@ impl Hull {
         self.flight.init(super::config::flight_class(name), config, &quaternion);
     }
 
-    /// Vehicle.spawn's flight part, in its order (vehicles.js spawn): every
+    /// Vehicle.spawn's flight part, in its order (spawn): every
     /// hull grounded as a craft, landed or with no flight state, its flight
     /// numbers 0; a craft turned to its pad's heading and given its flight
     /// (`init_flight`); the floor under it unknown (NaN). The caller sets

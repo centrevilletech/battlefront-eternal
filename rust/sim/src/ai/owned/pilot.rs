@@ -1,4 +1,4 @@
-//! flight/ai.js reads rounds from the canonical ordnance sequence. A dead
+//! reads rounds from the canonical ordnance sequence. A dead
 //! guided round stays in that sequence until its owner reaps it; it must not
 //! trigger a pilot's evasive turn during that intervening observation.
 

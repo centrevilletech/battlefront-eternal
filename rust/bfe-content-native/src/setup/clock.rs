@@ -1,4 +1,4 @@
-//! The host's world clock as WorldTick (src/runtime/world-tick.js) stamps it
+//! The host's world clock as WorldTick stamps it
 //! into every WorldTickInput and copies it back from every WorldTickOutput.
 //! The world itself advances the clock inside its step (World::step runs
 //! FixedClock's compensated advance once a tick); the host only keeps the
@@ -6,7 +6,7 @@
 use bfe_sim::gen::{WorldClockState, WorldTickInput, WorldTickOutput};
 use bfe_sim::world::clock;
 
-/// game.js: `new FixedClock({ budget: 0.035, maxDebt: 8 })`, 60 Hz and
+/// `new FixedClock({ budget: 0.035, maxDebt: 8 })`, 60 Hz and
 /// maxSteps 8 by default, every running field zero from `reset()`.
 pub fn battle_clock() -> WorldClockState {
     WorldClockState { hz: 60.0, dt: 1.0 / 60.0, max_steps: 8.0, budget: 0.035, max_debt: 8.0, ..Default::default() }
@@ -15,7 +15,7 @@ pub fn battle_clock() -> WorldClockState {
 /// The first tick's row, the same for every host (Instant Action's world
 /// thread and the dedicated server): the battle clock, the admission's
 /// foreign unit rows, live owners on, and the AI phase run unless the
-/// player fields no bots (game.js runs no AI when AI_MODE is off).
+/// player fields no bots (the battle runs no AI when AI_MODE is off).
 pub fn first_tick(units: u32, bots: &bfe_sim::world::admit::Bots) -> WorldTickInput {
     WorldTickInput { dt: 1.0 / 60.0, tick: 1.0, clock: battle_clock(), units, ai: bots.fielded, live: true, mouse_scale: 1.0, ..Default::default() }
 }

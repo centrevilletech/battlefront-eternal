@@ -37,7 +37,7 @@ Set `BFE_GAME_DIR` to read a Steam installation in place (the folder holding `Ga
 
 `docs/formats.md` describes what it reads. `docs/audio.md` covers the sound: the Original (2004) and Enhanced (2026) modes, speaker and headphone setup, and the optional upscaling.
 
-Classic battles can be launched directly from `bfe-client` with `--map nab2 --era cw --ai classic` or selected from Instant Action in the main menu. The pause menu's OPTIONS -> GAME OPTIONS offer AI mode, difficulty (`easy`, `medium`, `hard`) and heroes; RESTART MISSION applies AI, difficulty, or hero changes. Friendly fire changes immediately. F1 orders at ease, F2 follow, F3 move out, and F4 hold, matching the original PC bindings. Bots use the mission's rosters, navigation, combat, vehicles/turrets and class jobs. The HUD shows units, target relations, hits, kill messages and score changes. Implementation contracts and known fidelity limits are in [docs/ai.md](ai.md).
+Battles are launched from Instant Action in the main menu. The pause menu's OPTIONS -> GAME OPTIONS offer AI mode, difficulty (`easy`, `medium`, `hard`) and heroes; RESTART MISSION applies AI, difficulty, or hero changes. Friendly fire changes immediately. F1 orders at ease, F2 follow, F3 move out, and F4 hold, matching the original PC bindings. Bots use the mission's rosters, navigation, combat, vehicles/turrets and class jobs. The HUD shows units, target relations, hits, kill messages and score changes. Implementation contracts and known fidelity limits are in [docs/ai.md](ai.md).
 
 Gameplay uses one fixed 60 Hz clock, with rendering independent of it.
 Graphics settings offer Minimum, Performance, Balanced and High quality
@@ -45,7 +45,7 @@ presets, an optional frame cap, and adaptive resolution. Rendering defaults to
 the display's refresh rate. Performance targets 30 FPS on weaker hardware;
 this is a qualification target, not a measured minimum PC.
 In single-player, the battle runs on a local server thread inside `bfe-client`
-(`rust/bfe-client (local_battle.rs)`), off the window's render thread: the
+(`rust/bfe-client/src/local/`), off the window's render thread: the
 client sends the player's input as commands, draws the world from the server
 thread's published snapshots, and predicts the player's own soldier, hull,
 mounted guns, recon droid and shots ahead of them, just as an online client
@@ -54,7 +54,7 @@ does.
 The timing and threading architecture is documented in
 [docs/runtime-architecture.md](runtime-architecture.md).
 
-Running `bfe-client` with no map flag opens the main menu, where SINGLEPLAYER -> INSTANT ACTION builds and launches a playlist and MULTIPLAYER joins or hosts LAN and online servers. Passing `--map <id>` launches a prepared map directly (`--map bes2 --era cw` is Bespin: Cloud City in the Clone Wars era; `--map nab2 --era gcw` is Theed in the Galactic Civil War era; see [docs/native-client.md](native-client.md) and [docs/shell.md](shell.md)). The Republic plays the clone trooper, ARC trooper, pilot, sharpshooter, and jet trooper; the CIS the super battle droid, the B1 assault, pilot, and assassin droids (and the battles' `_inf`, `_av`, `_pilot`, and `_sniper` versions), and the droideka (`cis_inf_droideka`). The command posts start as the map sets them. Standing in a post's capture zone neutralizes and captures it. Your team spawns at its own posts, and holding every post starts a 20-second victory countdown. Click to capture the mouse. The keys are the 2004 PC defaults:
+`bfe-client` opens the main menu, where SINGLEPLAYER -> INSTANT ACTION builds and launches a playlist and MULTIPLAYER joins or hosts LAN and online servers ([docs/native-client.md](native-client.md), [docs/shell.md](shell.md)). For a scripted run on one map, `bfe-client --script ia:nab2` plays Instant Action rounds on Theed with generated input. The Republic plays the clone trooper, ARC trooper, pilot, sharpshooter, and jet trooper; the CIS the super battle droid, the B1 assault, pilot, and assassin droids (and the battles' `_inf`, `_av`, `_pilot`, and `_sniper` versions), and the droideka (`cis_inf_droideka`). The command posts start as the map sets them. Standing in a post's capture zone neutralizes and captures it. Your team spawns at its own posts, and holding every post starts a 20-second victory countdown. Click to capture the mouse. The keys are the 2004 PC defaults:
 
 - W and S (or Up and Down) move, A/D or Left/Right strafe. The mouse aims.
 - Space jumps. With only A or D held, it dives to that side instead. In the air, Space again lights a jet trooper's jetpack (he hovers, flies where he looks with W, and burns fuel shown under the health bar), and once more cuts it.
@@ -103,17 +103,14 @@ normal command, for example `python3 tools/extract.py geo1 --side rep` or
 detailed terrain indices from low-detail strips, fixing holes under vehicle
 pads on Geonosis and Hoth; those maps need a full re-extraction when upgrading.
 
-Rhen Var: Citadel loads with
-`--map rhn2 --era cw --ai classic` after
-`python3 tools/extract.py rhn2 --side rep`. Its Clone Wars battle uses seven
+Rhen Var: Citadel plays after `python3 tools/extract.py rhn2 --side rep`. Its Clone Wars battle uses seven
 command posts, the original navigation graph, and emplaced turrets, with no
 vehicle pads. The CIS roster must also be extracted for both armies to field
 (`python3 tools/extract.py rhn2 --side cis` on a fresh installation).
 The sky importer resolves mixed-case model references; re-extract Citadel if
 an older import shows a black sky.
 
-Kamino: Tipoca City loads with `--map kam1` after
-`python3 tools/extract.py kam1 --side rep`. Spawn paths follow each command
+Kamino: Tipoca City plays after `python3 tools/extract.py kam1 --side rep`. Spawn paths follow each command
 post's authored reference, including Kamino's `CP2SpawnPath` naming. Kamino
 retains its native infantry layout without vehicle spawns.
 Its native precipitation and ocean settings are imported too: falling rain

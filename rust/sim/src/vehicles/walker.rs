@@ -1,4 +1,4 @@
-//! A walker or riding animal on the ground (src/vehicles.js walkGround,
+//! A walker or riding animal on the ground (walkGround,
 //! standOnLegs): it moves at its speeds in the plane, its wall probes push
 //! it out of what it walks into, and its probes (an animal's, lying with
 //! the ground) or its legs' rays find the floor under it.
@@ -9,7 +9,7 @@ use crate::rig::math;
 use three::{clamp, Euler, EulerOrder, Quaternion, Vector3};
 use v8math::{hypot, max, min};
 
-/// vehicles.js walkGround.
+/// walkGround.
 pub fn walk_ground<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, input: &Input, driving: bool, old_yaw: f64) {
     let forward = if driving { v.forward_input * (if v.forward_input >= 0.0 { v.speed } else { v.reverse_speed }) } else { 0.0 };
     let right = if driving && truthy(v.strafe_speed) { v.right_input * v.strafe_speed } else { 0.0 };
@@ -86,7 +86,7 @@ pub fn walk_ground<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, input: &In
     w.enable_body(v.body, v.alive);
 }
 
-/// vehicles.js standOnLegs: a walker on its legs, as the 2004 game stands
+/// standOnLegs: a walker on its legs, as the 2004 game stands
 /// one (docs/vehicles.md "Standing on the ground").
 pub fn stand_on_legs<W: VehicleWorld>(v: &mut Hull, w: &mut W, dt: f64, legs: &super::hull::Legs) {
     let l = legs.ray_length;

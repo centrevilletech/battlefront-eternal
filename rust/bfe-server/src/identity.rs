@@ -1,4 +1,4 @@
-//! Persistent Ed25519 server identity (`src/identity.js`).
+//! Persistent Ed25519 server identity.
 
 use bfe_transport::crypto::{verify_spki_base64, Identity};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// On-disk JSON representation of `identity.json` (`loadIdentity` in `src/identity.js`).
+/// On-disk JSON representation of `identity.json` (`loadIdentity`).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StoredIdentity {
@@ -15,15 +15,15 @@ struct StoredIdentity {
     private_key: String,
 }
 
-/// Loaded Ed25519 server identity and derived identifiers (`src/identity.js`).
+/// Loaded Ed25519 server identity and derived identifiers.
 #[derive(Clone)]
 pub struct ServerIdentity {
     /// Underlying transport `Identity` used by `bfe_transport::server::ServerEndpoint` for the
     /// `BFE-UDP/1` handshake transcript signature.
     pub inner: Identity,
-    /// 64-character lowercase hex SHA-256 of `public_key` (`export const keyId` in `src/identity.js`).
+    /// 64-character lowercase hex SHA-256 of `public_key` (`export const keyId`).
     pub id: String,
-    /// `"sha-256 XX:XX:..."` colon-hex SHA-256 of the decoded SPKI DER bytes (`export const fingerprint` in `src/identity.js`).
+    /// `"sha-256 XX:XX:..."` colon-hex SHA-256 of the decoded SPKI DER bytes (`export const fingerprint`).
     pub fingerprint: String,
     /// 60-character base64-encoded 44-byte SPKI DER public key (`keys.publicKey`).
     pub public_key: String,
@@ -33,7 +33,7 @@ pub struct ServerIdentity {
 
 impl ServerIdentity {
     /// Wraps a `bfe_transport::crypto::Identity` and precomputes `id`, `fingerprint`,
-    /// `public_key`, and `private_key` matching `src/identity.js`.
+    /// `public_key`, and `private_key`.
     pub fn from_identity(inner: Identity) -> Self {
         let id = inner.id_hex();
         let fingerprint = inner.fingerprint();
@@ -48,7 +48,7 @@ impl ServerIdentity {
         }
     }
 
-    /// Generates a fresh Ed25519 identity keypair (`generateKeyPairSync("ed25519")` in `src/identity.js`).
+    /// Generates a fresh Ed25519 identity keypair (`generateKeyPairSync("ed25519")`).
     pub fn generate() -> Result<Self, String> {
         let inner = Identity::generate().map_err(|e| e.to_string())?;
         Ok(Self::from_identity(inner))
@@ -61,17 +61,17 @@ impl ServerIdentity {
         Ok(Self::from_identity(inner))
     }
 
-    /// Loads or creates `identity.json` in `dir` (`loadIdentity(join(directory, 'identity.json'))` in `src/main.js`).
+    /// Loads or creates `identity.json` in `dir` (`loadIdentity(join(directory, 'identity.json'))`).
     pub fn load(dir: &Path) -> Result<Self, String> {
         load_identity(&dir.join("identity.json"))
     }
 
-    /// Signs `text` with the server's Ed25519 private key and returns base64 (`proof` in `src/identity.js`).
+    /// Signs `text` with the server's Ed25519 private key and returns base64 (`proof`).
     pub fn sign(&self, text: &str) -> String {
         self.inner.sign_base64(text.as_bytes())
     }
 
-    /// Generates master request authentication headers (`export function headers(keys, method, path, body = "")` in `src/identity.js`).
+    /// Generates master request authentication headers (`export function headers(keys, method, path, body = "")`).
     pub fn headers(
         &self,
         method: &str,
@@ -89,7 +89,7 @@ impl ServerIdentity {
 }
 
 /// Loads `identity.json` at `file_path` if present, or generates a new Ed25519 keypair and writes
-/// it with mode `0600` (`export function loadIdentity(file)` in `src/identity.js`).
+/// it with mode `0600` (`export function loadIdentity(file)`).
 pub fn load_identity(file_path: &Path) -> Result<ServerIdentity, String> {
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("failed to create state dir: {e}"))?;
@@ -111,7 +111,7 @@ pub fn load_identity(file_path: &Path) -> Result<ServerIdentity, String> {
     ServerIdentity::from_keypair(&stored.public_key, &stored.private_key)
 }
 
-/// Validates that `value` is a 64-character lowercase hexadecimal SHA-256 identity (`isId` in `src/operator.js`).
+/// Validates that `value` is a 64-character lowercase hexadecimal SHA-256 identity (`isId`).
 pub fn is_hex_64(value: &str) -> bool {
     value.len() == 64
         && value
@@ -120,13 +120,12 @@ pub fn is_hex_64(value: &str) -> bool {
 }
 
 /// Verifies a base64 Ed25519 signature over `text` against a 60-character base64 SPKI public key
-/// (`export function verifyProof(p, transcript)` in `src/identity.js` and `BanCache.refresh` in `src/bans.js`).
+/// (`export function verifyProof(p, transcript)` and `BanCache.refresh`).
 pub fn verify(public_key_b64: &str, text: &str, signature_b64: &str) -> bool {
     verify_spki_base64(public_key_b64, text.as_bytes(), signature_b64)
 }
 
-/// Writes `bytes` to `path` with owner-only `0600` permissions (`mode: 0o600` in `src/identity.js`,
-/// `src/bans.js`, and `src/operator.js`).
+/// Writes `bytes` to `path` with owner-only `0600` permissions (`mode: 0o600`).
 pub(crate) fn write_mode_600(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut opts = OpenOptions::new();
     opts.write(true).create(true).truncate(true);

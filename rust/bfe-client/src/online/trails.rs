@@ -1,4 +1,4 @@
-//! The player's rolling droideka's dust (droideka-trail.js) over the shared Trail
+//! The player's rolling droideka's dust over the shared Trail
 //! state: with droidekaEffects Enhanced, a ball rolling outdoors on dry
 //! ground faster than 2.2 m/s kicks up dust behind it, more as it speeds up
 //! and turns, tinted for the map. Classic draws none.

@@ -1,4 +1,4 @@
-//! Keyboard and pointer menu input router (`src/menus/input.js`).
+//! Keyboard and pointer menu input router.
 
 use crate::options::OptionKind;
 use crate::popup::KeyCaptureOutcome;
@@ -35,14 +35,14 @@ pub enum MenuInputEvent {
     KeyCapture(KeyCaptureOutcome),
 }
 
-/// Stateful keyboard and pointer router for a [`ScreenStack`] (`bindMenuInput` in `src/menus/input.js`
-/// and `ScreenStack` pointer/key handlers in `src/menus/stack.js`).
+/// Stateful keyboard and pointer router for a [`ScreenStack`] (`bindMenuInput`
+/// and `ScreenStack` pointer/key handlers).
 #[derive(Clone, Debug, Default)]
 pub struct MenuInput {
-    /// Last pointer position in WebGL normalized device coordinates `(-1..1, -1..1)`.
+    /// Last pointer position in OpenGL normalized device coordinates `(-1..1, -1..1)`.
     pub pointer_ndc: [f64; 2],
     /// Active slider drag state `(option_key, [track_x0, track_x1], widget_matrix)` while the left
-    /// mouse button is held down (`ScreenStack.dragging` in `src/menus/stack.js`).
+    /// mouse button is held down (`ScreenStack.dragging`).
     dragging_slider: Option<(String, [f64; 2], [f64; 16])>,
 }
 
@@ -52,19 +52,19 @@ impl MenuInput {
         Self::default()
     }
 
-    /// Converts pixel coordinates `(px, py)` inside a `(vw, vh)` viewport to WebGL NDC `(-1..1, -1..1)`,
+    /// Converts pixel coordinates `(px, py)` inside a `(vw, vh)` viewport to OpenGL NDC `(-1..1, -1..1)`,
     /// flipping the Y axis so `+1` is the top edge of the viewport and `-1` is the bottom edge.
     #[inline]
     pub fn pixel_to_ndc(px: f64, py: f64, vw: f64, vh: f64) -> [f64; 2] {
         // Guard against zero-sized viewports, then map `[0..vw, 0..vh]` (Y down) into
-        // WebGL clip space `[-1..1, -1..1]` (Y up) for `space::local_point` ray casting.
+        // OpenGL clip space `[-1..1, -1..1]` (Y up) for `space::local_point` ray casting.
         let w = vw.max(1.0);
         let h = vh.max(1.0);
         [(px / w) * 2.0 - 1.0, 1.0 - (py / h) * 2.0]
     }
 
     /// Hit-tests `ndc` against `hits` in reverse draw order (front-to-back, matching
-    /// `ClassicTheme.hit` in `src/menus/themes/classic/index.js`) by intersecting the camera ray
+    /// `ClassicTheme.hit`) by intersecting the camera ray
     /// with each widget's 3D placement matrix `region.m`.
     pub fn hit_test(ndc: [f64; 2], hits: &[HitRegion]) -> Option<(&HitRegion, [f64; 2])> {
         // Iterate from the last emitted region to the first so overlapping popups or buttons
@@ -84,7 +84,7 @@ impl MenuInput {
     }
 
     /// Processes a keyboard key press (`code` such as `"ArrowUp"`, `"Enter"`, `"Escape"`, `"KeyW"`),
-    /// matching `MenuScreen.key` in `src/menus/screen.js` and `keyPopup` in `src/menus/popup.js`.
+    /// matching `MenuScreen.key` and `keyPopup`.
     pub fn on_key_down(
         &mut self,
         stack: &mut ScreenStack,
@@ -94,13 +94,13 @@ impl MenuInput {
         // Normalize literal `" "` from logical key mappers to `"Space"`.
         let code = if code == " " { "Space" } else { code };
 
-        // Only the topmost screen on the stack receives keyboard input (`ScreenStack.key` in `stack.js`).
+        // Only the topmost screen on the stack receives keyboard input (`ScreenStack.key`).
         let Some(top) = stack.screens.last_mut() else {
             return MenuInputEvent::None;
         };
 
         // 1. Key-capture modal (`PRESS NEW KEY, ESC TO CANCEL` on `CONTROL OPTIONS`) grabs
-        // every key press before normal menu navigation (`grabsKeys` in `src/menus/input.js`).
+        // every key press before normal menu navigation (`grabsKeys`).
         if let Some(modal) = &top.key_capture {
             let outcome = modal.on_key(code);
             return match outcome {
@@ -120,9 +120,9 @@ impl MenuInput {
         }
 
         match code {
-            // Up and Down step through the active widget's selectable rows (`MenuScreen.move` in `screen.js`).
+            // Up and Down step through the active widget's selectable rows (`MenuScreen.move`).
             // `ArrowUp` steps backward (-1) through the focused widget's enabled rows, wrapping
-            // around from the first item to the last (`MenuScreen.move` in `src/menus/screen.js`).
+            // around from the first item to the last (`MenuScreen.move`).
             "ArrowUp" => {
                 let (changed, cue) = top.move_vertical(-1);
                 if let Some(c) = cue {
@@ -193,7 +193,7 @@ impl MenuInput {
                 MenuInputEvent::None
             }
             // Left and Right either step horizontal tabs/buttons or increment/decrement an option value
-            // (`MenuScreen.step` in `src/menus/screen.js` and `OptionRow.stepBy` in `src/menus/widgets.js`).
+            // (`MenuScreen.step` and `OptionRow.stepBy`).
             "ArrowLeft" | "ArrowRight" => {
                 // First check if the focused widget (or the `CONTROL OPTIONS` tab bar when
                 // `bindings` is focused) handles horizontal stepping directly.
@@ -205,7 +205,7 @@ impl MenuInput {
                 // If the focused widget is an option list or `OptionsWidget` row without a direct
                 // action callback, emit `StepOption` so the controller cycles choices or steps the slider.
                 // Otherwise, pressing `Enter` or `Space` on a non-slider option row cycles its
-                // choice/toggle value forward (`OptionRow.stepBy(1)` in `src/menus/widgets.js`).
+                // choice/toggle value forward (`OptionRow.stepBy(1)`).
                 let step_key = match top.focused_widget() {
                     Some(Widget::List(list)) => list
                         .rows
@@ -237,7 +237,7 @@ impl MenuInput {
                 }
             }
             // Enter and Space activate the focused row/button; on choice or toggle option rows
-            // (excluding sliders, where `Options.activate` is a no-op in `widgets.js`), they advance
+            // (excluding sliders, where `Options.activate` is a no-op), they advance
             // the option value forward by `+1`.
             "Enter" | "NumpadEnter" | "Space" => {
                 // If the focused widget item has a direct `WidgetAction` (`Rows`, `Button`,
@@ -283,7 +283,7 @@ impl MenuInput {
     }
 
     /// Processes pointer movement at `(px, py)` in a `(vw, vh)` viewport
-    /// (`ScreenStack.pointerMove` in `src/menus/stack.js`).
+    /// (`ScreenStack.pointerMove`).
     pub fn on_pointer_move(
         &mut self,
         stack: &mut ScreenStack,
@@ -296,7 +296,7 @@ impl MenuInput {
         let ndc = Self::pixel_to_ndc(px, py, vw, vh);
         self.pointer_ndc = ndc;
 
-        // 1. Active slider drag (`ScreenStack.pointerMove` in `src/menus/stack.js`):
+        // 1. Active slider drag (`ScreenStack.pointerMove`):
         // While a slider drag is active, project the pointer ray onto the slider's local plane `m`
         // so the thumb tracks horizontal motion even if the cursor leaves the row's vertical bounds.
         if let Some((ref key, [x0, x1], ref m)) = self.dragging_slider {
@@ -409,7 +409,7 @@ impl MenuInput {
             }
         }
         // Emit `shell_select_change` only when the hovered widget or item index actually changed
-        // (`MenuScreen.setFocus` in `src/menus/screen.js`).
+        // (`MenuScreen.setFocus`).
         if changed {
             stack.sounds.play(SoundCue::SelectChange);
             MenuInputEvent::SelectionChanged
@@ -420,7 +420,7 @@ impl MenuInput {
 
     /// Processes a mouse button press (`button`: `0` = Left `Mouse0`, `1` = Middle `Mouse1`,
     /// `2` = Right `Mouse2`, `3` = Back `Mouse3`, `4` = Forward `Mouse4`) when `KeyCaptureModal`
-    /// is open (`listenMouse` in `src/menus/popup.js`).
+    /// is open (`listenMouse`).
     pub fn on_mouse_button(&mut self, stack: &mut ScreenStack, button: u8) -> MenuInputEvent {
         if let Some(top) = stack.top() {
             if let Some(modal) = &top.key_capture {
@@ -443,7 +443,7 @@ impl MenuInput {
     }
 
     /// Processes a left mouse button press at `(px, py)` in a `(vw, vh)` viewport
-    /// (`ScreenStack.pointerDown` in `src/menus/stack.js` and `listenMouse` in `src/menus/popup.js`).
+    /// (`ScreenStack.pointerDown` and `listenMouse`).
     pub fn on_pointer_down(
         &mut self,
         stack: &mut ScreenStack,
@@ -453,14 +453,14 @@ impl MenuInput {
         vw: f64,
         vh: f64,
     ) -> MenuInputEvent {
-        // When the key-capture modal is open, a left click binds `"Mouse0"` (`listenMouse` in `popup.js`).
+        // When the key-capture modal is open, a left click binds `"Mouse0"` (`listenMouse`).
         let captured = self.on_mouse_button(stack, 0);
         if captured != MenuInputEvent::None {
             return captured;
         }
 
         // Sync focus to the clicked hotspot first, then check whether the click landed inside a
-        // slider track (`Options.press` in `src/menus/widgets.js`).
+        // slider track (`Options.press`).
         let _ = self.on_pointer_move(stack, hits, px, py, vw, vh);
         let ndc = Self::pixel_to_ndc(px, py, vw, vh);
         let Some((region, pt)) = Self::hit_test(ndc, hits) else {
@@ -533,18 +533,18 @@ impl MenuInput {
         self.on_key_down(stack, "Enter", false)
     }
 
-    /// Ends any active slider drag on pointer release (`ScreenStack.pointerUp` in `src/menus/stack.js`).
+    /// Ends any active slider drag on pointer release (`ScreenStack.pointerUp`).
     pub fn on_pointer_up(&mut self) {
         self.dragging_slider = None;
     }
 
     /// Processes a mouse wheel delta (`dy > 0` scrolls down, `dy < 0` scrolls up),
-    /// matching `ScreenStack.wheel` in `src/menus/stack.js` and `listenMouse` in `src/menus/popup.js`.
+    /// matching `ScreenStack.wheel` and `listenMouse`.
     pub fn on_wheel(&mut self, stack: &mut ScreenStack, dy: i32) -> MenuInputEvent {
         let Some(top) = stack.screens.last_mut() else {
             return MenuInputEvent::None;
         };
-        // In key-capture mode, wheel notches bind `"WheelUp"` or `"WheelDown"` (`popup.js`).
+        // In key-capture mode, wheel notches bind `"WheelUp"` or `"WheelDown"`.
         if let Some(modal) = &top.key_capture {
             let code = if dy < 0 { "WheelUp" } else { "WheelDown" };
             let outcome = modal.on_key(code);
@@ -557,7 +557,7 @@ impl MenuInput {
         // Otherwise scroll the first scrollable `List` or `Options` widget on the active screen.
         let step = if dy < 0 { -1 } else { 1 };
         // Step the first scrollable `List` or paginated `Options` widget by 1 row per wheel notch
-        // (`List.wheel` and `Options.wheel` in `src/menus/widgets.js`).
+        // (`List.wheel` and `Options.wheel`).
         for w in &mut top.widgets {
             match w {
                 Widget::List(list) => {

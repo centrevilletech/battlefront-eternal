@@ -57,17 +57,6 @@ families added later. Generated draws exercise a smaller set of material and
 phase contracts; they do not enumerate every loaded scene, combination of
 effects, texture format or rendering configuration.
 
-## Local HLSL translation check
-
-ANGLE includes an independent GLSL ES translator. Its
-[development guide](https://chromium.googlesource.com/angle/angle/+/HEAD/doc/DevSetup.md)
-documents the `angle_shader_translator` target; the
-[sample source](https://chromium.googlesource.com/angle/angle/+/HEAD/samples/shader_translator/shader_translator.cpp)
-accepts `-s=w2 -b=h` for GLSL ES 3.00 to HLSL 4.1. Building that target with HLSL
-support on Linux can check translation of locally collected shader sources
-without sending them to CI. Collect the expanded sources actually passed
-to OpenGL ES, including Rust's rewritten shaders.
-
 ## Why Windows native GL stays device-independent in CI
 
 On `windows-latest`, the `windows` job in `.github/workflows/ci.yml`

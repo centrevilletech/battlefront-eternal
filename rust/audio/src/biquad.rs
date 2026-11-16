@@ -4,7 +4,7 @@
 //! cosine, 10^x as fdlibm's expf, normalized through a0's inverse), then
 //! per sample in double precision from float input to float output, the
 //! state flushed of denormals at each block's end. Operation for
-//! operation, so a filter here takes the browser's values to the bit (on
+//! operation, so a filter here takes Chromium's values to the bit (on
 //! Linux; its macOS build runs these through vDSP).
 
 /// A filter's coefficients and its state (one channel).
@@ -30,7 +30,7 @@ pub enum Kind {
     Highshelf,
 }
 
-// 10^x as the browser's biquad works it out: fdlibm's expf of x ln 10,
+// 10^x as Chromium's biquad works it out: fdlibm's expf of x ln 10,
 // which is fdlibm's exp of the argument rounded to single precision, its
 // result rounded to single.
 fn pow10(x: f64) -> f64 {
@@ -75,7 +75,7 @@ impl Biquad {
     }
 
     /// One block from `src` into `dst` (the same length; they may not be
-    /// the same slice here, as they may in the browser).
+    /// the same slice here, as they may in Chromium).
     pub fn process(&mut self, src: &[f32], dst: &mut [f32]) {
         let (b0, b1, b2, a1, a2) = (self.b0, self.b1, self.b2, self.a1, self.a2);
         let (mut x1, mut x2, mut y1, mut y2) = (self.x1, self.x2, self.y1, self.y2);

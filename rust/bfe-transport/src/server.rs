@@ -17,17 +17,17 @@ use crate::stun;
 use crate::Result;
 
 /// Backoff delays (in milliseconds) for NAT hole-punch probes sent toward each
-/// candidate address (`PUNCH_SCHEDULE_MS` in `src/net/endpoint.js`).
+/// candidate address (`PUNCH_SCHEDULE_MS`).
 pub const PUNCH_SCHEDULE_MS: [u64; 7] = [0, 40, 100, 200, 400, 800, 1500];
 // Maximum number of recently closed sessions kept in the draining state so
 // late packets or retransmitted closes do not trigger unknown-session noise.
 const MAX_DRAINING: usize = 256;
-// Duration (in milliseconds) a closed session stays in the draining table (`DRAIN_MS` in JS).
+// Duration (in milliseconds) a closed session stays in the draining table.
 const DRAIN_MS: f64 = 2000.0;
 // Maximum number of per-prefix token buckets retained in LRU order.
 const MAX_BUCKETS: usize = 4096;
 
-/// `src/net/codec.js` `normalizeAddress`: unwraps IPv4-mapped IPv6 addresses
+/// `normalizeAddress`: unwraps IPv4-mapped IPv6 addresses
 /// (`::ffff:a.b.c.d`) into canonical IPv4 so IPv4 peers on dual-stack sockets
 /// share the same rate-limit and ban keys.
 pub fn normalize_ip(ip: IpAddr) -> IpAddr {
@@ -49,7 +49,7 @@ pub fn normalize_socket_addr(addr: SocketAddr) -> SocketAddr {
     SocketAddr::new(normalize_ip(addr.ip()), addr.port())
 }
 
-/// `src/net/endpoint.js` `validPeerAddress`: rejects unspecified, multicast,
+/// `validPeerAddress`: rejects unspecified, multicast,
 /// and IPv4 broadcast addresses.
 pub fn valid_peer_ip(ip: IpAddr) -> bool {
     match normalize_ip(ip) {
@@ -64,12 +64,12 @@ pub fn valid_peer_ip(ip: IpAddr) -> bool {
     }
 }
 
-/// `src/net/endpoint.js` `loopbackAddress`: true (`127/8` and `::1`).
+/// `loopbackAddress`: true (`127/8` and `::1`).
 pub fn loopback_ip(ip: IpAddr) -> bool {
     normalize_ip(ip).is_loopback()
 }
 
-/// `src/net/endpoint.js` `globalAddress`: true for routable internet addresses
+/// `globalAddress`: true for routable internet addresses
 /// (excludes loopback, RFC 1918 private, CGNAT, link-local,
 /// ULA `fc00::/7`, and multicast).
 pub fn global_ip(ip: IpAddr) -> bool {
@@ -98,7 +98,7 @@ pub fn global_ip(ip: IpAddr) -> bool {
     }
 }
 
-/// `src/net/endpoint.js` `addressPrefix`: one IPv4 address or one IPv6 `/64`
+/// `addressPrefix`: one IPv4 address or one IPv6 `/64`
 /// prefix (`a:b:c:d::/64`).
 pub fn address_prefix(ip: IpAddr) -> String {
     match normalize_ip(ip) {
@@ -113,7 +113,7 @@ pub fn address_prefix(ip: IpAddr) -> String {
     }
 }
 
-/// Source key matching `directPath` in `src/net/endpoint.js`.
+/// Source key matching `directPath`.
 pub fn direct_source_key(local_port: u16, remote: SocketAddr) -> String {
     let norm = normalize_socket_addr(remote);
     format!("direct|{local_port}|{}|{}", norm.ip(), norm.port())
@@ -217,7 +217,7 @@ impl ServerSession {
     }
 }
 
-// Per-prefix token bucket entry (`allowHandshake` in `src/net/endpoint.js`).
+// Per-prefix token bucket entry (`allowHandshake`).
 struct TokenBucket {
     key: String,
     tokens: f64,
@@ -372,7 +372,7 @@ impl ServerEndpoint {
 
     // Enforces a per-prefix token bucket with rate `handshake_rate` tokens/sec and
     // burst capacity `2 * handshake_rate`, maintaining at most `MAX_BUCKETS` (4096)
-    // prefixes in LRU order (`allowHandshake` in `src/net/endpoint.js`).
+    // prefixes in LRU order (`allowHandshake`).
     fn allow_handshake(&mut self, addr: SocketAddr, now: f64) -> bool {
         let key = address_prefix(addr.ip());
         let rate = self.handshake_rate;
@@ -409,7 +409,7 @@ impl ServerEndpoint {
     }
 
     // Returns `true` when incoming initiations exceed 200 per 1-second window or
-    // half-open handshakes exceed 64, triggering stateless `RETRY` cookies (`underLoad` in JS).
+    // half-open handshakes exceed 64, triggering stateless `RETRY` cookies.
     fn under_load(&mut self, now: f64) -> bool {
         if now - self.initiation_window_at > 1000.0 {
             self.initiation_window_at = now;
@@ -421,7 +421,7 @@ impl ServerEndpoint {
 
     // Checks whether `addr`'s network prefix (`IPv4 /32` or `IPv6 /64`) has reached
     // `max_sessions_per_prefix`. Loopback addresses are exempt, and an existing session
-    // with the same `client_id` is not counted against its own reconnect (`crowded` in JS).
+    // with the same `client_id` is not counted against its own reconnect.
     fn crowded(&self, addr: SocketAddr, client_id: &[u8; 32]) -> bool {
         let Some(limit) = self.max_sessions_per_prefix else {
             return false;

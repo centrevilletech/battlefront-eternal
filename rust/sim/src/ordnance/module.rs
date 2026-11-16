@@ -1,8 +1,8 @@
 //! The rounds on the module: the exports JavaScript drives them through once
-//! a battle's world hands them over (src/ordnance-sim.js), and the world
+//! a battle's world hands them over, and the world
 //! their Rust reaches the battle through there: the imports of
-//! rust/sim/schema/ordnance.mjs, which src/ordnance-sim.js serves with the
-//! same OrdnanceWorld (src/ordnance-world.js) the JavaScript rounds call.
+//! rust/sim/schema/ordnance.json, which src/ordnance-sim.js serves with the
+//! same OrdnanceWorld the JavaScript rounds call.
 
 use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, SCALE_FIELDS};
 use super::world::*;
@@ -66,7 +66,7 @@ pub(crate) fn defs_in(owner: &mut OrdnanceOwnerState) -> &mut Defs {
     owner.defs.get_or_insert_with(Defs::default)
 }
 
-/// A definition's field from its two words (src/ordnance-sim.js `fieldWords`):
+/// A definition's field from its two words (`fieldWords`):
 /// 0 undefined, 1 null, 2 false, 3 true, 4 a number, 5 a string (its
 /// index), 6 an explosion (its index), 7 any other object.
 pub(crate) fn field(tag: f64, value: f64, strings: &Strings) -> Field {
@@ -122,7 +122,7 @@ pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
 }
 
 /// The words of a command's record in the call block: 0 FireArgs, 1
-/// FlightMissileArgs (src/ordnance-sim.js writes them with the generated
+/// FlightMissileArgs (writes them with the generated
 /// put functions).
 pub fn ord_args_words(which: u32) -> u32 {
     (match which {

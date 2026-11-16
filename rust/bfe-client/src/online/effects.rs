@@ -1,4 +1,4 @@
-//! Effects.play and the handle it returns (src/effects.js) over the shared
+//! Effects.play and the handle it returns over the shared
 //! Presentation owner. A handle moves or stops its effect later (a trail
 //! follows a flying piece); a one-shot never looks at its handle again.
 //! Slots are a bounded pool: a finished effect returns its slot, and a

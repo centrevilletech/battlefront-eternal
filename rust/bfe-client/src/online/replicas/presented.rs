@@ -1,4 +1,4 @@
-//! presentEntityEvent's unit branches (src/runtime/entity-presentation-events.js):
+//! presentEntityEvent's unit branches:
 //! a soldier's weapon action over his upper body, a droid's death blast and
 //! a droid blown apart. The server decides each; this owner only shows it on
 //! the body the client already draws.
@@ -14,7 +14,7 @@ use bfe_presentation::{
 // place in the list is its identity for endWeaponAction.
 const ACTIONS: [&str; 7] = ["reload", "charge", "shoot", "shoot2", "shoot3", "shoot4", "shoot5"];
 const POSTURES: [&str; 3] = ["stand", "crouch", "prone"];
-// game.js droidBlasts: one of these goes off at a bone of the dying droid.
+// droidBlasts: one of these goes off at a bone of the dying droid.
 const BLASTS: [&str; 3] = ["explosion", "med_explosion", "small_explosion"];
 // decodePresentation: a record nobody could show yet is kept for 120 ticks.
 const EXPIRY: f64 = 120.;
@@ -102,14 +102,14 @@ struct Input<'a> {
     #[serde(default)]
     hit_kind: Option<&'a str>,
 }
-// The animation banks a charge doesn't put on alert (combat.js).
+// The animation banks a charge doesn't put on alert.
 const UNALERTED_BANKS: [&str; 4] = ["tool", "lightsabre", "sabre", "gam"];
 pub struct Presented {
     // Every bank name a record can carry, with the animator's bank for it
     // (SoldierAnimator.setBank: an unknown bank is the rifle's, 0).
     banks: Vec<(String, usize)>,
     // Each registry weapon's bank (an index into `banks`) and whether it is
-    // thrown (src/weapons.js: a grenade, dispenser or remote).
+    // thrown (a grenade, dispenser or remote).
     weapons: Vec<Option<(usize, bool)>>,
     // The same two facts for each weapon definition, with its registry id,
     // in the definitions' own order, which the local player's predicted
@@ -130,7 +130,7 @@ pub struct Presented {
 }
 impl Presented {
     // The bank names come from the animation sets and from every weapon's
-    // AnimationBank (`def.AnimationBank || "rifle"`, src/weapons.js), which
+    // AnimationBank (`def.AnimationBank || "rifle"`), which
     // is all a record can name. `weapons` lists each weapon definition's
     // registry id (0 when the registry lacks it), bank and base.
     pub(super) fn new<'a>(
@@ -236,7 +236,7 @@ impl Presented {
         }
     }
 }
-// decodeUnitState (src/runtime/entity-unit-state.js), as far as a drawn body
+// decodeUnitState, as far as a drawn body
 // needs it: whose state it is, whether a dead droid was blown apart, and
 // the selected secondary weapon while a throw is under way (`throwTime >=
 // 0`, the replicated part of Weapon.busy). None for a malformed payload.
@@ -279,7 +279,7 @@ impl Replicas {
     // weapon in the hand: the secondary for the whole of a throw, otherwise
     // the primary; the local player's throw is read from his own predicted
     // arsenal, everyone else's from their replicated state. A state whose
-    // body is not drawn yet is dropped, where the browser keeps it for 120
+    // body is not drawn yet is dropped, where the client keeps it for 120
     // ticks.
     // NetworkEntityGame.apply keeps each unit's newest state record
     // (`pendingState`) and asks applyUnitState again with every packet until
@@ -464,7 +464,7 @@ impl Replicas {
         let actor = self.slots[slot].actor;
         let model = self.slots[slot].model;
         match event.act {
-            // A droideka's animator ignores weapon actions (src/droideka.js).
+            // A droideka's animator ignores weapon actions.
             Act::Weapon { .. } | Act::EndWeapon { .. } | Act::Shot { .. } if self.slots[slot].walker => {}
             Act::Weapon { action, bank, posture } => {
                 // setBank first: changing the bank drops the action under way.
@@ -505,17 +505,17 @@ impl Replicas {
                 if repair || melee || !thrown {
                     self.command(actor, kind::FIRE);
                 }
-                // combat.js flash: each round restarts its gun's flash.
+                // flash: each round restarts its gun's flash.
                 if !repair && !melee {
                     let (length, color) = self.guns.flashes.get(weapon).copied().unwrap_or((0.1, [1.; 4]));
                     self.slots[slot].flash = (weapon, self.tick.floor(), length, color);
                 }
                 self.presented.shown[4] += 1;
             }
-            // game.js presentEvent "deathBlast": one of the three blasts at
+            // presentEvent "deathBlast": one of the three blasts at
             // a bone of the body, both picked at random. The bone is where
             // the last frame posed it, and the effect starts with the next
-            // frame's batch, one frame after the browser's.
+            // frame's batch, one frame after the client's.
             Act::DeathBlast => {
                 self.units.refresh_actor(actor);
                 // Destruction.deathBlast: Enhanced draws a blast of its own.
@@ -533,7 +533,7 @@ impl Replicas {
                 self.combat.present_effect(blast, position, event.seed);
                 self.presented.shown[2] += 1;
             }
-            // game.js presentEvent "shieldHit": the droideka's bubble flares
+            // presentEvent "shieldHit": the droideka's bubble flares
             // where the hit landed. A unit without a bubble shows nothing.
             Act::ShieldHit { amount, source, explosion } => {
                 if let Some(bubble) = self.slots[slot].bubble {
@@ -542,7 +542,7 @@ impl Replicas {
                     self.presented.shown[6] += 1;
                 }
             }
-            // game.js presentEvent "blowApart": Debris.blowApart sends each
+            // presentEvent "blowApart": Debris.blowApart sends each
             // of the class's chunks flying from its bone, away from the
             // body's origin, then Unit.goUp: nothing more of this life is
             // drawn. Origin and velocity are the drawn body's, the same pose

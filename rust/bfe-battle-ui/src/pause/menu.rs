@@ -1,7 +1,7 @@
 // Classic in-battle pause menu (`ifs_pausemenu`), confirm popups, and `still_command`.
 //
-// Ports `src/pause/index.js`, `src/menus/themes/classic/index.js`,
-// `src/menus/popup.js`, and `stillCommand` from `src/runtime/commands.js`.
+// Ports `src/pause/index.js`,
+// `src/menus/popup.js`, and `stillCommand`.
 //
 // Key design invariants from the 2004 game (`ifs_pausemenu`):
 // - The main pause menu stack sits at safe-area anchor `(0.6, 0.5)` with `y = 20` and a
@@ -15,7 +15,7 @@
 //   `src/menus/popup.js`) so an accidental double-tap on `Enter` or `Space` never aborts a match.
 // - Pressing `Escape` to close the main pause menu sets `resume_on_release = true` and waits for
 //   the `Escape` keyup before closing (`LOCK_GRACE = 0.25s` also ignores an `Escape` keydown that
-//   arrived right after a browser pointer-unlock caused by that same physical key press).
+//   arrived right after a client pointer-unlock caused by that same physical key press).
 
 use super::overrides::{with_settings, PauseSettingsLookup};
 use crate::scoreboard::PlayerListRow;
@@ -23,7 +23,7 @@ use crate::shapes::{
     inside_quad, BattleUiSurface, GameFamily, GameFamilyError, TitleIntro, FONT_NAME_MEDIUM, W,
 };
 
-/// Pause menu layout constants (`LAYOUT` in `src/pause/index.js`).
+/// Pause menu layout constants (`LAYOUT`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PauseLayoutConfig {
     /// Safe-area anchor `[rx, ry]` (`[0.6, 0.5]` in `ifs_pausemenu`).
@@ -40,7 +40,7 @@ pub struct PauseLayoutConfig {
     pub y_spacing: f64,
 }
 
-/// Default Classic pause menu layout (`LAYOUT` in `src/pause/index.js`).
+/// Default Classic pause menu layout (`LAYOUT`).
 pub const LAYOUT: PauseLayoutConfig = PauseLayoutConfig {
     at: [0.6, 0.5],
     y: 20.0,
@@ -59,29 +59,29 @@ pub fn pause_layout_for_family(family: GameFamily) -> Result<PauseLayoutConfig, 
     Ok(LAYOUT)
 }
 
-/// Total row count of the 2004 pause menu container, including the 5 hidden console/debug rows (`LIST_COUNT = 11` in `src/pause/index.js`).
+/// Total row count of the 2004 pause menu container, including the 5 hidden console/debug rows (`LIST_COUNT = 11`).
 ///
-/// The original `ifs_pausemenu` defines 11 buttons (5 of which—free camera, player list, console,
-/// friends, recent players—are hidden in single-player PC), and `AddVerticalButtons` sizes the
+/// The original `ifs_pausemenu` defines 11 buttons (5 of which, free camera, player list, console,
+/// friends, recent players, are hidden in single-player PC), and `AddVerticalButtons` sizes the
 /// container shift from all 11 entries.
 pub const LIST_COUNT: usize = 11;
 
-/// Seconds after pointer-unlock during which an `Escape` keydown is treated as the same press (`LOCK_GRACE = 250ms` in `src/pause/index.js`).
+/// Seconds after pointer-unlock during which an `Escape` keydown is treated as the same press (`LOCK_GRACE = 250ms`).
 ///
-/// When the player presses `Escape` while pointer-locked, the browser releases pointer lock first
+/// When the player presses `Escape` while pointer-locked, the client releases pointer lock first
 /// (which opens the menu with `opened_by = Some("pointer")`) and then delivers the `Escape` keydown;
 /// ignoring `Escape` within `0.25s` prevents that single press from immediately closing the menu.
 pub const LOCK_GRACE: f64 = 0.25;
 
-/// Seconds before `"CLICK TO RESUME"` renders while waiting for pointer lock (`PROMPT_DELAY = 0.15s` in `src/pause/index.js`).
+/// Seconds before `"CLICK TO RESUME"` renders while waiting for pointer lock (`PROMPT_DELAY = 0.15s`).
 ///
 /// Avoids flashing `"CLICK TO RESUME"` on a single frame when pointer lock is reacquired immediately.
 pub const PROMPT_DELAY: f64 = 0.15;
 
-/// Stagger delay in seconds between consecutive menu row `TitleIntro` animations (`ROW_INTRO = 0.1` in `src/menus/themes/classic/index.js`).
+/// Stagger delay in seconds between consecutive menu row `TitleIntro` animations (`ROW_INTRO = 0.1`).
 const ROW_INTRO: f64 = 0.1;
 
-/// Neutral input command packet sent each tick while paused in a network game (`stillCommand` in `src/runtime/commands.js`).
+/// Neutral input command packet sent each tick while paused in a network game (`stillCommand`).
 ///
 /// In a multiplayer match the world continues ticking while the local pause menu is open.
 /// Sending an explicit neutral command (rather than omitting gamepad axes) is required because
@@ -94,7 +94,7 @@ pub struct StillCommand {
     pub seq: u32,
 }
 
-/// Builds a neutral human command sent each tick while paused in a network game (`stillCommand` in `src/runtime/commands.js`).
+/// Builds a neutral human command sent each tick while paused in a network game (`stillCommand`).
 #[inline]
 pub const fn still_command(tick: u32, seq: u32) -> StillCommand {
     StillCommand {
@@ -104,7 +104,7 @@ pub const fn still_command(tick: u32, seq: u32) -> StillCommand {
     }
 }
 
-/// Computes the horizontal container shift for a stack of `count` rows (`rowsShift` in `src/menus/themes/classic/index.js`).
+/// Computes the horizontal container shift for a stack of `count` rows (`rowsShift`).
 ///
 /// Replicates the original `AddVerticalButtons` width progression: starting from `width` (plus
 /// one `pitch` when `count` is odd), the bar width grows by `pitch` for each row above `count / 2`
@@ -124,7 +124,7 @@ pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
     -widest / 2.0
 }
 
-/// Computed bar width and right-end flip flag for a visible row (`rowBars` in `src/menus/themes/classic/index.js`).
+/// Computed bar width and right-end flip flag for a visible row (`rowBars`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RowBarSpec {
     /// Width of the stretched middle bar piece (`buttonmid`) before adding the 5-unit pad.
@@ -134,7 +134,7 @@ pub struct RowBarSpec {
     pub flipped: bool,
 }
 
-/// Computes bar widths and flip flags for `n` visible rows (`rowBars` in `src/menus/themes/classic/index.js`).
+/// Computes bar widths and flip flags for `n` visible rows (`rowBars`).
 ///
 /// Mirrors `ShowHideVerticalButtons`: rows `1..=n/2` widen by `pitch` per row with an unflipped
 /// right cap, the middle row holds peak width, and rows past `n / 2` narrow by `pitch` per row
@@ -157,7 +157,7 @@ pub fn row_bars(width: f64, pitch: f64, n: usize) -> Vec<RowBarSpec> {
     out
 }
 
-/// Identifies a row on the main pause menu (`src/pause/index.js`).
+/// Identifies a row on the main pause menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PauseRowId {
     Resume,
@@ -169,7 +169,7 @@ pub enum PauseRowId {
     Exit,
 }
 
-/// Identifies a confirmation popup question (`QUESTIONS` in `src/pause/index.js`).
+/// Identifies a confirmation popup question (`QUESTIONS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfirmKind {
     Suicide,
@@ -192,7 +192,7 @@ impl ConfirmKind {
 
 /// Active screen on top of the pause menu stack.
 ///
-/// Mirrors the `ScreenStack` in `src/pause/index.js`: `Main` sits at the bottom of the stack,
+/// Mirrors the `ScreenStack`: `Main` sits at the bottom of the stack,
 /// and activating a row pushes `Confirm`, `Options`, or `PlayerList` on top of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PauseScreenState {
@@ -212,7 +212,7 @@ pub enum PauseScreenState {
 }
 
 impl PauseScreenState {
-    /// Screen identifier matching `MenuScreen.id` in JS.
+    /// Screen identifier matching `MenuScreen.id`.
     pub fn id(&self) -> &'static str {
         match self {
             PauseScreenState::Main => "pause",
@@ -237,7 +237,7 @@ pub enum PauseRestartMode {
     Hidden,
 }
 
-/// Configuration for the `RESPAWN` row (`enableRespawn` in `src/pause/index.js`).
+/// Configuration for the `RESPAWN` row (`enableRespawn`).
 ///
 /// Supplied by the spawn controller (`pauseRespawn`) to override the row label/prompt if needed
 /// and to report whether the local player currently has a living soldier that can suicide/respawn.
@@ -248,7 +248,7 @@ pub struct PauseRespawnConfig {
     pub available: bool,
 }
 
-/// Record of a page navigation triggered by `RESTART MISSION`, `QUIT`, or `EXIT TO WINDOWS` (`menu.leaving` in `src/pause/index.js`).
+/// Record of a client navigation triggered by `RESTART MISSION`, `QUIT`, or `EXIT TO WINDOWS` (`menu.leaving`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeavingRecord {
     pub url: String,
@@ -275,22 +275,22 @@ pub enum PauseHitTarget {
     BackButton,
 }
 
-/// Classic in-battle pause menu (`createPauseMenu` in `src/pause/index.js`).
+/// Classic in-battle pause menu (`createPauseMenu`).
 pub struct PauseMenu {
     /// Active game family (`Swbf1` 2004 layout; `Swbf2` returns `GameFamilyError`).
     pub family: GameFamily,
-    /// Whether the pause menu overlay is currently open (`isOpen` in `src/pause/index.js`).
+    /// Whether the pause menu overlay is currently open (`isOpen`).
     pub is_open: bool,
     /// Timestamp (`self.time`) when `open()` was last called, used with [`LOCK_GRACE`].
     pub opened_at: f64,
     /// Reason string passed to `open(why)` (`"key"` or `"pointer"`).
     pub opened_by: Option<String>,
     /// Set on `Escape` keydown while on `Main`; the menu closes only on the matching `Escape`
-    /// keyup so the browser does not immediately drop a newly reacquired pointer lock.
+    /// keyup so the client does not immediately drop a newly reacquired pointer lock.
     pub resume_on_release: bool,
     /// Elapsed seconds waiting for a pointer-lock click after `close(true)`, or `None`.
     pub waiting_time: Option<f64>,
-    /// Accumulated animation clock in seconds (`stack.time` in `src/menus/stack.js`).
+    /// Accumulated animation clock in seconds (`stack.time`).
     pub time: f64,
     /// Index of the focused row on `PauseScreenState::Main`.
     pub focused_row: usize,
@@ -298,7 +298,7 @@ pub struct PauseMenu {
     pub back_focused: bool,
     /// Active screen stack (`Main` at index 0, plus optional `Confirm`, `Options`, or `PlayerList`).
     pub stack: Vec<PauseScreenState>,
-    /// Cursor position in `1024xH` interface coordinates (`stack.pointer` in `src/pause/index.js`).
+    /// Cursor position in `1024xH` interface coordinates (`stack.pointer`).
     pub pointer: [f64; 2],
     /// Whether the Classic `mousecursor` quad is visible (`stack.pointer.visible`).
     pub pointer_visible: bool,
@@ -314,7 +314,7 @@ pub struct PauseMenu {
     pub show_player_list: bool,
     /// Connected human players displayed on the `PLAYER LIST` sub-screen.
     pub players: Vec<PlayerListRow>,
-    /// True while the DOM `#audio-panel` modal is open (`audioPanelOpen()` in `src/pause/index.js`),
+    /// True while the DOM `#audio-panel` modal is open (`audioPanelOpen()`),
     /// which takes precedence over pause menu `Escape` handling.
     pub audio_panel_open: bool,
     /// The `OPTIONS` hub row (`0..4`: game, video, audio, controls) the player just chose, taken by the
@@ -404,19 +404,19 @@ impl PauseMenu {
         Ok(Self::new())
     }
 
-    /// Pulse wave `0..1` used by focused Classic buttons and `"CLICK TO RESUME"` (`stack.pulse` in `src/menus/stack.js`).
+    /// Pulse wave `0..1` used by focused Classic buttons and `"CLICK TO RESUME"` (`stack.pulse`).
     #[inline]
     pub fn pulse(&self) -> f64 {
         0.5 + 0.5 * (self.time * 4.0).sin()
     }
 
-    /// Whether `RESUME` is currently waiting for pointer lock (`waiting` in `src/pause/index.js`).
+    /// Whether `RESUME` is currently waiting for pointer lock (`waiting`).
     #[inline]
     pub fn waiting(&self) -> bool {
         self.waiting_time.is_some()
     }
 
-    /// Whether the HUD should be hidden by the pause overlay (`overlay.hidesHud` in `src/pause/index.js`).
+    /// Whether the HUD should be hidden by the pause overlay (`overlay.hidesHud`).
     ///
     /// While `is_open` is `true`, the HUD hides; while `waiting()` is `true` (`CLICK TO RESUME`),
     /// the HUD remains visible.
@@ -430,7 +430,7 @@ impl PauseMenu {
         self.stack.last()
     }
 
-    /// Visible rows on the main pause screen (`visibleRows` in `src/pause/index.js`).
+    /// Visible rows on the main pause screen (`visibleRows`).
     ///
     /// Builds the ordered row list (`RESUME GAME`, `OPTIONS`, `RESPAWN`, optional `RESTART MISSION`,
     /// optional network `PLAYER LIST`, `QUIT`, `EXIT TO WINDOWS`) localized via `surface`.
@@ -495,17 +495,17 @@ impl PauseMenu {
         out
     }
 
-    /// Configures `RESPAWN` (`enableRespawn` in `src/pause/index.js`).
+    /// Configures `RESPAWN` (`enableRespawn`).
     pub fn enable_respawn(&mut self, config: Option<PauseRespawnConfig>) {
         self.respawn = config;
     }
 
-    /// Sets whether `"CLICK TO RESUME"` is waiting for a pointer-lock click (`awaitPointer` in `src/pause/index.js`).
+    /// Sets whether `"CLICK TO RESUME"` is waiting for a pointer-lock click (`awaitPointer`).
     pub fn await_pointer(&mut self, on: bool) {
         self.waiting_time = if on { Some(0.0) } else { None };
     }
 
-    /// Opens the pause menu (`open(why)` in `src/pause/index.js`).
+    /// Opens the pause menu (`open(why)`).
     ///
     /// Warps the menu pointer to `(512, height / 2)` (matching the 2004 game's center warp),
     /// resets focus to row `0` (`RESUME GAME`), and starts the staggered `TitleIntro` animations.
@@ -537,7 +537,7 @@ impl PauseMenu {
         self.back_intro.start(0.0);
     }
 
-    /// Closes the pause menu (`close(resume)` in `src/pause/index.js`).
+    /// Closes the pause menu (`close(resume)`).
     pub fn close(&mut self, resume: bool) {
         if !self.is_open {
             return;
@@ -548,9 +548,9 @@ impl PauseMenu {
         self.close_events.push(resume);
     }
 
-    /// Opens a confirmation popup (`ask(kind)` in `src/pause/index.js`) with `NO` (`1`) focused first.
+    /// Opens a confirmation popup (`ask(kind)`) with `NO` (`1`) focused first.
     ///
-    /// Opening the popup is intentionally silent (`confirmPopup` in `src/menus/popup.js`);
+    /// Opening the popup is intentionally silent (`confirmPopup`);
     /// sound effects play only when the user answers `YES` (`shell_menu_accept`) or `NO`/`Escape`
     /// (`shell_menu_cancel`).
     pub fn ask(&mut self, kind: ConfirmKind, surface: &dyn BattleUiSurface) {
@@ -632,7 +632,7 @@ impl PauseMenu {
         let _ = settings;
     }
 
-    /// Confirms (`yes = true`) or cancels (`yes = false`) the active confirmation popup (`QUESTIONS` in `src/pause/index.js`).
+    /// Confirms (`yes = true`) or cancels (`yes = false`) the active confirmation popup (`QUESTIONS`).
     ///
     /// Canceling pops the popup and plays `shell_menu_cancel`. Confirming plays `shell_menu_accept`
     /// and executes the corresponding action: triggering soldier suicide + resume (`Suicide`),
@@ -687,7 +687,7 @@ impl PauseMenu {
         }
     }
 
-    /// Handles a key press or release (`onKey` / `onKeyUp` + `ScreenStack` navigation in `src/pause/index.js`).
+    /// Handles a key press or release (`onKey` / `onKeyUp` + `ScreenStack` navigation).
     pub fn handle_key(
         &mut self,
         code: &str,
@@ -813,7 +813,7 @@ impl PauseMenu {
                     true
                 }
                 "Enter" | "NumpadEnter" | "Space" if !repeat => {
-                    // The hub comes back with its first row lit, as the browser's options menu does.
+                    // The hub comes back with its first row lit, as the client's options menu does.
                     self.options_request = Some(std::mem::take(focused_row));
                     self.sounds.push("shell_menu_enter");
                     true
@@ -899,7 +899,7 @@ impl PauseMenu {
         }
     }
 
-    /// Clicks at interface coordinates `(x, y)` (`bindMenuInput` in `src/menus/input.js`).
+    /// Clicks at interface coordinates `(x, y)` (`bindMenuInput`).
     ///
     /// Moves the pointer to `(x, y)` first, then dispatches the topmost hit hotspot (`MainRow`,
     /// `OptionRow`, `PlayerRow`, `ConfirmButton`, or `BackButton`).
@@ -966,8 +966,8 @@ impl PauseMenu {
         None
     }
 
-    /// Steps animations and timers by `dt` seconds (`update` in `src/pause/index.js`).
-    /// Steps animations and timers by `dt` seconds (`update` in `src/pause/index.js`).
+    /// Steps animations and timers by `dt` seconds (`update`).
+    /// Steps animations and timers by `dt` seconds (`update`).
     ///
     /// While `is_open` or `waiting_time.is_some()` (`"CLICK TO RESUME"`), advances `self.time`
     /// (driving `self.pulse()`) and all active `TitleIntro` state machines.

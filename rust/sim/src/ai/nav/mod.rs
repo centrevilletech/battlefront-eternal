@@ -1,7 +1,7 @@
 //! Classic AI navigation (src/ai/classic/nav/*): the `Nav` service the
-//! rest of the AI drives (index.js ClassicNav), holding the loaded
+//! rest of the AI drives (ClassicNav), holding the loaded
 //! graph, barriers, hints and boundary, the local path planner
-//! (planner.js, search.js) and every unit's NavControl (control.js).
+//! and every unit's NavControl.
 
 pub mod analogs;
 pub mod barriers;
@@ -35,7 +35,7 @@ use units::{kind, NavUnit, UnitRef};
 
 use bfe_content::Value;
 
-/// The planner's options (planner.js:94-105, index.js:30's pools).
+/// The planner's options (index.js:30's pools).
 #[derive(Clone, Copy, Debug)]
 pub struct PlannerOptions {
     pub paths: f64,
@@ -51,7 +51,7 @@ impl Default for PlannerOptions {
     }
 }
 
-/// One queued planner request (planner.js:133). `owner` is a control.
+/// One queued planner request. `owner` is a control.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Request {
     pub owner: usize,
@@ -64,7 +64,7 @@ pub struct Request {
     pub served: f64,
 }
 
-/// ClassicNav (index.js:17) with its PathPlanner (planner.js:93) and
+/// ClassicNav with its PathPlanner and
 /// controls inlined: their methods are the ones below.
 pub struct Nav {
     pub map: Value,
@@ -76,7 +76,7 @@ pub struct Nav {
     pub paths: Vec<NavPathData>,
     pub regions: Value,
     pub warnings: Vec<Value>,
-    // The planner (planner.js:93).
+    // The planner.
     pub store: PathStore,
     pub queue: Vec<Request>,
     pub current: Option<Request>,
@@ -84,7 +84,7 @@ pub struct Nav {
     pub work: Work,
     pub served: f64,
     capacity: f64,
-    // Per-controller navigation state (control.js), by index.
+    // Per-controller navigation state, by index.
     pub controls: Vec<NavControl>,
     /// Publications for an external control facade during the ownership
     /// transition. Native controls use their answer slots directly.
@@ -131,7 +131,7 @@ impl Nav {
         }
     }
 
-    /// Navigation for a map with no extracted ai-nav.json (index.js:36).
+    /// Navigation for a map with no extracted ai-nav.json.
     pub fn empty(pools: PlannerOptions) -> Self {
         Nav {
             map: Value::Null,
@@ -155,14 +155,14 @@ impl Nav {
         }
     }
 
-    // ----- the planner (planner.js) -----
+    // ----- the planner -----
 
-    /// A new path in the store (planner.js:108).
+    /// A new path in the store.
     pub fn path_new(&mut self) -> usize {
         self.store.make()
     }
 
-    /// Two-point path start -> end (planner.js:113).
+    /// Two-point path start -> end.
     pub fn path_segment(&mut self, start: Vec3, end: Vec3) -> usize {
         self.store.segment(start, end)
     }
@@ -172,7 +172,7 @@ impl Nav {
         owner.serial == request.serial && !owner.disposed
     }
 
-    /// Ask for a local path (planner.js:122).
+    /// Ask for a local path.
     pub fn planner_request(&mut self, owner: usize, start: Vec3, end: Vec3, radius: f64, mask: u32, priority: f64) -> bool {
         let segments = self.controls[owner].segments as f64;
         // (priority + owner.segments) & 0xff, as a JavaScript number.
@@ -191,7 +191,7 @@ impl Nav {
         true
     }
 
-    /// Forget the owner's pending work (planner.js:152).
+    /// Forget the owner's pending work.
     pub fn planner_cancel(&mut self, owner: usize) {
         self.control_publish(owner, None, false);
         if self.current.map(|c| c.owner) == Some(owner) {
@@ -203,7 +203,7 @@ impl Nav {
         }
     }
 
-    /// An outstanding segment was consumed (planner.js:164).
+    /// An outstanding segment was consumed.
     pub fn planner_promote(&mut self, owner: usize) {
         if self.current.map(|c| c.owner) == Some(owner) {
             return;
@@ -243,12 +243,12 @@ impl Nav {
         None
     }
 
-    /// No search in progress and nothing queued (planner.js:194).
+    /// No search in progress and nothing queued.
     pub fn planner_idle(&self) -> bool {
         self.search.finished && self.queue.is_empty()
     }
 
-    /// One planner service (planner.js:199); index.js:42 offers 1.0.
+    /// One planner service; index.js:42 offers 1.0.
     pub fn service(&mut self, budget: f64) {
         self.work.cap = v8math::trunc(f32(f32(f32(budget * 10.0) * 5.0) / 5.0));
         self.work.count = 0.0;
@@ -284,17 +284,17 @@ impl Nav {
         }
     }
 
-    // ----- controls (control.js) -----
+    // ----- controls -----
 
     /// A controller's navigation state, created on first use
-    /// (index.js:52): the caller keeps the index as it keeps
+    ///: the caller keeps the index as it keeps
     /// controller.navControl in the JavaScript.
     pub fn new_control(&mut self) -> usize {
         self.controls.push(NavControl::new());
         self.controls.len() - 1
     }
 
-    /// Bind to the unit now driven (control.js:93). `unit` is None where
+    /// Bind to the unit now driven. `unit` is None where
     /// the JavaScript's controller has no unit.
     pub fn control_attach(&mut self, control: usize, unit: Option<&NavUnit>) {
         let same = {
@@ -310,7 +310,6 @@ impl Nav {
         c.generation = unit.and_then(|u| u.generation).unwrap_or(-1.0);
     }
 
-    /// control.js:101.
     pub fn control_reset(&mut self, control: usize) {
         self.controls[control].serial += 1.0;
         self.planner_cancel(control);
@@ -359,13 +358,12 @@ impl Nav {
         }
     }
 
-    /// control.js:133.
     pub fn control_dispose(&mut self, control: usize) {
         self.control_reset(control);
         self.controls[control].disposed = true;
     }
 
-    /// The planner's answer slot (control.js:140).
+    /// The planner's answer slot.
     pub fn control_publish(&mut self, control: usize, path: Option<usize>, ready: bool) {
         let old = self.controls[control].published;
         if old.is_some() && old != path {
@@ -377,7 +375,7 @@ impl Nav {
         if let Some(publications) = &mut self.publications { publications.push((control, path, ready)); }
     }
 
-    /// Take a finished answer (control.js:149): (ready, success).
+    /// Take a finished answer: (ready, success).
     pub fn control_consume(&mut self, control: usize, mode: f64, unit: &mut NavUnit) -> (bool, bool) {
         if !self.controls[control].ready {
             return (false, false);
@@ -395,7 +393,7 @@ impl Nav {
         (true, true)
     }
 
-    /// A fresh executor on path (control.js:161).
+    /// A fresh executor on path.
     pub fn control_install(&mut self, control: usize, path: usize, a: bool, b: bool, unit: &mut NavUnit) {
         self.control_drop_executor(control);
         self.control_strand(control, false, Some(unit));
@@ -411,7 +409,7 @@ impl Nav {
         host.controls[control].executor = Some(executor);
     }
 
-    /// Continue the current executor with path (control.js:172).
+    /// Continue the current executor with path.
     pub fn control_append(&mut self, control: usize, path: usize, unit: &mut NavUnit) {
         self.controls[control].segments = self.controls[control].segments.wrapping_add(1) & 0xff;
         let mut executor = self.controls[control].executor.take().expect("append with an executor");
@@ -425,7 +423,7 @@ impl Nav {
         }
     }
 
-    /// Drop the path and stand still (control.js:179).
+    /// Drop the path and stand still.
     pub fn control_stop(&mut self, control: usize, unit: Option<&NavUnit>) {
         self.control_drop_executor(control);
         let Some(u) = unit else { return };
@@ -442,7 +440,7 @@ impl Nav {
         executor.release(&mut self.store);
     }
 
-    /// Follow's leader (control.js:195).
+    /// Follow's leader.
     pub fn control_set_leader(&mut self, control: usize, leader: Option<UnitRef>) {
         self.control_drop_executor(control);
         let trail = if leader.is_none() {
@@ -460,13 +458,13 @@ impl Nav {
         }
     }
 
-    /// A flagged node was consumed (control.js:246).
+    /// A flagged node was consumed.
     pub fn control_consume_segment(&mut self, control: usize) {
         self.controls[control].segments = self.controls[control].segments.wrapping_sub(1) & 0xff;
         self.planner_promote(control);
     }
 
-    /// Executor progress status (control.js:272).
+    /// Executor progress status.
     pub fn control_status(&self, control: usize, unit: Option<&NavUnit>) -> f64 {
         let c = &self.controls[control];
         if let Some(e) = &c.executor {
@@ -487,29 +485,28 @@ impl Nav {
         }
     }
 
-    /// control.js:281.
     pub fn control_following(&self, control: usize) -> bool {
         self.controls[control].executor.is_some()
     }
 
-    // ----- the service's queries (index.js) -----
+    // ----- the service's queries -----
 
-    /// No search running and nothing queued (index.js:47).
+    /// No search running and nothing queued.
     pub fn idle(&self) -> bool {
         self.planner_idle()
     }
 
-    /// Does the boundary leave this point outside? (index.js:65)
+    /// Does the boundary leave this point outside?
     pub fn outside(&self, point: Vec3) -> bool {
         self.boundary.outside(point)
     }
 
-    /// An authored path by name (index.js:69).
+    /// An authored path by name.
     pub fn path_by_name(&self, name: &str) -> Option<usize> {
         self.paths.iter().position(|p| p.name.as_deref() == Some(name))
     }
 
-    /// The hint query (index.js:75).
+    /// The hint query.
     pub fn query_hints(&self, mask: u32, center: Vec3, half_extent: f64, cap: f64, requester: Option<u64>, now: f64) -> Vec<usize> {
         self.hints.query(mask, center, half_extent, cap, requester, now)
     }
@@ -527,12 +524,12 @@ impl Nav {
         self.hints.reserve(hint, owner, now);
     }
 
-    /// The binding's pointClear (index.js:108): the barriers' answer.
+    /// The binding's pointClear: the barriers' answer.
     pub fn point_clear(&mut self, p: Vec3, r: f64, mask: u32) -> bool {
         self.barriers.point_clear(p, r, mask).0
     }
 
-    /// The binding's clipSegment (index.js:109).
+    /// The binding's clipSegment.
     pub fn clip_segment(&mut self, s: Vec3, e: &mut Vec3, r: f64, mask: u32, normal: Option<&mut Vec3>) -> bool {
         self.barriers.obstruct(s, e, r, mask, None, normal)
     }
@@ -551,7 +548,7 @@ impl ExecutorHost for ControlHost<'_> {
     fn consume_segment(&mut self) {
         let control = self.control;
         self.controls[control].segments = self.controls[control].segments.wrapping_sub(1) & 0xff;
-        // planner.promote (planner.js:164).
+        // planner.promote.
         if self.current.map(|c| c.owner) == Some(control) {
             return;
         }

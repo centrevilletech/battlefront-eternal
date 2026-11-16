@@ -1,5 +1,5 @@
 //! A battle's content, fetched and parsed in the order and by the rules of
-//! src/game.js's headless start (the world worker's and the dedicated
+//! headless start (the local world thread's and the dedicated
 //! server's load): map.json and the shared files, the battle and side the
 //! query picks, that side's classes and weapons and the other sides', the
 //! bodies every soldier class needs, the collision, props, vehicle pack and
@@ -99,7 +99,7 @@ impl<'a, 'f> Fetch<'a, 'f> {
     }
 }
 
-/// A side's part of a battle (game.js `sides[name]` and what was fetched
+/// A side's part of a battle (`sides[name]` and what was fetched
 /// for it): units.json, weapons.json and its packs, effects.json.
 #[derive(Clone, Debug)]
 pub struct SideFiles {
@@ -179,7 +179,7 @@ pub struct Battle {
     pub vehicle_dir: String,
     pub vehicle_def: Option<Value>,
     pub vehicle_bufs: Option<VehicleBufs>,
-    /// game.js `sides`: the side played first, then the mission's others in
+    /// `sides`: the side played first, then the mission's others in
     /// the order their loads finish (the mission's order: every side has the
     /// same files).
     pub sides: Vec<SideFiles>,
@@ -211,12 +211,12 @@ fn has_keys(v: Option<&Value>) -> bool {
 }
 
 impl Battle {
-    /// game.js start(), headless, for `map` and the battle's query.
+    /// start(), headless, for `map` and the battle's query.
     pub fn load(loader: &Loader, map: &str, query_text: &str) -> Result<Battle, String> {
         let mut f = Fetch { loader, log: FetchLog::default() };
         let query = Query::parse(query_text);
         let map_dir = format!("/maps/{map}");
-        // game.js 214-219
+        // 214-219
         let map_data = f.json(&format!("{map_dir}/map.json"))?;
         let anim_meta = f.json("/common/anims.json")?;
         let common = f.json("/common/common.json")?;
@@ -357,7 +357,7 @@ impl Battle {
             }
         }
         // The bodies: the class played, then every soldier and droideka class
-        // of every side (units.js prepareSoldiers), with droideka clips.
+        // of every side (prepareSoldiers), with droideka clips.
         let mut bodies: Vec<(String, BodyFiles)> = vec![(format!("{side_name}/{model}"), BodyFiles { def: actor_def, buf: actor_buf, index_buf: actor_index_buf })];
         let mut walkers: Vec<(String, WalkerFiles)> = Vec::new();
         if let Some(w) = walker_files {
@@ -393,7 +393,7 @@ impl Battle {
                 }
             }
         }
-        // The AI's data (src/ai/index.js loadAIData) for Object.keys(sides).
+        // The AI's data (loadAIData) for Object.keys(sides).
         let nav = f.optional_json(&format!("{map_dir}/ai-nav.json"));
         let ai_mission = f.optional_json(&format!("{map_dir}/ai-mission.json"));
         let class_data: Vec<(String, Option<Value>)> =

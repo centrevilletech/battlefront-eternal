@@ -1,4 +1,4 @@
-//! Replaceable movement commands (runtime/transport.js InputMailbox).
+//! Replaceable movement commands (InputMailbox).
 //! Foreign values keep opaque identities until their consumers migrate;
 //! this queue owns stamps, coalescing, cumulative look and acknowledgement.
 use super::actions::safe_integer;
@@ -24,7 +24,7 @@ pub(super) fn invalid_entry(e:&crate::gen::ImEntry,codes:&[crate::store::StrId],
             !["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].iter().any(|name|key.iter().copied().eq(name.encode_utf16())))
             ||!safe_integer(field.value)||field.value<0.)
         ||e.human.len()>16||e.fire.len()>16 {return Some("invalid input payload");}
-    // Choices are records (src/sim/wasm/runtime/input-mailbox.js invalidCommand's
+    // Choices are records (invalidCommand's
     // human rules): a team of 1 to 7, a named class with an optional post.
     let named=|id:Option<crate::store::StrId>|id.is_some_and(|id|strings.list.get(id.0 as usize).is_some_and(|s|!s.is_empty()&&s.len()<=64));
     if e.human.iter().any(|h|match h.kind {

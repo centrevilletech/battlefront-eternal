@@ -7,8 +7,8 @@ The desktop app runs this on first launch with its bundled toolchain
 (docs/desktop.md); from a checkout it fills public/ like the separate tools.
 Steps (keys in brackets), each after the ones it needs:
 
-1. [catalog]        the front end's map catalog and loading pictures (tools/zero_shell.py),
-                    the add-ons' maps included (tools/zero_addon.py)
+1. [catalog]        the front end's map catalog, loading pictures and movie list
+                    (tools/zero_shell.py), the add-ons' maps included (tools/zero_addon.py)
 2. [side:<side>]    every army and local force the catalog's battles field
                     (tools/extract.py --only side)
 3. [map:<map>]      every map of the catalog with all its battles' sides
@@ -24,16 +24,14 @@ Steps (keys in brackets), each after the ones it needs:
                     needs numpy, scipy, soundfile and soxr, and ffmpeg)
 10. [textures]      after everything that writes textures: KTX2 copies (tools/ktx2.py;
                     needs KTX-Software's `ktx`)
-11. [movies]        the shell's movies, converted to WebM (needs ffmpeg with Bink,
-                    VP9, Opus); runs alongside the rest from the start. With
-                    --movie-index (the native client) [movie-index] instead
-                    lists them in movies/manifest.json in seconds: the native
-                    client plays the Bink files from the game's own archives
+
+The movies are not converted: the catalog step lists where each one is in the
+game's own archives, and the client plays the Bink files from there.
 
 Steps 1-8 make the game playable ("core"); the rest refine it. Steps run as
 soon as what they need is done and the cores allow (--jobs): the sides and
 maps several at once (as memory allows), the sound of a battle while other
-maps extract, the movies throughout. The game can start once the sides,
+maps extract. The game can start once the sides,
 common and shell steps and one map are done, which the "playable" event
 announces. The desktop app keeps its loader up until all of them are done.
 A step that completes is recorded in <out>/.prepare.json and skipped next
@@ -102,13 +100,10 @@ MAP_IMPORT_VERSION = CONTENT_VERSION["maps"]  # 1: FOLG grid/scatter and painted
 COMMON_VERSION = CONTENT_VERSION["common"]
 STATE_VERSION = CONTENT_VERSION["state"]  # 2: sides and common are steps of their own, a map is one step
 # What the installed add-ons (GameData/AddOn, tools/zero_addon.py) change in
-# steps that are done: the catalog lists their maps, common takes their
-# armies' clips and their maps' effects, the movies their flyovers, and
-# catalog-update marks their maps ready. Their maps, armies and sound are
-# steps of their own.
-ADD_ON_STEPS = ("catalog", "common", "catalog-update", "movies", "movie-index")
-# --movie-index (the native client): list the movies instead of converting them.
-MOVIE_INDEX = False
+# steps that are done: the catalog lists their maps and flyovers, common
+# takes their armies' clips and their maps' effects, and catalog-update marks
+# their maps ready. Their maps, armies and sound are steps of their own.
+ADD_ON_STEPS = ("catalog", "common", "catalog-update")
 ERA_TEAMS = {"cw": ["rep", "cis"], "gcw": ["all", "imp"]}
 SIDE_NAMES = {
     "rep": "Republic", "cis": "CIS", "all": "Rebel Alliance", "imp": "Galactic Empire",
@@ -146,7 +141,7 @@ class State:
         if self.data.get("version") != STATE_VERSION or self.data.get("game") != str(GAME):
             self.data = {"version": STATE_VERSION, "game": str(GAME), "done": []}
         if self.data.get("mapImportVersion") != MAP_IMPORT_VERSION:
-            # Reuse armies, audio, HUD and movies; only map products and their
+            # Reuse armies, audio and HUD; only map products and their
             # derived catalog/environment/texture stages need rebuilding.
             self.data["done"] = [key for key in self.data["done"]
                                  if not key.startswith("map:") and key not in
@@ -460,20 +455,6 @@ def plan(jobs, maps=None, locals_of=None, sublevels=None, add_on_maps=None):
     locals_of = mission_sides() if locals_of is None else locals_of
     sublevels = mission_sublevels(maps, locals_of) if sublevels is None else sublevels
     add_on_maps = set(RUN.maps if add_on_maps is None else add_on_maps)
-    # The movies are the longest step by far (55 encodes, 24 minutes of
-    # video), so they are second in the plan and run throughout: an encode
-    # per two cores (each has four threads and keeps about two and a half
-    # cores busy, libvpx, and ~650 MB), as memory allows, counted as half
-    # the cores so the rest of the plan overlaps them rather than waits.
-    # The native client plays the Bink movies from the game's own archives: it needs only their list
-    # (seconds, no ffmpeg), under a step of its own so a later Electron preparation still encodes.
-    if MOVIE_INDEX:
-        steps.append(step("movie-index", "extra", "Listing the movies", 1, True,
-                          lambda: run_tool("zero_shell.py", "--movie-index"), after=("catalog",)))
-    else:
-        encodes = map_workers(max(1, jobs // 2), per_gb=0.75, most=8)
-        steps.append(step("movies", "extra", "Converting the movies", 30, ffmpeg_ok(),
-                          lambda: run_tool("zero_shell.py", "--movies", "--jobs", encodes), after=("catalog",), cores=max(1, jobs // 2)))
     sides = []
     battles = []
     for entry in maps:
@@ -723,11 +704,7 @@ def main():
     parser.add_argument("--core-only", action="store_true", help="stop once the game is playable")
     parser.add_argument("--no-enhanced-sound", action="store_true", help="leave the Enhanced sound (the audio steps) out")
     parser.add_argument("--check", action="store_true", help="check the installation and stop, writing nothing")
-    parser.add_argument("--movie-index", action="store_true",
-                        help="list the movies instead of converting them (the native client plays the Bink files)")
     args = parser.parse_args()
-    global MOVIE_INDEX
-    MOVIE_INDEX = args.movie_index
 
     if args.check:
         report = check_install(args.jobs)

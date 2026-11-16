@@ -1,17 +1,17 @@
-//! ODF settings as the JavaScript reads them. Vehicle classes, their seats
+//! ODF settings them. Vehicle classes, their seats
 //! and props carry their 2004 class keys as text ("300.0", "-45.0 45.0",
 //! hashed names where the extractor kept only a hash), and each reader
 //! turns them into numbers its own way: `parseFloat` with a fallback
-//! (vehicles.js num, seats.js numberOf, props.js num, vehicle-hover,
+//! (num, seats.js numberOf, props.js num, vehicle-hover,
 //! vehicle-motion, flight/camera), `Number` (vehicle-water), whitespace
-//! pairs (props.js pair), sscanf-like vectors (props.js scanVector),
+//! pairs (pair), sscanf-like vectors (scanVector),
 //! `parseInt` (mobile-posts). Each is here, by the same rules, and the
 //! content dump proves them on every setting of every class.
 
 use crate::js::{is_js_space, parse_float_value, string_to_number, to_number};
 use crate::value::Value;
 
-/// seats.js fnv: the engine's FNV-1a over a name's UTF-16 units' low bytes
+/// fnv: the engine's FNV-1a over a name's UTF-16 units' low bytes
 /// OR 0x20, as eight hex digits.
 pub fn fnv(name: &str) -> String {
     let mut h: u32 = 0x811c9dc5;
@@ -26,7 +26,7 @@ fn nullish(v: Option<&Value>) -> bool {
     matches!(v, None | Some(Value::Null))
 }
 
-/// seats.js setting(settings, name): `settings[name] ?? settings[fnv(name)]`.
+/// setting(settings, name): `settings[name] ?? settings[fnv(name)]`.
 pub fn setting<'a>(settings: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let settings = settings.filter(|s| s.truthy())?;
     let direct = settings.get(name);
@@ -36,7 +36,7 @@ pub fn setting<'a>(settings: Option<&'a Value>, name: &str) -> Option<&'a Value>
     settings.get(&fnv(name))
 }
 
-/// vehicle-motion.js classSetting(def, name): the body's key, else the
+/// classSetting(def, name): the body's key, else the
 /// first later seat's.
 pub fn class_setting<'a>(def: Option<&'a Value>, name: &str) -> Option<&'a Value> {
     let value = setting(def.and_then(|d| d.get("settings")), name);
@@ -53,7 +53,7 @@ pub fn class_setting<'a>(def: Option<&'a Value>, name: &str) -> Option<&'a Value
     None
 }
 
-/// vehicles.js num(v, fallback): parseFloat, when finite.
+/// num(v, fallback): parseFloat, when finite.
 pub fn num(v: Option<&Value>, fallback: f64) -> f64 {
     let n = parse_float_value(v);
     if n.is_finite() {
@@ -63,7 +63,7 @@ pub fn num(v: Option<&Value>, fallback: f64) -> f64 {
     }
 }
 
-/// seats.js numberOf / props.js num: parseFloat of an array's first
+/// numberOf / props.js num: parseFloat of an array's first
 /// element (the same number as parseFloat of the array).
 pub fn number_of(v: Option<&Value>, fallback: f64) -> f64 {
     let first = match v {
@@ -73,7 +73,7 @@ pub fn number_of(v: Option<&Value>, fallback: f64) -> f64 {
     num(first, fallback)
 }
 
-/// vehicle-water.js: `Number(Array.isArray(value) ? value[0] : value)`.
+/// `Number(Array.isArray(value) ? value[0] : value)`.
 pub fn number_first(v: Option<&Value>) -> f64 {
     match v {
         Some(Value::Array(items)) => to_number(items.first()),
@@ -128,7 +128,7 @@ pub fn split_space(text: &str) -> Vec<&str> {
     out
 }
 
-/// props.js pair(value, fallback): the finite numbers of the value's
+/// pair(value, fallback): the finite numbers of the value's
 /// whitespace-separated words, when there are at least two.
 pub fn pair(v: Option<&Value>) -> Option<Vec<f64>> {
     let text = match v {
@@ -186,7 +186,7 @@ fn float_match(rest: &str) -> Option<usize> {
     Some(i)
 }
 
-/// props.js scanVector(value): up to three floats as sscanf "%f %f %f"
+/// scanVector(value): up to three floats as sscanf "%f %f %f"
 /// reads them (missing ones 0), from the last of repeated values; None
 /// when not even the first parses.
 pub fn scan_vector(v: Option<&Value>) -> Option<[f64; 3]> {

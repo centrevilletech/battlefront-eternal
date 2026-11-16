@@ -7,11 +7,10 @@ popup in play. It has two sides here:
 
 - **The board** (`rust/bfe-battle-ui` (`scoreboard`)): what is drawn and how input moves it.
   It reads the world only through the scoreboard port.
-- **The world side** (`rust/sim/rust/battle/rules.rs` and `stats.rs`, with
-  the page's facades `rust/sim` (`battle`), `rust/sim` (`battle-stats`) and
-  `rust/sim` (`bot-names`)): who is credited with what, when the scores stop,
-  the bots' names. The world keeps all of it, so a worker or a replay
-  keeps the same numbers (`worldState().scores`).
+- **The world side** (`rust/sim/src/battle/rules.rs`, `stats.rs` and
+  `names.rs`): who is credited with what, when the scores stop, the bots'
+  names. The world keeps all of it, so the local world thread, a server or a
+  replay keeps the same numbers.
 
 The original's behaviour follows its interface Lua (`ifs_teamstats`,
 `ifs_personalstats`, `ifs_awardstats`, `ifs_mp_lobby`, `ifelem_listmanager`)
@@ -62,22 +61,20 @@ mission's armies, and the roster drops them
 
 | File | What it does |
 | --- | --- |
-| `rust/bfe-battle-ui` (`scoreboard`) | `createScoreboard()`: Tab's table, the end table when the battle is over, DONE and the idle quit, the sounds, the mouse |
-| `rust/bfe-battle-ui` (`scoreboard`) | Pure: the rows, their order, the selection and scroll, the page (table, DETAILS, AWARDS), the idle clock |
-| `rust/bfe-battle-ui` (`scoreboard`) | Keys and mouse to the model; `TabHold`, the hold-or-tap rule; `bindDom()` |
-| `rust/bfe-battle-ui` (`scoreboard`) | The world's side: rows (with a network game's pings), team titles, DETAILS' and AWARDS' contents, the battle's end, as plain values |
-| `rust/bfe-battle-ui` (`scoreboard`) | The Classic board as a layer of the battle HUD: the table and the logos |
-| `rust/bfe-battle-ui` (`scoreboard`) | DETAILS and AWARDS |
-| `rust/bfe-battle-ui` (`scoreboard`) | Pure: where everything sits for an interface height |
-| `rust/bfe-battle-ui` (`scoreboard`) | The page view: the board in the front end's look, as elements over the battle (see [The page view](#the-page-view)) |
-| `rust/bfe-battle-ui` (`scoreboard`) | The board on demand over the running game |
-| `rust/sim/rust/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
-| `rust/sim` (`battle`) | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
-| `rust/sim/rust/battle/stats.rs`, `rust/sim` (`battle-stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
-| `rust/sim` (`bot-names`) | Bot names, each team from its own generator |
-| `rust/sim` (`wire`), `rust/sim` (`wire`) | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
-| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
-| `rust/sim` (`hud`), `rust/bfe-render/rust/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
+| `rust/bfe-battle-ui/src/scoreboard/controller.rs` | `ScoreboardController`: Tab's table, the end table when the battle is over, DONE and the idle quit, the sounds, the mouse |
+| `rust/bfe-battle-ui/src/scoreboard/model.rs` | Pure: the rows, their order, the selection and scroll, the page (table, DETAILS, AWARDS), the idle clock |
+| `rust/bfe-battle-ui/src/scoreboard/input.rs` | Keys and mouse to the model; `TabHold`, the hold-or-tap rule |
+| `rust/bfe-battle-ui/src/scoreboard/stats.rs` | The scoreboard port: rows (with a network game's pings), team titles, DETAILS' and AWARDS' contents, the battle's end, as plain values; each Character's record and its formatting |
+| `rust/bfe-battle-ui/src/scoreboard/view.rs`, `pages.rs` | The Classic board on the battle HUD's interface: the table, DETAILS, AWARDS and the logos |
+| `rust/bfe-battle-ui/src/scoreboard/layout.rs` | Pure: where everything sits for an interface height |
+| `rust/bfe-client` (`app/slint_battle.rs`, `app/page_battle`), `rust/bfe-ui` | The board in the front end's look (see [The front end's look](#the-front-ends-look)) |
+| `rust/bfe-client` (`app/battle.rs`) | The board over the running battle, its port to the world's numbers, DONE's next battle |
+| `rust/sim/src/battle/rules.rs` | The scores and when they stop: credits, CP points, destroyed posts, head shots, destroyed vehicles, the game over |
+| `rust/sim/src/battle/stats.rs` | Each Character's record for DETAILS and AWARDS, tallied in the world |
+| `rust/sim/src/battle/names.rs` | Bot names, each team from its own generator |
+| `rust/sim` (`wire`) | The scores and records on their way to the client, from the local world thread or a server (see [The client's numbers](#the-clients-numbers)) |
+| `rust/bfe-render` (`hud_model`), `rust/bfe-render/src/hud_model/panels.rs` | The stat popup, the dead player's HUD |
+| `rust/bfe-render` (`hud_model`), `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
 | `rust/audio-control` | The `busFade` event; `interface` plays a sound by its own name too |
 
 ## Tab
@@ -135,9 +132,9 @@ As the original's mission loop runs it:
    (The original's Esc did too; here Esc on the table opens the pause menu
    over it, whose QUIT goes to the front end, and the idle clock waits
    while it is up.) As in the original, that **goes on to the next map** of the
-   Instant Action playlist, which wraps round for ever (`nextUrl()` in
-   `rust/sim` (`launch`); [shell.md](shell.md#after-a-battle)). A battle opened
-   without a playlist starts again: the page reloads with the same URL.
+   Instant Action playlist, which wraps round for ever (`BattleRequest::next`
+   in `rust/bfe-shell` (`launch`); [shell.md](shell.md#after-a-battle)). A battle opened
+   without a playlist starts again.
 
 ## The table
 
@@ -153,7 +150,7 @@ As the original's mission loop runs it:
 
 - The player is "Player 1" (the original's fallback when the profile has
   no name), here and in the message feed ("GAMMA 935 KILLED PLAYER 1"). It
-  is made in one place (`humanName()`, `rust/sim` (`bot-names`)); his Character
+  is made in one place (`human_name`, `rust/sim` (`battle::names`)); his Character
   carries it, and both read it from there.
 - A bot is named once, when its team's Characters are made (see
   [Bot names](#bot-names)).
@@ -217,8 +214,8 @@ the player white.
 
 **The mouse:**
 
-- While the board is up, the game's controls are off and the page's cursor
-  hides over the canvas, where the board draws `mousecursor`.
+- While the board is up, the game's controls are off and the system's
+  cursor hides over the window, where the board draws `mousecursor`.
 - A captured mouse stays captured and moves that pointer by how far it
   moves. A free mouse moves it to where it is.
 - The pointer starts in the middle of the screen: the original warps it
@@ -301,28 +298,24 @@ unsqueezed captures. Titles, icons, every row's name and numbers, the
 selection frame, DETAILS, DONE and AWARDS all land within one unit. The
 selection frame lands exactly.
 
-## The page view
+## The front end's look
 
-The battle shows the board in the front end's page look
-(`rust/bfe-interface` (`menus`), [menus.md](menus.md)) unless its URL has
-`menus=classic`: `rust/sim` (`game`) names the view `"page"`, and `VIEWS` in
-`rust/bfe-battle-ui` (`scoreboard`) has it beside Classic, which stays the default
-when no view is named. It is the same board behind the same model and
-input, drawn as elements instead of on the HUD:
+The battle shows the board in the front end's look (Slint, `rust/bfe-ui`,
+[menus.md](menus.md)); the Classic board is drawn instead when the
+`menuTheme` setting names the original menus (`classic`,
+`rust/bfe-client` `app/page_battle`). It is the same board behind the same
+model and input, drawn by the front end's screens instead of on the HUD:
 
-- **Over the world:** a fixed layer at z-index 10, under the pause menu's
-  page (20). The running world shows through `--bfe-overlay` and a 4 px
-  blur. Its HUD layer only hides the HUD (`teams: false`); nothing is drawn
-  on the canvas.
-- **The looks:** eternal, bf1 and bf2, through the look's custom properties
-  and the theme's title, tabs and small buttons. The table follows the
-  server browser's: an accent header bar (bf1's angled, bf2's grey metal
-  with a red line), framed selection, lit hover.
+- **Over the world:** under the pause menu, with the running world darkened
+  and blurred behind it (`app/page_blur.rs`). The HUD hides while it is up.
+- **The looks:** eternal, bf1 and bf2, with the look's title, tabs and
+  small buttons. The table follows the server browser's: an accent header
+  bar (bf1's angled, bf2's grey metal with a red line), framed selection,
+  lit hover.
 - **The page:** the title STATS (`ifs.stats.statstitle`), tabs for the
   table, DETAILS and AWARDS (the end table's only), the page, and DONE (BACK
   during play and on DETAILS and AWARDS), DETAILS and AWARDS along the
-  bottom, where the Classic board has them. The content and the bottom row
-  share `--bfe-page-frame`.
+  bottom, where the Classic board has them.
 - **The table:** both teams side by side, each with its name in its
   relation colour (green for the player's, red for the other: the Classic
   logos' colours) and its reinforcements, over NAME, PING (Tab's table in
@@ -330,31 +323,29 @@ input, drawn as elements instead of on the HUD:
   arrow, down while the most come first. Bots are dim, other players in the
   look's highlight, the player's own row lit. Only names are cut short, with
   an ellipsis.
-- **Scrolling:** both lists scroll together, natively (the wheel, the thin
-  scroll bar). The model's first row follows them, and its shown is how
-  many rows show whole, so the keys keep the selection in view as before.
-  A list with more below fades out at its foot.
+- **Scrolling:** both lists scroll together (the wheel, the thin scroll
+  bar). The model's first row follows them, and its shown is how many rows
+  show whole, so the keys keep the selection in view as before. A list with
+  more below fades out at its foot.
 - **DETAILS:** PERSONAL STATS, the row's name, his team and his KILLS,
   DEATHS and CP POINTS, then the record's rows, labels before the middle
   and values after it, as the Classic page has them.
 - **AWARDS:** PLAYER AWARDS, each winner after a tag of his team, or a dash.
-- **The pause menu** over the board hides it (`hidePointer`); it comes
-  back when the menu closes.
+- **The pause menu** over the board hides it; it comes back when the menu
+  closes.
 
 **Input.** The keys are the input's own. The mouse goes through the same
-input as the Classic board's: `hit(x, y)` reads the element under an
-interface point.
+input as the Classic board's.
 
 - A free mouse moves the input's pointer as it moves, and a press is the
   input's click there. So hover, a row's select and double click, a
   header's sort and the buttons act as on the Classic board.
 - A captured mouse stays captured and moves the input's pointer by how far
-  it moves (`bindDom`); the view draws it as an arrow, and the wheel
+  it moves; the view draws it as an arrow, and the wheel
   scrolls the list under it.
 - The tabs are their pages' buttons: the table's is BACK. DETAILS and
   AWARDS go straight from one to the other through the table, with one
-  sound (`act()` in `index.js`).
-- No element takes the keyboard focus.
+  sound.
 
 ## DETAILS
 
@@ -382,7 +373,7 @@ opens from DETAILS or a double click, from the end table or from Tab's.
 
 - **During play** the record is the world's of up to 5 s before, in whole
   seconds, and the player's own of a tenth of a second before (see
-  [The page's numbers](#the-pages-numbers)).
+  [The client's numbers](#the-clients-numbers)).
 - **The logo:** his team's logo flies from its place on the table to the
   window's top corner on that side, at half size and alpha 0.4, over
   0.4 s, spinning at 600°/s, then at 9°/s.
@@ -434,7 +425,7 @@ team's relation colour.
 
 ## The stat popup
 
-The original's stat popup (`drawStats`, `rust/bfe-render/rust/hud_model/panels.rs`):
+The original's stat popup (`drawStats`, `rust/bfe-render/src/hud_model/panels.rs`):
 
 - **Where:** from the safe area's left middle, three rows 32 apart, for
   KILLS, DEATHS and CP POINTS. Each row is drawn at 0.75 from 36 units in:
@@ -456,8 +447,8 @@ The original's stat popup (`drawStats`, `rust/bfe-render/rust/hud_model/panels.r
 **Dead,** the player has no body, and the original's HUD shows only what
 isn't the body's: the reinforcements, the messages and the popup. The
 minimap, the weapon and health panels, the reticle, the capture timer and
-the scope go at the death and come back with the next body (`hud.js`, given
-`dead` with the player each tick). The captured frames show exactly that set.
+the scope go at the death and come back with the next body (the HUD is
+told the player is dead each tick). The captured frames show exactly that set.
 
 ## Scoring
 
@@ -473,11 +464,11 @@ over.
 | A neutral post captured | A CP point for each living Character in its capture region, the initial 64 |
 | A command post destroyed | A CP point for its last damager, unless he is its owner's friend |
 
-`postDestroyed()` is called for the destructible posts
-(`ObjectivePost` in `rust/sim` (`props`), [objectives.md](objectives.md)) and for
-the command vehicles' posts (`rust/sim` (`mobile-posts`)).
+`post_destroyed` (`rules.rs`) is called for the destructible posts
+(`ObjectivePost` in `rust/sim` (`battle::live`), [objectives.md](objectives.md)) and for
+the command vehicles' posts (`rust/sim` (`battle::mobile`)).
 
-**The record** (`rust/sim/rust/battle/stats.rs`) keeps, per Character and per team
+**The record** (`rust/sim/src/battle/stats.rs`) keeps, per Character and per team
 slot, what DETAILS and AWARDS need:
 
 - **On each kill:**
@@ -510,18 +501,18 @@ slot, what DETAILS and AWARDS need:
   (slot 0's) sprees count.
 - The port keeps this, so the award goes where the original's would.
 
-## The page's numbers
+## The client's numbers
 
-The battle runs in a world worker offline and on a server online; the page
-draws it from the snapshots either way (`rust/sim` (`wire`)),
-so the board reads Characters the page makes from them:
+The battle runs on the client's local world thread offline and on a server
+online; the client draws it from the snapshots either way (`rust/sim`
+(`wire`)), so the board reads Characters the client makes from them:
 
-- **The roster** (world summary schema 4, `network-entity-summary.js`):
-  every Character's team, whether a player holds it, kills, team kills,
-  deaths, command post points, the server's round trip to that player and
-  its path, and the name. Each chunk of twelve refreshes every second.
+- **The roster** (world summary schema 4): every Character's team, whether
+  a player holds it, kills, team kills, deaths, command post points, the
+  server's round trip to that player and its path, and the name. Each chunk
+  of twelve refreshes every second.
 - **Everyone's records** (schema 5, ids from 80000): what DETAILS and
-  AWARDS read (`battle-stats.js` `packRecord`). During play each chunk
+  AWARDS read. During play each chunk
   refreshes every 5 s in whole seconds, since their times change every
   second; once the scores stop they come exact, for the end table, within
   5 s, before it opens.
@@ -583,13 +574,13 @@ Through the `interface` sound event, by the sounds' own names:
 - **The end table's world:** the original's end camera isn't modelled. The
   table dims whatever the player's view shows.
 - **The end of the end:** DONE and the timeout load the playlist's next
-  map, as the original does, by navigating to its URL.
+  map, as the original does.
 - **The end display:** the VICTORY / DEFEAT banner is the port's, shown at
   the win rather than at the game over.
-- **The page view** ([above](#the-page-view)), the battle's board unless
-  the URL asks for the original's menus: the front end's look, the teams'
-  names in their colours in place of the logos, tabs between the pages,
-  and DETAILS' KILLS, DEATHS and CP POINTS.
+- **The front end's look** ([above](#the-front-ends-look)), the battle's
+  board unless the original's menus are chosen: the teams' names in their
+  colours in place of the logos, tabs between the pages, and DETAILS'
+  KILLS, DEATHS and CP POINTS.
 - **No gamepad, and no ifs_mp_lobby.**
 - **The selection keeps its index** when a sort or a refresh moves the
   rows, as the original's lists do.
@@ -603,10 +594,9 @@ Through the `interface` sound event, by the sounds' own names:
 ## Checks
 
 ```sh
-cargo test --locked --workspace
-  cargo test --locked --workspace cargo test --locked --workspace cargo test --locked --workspace cargo test --locked --workspace \
-  cargo test --locked --workspace cargo test --locked --workspace
-BFE_SERVER_REPO=<bfeserver checkout> ```
+cd rust
+cargo test --locked -p bfe-battle-ui -p sim -p bfe-client
+```
 
 **The unit tests cover:**
 
@@ -617,8 +607,7 @@ BFE_SERVER_REPO=<bfeserver checkout> ```
 - the hold-or-tap rule, frame by frame;
 - clicks and the double click;
 - the board's layer, controls, sounds and fades, and the battle's end;
-- DETAILS and AWARDS straight from one to the other; the page view's name,
-  its HUD layer, its sort arrows and its tabs;
+- DETAILS and AWARDS straight from one to the other;
 - the credits, suicides, CP points, and the game over's freeze;
 - the record: the spree ring's quirk, the tallies, DETAILS' formats, the
   award rules;
@@ -628,48 +617,3 @@ BFE_SERVER_REPO=<bfeserver checkout> ```
 - everyone's records reaching a client during play every 5 s in whole
   seconds, exact after the game over, and the player's own slot keeping
   his own record (nab2, when extracted).
-
-**The browser test**, on geo1 with the Classic AI and the Classic board
-(`menus=classic`, as in the network browser test):
-
-- Tab held and tapped, with real key events;
-- both rosters listed by name, bots included;
-- the board on the HUD's layer, with the controls off;
-- Esc: the pause menu over it, and back;
-- with the spawn screen up, Tab picks posts and no table shows;
-- the battle's end run by the world: the banner, the game over 2 s later,
-  the end table 7 s after, the frozen scores;
-- DETAILS from Tab's table: a bot's record during play;
-- DETAILS, AWARDS and BACK;
-- DONE, and the 30 s idle quit;
-- the popup flashing after a kill;
-- dead: no minimap, weapons or health, "… KILLED PLAYER 1", DEATHS
-  flashing.
-
-It writes screenshots at 1024 × 768 and 1280 × 720 into the folder
-`SCOREBOARD_SHOTS` names, including the three captures' tables rebuilt
-(and Hoth's DETAILS and AWARDS) for side-by-sides.
-`SCOREBOARD_PARTS=play,captures,popup,death,spawn` picks parts; a full run
-takes about an hour under SwiftShader.
-
-**The network browser test** starts a bfeserver (nab2, 32 a side) and joins
-two rendered clients over the native UDP transport, one on each team:
-
-- Tab held: every Character of both teams, the bots by name with their
-  kills and deaths and no ping, both players with their pings; let go, it
-  closes;
-- a death on one client shows on the other's table;
-- DETAILS from Tab's table: a bot's record during play, and the other
-  player's CONNECTION;
-- Tab in the chat entry keeps the focus there and opens nothing; T over the
-  table opens no chat.
-
-It writes both clients' tables and the two DETAILS pages at 1280 × 720 into
-the folder `SCOREBOARD_SHOTS` names.
-
-**From the console, over the running game:**
-
-```js
-const { scoreboardDebug } = await import("/rust/sim (scoreboard/debug)");
-scoreboardDebug(__bf, "end"); // or "peek"
-```

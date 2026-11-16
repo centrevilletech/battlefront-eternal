@@ -1,5 +1,5 @@
 //! Synthetic arc-lightning bolt, chain, body/shield shock, charging muzzle, and
-//! classic fallback tests ported from `tests/arc-lightning.test.js`.
+//! classic fallback tests.
 //!
 //! These cases exercise `bfe_presentation::effects::lightning::{Actor,
 //! Collision, Definition, DrawCamera, EmptyCollision, Fixture, Lightning}`
@@ -106,7 +106,6 @@ fn setup_soldier(owner: &mut Lightning, id: usize, pos: [f64; 3], gen: f64) {
     }
 }
 
-// Mirrors `tests/arc-lightning.test.js`:
 // "displaced channels keep their endpoints and monotonic forward order"
 // "leader tip advances to the target, then full charge emits more capsules and brighter light than uncharged"
 #[test]
@@ -178,7 +177,6 @@ fn leader_growth_charge_scaling_and_displace_fixture_match_expected_bounds() {
     assert!(radius_high > radius_low);
 }
 
-// Mirrors `tests/arc-lightning.test.js`:
 // "struck soldiers convulse with surface arcs and restore their joints when the shock ends"
 // "first-person shock routes arcs to the view-weapon batch instead of world capsules"
 #[test]
@@ -257,7 +255,6 @@ fn body_shock_twitches_and_restores_joints_and_routes_first_person_to_view_batch
     assert_eq!(owner.counts[h::CAPSULES], 0);
 }
 
-// Mirrors `tests/arc-lightning.test.js`:
 // "droideka shields intercept bolts at their ellipsoid surface and crawl across the bubble"
 // "charging weapons crackle at the muzzle, walls spray along the normal, air shots fizzle, and Classic draws ribbons"
 #[test]

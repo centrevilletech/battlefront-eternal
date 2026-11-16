@@ -4,7 +4,7 @@
 //! class. Fields are held as the JavaScript values the definitions hold
 //! ([`Js`]) and read with JavaScript's own rules (`x || d`, `x ?? d`,
 //! comparisons through ToNumber), so a field the content leaves out reads
-//! here as it reads in src/weapons.js and src/combat.js.
+//! here as it reads and src/combat.js.
 
 use crate::store::DefId;
 use std::rc::Rc;
@@ -335,14 +335,14 @@ impl ArcDef {
     }
 }
 
-/// One prepared swing's length and hit time (heroes.js meleeSwings).
+/// One prepared swing's length and hit time (meleeSwings).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Swing {
     pub duration: f64,
     pub hit: f64,
 }
 
-/// meleeSwings (heroes.js) takes at most three authored swings. Convert the
+/// meleeSwings takes at most three authored swings. Convert the
 /// two numeric fields once: updating a held blade never rebuilds a class table.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeleeSwings {
@@ -482,7 +482,7 @@ fn repair_definition(obj: &JsObj) -> crate::battle::live::Definition {
     }
 }
 
-/// A weapon class: its levels (src/weapons.js:122 `levels`).
+/// A weapon class: its levels (`levels`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct WeaponClass {
     pub levels: Vec<Level>,

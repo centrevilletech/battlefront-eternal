@@ -24,10 +24,10 @@ use std::{
 /// Returns the platform string matching `bfe-desktop` conventions (`"linux"`, `"darwin"`, `"win32"`).
 ///
 /// Used when constructing [`DesktopPathsOptions`], [`ToolchainOptions`], and
-/// [`SelectTargetOptions`] so native Rust path and release-feed resolution matches
-/// `electron/paths.js` and `electron/update.js` byte for byte.
+/// [`SelectTargetOptions`]: the platform names the release feed and the user
+/// folders use (`win32`, `darwin`, `linux`), the same as earlier releases wrote.
 pub fn current_platform_str() -> &'static str {
-    // Map Rust `target_os` cfg attributes to Node/Electron `process.platform` identifiers.
+    // The release feed's platform names.
     if cfg!(target_os = "windows") {
         "win32"
     } else if cfg!(target_os = "macos") {
@@ -41,7 +41,7 @@ pub fn current_platform_str() -> &'static str {
 ///
 /// Used by startup release-feed target selection and extraction toolchain lookup.
 pub fn current_arch_str() -> &'static str {
-    // Map Rust `target_arch` cfg attributes to Node/Electron `process.arch` identifiers.
+    // The release feed's architecture names.
     if cfg!(target_arch = "aarch64") {
         "arm64"
     } else {
@@ -129,7 +129,7 @@ pub struct PersistedPlayerSettings {
     /// Whether the player has accepted the online multiplayer privacy notice.
     #[serde(default)]
     pub privacy_notice_accepted: bool,
-    /// Native projection revision; absent in browser records and older native files.
+    /// Native projection revision; absent in earlier builds' records and older native files.
     #[serde(default)]
     pub native_settings_version: u32,
     /// Whether `values` holds a complete 59-key [`bfe_interface::DesktopSettingsSnapshot`].
@@ -386,9 +386,10 @@ impl AppSettingsStore {
             interface.fresh = true;
             return (player, interface, false);
         };
-        // Electron shares the complete/values record. Only files carrying an
-        // old native shell projection can contain the erroneous 0.5 default;
-        // browser-selected 0.5 and other saved slider values remain intentional.
+        // Settings files written by earlier releases share the complete/values
+        // record. Only files carrying an old native shell projection can
+        // contain the erroneous 0.5 default; a 0.5 the player chose in an
+        // earlier release and other saved slider values remain intentional.
         let fresh = !native_record && parsed.values.is_empty();
         let migrated = native_record && parsed.native_settings_version == 0;
         if migrated {
@@ -788,7 +789,7 @@ mod tests {
                 ["KeyJ"]
             );
             store.save_player().unwrap();
-            // Electron reads only complete/values from the same file.
+            // Earlier releases read only complete/values from the same file.
             let saved: Value =
                 serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
             assert!(

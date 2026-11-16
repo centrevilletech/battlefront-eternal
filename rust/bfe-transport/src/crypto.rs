@@ -1,4 +1,4 @@
-//! crypto.js's standard primitives and domain-separated traffic keys.
+//! standard primitives and domain-separated traffic keys.
 //! Handshake admission may allocate; established packet protection uses the
 //! caller's bounded byte slice and detached tags, including key rotation.
 use aes_gcm::{Aes256Gcm, Nonce, Tag, aead::{AeadInPlace,KeyInit}};
@@ -33,7 +33,7 @@ pub fn hex_lower(bytes: &[u8]) -> String {
     }
     out
 }
-// crypto.js hkdfExtract separates transcript salt from shared key material.
+// hkdfExtract separates transcript salt from shared key material.
 // Fixed output arrays keep packet-key derivation independent of heap growth.
 pub fn extract(salt:&[u8],ikm:&[u8])->[u8;32]{Hkdf::<Sha256>::extract(Some(salt),ikm).0.into()}
 // The label prefix separates transport keys from the handshake extract.
@@ -55,7 +55,7 @@ impl Identity{
         let text=STANDARD.encode(der);let id=hash(&[text.as_bytes()]);Self{key,der,id}
     }
     /// Parses `identity.json`'s base64 SPKI `publicKey` and PKCS#8 PEM
-    /// `privateKey` (`identity.js` `loadIdentity` and `src/net/crypto.js`
+    /// `privateKey` (`loadIdentity` and `src/net/crypto.js`
     /// `identityKeys`). Rejects any keypair whose public key does not match
     /// the seed inside its PKCS#8 envelope.
     pub fn from_keypair(public_key_b64: &str, private_key_pem: &str) -> Result<Self> {
@@ -107,7 +107,7 @@ impl Identity{
     pub fn id_hex(&self) -> String {
         hex_lower(&self.id)
     }
-    /// `identity.js` `fingerprint(keys)`: uppercase colon-separated SHA-256 of
+    /// `fingerprint(keys)`: uppercase colon-separated SHA-256 of
     /// the 44-byte SPKI DER, displayed on startup so operators can verify the
     /// server identity.
     pub fn fingerprint(&self) -> String {
@@ -129,12 +129,12 @@ impl Identity{
         text[..label.len()].copy_from_slice(label);text[label.len()+1..label.len()+33].copy_from_slice(digest);
         Ok(self.key.sign(&text[..label.len()+33]).to_bytes())
     }
-    /// `identity.js` `proof(keys, transcript)` raw Ed25519 signature over
+    /// `proof(keys, transcript)` raw Ed25519 signature over
     /// `message`, returned as base64.
     pub fn sign_base64(&self, message: &[u8]) -> String {
         STANDARD.encode(self.key.sign(message).to_bytes())
     }
-    /// `identity.js` `headers(keys, method, path, body)`: signs master HTTP
+    /// `headers(keys, method, path, body)`: signs master HTTP
     /// requests over `${method}\n${path}\n${time}\n${nonce}\n${sha256_hex(body)}`
     /// where `time` is Unix seconds (`Math.floor(Date.now() / 1000)`).
     pub fn headers(
@@ -159,8 +159,8 @@ impl Identity{
     }
 }
 /// Verifies an Ed25519 signature (`signature_b64` base64) over `message`
-/// under a base64 SPKI `public_key_b64` (`identity.js` `verifyProof` and
-/// `bans.js` `BanCache.refresh`).
+/// under a base64 SPKI `public_key_b64` (`verifyProof` and
+/// `BanCache.refresh`).
 pub fn verify_spki_base64(public_key_b64: &str, message: &[u8], signature_b64: &str) -> bool {
     let Ok(der) = STANDARD.decode(public_key_b64.trim()) else {
         return false;
@@ -198,7 +198,7 @@ pub fn verify(key:&VerifyingKey,label:&[u8],digest:&[u8;32],signature:&[u8])->bo
     text[..label.len()].copy_from_slice(label);text[label.len()+1..label.len()+33].copy_from_slice(digest);
     key.verify_strict(&text[..label.len()+33],&Signature::from_bytes(signature)).is_ok()
 }
-/// `src/net/crypto.js` `RetryTokens`: stateless address-validation cookie for
+/// `RetryTokens`: stateless address-validation cookie for
 /// `INITIATION` floods. Binds the timestamp, remote source key, `session` and
 /// client ephemeral X25519 key under a 32-byte `Hmac<Sha256>` secret (8-byte
 /// little-endian `f64` timestamp followed by a 16-byte truncated tag).

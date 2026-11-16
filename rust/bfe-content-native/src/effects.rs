@@ -77,7 +77,7 @@ fn visit_gpu(defs: &Value, gpu: &mut Vec<Value>) -> Result<(), String> {
         {
             visit_gpu(children, gpu)?;
         }
-        // effects-gpu.js visits children first, admits at most 1024 authored
+        // visits children first, admits at most 1024 authored
         // definitions and only eight keys per analytic track. Excess definitions
         // stay CPU-presented; their groups and birth order remain unchanged.
         let Some(g) = geometry else {
@@ -180,7 +180,7 @@ pub fn merge<'a>(libraries: impl IntoIterator<Item = Option<&'a Value>>) -> Valu
     Value::Object(Rc::new(Object::from_written(written)))
 }
 
-// effects-gpu.js stores analytic tracks in a 64-texel row, two texels per
+// stores analytic tracks in a 64-texel row, two texels per
 // key. These are the existing particle-analytic shader's columns, not frame
 // transport offsets. Capture admission checks the resulting bytes by digest.
 const TRACK_WIDTH: usize = 64;

@@ -69,7 +69,7 @@ lateral offsets. The arch at (-168, -50, 100) contains a visibly closed gate
 and a separate authored invisible barrier; those remain solid.
 
 Run `cargo test --locked --workspace` and `python3 tests/test_collision_export.py`.
-The JavaScript checks cover low platforms, a tall wall, blocked headroom,
+The checks cover low platforms, a tall wall, blocked headroom,
 high-speed thin-wall collision, and toggled live-body clearance, including a
 synthetic 0.4 m riser the controller walks across. With local retail assets
 present, they also cross the three arcade variants standing and prone at

@@ -1,5 +1,5 @@
-//! The battle's point lights for a frame. The page keeps a pool of eight
-//! lights (src/ordnance.js LightPool) that every passing glow asks for: a
+//! The battle's point lights for a frame. The client keeps a pool of eight
+//! lights (LightPool) that every passing glow asks for: a
 //! bolt in flight, a beam, an explosion's flash. Each frame the heaviest
 //! requests get the lights. A command post's hologram has a light of its own
 //! that is always in the scene. The renderer then packs the scene's lights
@@ -12,11 +12,11 @@ use bfe_presentation::{
 };
 use bfe_render::shader::MAX_LIGHTS;
 
-// game.js: `new LightPool(scene, 8)`.
+// `new LightPool(scene, 8)`.
 const POOL: usize = 8;
 // Lights that stand in the scene on their own: one a hologram.
 const FIXED: usize = super::holograms::HOLOGRAMS;
-// graphics.js: the view camera's far plane.
+// the view camera's far plane.
 const VIEW_FAR: f64 = 10.;
 /// Floats of a packed light: position, range, colour times intensity, 0.
 pub const LIGHT: usize = 8;
@@ -30,7 +30,7 @@ pub struct SceneLights {
     /// The frame's lights as the shaders read them, and how many.
     pub packed: [f64; MAX_LIGHTS * LIGHT],
     pub count: usize,
-    /// The first-person view's lights (graphics.js syncViewLights): copies of
+    /// The first-person view's lights (syncViewLights): copies of
     /// the lights that stand directly in the scene, which are the pool's (a
     /// hologram's light hangs inside its post and is not copied), packed for
     /// the view camera, whose far plane is 10 m.

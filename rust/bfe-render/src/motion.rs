@@ -1,5 +1,5 @@
 // The temporal upscaler's motion of the bodies that move on their own
-// (src/motion-vectors.js), drawn in place of three's render of their
+//, drawn in place of three's render of their
 // proxies and of the first-person view's locked mask, into the upscaler's
 // velocity target (input resolution, half floats): the target cleared to
 // no motion (unless three drew into it first: the sky's ships, which draw
@@ -9,7 +9,7 @@
 // tested; a proxy's fragment shader keeps only what lies on the surface
 // the scene's depth shows there (sceneDepth).
 //
-// The page writes the frame's values (the cameras as they were drawn, the
+// The client writes the frame's values (the cameras as they were drawn, the
 // view-projections now and last frame, the depth range, the target) and a
 // record a draw into `input` (f64), the drawn rigs' bones as they are now
 // into `bones` and as they were last frame into `previous` (f32, three's
@@ -23,7 +23,7 @@
 // instanced mesh a model part, with three's program for its material as
 // three compiled it (Kind::Plain, every uniform set per draw), its ships'
 // matrices now and last frame and whether each shows as instance
-// attributes, which the page writes each frame (`extras`, `extra_values`).
+// attributes, which the client writes each frame (`extras`, `extra_values`).
 // They write only where the near scene drew nothing, which no proxy covers.
 use crate::core::{bytes, upload_texture, Core, MultiDraw, PASS_MOTION, UNIT_BONES, UNIT_INSTANCES};
 use crate::post::{set_uniform, UNIFORM};
@@ -38,7 +38,7 @@ use std::collections::HashMap;
 // (currentViewProjection, previousViewProjection), the depth range
 // (depthRange), the target (a registered texture) and its size, the scene's
 // depth (sceneDepth: a registered texture), whether to clear the target,
-// and how many bone matrices the page wrote into `bones` and `previous`.
+// and how many bone matrices the client wrote into `bones` and `previous`.
 pub const IN_PROJECTION: usize = 0;
 pub const IN_VIEW: usize = 16;
 pub const IN_VIEW_PROJECTION: usize = 32;
@@ -87,7 +87,7 @@ pub const INPUT_LEN: usize = IN_RECORDS + MAX_RECORDS * REC_STRIDE;
 // the core's fixed ones).
 pub const UNIT_PREVIOUS_BONES: u32 = 12;
 pub const UNIT_SCENE_DEPTH: u32 = 13;
-// The extras the page writes each frame (f64, `extras`): how many, then an
+// The extras the client writes each frame (f64, `extras`): how many, then an
 // extra each: its registration, how many instances draw, the side drawn,
 // where its instances' values start in `extra_values` (f32: each instance
 // attribute's values for those instances, one attribute after another), how
@@ -212,7 +212,7 @@ impl<C: HasContext> MotionPass<C> {
         core.state.use_program(&core.gl,&mut core.stats,core.programs[program as usize].program);
         self.uniforms(core,program as usize);id
     }
-    // The extras the page wrote, in its order (three's), into the target
+    // The extras the client wrote, in its order (three's), into the target
     // bound now: each one's instances sent, its uniforms set, one instanced
     // draw.
     fn draw_extras<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
@@ -278,7 +278,7 @@ impl<C: HasContext> MotionPass<C> {
         })
     }
 
-    // records: how many the page wrote this frame.
+    // records: how many the client wrote this frame.
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, records: usize) {
         // Retained actor descriptors fill immutable draw fields in native
         // storage; the host transports only current/previous pose and skin.
@@ -361,7 +361,7 @@ impl<C: HasContext> MotionPass<C> {
         let (current, last) = (as_f32(&self.input[IN_CURRENT..]), as_f32(&self.input[IN_PREVIOUS..]));
         let range = (self.input[IN_RANGE] as f32, self.input[IN_RANGE + 1] as f32);
         // Runs of consecutive records drawn alike, one instanced draw each, in
-        // the page's order.
+        // the client's order.
         let key = |rec: &[f64]| [rec[REC_KIND], rec[REC_PROGRAM], rec[REC_GEOMETRY], rec[REC_FIRST], rec[REC_COUNT], rec[REC_SIDE]];
         #[cfg(target_arch = "wasm32")] let mut set: Vec<usize> = Vec::with_capacity(4); #[cfg(not(target_arch = "wasm32"))] let mut set = crate::core::NativeProgramSet::new();
         let mut i = 0;

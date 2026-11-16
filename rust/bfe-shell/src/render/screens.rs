@@ -1,7 +1,7 @@
-//! Planetary zoom-in loading screen rendering (`src/shell/loading.js`).
+//! Planetary zoom-in loading screen rendering.
 //!
 //! Mirrors `LoadingView.prototype.draw` (`drawPictures` and `drawDisk`) in
-//! `src/shell/loading.js`: 4-stage planetary zoom-in pictures (`zoomView`,
+//! 4-stage planetary zoom-in pictures (`zoomView`,
 //! `onScreen`), cyan tracking crosshair lines (`load_edge_horz`,
 //! `load_edge_vert`, or `TRACK_LINE_COLOR`), top-left planet name (`NAME`),
 //! and lower-right rotating `LOADING` disk (`diskPlace`, `DISK.turn = 0.866`,
@@ -131,7 +131,7 @@ pub fn draw_loading(
                 );
             }
 
-            // Tracking lines: 2 interface units thick (`src/shell/loading.js`).
+            // Tracking lines: 2 interface units thick.
             // Horizontal lines (`y_top`, `y_bot`) sweep from the top/bottom screen
             // edges onto the target rectangle's top/bottom edges (`lines.y: 0 -> 1`).
             let line_w = (2.0 * w / loading::IW).max(1.5);
@@ -169,7 +169,7 @@ pub fn draw_loading(
 
     // 2. Top-left planet name (`NAME.x = 51.2`, `top = NAME.top * H + NAME.y`),
     //    shown on every stage except over the final level (`Hold`) when stage
-    //    pictures are present (`src/shell/loading.js`). Eternal and BF2 looks
+    //    pictures are present. Eternal and BF2 looks
     //    render their Saira planet name in Slint (`LoadingPageOverlay`).
     if look == LookId::Bf1 && (state.phase != loading::LoadingPhase::Hold || shown.is_none()) {
         let top = name_pos::TOP * height + name_pos::Y;
@@ -186,7 +186,7 @@ pub fn draw_loading(
     }
 
     // 3. Lower-right rotating disk, 28-LED ring, and tilted `LOADING` text
-    //    (`drawDisk` in `src/shell/loading.js`).
+    //    (`drawDisk`).
     // Convert the disk center (`diskPlace`: 252 units from right, 223 from bottom
     // scaled by `min(w / 1024, h / 768)`) into interface coordinates.
     let dp = disk_place(w, h);
@@ -194,7 +194,7 @@ pub fn draw_loading(
     let cy = dp.y * sy;
     let disk_base = translate(full_m, cx, cy, 0.0);
     // Horizontal perspective squash `DISK.turn = 0.866` (`cos(30 deg)`),
-    // matching `c.scale(DISK.turn, 1)` in `drawDisk` (`src/shell/loading.js`).
+    // matching `c.scale(DISK.turn, 1)` in `drawDisk`.
     let mut squash = IDENTITY;
     squash[0] = disk::TURN * dp.unit * sx;
     squash[5] = dp.unit * sy;
@@ -237,7 +237,7 @@ pub fn draw_loading(
     }
 
     // 28 LEDs around the ring at radius `DISK.ring = 52`, with colour stops
-    // from `LOOKS[look].lights` in `src/shell/loading.js`.
+    // from `LOOKS[look].lights`.
     let stops: &[&str] = match look {
         LookId::Bf1 => &["#0b0d0f", "#5c6166", "#b9bcbe"],
         LookId::Eternal => &["#15100c", "#4a2407", "#b5560b", "#ff9a1f", "#ffd27a"],
@@ -308,7 +308,7 @@ pub fn draw_loading(
 /// `at`, using `load_edge_horz` / `load_edge_vert` when loaded or falling back
 /// to a solid [`TRACK_LINE_COLOR`] quad.
 ///
-/// Mirrors `drawLine` in `src/shell/loading.js`.
+/// Mirrors `drawLine`.
 #[allow(clippy::too_many_arguments)]
 fn draw_tracking_line(
     batch: &mut Batch,

@@ -1,4 +1,4 @@
-//! Flight (src/flight/*.js and `Vehicle.fly`): a craft's tick at 1/60 s,
+//! Flight (and `Vehicle.fly`): a craft's tick at 1/60 s,
 //! inside the hulls' phase, to the last bit as the JavaScript steps it.
 
 pub mod ai;
@@ -19,7 +19,7 @@ pub use state::{Flight, LockState, Message, Trick};
 use crate::vehicles::{BodyId, VehicleWorld};
 use three::Vector3;
 
-/// A craft's class of flight (src/flight/config.js flightClass): its
+/// A craft's class of flight (flightClass): its
 /// tuning's row.
 pub use crate::gen::FlightClass;
 /// A craft's flight state (null for a ground hull: `Option`).
@@ -50,7 +50,7 @@ pub struct Environment {
     /// `env.landingZones` (None: undefined).
     pub landing_zones: Option<std::rc::Rc<[Zone]>>,
     /// `system.flightAssists`: steering assists and the assist target
-    /// (src/game.js: off on Hard).
+    /// (off on Hard).
     pub assists: bool,
 }
 

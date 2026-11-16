@@ -1,7 +1,7 @@
 // The map's static world in the near scene: its opaque buckets, each one
 // mesh three would draw with the identity for a model matrix, culled by its
 // bounding sphere as three culls it, and the largest by spatial cell as
-// render-culling.js does, the visible runs of each drawn by one multi-draw.
+// does, the visible runs of each drawn by one multi-draw.
 // Drawn in three's opaque order (material creation) unless sorted by
 // program (?rustSort), each bucket's material values and point lights set
 // only when they differ from what its program holds.
@@ -143,7 +143,7 @@ impl<C: HasContext> WorldPass<C> {
     }
 
     // The cells render-culling.js culls a large bucket by: its triangles in
-    // 48 m cells by their centres (shadow-casters.js), runs of consecutive
+    // 48 m cells by their centres, runs of consecutive
     // triangles in one cell, each cell's box over its vertices.
     pub fn world_cells(&mut self, w: u32, positions: &[f32], index: &[u32], cell_size: f64) {
         let mut ids: HashMap<(i64, i64), usize> = HashMap::new();
@@ -184,7 +184,7 @@ impl<C: HasContext> WorldPass<C> {
         self.world[w as usize].cells = Some(Cells { visible: vec![0; parts.len()], parts, runs, offsets: vec![0; n], counts: vec![0; n] });
     }
 
-    // Cells given as they are (terrain-patches.js: each cell one range of
+    // Cells given as they are (each cell one range of
     // the index, its triangles' box): ranges [first index, end] and boxes
     // [min, max] per cell, in index order.
     pub fn world_runs(&mut self, w: u32, ranges: &[u32], boxes: &[f64]) {

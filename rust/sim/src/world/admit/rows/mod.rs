@@ -31,7 +31,7 @@ use bfe_content::files::Files;
 use bfe_content::install::Installed;
 use bfe_content::Value;
 
-/// One export call as the page makes it: everything the recording has.
+/// One export call as the client makes it: everything the recording has.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Call {
     /// The export's scalar arguments, in order (an export without any: empty).
@@ -112,7 +112,7 @@ pub struct Ids {
     /// AI observations retained across voice and Character construction.
     pub ai: Option<ai::Receipts>,
     /// Registry identities by unit key; the key `viewpoint` is the initial
-    /// viewpoint's (game.js attaches it before the fleet).
+    /// viewpoint's (attaches it before the fleet).
     pub registry: Vec<(String, f64)>,
     /// Beam emitter identities handed out so far (the host's mirror pool of
     /// emitter objects numbers them in marshalling order).
@@ -124,8 +124,8 @@ pub struct Ids {
     /// 2 unbuilt), as LiveObjects' constructor made them.
     pub prop_kernels: Vec<(usize, u8, u32)>,
 
-    /// The pose accumulator the page's AnimatedProp made per animated prop
-    /// instance (anim-kernel.js newPose), at the prop constructor's seam.
+    /// The pose accumulator the client's AnimatedProp made per animated prop
+    /// instance (newPose), at the prop constructor's seam.
     pub animated_poses: Vec<(usize, u32)>,
     /// Unit class ids (also `recon:` paths) and clip set ids as the units
     /// stage assigned them.
@@ -189,7 +189,7 @@ pub struct Cx<'a> {
     /// world's at the start of admission, advanced by every intern in call
     /// order, so the ids the builders write are the ids the world has.
     pub strings: Strings,
-    /// The F3 random-stream registry (f3-random.js register): every owner
+    /// The F3 random-stream registry (register): every owner
     /// registers its callbacks here in the host's order, so the stream ids
     /// in the tail setup, the AI setup and the player bindings agree.
     pub streams: battle::streams::Streams,
@@ -241,7 +241,7 @@ impl<'a> Cx<'a> {
 pub struct Rows {
     /// WorldOperation's water row (the setup builder's twin).
     pub setup: WorldTickSetup,
-    /// f3-factory.js: the cold stage rows of the bodies prepared before
+    /// the cold stage rows of the bodies prepared before
     /// ticking; their cookies resolve in construction order through `Cx`.
     pub cold_stages: Vec<F3ColdStage>,
     pub calls: Vec<(Stage, Calls)>,

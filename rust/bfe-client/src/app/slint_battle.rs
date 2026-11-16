@@ -354,7 +354,7 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         }
     };
 
-    // The page's entrance and change animations (view.js entering/turning/changed), in seconds since each;
+    // The screen's entrance and change animations (entering/turning/changed), in seconds since each;
     // held at 2 once over, so the cached layer is not redrawn for them.
     let pb = &battle.page_battle;
     let since = |age: f64| if age < pb.age { age.min(2.) } else { 2. } as f32;

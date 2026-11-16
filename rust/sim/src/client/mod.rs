@@ -27,14 +27,14 @@ const LIMIT: f64 = 120.0;
 const SOLDIER: u32 = ClientActorKind::Soldier as u32;
 const DROIDEKA: u32 = ClientActorKind::Droideka as u32;
 // The internal proven kernels predate this frame ABI. Name their commands so
-// the page operation codes cannot be confused with a weapon restore or tick.
+// the client operation codes cannot be confused with a weapon restore or tick.
 const ACTOR_CONFIGURE: u32 = 0;
 const WEAPON_CONFIGURE: u32 = 0;
 const WEAPON_RESTORE: u32 = 1;
 const WEAPON_STEP: u32 = 2;
 const WEAPON_MOUNTED_STEP: u32 = 3;
 
-/// World key groups, resolved by the page before the frame boundary. Separate
+/// World key groups, resolved by the client before the frame boundary. Separate
 /// positive and negative bits retain cancellation when both keys are held.
 pub const FORWARD: u32 = 1 << ClientHeld::Forward as u8;
 pub const BACKWARD: u32 = 1 << ClientHeld::Backward as u8;
@@ -51,13 +51,13 @@ fn action(bits: u32, key: Action) -> bool { bits & (1 << key as u8) != 0 }
 fn axis(bits: u32, plus: u32, minus: u32) -> f64 {
     f64::from(bits & plus != 0) - f64::from(bits & minus != 0)
 }
-// The page describes subranges, not borrowed JavaScript arrays. Check both
+// The client describes subranges, not borrowed JavaScript arrays. Check both
 // overflow and the final bound before any command may mutate the session.
 fn span(words: &[f64], at: u32, count: u32, stride: usize) -> Result<&[f64], &'static str> {
     let end = (count as usize).checked_mul(stride).and_then(|n| (at as usize).checked_add(n)).ok_or(INVALID)?;
     words.get(at as usize..end).ok_or(INVALID)
 }
-// game.js replayPrediction published full-precision poses at effect boundaries.
+// replayPrediction published full-precision poses at effect boundaries.
 // These fixed records have no heap fields: the empty heap never allocates, and
 // the retained output vectors grow only when their high-water mark increases.
 fn append_record<T>(out: &mut Vec<f64>, n: usize, value: &T, put: fn(&T, &mut [f64], &mut Vec<f64>)) -> u32 {
@@ -175,7 +175,7 @@ impl ClientPrediction {
         Ok(())
     }
 
-    /// game.js replayPrediction: continuation selection, correction restore,
+    /// replayPrediction: continuation selection, correction restore,
     /// replayTicks ordering, look, movement, crowd push, kick and weapons.
     pub fn predict_session(&mut self, words: &[f64], collision: &mut State) -> Result<(), &'static str> {
         if !self.configured || words.len() < ClientFrame::WORDS { return Err(INVALID); }
@@ -268,7 +268,7 @@ impl ClientPrediction {
         if !same_life { self.presented = frame.authority_tick; }
         self.presented = self.presented.max(frame.authority_tick).max(frame.presented_through);
         self.life = Some(life); self.authority_tick = frame.authority_tick;
-        // Cosmetic admission is a page-frame fact. Replaying ticks cannot
+        // Cosmetic admission is a client-frame fact. Replaying ticks cannot
         // call the renderer or ask JavaScript to admit a predicted projectile.
         // The resulting notice keeps the exact tick, press and barrel identity.
         let mut cosmetic_slots = frame.cosmetic_slots;
@@ -336,7 +336,7 @@ impl ClientPrediction {
                 result.before_shot = (self.notices.len() / (ClientShot::WORDS + actor_words)) as u32;
             }
             let yaw_before = self.actor.unit.aim_yaw();
-            // game.js replayPrediction applied look before controls and
+            // replayPrediction applied look before controls and
             // movement. Its current weapon zoom scales each raw mouse count;
             // clamping or summing those counts in another order changes aim.
             let zoom = self.zoom();
@@ -372,7 +372,7 @@ impl ClientPrediction {
                 frame.underwater, action(actions, Action::FireSecondary), airborne, dive, lock)?;
             // separatePredictedSoldier ran after movement and before weapons.
             // Only this private body moves; remote actors are frozen facts for
-            // the page frame, regardless of how many pending ticks replay.
+            // the client frame, regardless of how many pending ticks replay.
             separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
             if !action(actions, Action::FirePrimary) { counts[0] = 0; }
             if !action(actions, Action::FireSecondary) { counts[1] = 0; }
@@ -405,7 +405,7 @@ impl ClientPrediction {
                     if cosmetic_slots > 0 && w.level(self.arsenal.defs.class(w.def)).cosmetic_round {
                         cosmetic_slots -= 1;
                         if let UnitBody::Droideka(d) = &mut self.actor.unit.soldier {
-                            // droideka.js nextVisualGun: cosmetic admission is a
+                            // nextVisualGun: cosmetic admission is a
                             // frame fact; the shared checkpoint owns the cursor.
                             let guns = self.barrels.len() as f64;
                             if guns != 0.0 {
@@ -422,7 +422,7 @@ impl ClientPrediction {
                     append_actor(&mut self.notices, &self.actor.unit.soldier);
                 }
             }
-            // game.js replayPrediction clamped pitch after weapon replay.
+            // replayPrediction clamped pitch after weapon replay.
             // Moving the clamp earlier changes a boundary-angle shot's aim.
             // Likewise, only a fresh replay supplies the correction probe pose.
             self.presented = self.presented.max(tick);
@@ -509,7 +509,7 @@ impl ClientPrediction {
             }
             // Vehicle.fireSeat uses two channels and freezes a tow-held gun.
             // Advance-enabled entries alone change barrel cursors; takeoff
-            // eligibility was already decided once by the page's mount owner.
+            // eligibility was already decided once by the client's mount owner.
             self.arsenal.input.clear(); self.arsenal.input.push(frame.mounts_count as f64);
             for (i, row) in mounts.chunks_exact(ClientMount::WORDS).enumerate() {
                 let m = ClientMount::take(row, &[]);
@@ -565,7 +565,7 @@ impl ClientPrediction {
 }
 
 /// The crowd push on the owned body, in roster order, against the remote
-/// poses of the frame (game.js separatePredictedSoldier). The other body of a
+/// poses of the frame (separatePredictedSoldier). The other body of a
 /// contact gives way in this replay's own copy, as it does in the world.
 fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
     let (p, shape) = match body {
@@ -593,7 +593,7 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
         let share = overlap * ov;
         p[0] += (dx / d) * share; p[2] += (dz / d) * share;
         // separateSoldiers moves the other body the rest of the way. Only
-        // this replay's copy of it moves: the page's stays where it was told.
+        // this replay's copy of it moves: the client's stays where it was told.
         row[ClientCrowd::POSITION] -= (dx / d) * overlap * volume;
         row[ClientCrowd::POSITION + 2] -= (dz / d) * overlap * volume;
     }

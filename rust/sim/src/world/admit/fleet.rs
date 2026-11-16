@@ -1,12 +1,12 @@
 //! Stage Fleet as game.js createGame makes it on the host side: `new
-//! Vehicles(...)` (src/vehicles.js), then attachF2 (src/sim/wasm/f2-sim.js
+//! Vehicles(...)`, then attachF2 (src/sim/wasm/f2-sim.js
 //! F2Sim). The owners' row builders (rows/fleet.rs, rows/vehicle_pack.rs,
 //! bodies/seats.rs) make the rows; this module makes, inside the owning
-//! world, the objects the page made in JavaScript between them: the
+//! world, the objects the client made in JavaScript between them: the
 //! models' collision shapes and the vehicle blockers, each pad's hull
 //! (vehicles/build.rs, the Vehicle constructor) with its moving body, its
-//! spawn on its pad (Hull::spawn), the store rows the page imported and the
-//! pose values it pulled (vehicle-phase-data.js pullPose).
+//! spawn on its pad (Hull::spawn), the store rows the client imported and the
+//! pose values it pulled (pullPose).
 use super::rows::{fleet, units, Call, Cx};
 use super::{bodies, sequence, AdmitError, Rows, Stage};
 use crate::collision::spheres::{box_apply_matrix4, Bounds};
@@ -59,7 +59,7 @@ struct Shapes {
 }
 
 /// CollisionWorld as a hull's constructor and spawn see it before attachF2
-/// (src/collision.js): casts through the kernel's world directly (rayCast:
+///: casts through the kernel's world directly (rayCast:
 /// the bodies' order refreshed, the broad phase, every body enabled as the
 /// page's plain flags all are at load), bodies moved by writing their
 /// bounds and transforms (moveBody through rays.place). Nothing else is
@@ -83,7 +83,7 @@ impl VehicleWorld for ColdWorld<'_> {
         let mut candidates = vec![0u32; bodies.max(1)];
         let count = crate::collision::broad::world_candidates_near_into(&mut c.state, self.kernel, &ray, far, ignore.map_or(-1, |b| b as i64), false, false, &mut candidates);
         // rayEnabled: each candidate's `enabled` (a building's current look
-        // only; every hull), as the page keeps them in the kernel's flags.
+        // only; every hull) them in the kernel's flags.
         let flags = self.world.movement.flags_mut();
         let enabled: Vec<u8> = candidates[..count].iter().map(|&k| flags[k as usize]).collect();
         let c = &mut self.world.collision;
@@ -122,9 +122,9 @@ impl VehicleWorld for ColdWorld<'_> {
     fn tow_released(&mut self, _hull: usize, _reason: &str) {}
 }
 
-/// collision.js createBodyShape through the ray kernel: the shape's corners
+/// createBodyShape through the ray kernel: the shape's corners
 /// and its tree (three-mesh-bvh's build, bfe_content::bvh), and the tree's
-/// polygon numbers once a body uses it (ray-kernel.js body). Answers the
+/// polygon numbers once a body uses it (body). Answers the
 /// tree's id.
 fn shape_tree(world: &mut World, shape: &BodyTriangles, with_polygons: bool) -> u32 {
     let bvh = build_bvh(Positions::F32(&shape.positions), &shape.indices);
@@ -136,13 +136,13 @@ fn shape_tree(world: &mut World, shape: &BodyTriangles, with_polygons: bool) -> 
     tree
 }
 
-/// vehicle-phase-data.js pullPose for a facade just constructed (and
+/// pullPose for a facade just constructed (and
 /// spawned, or not): no age or phases yet, the visual position the spawn
 /// copied, every seat without a last aim or target, every aimer at rest
 /// (yaw and pitch 0, limits unknown, off target, facing +z, posed), no
 /// muzzle kicked, then each rig node's rest transform.
 fn pull_values(pose: &HullPose, pad: &[f64; 16], visual: [f64; 3]) -> Vec<f64> {
-    // vehicles.js: `this.hoverPhase = (e[12] * .13 + e[14] * .17) % (Math.PI * 2)`.
+    // `this.hoverPhase = (e[12] * .13 + e[14] * .17) % (Math.PI * 2)`.
     let hover_phase = (pad[12] * 0.13 + pad[14] * 0.17) % (std::f64::consts::PI * 2.0);
     let mut out = vec![0.0, hover_phase, 0.0, 0.0, visual[0], visual[1], visual[2]];
     for seat in &pose.seats {
@@ -265,7 +265,7 @@ fn construct_vehicles(world: &mut World, cx: &mut Cx, data: &Value, kernel: usiz
         world.sim.store.vehicles.slots[pad].vehicle = Some(made[index].hull);
         let def = classes.get(&name).ok_or_else(|| error(format!("vehicle class {name} is missing")))?;
         hulls[index].spawn(&mut ColdWorld { world, kernel, locals: &locals }, team, &desc.matrix, def, &name);
-        // Vehicle.spawn draws only on a page (`system.page.spawned`); the
+        // Vehicle.spawn draws only in a client (`system.page.spawned`); the
         // world's facade keeps no drawn flight frame (the module seeds its
         // own pose at veh_pull), so the native spawn's render is undone.
         hulls[index].flight.frame_q = None;
@@ -274,7 +274,7 @@ fn construct_vehicles(world: &mut World, cx: &mut Cx, data: &Value, kernel: usiz
     Ok((made, hulls, extras, Shapes { trees, blockers }))
 }
 
-/// The page's imports of the fleet (KIND_VEHICLE, then KIND_VEHICLES) after
+/// The client's imports of the fleet (KIND_VEHICLE, then KIND_VEHICLES) after
 /// the pack: every hull's row as the constructor and the spawn left it,
 /// each pad's variants by class. The texts they intern (names, in row
 /// order) go on the next call, as the recording keeps them.
@@ -342,7 +342,7 @@ fn attach_f2(world: &mut World, cx: &mut Cx, rows: &mut Rows, data: &Value, made
         (Some(shape), Some(tree)) => {
             let bounds = bfe_content::collision::triangle_bounds(&shape.positions, &shape.indices);
             let count = shape.indices.len() / 3;
-            // collision.js BLOCKER_POLYGONS: the barriers' polygon numbers.
+            // BLOCKER_POLYGONS: the barriers' polygon numbers.
             world.collision.fixed_set(tree, &bounds, &shape.polygons[..count.min(shape.polygons.len())], 1879048192.0) as i32
         }
         _ => -1,
@@ -456,7 +456,7 @@ fn body_refs(world: &mut World, cx: &mut Cx, made: &[Made], kernel: usize) -> Ve
 }
 
 /// VehicleContent.collider(v): a gather cache per wall probe and per
-/// spring (collision.js gatherCache, WALL_CACHE_MARGIN), then the header
+/// spring (gatherCache, WALL_CACHE_MARGIN), then the header
 /// with the body, its kernel slot and its local bounds.
 fn collider(world: &mut World, cx: &mut Cx, m: &mut Made, hull: &Hull, data: &Value) -> Result<[(Stage, &'static str, Call); 2], AdmitError> {
     let def = data.get("classes").and_then(|c| c.get(&m.name)).ok_or_else(|| error(format!("vehicle class {} is missing", m.name)))?;
@@ -491,7 +491,7 @@ fn prepare_variants(world: &mut World, cx: &mut Cx, rows: &mut Rows, data: &Valu
         let def = classes.get(&hull.name).ok_or_else(|| error(format!("vehicle class {} is missing", hull.name)))?;
         let model = def.get("model").and_then(Value::as_str).ok_or_else(|| error("vehicle class has no model"))?;
         let (at, template) = content.vehicle_templates.iter().enumerate().find(|(_, t)| t.name == model).ok_or_else(|| error(format!("vehicle model {model} has no template")))?;
-        // new Vehicle: its body, offset by the next serial, which the page
+        // new Vehicle: its body, offset by the next serial, which the client
         // gives back once the body leaves the world's list.
         let serial = world.collision.state.bodies.len() as f64 - made.iter().filter(|m| m.prepared).count() as f64;
         let mut posed = Vec::new();
@@ -538,7 +538,7 @@ fn prepare_variants(world: &mut World, cx: &mut Cx, rows: &mut Rows, data: &Valu
     Ok(())
 }
 
-/// weapons.js Weapon constructor (`new Weapon(def)`, `player` true) as a
+/// Weapon constructor (`new Weapon(def)`, `player` true) as a
 /// store row at birth: level zero, its ammunition and spread floor from the
 /// class, every clock at rest.
 fn weapon_state(def: &Value, weapon_id: crate::store::DefId) -> Weapon {
@@ -551,7 +551,7 @@ fn weapon_state(def: &Value, weapon_id: crate::store::DefId) -> Weapon {
         lock_target_id: -1.0, lock_generation: -1.0, ..Default::default() }
 }
 
-/// `num` of f2-firing.js: parseFloat, or 0 where that is not finite.
+/// `num`: parseFloat, or 0 where that is not finite.
 fn finite_or_zero(value: Option<&Value>) -> f64 {
     let number = parse_float_value(value);
     if number.is_finite() { number } else { 0.0 }
@@ -575,10 +575,10 @@ fn emitter(cx: &mut Cx) -> BeamSource {
     BeamSource::Emitter(Ref::new(slot, 1))
 }
 
-/// F2Firing.adopt (src/sim/wasm/f2-firing.js): registers every seat
+/// F2Firing.adopt: registers every seat
 /// weapon's level-zero class and its ordnance (combat::prepare_vehicle_weapon
 /// appends those calls), then builds the FfBirth row: `new Weapon(def)`
-/// (src/weapons.js) at birth, the weapon's lock range, cable, channel and
+/// at birth, the weapon's lock range, cable, channel and
 /// AI masks (weaponAI), its rig nodes by name (rigNodes order: the root,
 /// the bones, the statics, the markers), its beam emitter and its muzzles'.
 fn firing_birth(cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, m: &Made, row: &Vehicle, class_def: &Value, extras: &HullExtras, pose: &HullPose) -> Result<Call, AdmitError> {
@@ -657,7 +657,7 @@ fn firing_birth(cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, m: &M
     Ok(call)
 }
 
-/// LiveObjects' constructor (src/props.js): every placed building's
+/// LiveObjects' constructor: every placed building's
 /// collision bodies, in instance order and look order (built, destroyed,
 /// unbuilt), through CollisionWorld.addBody: the props' shared corners
 /// once, a tree and a fixed body per look with its polygon numbers and
@@ -674,7 +674,7 @@ fn construct_prop_bodies(world: &mut World, cx: &mut Cx) -> Result<(), AdmitErro
         for (look, (name, shape)) in [("built", &prop.built), ("destroyed", &prop.destroyed), ("unbuilt", &prop.unbuilt)].into_iter().enumerate() {
             let Some(shape) = shape else { continue };
             // buildBVH over the shared props corners: copied into the kernel
-            // the first time (ray-kernel.js positions caches by array).
+            // the first time (positions caches by array).
             let key = std::rc::Rc::as_ptr(&shape.positions) as *const f32;
             let id = match positions.iter().find(|(k, _)| *k == key) {
                 Some(&(_, id)) => id,
@@ -700,9 +700,9 @@ fn construct_prop_bodies(world: &mut World, cx: &mut Cx) -> Result<(), AdmitErro
     Ok(())
 }
 
-/// TurretSeats (src/seats.js) after attachF2: every armed building a
+/// TurretSeats after attachF2: every armed building a
 /// TurretTarget in the registry (attachUnits), then F2Seats.attachTurrets
-/// (src/sim/wasm/f2-seats.js): its weapon class registered with its
+///: its weapon class registered with its
 /// ordnance, and its birth row from the placed instance (bodies/seats.rs
 /// turret_geometry and turret_birth): the shown look's sphere, its built
 /// body, its weapon at birth.
@@ -715,7 +715,7 @@ fn attach_turrets(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(),
             && desc.get("model").and_then(Value::as_str).and_then(|m| models.get(m)).is_some_and(Value::truthy))
         .map(|(i, desc)| (i, desc.clone())).collect();
     for _ in &turrets { world.sim.store.units.add(|id| Member::TurretTarget(Ref::new(id, 0))); }
-    // registerObjectives (src/objectives.js, game.js after the turrets): every
+    // registerObjectives (game.js after the turrets): every
     // destructible command post's building an ObjectiveTarget.
     let posts = instances.iter().filter(|desc| desc.get("base").and_then(Value::as_str) == Some("commandpost")
         && desc.get("model").and_then(Value::as_str).and_then(|m| models.get(m)).is_some_and(Value::truthy)).count();
@@ -769,7 +769,7 @@ fn attach_turrets(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(),
     Ok(())
 }
 
-/// One sampling call against the module, kept in `calls` as the page made it.
+/// One sampling call against the module, kept in `calls` as the client made it.
 fn sample(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, name: &'static str, call: Call) -> Result<super::dispatch::Returned, AdmitError> {
     sequence::args(world, &call)?;
     let answer = super::dispatch::call(world, Stage::Fleet, name, &call)?;
@@ -779,7 +779,7 @@ fn sample(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, 
 }
 
 /// `new Vehicles`' template loop: a model with a takeoff clip finds how far
-/// below its origin it stands on its gear (src/flight/gear.js gearFoot) by
+/// below its origin it stands on its gear (gearFoot) by
 /// sampling that clip through the anim kernel: `new Pose(bones, -1)`, the
 /// clip registered on its first add (each model's clips are its own
 /// objects), `add(clip, 0, 1, false)`, then `apply`. The foot itself is the
@@ -842,7 +842,7 @@ fn prop_poses(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static s
 
 /// The Vehicle constructor's Pose: a hull that walks on its clips (not a
 /// flyer, whose clip only moves its gear) gets one over the rig's bones,
-/// rooted at its dummy root or -1 (vehicles.js `new Pose(this.bones.length,
+/// rooted at its dummy root or -1 (`new Pose(this.bones.length,
 /// shell.records.poseRoot ?? -1)`).
 fn walking_pose(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, template: &bfe_content::content::VehicleTemplate, def: &Value) -> Result<(), AdmitError> {
     if !template.clips.as_ref().is_some_and(|clips| !clips.list.is_empty()) || base_of(def) == "flyer" { return Ok(()); }

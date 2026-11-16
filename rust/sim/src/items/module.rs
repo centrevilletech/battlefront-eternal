@@ -1,5 +1,5 @@
 //! The things lying about on the module: the exports JavaScript drives them
-//! through once a world hands them over (src/items-sim.js), on the same
+//! through once a world hands them over, on the same
 //! store, definitions and world as the rounds' (rust/sim/src/ordnance/
 //! module.rs): one root borrow, short row loans around callbacks, and
 //! generated call blocks for arguments and answers.
@@ -12,7 +12,7 @@ use crate::ordnance::Cx;
 use crate::store::{word_u32, DefId, Ref, StrId};
 
 /// An item class's fields the Rust reads, in the order `items_def` takes
-/// them (src/items-sim.js ITEM_FIELDS).
+/// them (ITEM_FIELDS).
 const ITEM_FIELDS: [&str; 12] = ["base", "Gravity", "Rebound", "Friction", "LifeSpan", "MaxHealth", "HealthType", "ExplosionDeath", "ExplosionTrigger", "ExplosionExpire", "TriggerRadius", "SuppressRadius"];
 
 pub(crate) fn items_def_in(w: &mut crate::world::owner::World, id: u32) {

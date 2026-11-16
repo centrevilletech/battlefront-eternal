@@ -1,12 +1,11 @@
 //! Synthetic vehicle thrust, damage, destruction, dying-walker, and death-pose
-//! presentation tests ported from `tests/vehicle-effects.test.js` and
-//! `tests/walker-dying.test.js`.
+//! presentation tests.
 //!
 //! These cases exercise `bfe_presentation::vehicle_effects::Vehicles` and
 //! `bfe_presentation::vehicles::Vehicles` over synthetic descriptors and rigs
 //! without requiring game assets.
 //!
-//! Coverage from `tests/vehicle-effects.test.js`:
+//! Coverage:
 //! - Thrust scale ramp (`thrustScale`) from `MinSpeed + ScaleStart * (MaxSpeed - MinSpeed)`
 //!   up to `MaxSpeed`, clamped between `minScale` and `maxScale`.
 //! - Health band checks (`damageBurns`) with exclusive lower bound (`stop`)
@@ -19,7 +18,7 @@
 //!   release (`BLOW_APART`, `FALLEN`), and `bodyCarrier` inverse-bind matrix
 //!   composition so chunks spawn from the fallen body pose.
 //!
-//! Coverage from `tests/walker-dying.test.js`:
+//! Coverage:
 //! - Posing `death01` from the remaining `dying` clock at `AnimationSpeed`,
 //!   holding the last frame at clip end.
 //! - Smoothstepped `DEATH_BLEND` transition from the last pose drawn alive
@@ -66,7 +65,6 @@ fn step_single(fx: &mut VehicleEffects, id: usize, persistent: usize) {
     }
 }
 
-// Mirrors `tests/vehicle-effects.test.js`:
 // "thrust scale rests at its minimum, ramps from ScaleStart of the way to MaxSpeed and stops at its maximum"
 // "a damage effect burns at most its start share of MaxHealth and above its stop share"
 #[test]
@@ -111,7 +109,6 @@ fn thrust_scale_and_damage_burn_bands_match_authored_thresholds() {
     assert!(!check_burns(&mut fx, 0.0, 0.3, 0.0));
 }
 
-// Mirrors `tests/vehicle-effects.test.js`:
 // "thrust burns from takeoff to touchdown, at its attach point, scaled by speed"
 // "damage effects follow the health bands at their nodes, with their scale and inherited velocity"
 #[test]
@@ -213,7 +210,6 @@ fn thrust_and_damage_effects_follow_flight_states_nodes_and_health_bands() {
     assert_eq!(fx.output[d1 + vo::ACTION], action::MOVE as f64);
 }
 
-// Mirrors `tests/vehicle-effects.test.js`:
 // "a destroyed hull stops its effects, throws its chunks and raises its death dust after the delay"
 // "a dying walker pops its dying explosions at random nodes, raises its dust only while dying, and flies apart when it is gone"
 // "a dead walker's pieces start where its fallen body lies, never under the ground"
@@ -329,7 +325,6 @@ fn destruction_dying_walker_explosions_dust_and_fallen_body_carrier_follow_clock
     assert_eq!(fx.input[vi::FALLEN], 1.0);
 }
 
-// Mirrors `tests/walker-dying.test.js`:
 // "whoever draws it poses the death clip from the dying clock, holding its last frame"
 // "the death clip takes over from the pose it was drawn in alive, not from a snap to its first frame"
 #[test]

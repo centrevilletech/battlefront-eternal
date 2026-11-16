@@ -1,4 +1,4 @@
-//! The jet-hint service's authored-hint helper (nav/jet-hints.js),
+//! The jet-hint service's authored-hint helper,
 //! without the controller machinery around it: `find_hints` is the
 //! service's random-order scan of the jetjump hints near a unit; the
 //! enter/tick driving (helper.goto, helper.jet) runs through the
@@ -8,7 +8,7 @@
 use super::math::Vec3;
 use crate::ai::random::Random;
 
-/// One active jet-hint job (jet-hints.js:39): the hint being used, the
+/// One active jet-hint job: the hint being used, the
 /// state (2 going to it, 3 launched from it) and when the launch began.
 /// The helper itself is the caller's, by the token it knows it by.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -19,7 +19,7 @@ pub struct JetHintJob {
     pub started: f64,
 }
 
-/// The pick among candidate hint positions (jet-hints.js:15-34, the part
+/// The pick among candidate hint positions (the part
 /// after the hint query): random removal order, the least
 /// 2.25 * horizontal distance squared wins, ties keep the earlier pick.
 /// `hints` are indices into the service's hint list with their positions.
@@ -44,7 +44,7 @@ pub fn find_hint(hints: &[(usize, Vec3)], position: Vec3, random: &mut dyn Rando
     best
 }
 
-/// What one JetHintService::tick decides (jet-hints.js:43), over the
+/// What one JetHintService::tick decides, over the
 /// job's inputs: whether it is done, and whether this tick launches
 /// (the goto 80 m along the hint's forward and the jet request, which
 /// the caller makes on its helper).

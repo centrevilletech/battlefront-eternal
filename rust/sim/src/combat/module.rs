@@ -51,7 +51,7 @@ fn unit_ref(store: &Store, id: u32) -> Ref<Unit> {
     store.unit.reference(id).unwrap_or(Ref::new(id, 0))
 }
 
-// ---- Content: JavaScript values as words (src/f3-combat.js `valueWords`):
+// ---- Content: JavaScript values as words (`valueWords`):
 // 0 undefined, 1 null, 2 false, 3 true, 4 a number, 5 a string (its index),
 // 6 an array (its length, then its items), 7 an object (its keys' count,
 // then each key's index and value), 8 a weapon class by its index in the
@@ -156,7 +156,7 @@ pub(crate) fn put_in(w: &mut crate::world::owner::World, r: Ref<Unit>, mut unit:
     put_body_in(w, r,unit);
 }
 
-// ---- The commands (src/f3-combat.js CombatFacade).
+// ---- The commands (CombatFacade).
 
 /// A combat made for unit `unit` of class `class` (PlayerCombat's
 /// constructor): full health, its class's loadout armed (a player's
@@ -217,12 +217,12 @@ pub(crate) fn cmb_new_in(w: &mut crate::world::owner::World, unit: u32, class: u
     answer(&mut w.sim, r)
 }
 
-/// weapons.js Arsenal.select (:517).
+/// Arsenal.select (:517).
 pub(crate) fn select(c: &mut Combat, defs: &CombatDefs, i: usize) -> bool {
     super::weapons::select(c,&defs.weapons,i)
 }
 
-/// A field the battle sets on a combat (src/f3-combat.js CombatFacade's
+/// A field the battle sets on a combat (CombatFacade's
 /// setters): 0 health, 1 zoomStep, 2 dead, 3 deathTime, 4 blowApart; and
 /// what the battle's JavaScript keeps on a combat, which the units' phase
 /// reads from the store: 5 mounted, 6 gunUnderwater, 7 team, 8 player,

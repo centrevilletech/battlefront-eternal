@@ -1,6 +1,6 @@
 //! A weapon's voices, as the 2004 game keeps them for every soldier's
-//! weapons alike (docs/formats.md, "Sound"): the player's (player.js) and
-//! everyone else's (soldiers.js). Three each, all following the owner's
+//! weapons alike (docs/formats.md, "Sound"): the player's and
+//! everyone else's. Three each, all following the owner's
 //! origin: one for the state sound (charge, overheat, reload, the fusion
 //! cutter's loop), one for firing and the empty click, one for movement.
 //! Starting a sound on a voice that is still playing lets the old one

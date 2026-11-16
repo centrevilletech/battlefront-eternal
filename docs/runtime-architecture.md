@@ -8,7 +8,7 @@ and share the same presentation (`rust/bfe-presentation`) and rendering
 
 ## World tick
 
-`bfe-client`'s local battle thread (`rust/bfe-client/rust/local/`) and
+`bfe-client`'s local battle thread (`rust/bfe-client/src/local/`) and
 `bfeserver` (`rust/bfe-server`) schedule integer 60 Hz gameplay ticks. Vehicle
 physics keeps its 120 Hz substeps. Display refresh, graphics settings and frame
 caps do not change these rates. Elapsed monotonic time determines how many fixed
@@ -16,13 +16,13 @@ steps are due; catch-up work is bounded and remaining debt is reported rather
 than hidden by a larger simulation `dt`.
 
 The host admits external input and prepares retained owner banks, then calls
-one world operation (`rust/sim/rust/world/step.rs`). The Rust coordinator
+one world operation (`rust/sim/src/world/step.rs`). The Rust coordinator
 advances water, squad commands, the viewpoint clock and camera, AI,
 units/vehicles/recon/separation, live objects, ordnance, items, the battle tail
 and grenade dangers, returning a generated `WorldTickOutput`.
 
-`rust/sim/rust/world/owner.rs` owns the canonical store, collision, movement,
-pose, AI, fleet, unit, combat, ordnance, battle, input, wire and page services.
+`rust/sim/src/world/owner.rs` owns the canonical store, collision, movement,
+pose, AI, fleet, unit, combat, ordnance, battle, input and wire services.
 Internal calls borrow those owners. Damage, death, boarding and shot callbacks
 keep their original observation order. Completed publication commits changed
 rows against the host's consumed baseline.

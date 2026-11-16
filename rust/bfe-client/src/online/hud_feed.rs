@@ -1,7 +1,7 @@
 //! Battle HUD events raised by received network facts. presentFeedback
-//! (src/runtime/network-combat-feedback.js) calls BattleHud.hit, damageFrom
+//! calls BattleHud.hit, damageFrom
 //! and killMessage; presentEntityEvent's "shot"
-//! (src/runtime/entity-presentation-events.js) calls BattleHud.noteShot.
+//! calls BattleHud.noteShot.
 //! HudModel owns every ring, arc, line, fade and radar flash; this module
 //! only decides which command a fact raises and with which arguments.
 use super::radar::Teams;
@@ -34,7 +34,7 @@ const FEEDBACK_BYTES: usize = 78;
 const FEEDBACK_EXPIRY: f64 = 18.;
 // decodePresentation: a presentation event may wait 120 ticks for its unit.
 const PRESENTATION_EXPIRY: f64 = 120.;
-// entity-unit-state.js: a unit's state summary is 100000 plus its id, and
+// a unit's state summary is 100000 plus its id, and
 // 65535 is a unit without a Character.
 const UNIT_STATE_ID: f64 = 100000.;
 const NO_SLOT: u16 = 65535;
@@ -44,15 +44,15 @@ const UNIT_STATE_SLOT: usize = 13;
 // The repair key's length byte, after the slot, two selected weapons (u16
 // each) and the weapon count; its text follows.
 const UNIT_STATE_REPAIR: usize = 20;
-// entity-world-state.js: a building's state summary is 200000 plus its number.
+// a building's state summary is 200000 plus its number.
 const BUILDING_STATE_ID: f64 = 200000.;
-// humanName() (src/bot-names.js) for the page's own player without a name.
+// humanName() for the client's own player without a name.
 const HUMAN_NAME: &str = "Player 1";
-// killMessage's last name fallback (src/hud-units.js).
+// killMessage's last name fallback.
 const SOLDIER: &str = "Soldier";
-// A burst of fire from units this page has not built yet is bounded.
+// A burst of fire from units this client has not built yet is bounded.
 const WAITING: usize = 64;
-// isCommandClass (src/mobile-posts.js): the vehicle bases that are command
+// isCommandClass: the vehicle bases that are command
 // posts while they live, and how many of them one frame may lose.
 const COMMAND_BASES: [&str; 2] = ["commandwalker", "commandhover"];
 const LOST: usize = 4;
@@ -72,7 +72,7 @@ pub struct Feedback {
 }
 
 // The presentation fields a "shot" needs. Unknown fields are ignored, as
-// the browser reads only the ones it names.
+// the client reads only the ones it names.
 #[derive(serde::Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 struct Shot {
@@ -107,7 +107,7 @@ struct Squad<'a> {
     label: &'a str,
 }
 
-/// A repair lock as PlayerCombat keeps it (repairLockKey, src/combat.js):
+/// A repair lock as PlayerCombat keeps it (repairLockKey):
 /// "l3" is the building numbered 3, "v1" the vehicle in slot 1, "" none.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RepairLock {
@@ -151,7 +151,7 @@ struct CommandHull {
     seen: bool,
 }
 
-// What applyUnitState (entity-unit-state.js) leaves on a unit that the kill
+// What applyUnitState leaves on a unit that the kill
 // feed reads: its Character slot and the hero flag, for one life.
 #[derive(Clone, Copy)]
 struct UnitState {
@@ -186,7 +186,7 @@ pub struct Tables {
 
 impl Tables {
     // `buildings`: the props that are live buildings, in the order a
-    // turret record counts them (LiveObjects.buildings, src/props.js).
+    // turret record counts them (LiveObjects.buildings).
     pub fn new(defs: &Defs, buildings: &[usize]) -> Self {
         let delay = |record: &bfe_content::Value| record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.);
         let mut labels = vec![String::new(); defs.registry.classes.len() + 1];
@@ -248,7 +248,7 @@ pub struct Feed {
     // Each distinct name is interned once. Keys are the source text, so a
     // repeated name is found without building an uppercase copy.
     texts: HashMap<String, u32>,
-    // Shots whose unit this page does not have yet, with their expiry tick.
+    // Shots whose unit this client does not have yet, with their expiry tick.
     waiting: Vec<(f64, Shot)>,
     // The living command vehicles: each one's life, class and the team it
     // had when last seen, in the battle (epoch) they belong to.
@@ -303,7 +303,7 @@ impl Feed {
         }
     }
 
-    /// MobilePosts.events (src/mobile-posts.js) as a page showing a server's
+    /// MobilePosts.events as a client showing a server's
     /// battle reads it: a command vehicle that was alive and no longer is
     /// has lost its post. Each loss is the team the hull had and its class;
     /// at most four a frame. A new battle forgets the old one's hulls.
@@ -339,7 +339,7 @@ impl Feed {
     }
 
     /// The own soldier's repair lock, while it is still the life it was
-    /// reported for (PlayerCombat.lockedTarget on a page showing a server's
+    /// reported for (PlayerCombat.lockedTarget in a client showing a server's
     /// battle).
     pub fn repair(&self, receiver: &Receiver) -> Option<RepairLock> {
         let (life, lock) = self.repair?;
@@ -426,7 +426,7 @@ impl Feed {
                         }
                     }
                 } else if event == "squad" {
-                    // presentEntityEvent: only the page's own unit's order
+                    // presentEntityEvent: only the client's own unit's order
                     // shows, as the line BattleHud.squadCommand lights.
                     if let Ok(squad) = serde_json::from_slice::<Squad>(bytes) {
                         if let Some(order) = squad_order(squad.label).filter(|_| self.squads && own.is((squad.owner_id, squad.owner_generation))) {
@@ -462,7 +462,7 @@ impl Feed {
         let slot = u16::from_le_bytes(slot.try_into().unwrap());
         let generation = row[r::GENERATION] as u32;
         self.units.insert(id, UnitState { generation, slot, hero: flags & 1 != 0 });
-        // unit.combat.repairLock, for the page's own soldier: the key after
+        // unit.combat.repairLock, for the client's own soldier: the key after
         // the two selected weapons and the weapon count, with its length.
         if own.is((id, generation)) {
             let key = bytes.get(UNIT_STATE_REPAIR).and_then(|&size| bytes.get(UNIT_STATE_REPAIR + 1..UNIT_STATE_REPAIR + 1 + size as usize));
@@ -470,7 +470,7 @@ impl Feed {
         }
     }
 
-    // presentFeedback. The browser also marks a sniper hit early from its
+    // presentFeedback. The earlier build also marks a sniper hit early from its
     // own predicted round (claimPredictedHit); this client flies no rounds
     // of its own, so every hit is marked from the server's record.
     #[allow(clippy::too_many_arguments)]
@@ -505,7 +505,7 @@ impl Feed {
         self.kill(hud, own, receiver, teams, killer, victim, event.attacker_team);
     }
 
-    // killMessage (src/hud-units.js): only a line a human took part in, or
+    // killMessage: only a line a human took part in, or
     // one a hero scored. HudModel substitutes the names into the template.
     #[allow(clippy::too_many_arguments)]
     fn kill(
@@ -532,7 +532,7 @@ impl Feed {
 
     // noteShot(mount || unit, weapon.def): the radar flashes the shooter's
     // icon for the weapon's ShotDelay. False while a named unit or its
-    // weapon is not on this page yet, as presentEntityEvent returns it.
+    // weapon is not on this client yet, as presentEntityEvent returns it.
     fn shot(&self, hud: &mut impl Sink, shot: &Shot, lookup: &dyn Fn(u32) -> Option<Unit>) -> bool {
         let owner = lookup(shot.owner_id).filter(|unit| shot.owner_id != 0 && unit.generation == shot.owner_generation);
         if shot.owner_id != 0 && owner.is_none() {
@@ -566,7 +566,7 @@ impl Feed {
         receiver.roster.rows().nth(slot).map(|(_, character)| character)
     }
 
-    // victim.human || victim.character?.human: the page's own unit is its
+    // victim.human || victim.character?.human: the client's own unit is its
     // one human Unit; every other human is known by his Character.
     fn human(&self, own: &Own, receiver: &Receiver, unit: &Unit) -> bool {
         own.is((unit.id, unit.generation)) || self.character(own, receiver, unit).is_some_and(|c| c.human)
@@ -604,7 +604,7 @@ struct Own {
 
 impl Own {
     fn of(receiver: &Receiver) -> Self {
-        // No correction yet means no unit of his own on this page.
+        // No correction yet means no unit of his own on this client.
         let known = receiver.corrections != 0 && receiver.own.id > 0.;
         Self {
             id: if known { receiver.own.id as u32 } else { 0 },
@@ -631,7 +631,7 @@ fn text(texts: &mut HashMap<String, u32>, hud: &mut impl Sink, value: &str) -> u
     id
 }
 
-// game.units.byId(id): a soldier, droideka, vehicle or turret this page has
+// game.units.byId(id): a soldier, droideka, vehicle or turret this client has
 // built. The own player's unit is found even on the frames its soldier
 // record is not indexed; it then has no radar handle, and needs none.
 fn find(receiver: &Receiver, id: u32) -> Option<Unit> {
@@ -658,9 +658,9 @@ fn find(receiver: &Receiver, id: u32) -> Option<Unit> {
         .or_else(|| receiver.active().find(|row| known(*row)).map(|row| unit(row, 0)))
 }
 
-/// InterfaceSurface.text(key, ...args) (src/interface/surface.js): the
+/// InterfaceSurface.text(key, ...args): the
 /// localized string with each %s filled in order, or the arguments joined
-/// by spaces when there is no such string. The browser's replace also reads
+/// by spaces when there is no such string. The replace also reads
 /// `$` patterns in an argument; team and post names have none.
 pub fn fill(template: Option<&str>, args: &[&str]) -> String {
     let Some(template) = template.filter(|text| !text.is_empty()) else {
@@ -738,7 +738,7 @@ pub fn decode(bytes: &[u8], tick: f64) -> Option<Feedback> {
     })
 }
 
-/// damageDirection (src/combat-input.js): toward the source in the HUD's
+/// damageDirection: toward the source in the HUD's
 /// view convention, positive to the soldier's right.
 pub fn damage_direction(x: f64, z: f64, yaw: f64) -> f64 {
     (-x * yaw.cos() + z * yaw.sin()).atan2(x * yaw.sin() + z * yaw.cos())

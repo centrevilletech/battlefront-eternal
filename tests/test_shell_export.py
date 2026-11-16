@@ -18,9 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from zero_hash import fnv1a
 from zero_scoreboard import SCOREBOARD_RASTER
 from zero_shell import (
-    ENCODES, EXE_STRINGS, LOAD_PATTERNS, LOAD_TEXTURES, MAIN_SCREENS, MENU_TEXTURES, SCREEN_MOVIES,
+    EXE_STRINGS, LOAD_PATTERNS, LOAD_TEXTURES, MENU_TEXTURES, SCREEN_MOVIES,
     SHELL_COMMON_TEXTURES, SHELL_PICTURES, SHELL_RASTER, SHELL_TEXTURES, WHOOSHES, bink_info, loading_screen,
-    map_catalog, movie_catalog, movie_config, movie_index, movie_kind, movie_names, music_tracks, screen_movies,
+    map_catalog, movie_catalog, movie_config, movie_index, movie_names, music_tracks, screen_movies,
     write_movie_index,
     write_picture,
 )
@@ -96,28 +96,32 @@ class MovieArchiveTests(unittest.TestCase):
         self.assertEqual((info['width'], info['height'], info['frames'], info['audio']), (720, 480, 90, 1))
         self.assertEqual(info['duration'], round(90 * 100 / 2997, 3))
 
-    def test_the_movie_index_lists_without_encoding_and_keeps_encoded_entries(self):
+    def test_the_movie_index_lists_the_movies_and_removes_old_webm_copies(self):
         with tempfile.TemporaryDirectory() as tmp:
             game = Path(tmp) / "Game" / "GameData" / "Data" / "_LVL_PC"
             (game / "Movies").mkdir(parents=True)
             data = mvs([(fnv1a('main'), bink(size=200), 48), (fnv1a('atat_in'), bink(frames=42, tracks=1, size=97), 0)])
             (game / "Movies" / "shell.mvs").write_bytes(data)
             index = movie_index(data)
-            catalog = {"main": {**index[0], "file": "main.webm"}, "atat_in": {**index[1], "file": "atat_in.webm"}}
+            catalog = {"main": {**index[0], "file": "main.bik"}, "atat_in": {**index[1], "file": "atat_in.bik"}}
             public = Path(tmp) / "public"
             out = public / "common" / "shell" / "movies"
             out.mkdir(parents=True)
-            encoded = {"file": "main.webm", "hash": "0x%08x" % fnv1a('main'), "settings": "x", "source": {"offset": 2048}}
+            # What an earlier version of the preparation left: a WebM copy and its manifest entry.
+            encoded = {"file": "main.webm", "hash": "0x%08x" % fnv1a('main'), "settings": "x", "bytes": 4, "source": {"offset": 2048}}
             (out / "manifest.json").write_text(json.dumps({"version": 1, "movies": {"main": encoded}}))
+            (out / "main.webm").write_bytes(b"webm")
             manifest = write_movie_index(catalog, game=game, public=public)
-            self.assertEqual(manifest["movies"]["main"], encoded, "an encoded movie's entry stays as it was")
-            atat = manifest["movies"]["atat_in"]
+            self.assertEqual(manifest, json.loads((out / "manifest.json").read_text()))
+            self.assertEqual(manifest["version"], 2)
+            main, atat = manifest["movies"]["main"], manifest["movies"]["atat_in"]
+            self.assertEqual(main["hash"], "0x%08x" % fnv1a('main'))
             self.assertEqual(atat["hash"], "0x%08x" % fnv1a('atat_in'))
-            self.assertEqual(atat["source"]["archive"], "GameData/Data/_LVL_PC/Movies/shell.mvs")
-            self.assertEqual((atat["source"]["offset"], atat["source"]["length"]), (index[1]["offset"], 97))
+            self.assertEqual(atat["source"], {"archive": "GameData/Data/_LVL_PC/Movies/shell.mvs", "offset": index[1]["offset"], "length": 97})
             self.assertEqual((atat["frames"], atat["audio"]), (42, True))
-            self.assertNotIn("file", atat)
-            self.assertEqual(sorted(p.name for p in out.iterdir()), ["manifest.json"], "nothing is encoded")
+            for entry in (main, atat):
+                self.assertFalse({"file", "settings", "bytes", "kind"} & set(entry))
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["manifest.json"], "nothing decoded or encoded; the old copy gone")
 
     def test_a_bad_offset_is_an_error(self):
         data = bytearray(mvs([(1, bink(size=64), 0)]))
@@ -149,15 +153,15 @@ class MovieConfigTests(unittest.TestCase):
                  {'hash': 0xF3D18818, 'offset': 8192, 'length': 1}, {'hash': 0xABCDEF01, 'offset': 9000, 'length': 1}]
         catalog = movie_catalog(index, config, movie_names(['main', 'Rebel_win', 'ifs_main']))
         self.assertEqual(list(catalog), ['main_trans', 'main', 'rebel_win', '0xabcdef01'])
-        self.assertEqual(catalog['main']['file'], 'main.webm')
+        self.assertEqual(catalog['main']['file'], 'main.bik')
         self.assertIn('main_trans', movie_names([]).values(), 'segment names found by hashing candidates')
 
     def test_screens_get_their_intro_and_loop(self):
         config = movie_config(self.CONFIG)
-        catalog = {'main_trans': {'hash': fnv1a('main_trans'), 'file': 'main_trans.webm'},
-                   'main': {'hash': fnv1a('main'), 'file': 'main.webm'}}
+        catalog = {'main_trans': {'hash': fnv1a('main_trans'), 'file': 'main_trans.bik'},
+                   'main': {'hash': fnv1a('main'), 'file': 'main.bik'}}
         movies = screen_movies(catalog, config)
-        self.assertEqual(movies, {'ifs_main': {'intro': 'movies/main_trans.webm', 'loop': 'movies/main.webm', 'fadeIn': 0.0,
+        self.assertEqual(movies, {'ifs_main': {'intro': 'movies/main_trans.bik', 'loop': 'movies/main.bik', 'fadeIn': 0.0,
                                                'fadeOut': 0.5, 'introFadeIn': 0.0, 'introFadeOut': 0.0}},
                          'screens whose movies are missing are left out')
 
@@ -166,16 +170,6 @@ class MovieConfigTests(unittest.TestCase):
         self.assertEqual(SCREEN_MOVIES['ifs_opt_contmain'], ('ifs_opt_top_intro', 'ifs_opt_top'))
         self.assertEqual(SCREEN_MOVIES['ifs_start'], (None, 'ifs_start'))
 
-    def test_kinds(self):
-        silent, sound = {'audio': 0}, {'audio': 1}
-        self.assertEqual(movie_kind('main', silent), 'backdrop')
-        self.assertEqual(movie_kind('gc_screen', silent), 'screen')
-        self.assertEqual(movie_kind('kam1fly', silent), 'flyover')
-        self.assertEqual(movie_kind('nab1h01', sound), 'story')
-        # Every movie at its source size; the shell upscales and sharpens as it draws.
-        self.assertTrue(all(ENCODES[k]['scale'] == 1 for k in ('backdrop', 'screen', 'flyover', 'story')))
-        self.assertEqual(MAIN_SCREENS[:3], ('start_screen', 'main_trans', 'main'))
-
 
 class CatalogTests(unittest.TestCase):
     LOCL = table(planets__naboo__mapname2='NABOO: THEED', planets__geonosis__mapname1='GEONOSIS: SPIRE')
@@ -183,7 +177,7 @@ class CatalogTests(unittest.TestCase):
              {'mapluafile': 'GEO1', 'showstr': 'planets.geonosis.mapname1', 'side_r': 1.0}]
 
     def test_eras_teams_and_what_is_extracted(self):
-        maps = map_catalog(self.TABLE, {}, self.LOCL, {'nab2': 'nab2c'}, {'nab2fly': {'file': 'nab2fly.webm'}},
+        maps = map_catalog(self.TABLE, {}, self.LOCL, {'nab2': 'nab2c'}, {'nab2fly': {'file': 'nab2fly.bik'}},
                            {'nab2': {'planet': 'NABOO'}})
         self.assertEqual([m['id'] for m in maps], ['nab2', 'geo1'], "the list's order")
         nab2, geo1 = maps
@@ -194,7 +188,7 @@ class CatalogTests(unittest.TestCase):
             'cw': {'teams': ['cis', 'rep'], 'attacker': 1, 'mission': 'nab2c', 'extracted': True},
             'gcw': {'teams': ['all', 'imp'], 'attacker': 1, 'mission': 'nab2a', 'extracted': False},
         })
-        self.assertEqual(nab2['fly'], 'movies/nab2fly.webm')
+        self.assertEqual(nab2['fly'], 'movies/nab2fly.bik')
         self.assertEqual(nab2['load'], {'planet': 'NABOO'})
         self.assertFalse(geo1['extracted'])
         self.assertEqual(geo1['eras'], {'cw': {'teams': ['rep', 'cis'], 'attacker': 1, 'mission': 'geo1r', 'extracted': False}})
@@ -359,14 +353,14 @@ class ExtractionAudit(unittest.TestCase):
         self.assertEqual(list(shell), ['movies', 'maps', 'music', 'whooshes', 'load'])
         for screen, entry in shell['movies'].items():
             with self.subTest(screen=screen):
-                self.assertTrue(entry['loop'].startswith('movies/') and entry['loop'].endswith('.webm'))
+                self.assertTrue(entry['loop'].startswith('movies/') and entry['loop'].endswith('.bik'))
                 self.assertTrue(entry['intro'] is None or entry['intro'].startswith('movies/'))
                 self.assertIsInstance(entry['fadeIn'], float)
                 self.assertIsInstance(entry['fadeOut'], float)
                 self.assertEqual('introFadeIn' in entry, entry['intro'] is not None)
-        self.assertEqual(shell['movies']['ifs_main'], {'intro': 'movies/main_trans.webm', 'loop': 'movies/main.webm',
+        self.assertEqual(shell['movies']['ifs_main'], {'intro': 'movies/main_trans.bik', 'loop': 'movies/main.bik',
                                                        'fadeIn': 0.0, 'fadeOut': 0.5, 'introFadeIn': 0.0, 'introFadeOut': 0.0})
-        self.assertEqual(shell['movies']['ifs_sp']['loop'], 'movies/atat_screen.webm')
+        self.assertEqual(shell['movies']['ifs_sp']['loop'], 'movies/atat_screen.bik')
 
     def test_maps(self):
         maps = self.shell['maps']
@@ -393,7 +387,7 @@ class ExtractionAudit(unittest.TestCase):
                     self.assertEqual(value['extracted'], value['mission'] in held)
                 self.assertEqual(entry['extracted'], any(v['extracted'] for v in entry['eras'].values()),
                                  'each extracted map holds one of its eras')
-                self.assertEqual(entry['fly'], f"movies/{entry['id']}fly.webm")
+                self.assertEqual(entry['fly'], f"movies/{entry['id']}fly.bik")
                 if entry['load'] is None:
                     # An add-on's map: load.lvl has no World for it (Jabba's Palace).
                     self.assertNotIn(entry['id'], STOCK_MAPS)
@@ -451,27 +445,18 @@ class ExtractionAudit(unittest.TestCase):
             streams, _ = probe(PUBLIC / path.lstrip('/'))
             self.assertEqual((streams[0]['codec_name'], streams[0]['channels'], streams[0]['sample_rate']), ('flac', 2, '44100'))
 
-    @unittest.skipUnless(shutil.which('ffprobe'), 'needs ffprobe')
     def test_movies(self):
         referenced = {e[k] for e in self.shell['movies'].values() for k in ('intro', 'loop') if e[k]}
-        referenced |= {m['fly'] for m in self.shell['maps']}
+        referenced |= {m['fly'] for m in self.shell['maps'] if m['fly']}
         added = [m for m in self.shell['maps'] if m['id'] not in STOCK_MAPS and m['fly']]
         self.assertEqual(len(self.movies), 55 + len(added), "every movie in Movies/shell.mvs, and the add-ons' flyovers")
-        files = {f"movies/{m['file']}": m for m in self.movies.values()}
-        self.assertLessEqual(referenced, set(files))
-        for path, movie in files.items():
-            with self.subTest(movie=path):
-                self.assertTrue((SHELL / path).exists())
-                self.assertEqual((SHELL / path).stat().st_size, movie['bytes'])
-                streams, form = probe(SHELL / path)
-                video = streams[0]
-                self.assertEqual((video['codec_name'], video['width'], video['height'], video['pix_fmt']),
-                                 ('vp9', movie['width'], movie['height'], 'yuv420p'))
-                self.assertGreaterEqual(movie['width'], movie['source']['width'], 'native resolution or better')
-                self.assertEqual(len(streams), 2 if movie['audio'] else 1)
-                if movie['audio']:
-                    self.assertEqual(streams[1]['codec_name'], 'opus')
-                self.assertAlmostEqual(float(form['duration']), movie['duration'], delta=0.1)
+        self.assertLessEqual({Path(url).stem for url in referenced}, set(self.movies))
+        for name, movie in self.movies.items():
+            with self.subTest(movie=name):
+                self.assertRegex(movie['hash'], r'^0x[0-9a-f]{8}$')
+                self.assertTrue(movie['source']['archive'].lower().endswith('.mvs'))
+                self.assertGreater(movie['frames'], 0)
+        self.assertEqual(list((SHELL / 'movies').glob('*.webm')), [], 'the movies are not converted')
 
 
 if __name__ == '__main__':

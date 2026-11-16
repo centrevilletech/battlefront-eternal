@@ -1,9 +1,9 @@
 //! JetpackEffects, JetpackVolume and JetpackWake (src/jetpack-effects.js,
-//! jetpack-volume.js, jetpack-wake.js) for the soldiers drawn here, over the
+//! jetpack-volume.js) for the soldiers drawn here, over the
 //! shared Jetpack owner: the attached flame at each nozzle, bent by how the
 //! pack moves, and the combustion wisps, smoke and embers it leaves behind.
 //! The jetpackEffects setting picks this Enhanced look or the class's stock
-//! JetExhaust effect (game.js updateJetFlame), which the combat owner plays.
+//! JetExhaust effect (updateJetFlame), which the combat owner plays.
 //! The nozzles sit where the class's effect authors them on the ribcage,
 //! not on the pack model's own outlets (JetpackNozzles), and the exhaust's
 //! light is not drawn.
@@ -64,7 +64,7 @@ impl Jetpacks {
             let (Some(id), Some(name)) = (class.registry_id, class.record.get("JetEffect").and_then(bfe_content::Value::as_str)) else {
                 continue;
             };
-            // game.js jetEffect: the side's own effect of that name, else
+            // jetEffect: the side's own effect of that name, else
             // the shared one, else none.
             let side = defs.names.text(class.side);
             let own = battle.sides.iter().find(|s| s.name == side).and_then(|s| s.fx.as_ref()).and_then(|fx| fx.get("effects")).and_then(|e| e.get(name));
@@ -109,7 +109,7 @@ impl Jetpacks {
             pack.seen = false;
         }
     }
-    /// game.js updateJetFlame for one body: `active` while he is jetting
+    /// updateJetFlame for one body: `active` while he is jetting
     /// and alive; `position` and `quaternion` are his ribcage's as posed
     /// this frame. A body takes a pack when it lights, and keeps it while
     /// its throttle runs down and its wake lives.

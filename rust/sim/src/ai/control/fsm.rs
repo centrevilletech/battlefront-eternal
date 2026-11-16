@@ -1,12 +1,12 @@
 //! The generic state-machine driver every Classic controller, agent
-//! and embedded helper shares (controller.js:274 Fsm). The drive
+//! and embedded helper shares (Fsm). The drive
 //! itself lives with the core (mod.rs `fsm_update`/`fsm_flush`),
 //! dispatching each owner's enter/exit/tick; this is its state.
 
-/// The terminal state every machine here uses (controller.js:27).
+/// The terminal state every machine here uses.
 pub const DONE: f64 = 100.0;
 
-/// Bound on transitions in one update (controller.js:272). The 2004
+/// Bound on transitions in one update. The 2004
 /// game has none; the JavaScript stops and warns, and so does this.
 pub const DRAIN_LIMIT: u32 = 64;
 

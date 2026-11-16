@@ -28,7 +28,7 @@ impl Storm {
     }
     // StormSky.update restores lighting in the resource host before applying
     // this flash. The three overlapping pulses retain their original spans,
-    // inclusive endpoints and multiply/divide order from the page expression.
+    // inclusive endpoints and multiply/divide order from the client expression.
     pub fn update<M: Math>(&mut self,time:f64,eye:[f64;3],enabled:bool) {
         self.dirty=false;if !enabled {return;}
         if time>=self.next {self.strike::<M>(time,eye);}

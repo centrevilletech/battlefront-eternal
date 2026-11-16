@@ -20,7 +20,7 @@ use std::rc::Rc;
 /// wrapper. Capture readers map recorded objects into this same key space.
 pub type UKey = u64;
 
-/// A weak entity reference (controller.js:343 `refOf`): the entity's
+/// A weak entity reference (`refOf`): the entity's
 /// table index and the life of it the holder meant.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct EntRef {
@@ -36,7 +36,7 @@ pub enum AlertSource {
     Unit(UKey),
 }
 
-/// A soldier body's fields the core reads (units.js Unit.soldier for a
+/// A soldier body's fields the core reads (Unit.soldier for a
 /// soldier or a droideka; a seat controllable has none).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SoldierSnap {
@@ -81,7 +81,7 @@ pub struct ClassSnap {
     pub base: Option<String>,
 }
 
-/// One weapon as the class jobs read it (weapons.js Weapon + its def):
+/// One weapon as the class jobs read it (Weapon + its def):
 /// whether it is the selected one is the arsenal's `selected` on the
 /// unit snapshot.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -99,11 +99,11 @@ pub struct WeaponSnap {
     pub item_life_span: Option<f64>,
     pub item_life_missing: bool,
     /// Service quantities of the weapon's def and of its item def
-    /// (classes.js quantity() reads one of the two by base).
+    /// (quantity() reads one of the two by base).
     pub qty_def: QtySnap,
     pub qty_item: QtySnap,
     /// Items of this dispenser's class the owner has about, not gone
-    /// (items.js ownedBy), for the MaxItems test.
+    /// (ownedBy), for the MaxItems test.
     pub owned_count: f64,
 }
 
@@ -142,7 +142,7 @@ impl<T> FromIterator<T> for SharedRows<T> {
 pub struct AiUnit {
     pub key: UKey,
     /// The JavaScript's `unit.id` (a seat controllable carries its
-    /// occupant's, seats.js:587).
+    /// occupant's).
     pub id: f64,
     pub generation: f64,
     pub kind: f64,
@@ -275,7 +275,7 @@ impl UnitMotion {
     pub fn of(unit:&AiUnit)->Self {Self {id:unit.id,position:unit.position,velocity:unit.velocity}}
 }
 
-/// A command post's built capture region (regions.js buildRegion), as
+/// A command post's built capture region (buildRegion), as
 /// the post keeps it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RegionSnap {
@@ -294,7 +294,7 @@ pub enum RegionKind {
     Other,
 }
 
-/// A post's AI properties (goals.js postAI): the mission record joined
+/// A post's AI properties (postAI): the mission record joined
 /// at load, or the defaults said from the map alone.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostAi {
@@ -317,7 +317,7 @@ impl Default for PostAi {
         spawn_present:None,ally_present:None,ally_count:0.,class_spawn_points:0.,capture:None,radius:0.,yaw:0.}}
 }
 
-/// The capture part of a post's AI record (goals.js captureOf): where
+/// The capture part of a post's AI record (captureOf): where
 /// its centre is and the built size the offset spans.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CaptureSnap {
@@ -325,10 +325,10 @@ pub struct CaptureSnap {
     pub half: [f64; 3],
 }
 
-/// A command post as the core reads it (commandposts.js Post,
-/// mobile-posts.js MobilePost). `region` is what `post.contains`
+/// A command post as the core reads it (Post,
+/// MobilePost). `region` is what `post.contains`
 /// tests; `capture` inside `ai` is the mission's region the patrol
-/// geometry reads (patrol.js captureRegion prefers the population's).
+/// geometry reads (captureRegion prefers the population's).
 #[derive(Clone, Debug, PartialEq)]
 pub struct PostSnap {
     pub index: usize,
@@ -374,8 +374,8 @@ pub struct CharacterSnap {
 
 /// One player's view for the level-of-detail gate (scheduler.js
 /// cameraAccepts reads matrixWorld's elements and these): the
-/// simulation camera offline (camera.js, its matrix as game.js left
-/// it), the network views online (network-views.js).
+/// simulation camera offline (its matrix as game.js left
+/// it), the network views online.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CameraView {
     pub elements: [f64; 16],
@@ -386,7 +386,7 @@ pub struct CameraView {
     pub zoom: f64,
 }
 
-/// What is bound (classic/index.js bind() + the vehicle adapter): the
+/// What is bound (bind() + the vehicle adapter): the
 /// presence the JavaScript's `?.` sees. In a battle everything here is
 /// bound; the degraded shapes are the tests'.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -420,14 +420,14 @@ impl Default for Bind {
     }
 }
 
-/// The draws, A and B (classic/index.js:226): every draw the core makes
+/// The draws, A and B: every draw the core makes
 /// goes through here, in the JavaScript's order, so a replay serves
 /// them in order and a live run draws its own generators.
 pub trait Draws {
     fn a_uniform(&mut self) -> f64;
     fn b_uniform(&mut self) -> f64;
     fn a_int(&mut self, lo: f64, hi: f64) -> f64 {
-        // int() draws only when hi > lo (random.js:42).
+        // int() draws only when hi > lo.
         if !(hi > lo) {
             return lo;
         }
@@ -441,7 +441,7 @@ pub trait Draws {
     }
 }
 
-/// ClassicRandom.int on an already-drawn uniform (random.js:41). A
+/// ClassicRandom.int on an already-drawn uniform. A
 /// draw only happens when hi > lo; callers that must not draw spell
 /// the test themselves (they all go through a_int, which draws first
 /// like the JavaScript's uniform() call inside int()... see note:
@@ -455,7 +455,7 @@ pub fn int_of(u: f64, lo: f64, hi: f64) -> f64 {
     v8math::trunc(v8math::fround(v8math::fround(u * v8math::fround(hi - lo + 1.0)) + lo))
 }
 
-/// ClassicRandom.range on an already-drawn uniform (random.js:49).
+/// ClassicRandom.range on an already-drawn uniform.
 pub fn range_of(u: f64, lo: f64, hi: f64) -> f64 {
     v8math::fround(v8math::fround(lo) + v8math::fround(u * v8math::fround(hi - lo)))
 }
@@ -545,7 +545,7 @@ pub struct AlertState {
     pub alert_anim: Option<bool>,
 }
 
-/// A combat response (perception.js hazard/alert/acousticResponse):
+/// A combat response (hazard/alert/acousticResponse):
 /// the goal mode and point, whether the mount is left instead, whether
 /// the soldier shouts that it heard an enemy.
 #[derive(Clone, Debug, PartialEq)]
@@ -581,7 +581,7 @@ impl ResponseState {
     }
 }
 
-/// A repair job (classes.js findRepairJob): its target and which need
+/// A repair job (findRepairJob): its target and which need
 /// ("health" or "ammo").
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct JobRef {
@@ -642,7 +642,7 @@ pub enum HelperKind {
     Stationary,
 }
 
-/// Which route a goto asks for (goto.js options.mode).
+/// Which route a goto asks for (options.mode).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GotoMode {
     Route,
@@ -650,7 +650,7 @@ pub enum GotoMode {
     Straight,
 }
 
-/// The mounted policy of a seat controller (vehicles/controllers.js).
+/// The mounted policy of a seat controller.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Policy {
     None,
@@ -659,7 +659,7 @@ pub enum Policy {
     Fly,
 }
 
-/// A hint as patrol and the class jobs read it (nav/hints.js records
+/// A hint as patrol and the class jobs read it (records
 /// through patrol.js's adapters). `post` is the hint's command post by
 /// table index (its authored attachment; the runtime hint's is always
 /// absent, quirks R1d).
@@ -676,7 +676,7 @@ pub struct HintSnap {
     pub linked: SharedRows<usize>,
 }
 
-/// An item lying about, as the class jobs read them (items.js).
+/// An item lying about, as the class jobs read them.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemSnap {
     pub gone: bool,
@@ -744,7 +744,7 @@ pub trait AiWorld: Characters {
     fn cameras(&self) -> &[CameraView];
     fn network_views(&self) -> bool;
     fn lod_disabled_world(&self) -> bool;
-    /// The registry's query (registry.js Units.query): living members
+    /// The registry's query (Units.query): living members
     /// by their broadphase sphere, in registry order, the caller's
     /// filter applied as it goes.
     fn unit_buffer(&self)->List<UKey>;
@@ -757,13 +757,13 @@ pub trait AiWorld: Characters {
 
     fn units_query(&mut self, center: Vec3, radius: f64, filter: &mut dyn FnMut(&AiUnit) -> bool) -> List<UKey>;
     /// Repair candidates including destroyed buildings
-    /// (src/ai/services.js createServiceCandidates), filtered to the
+    /// (createServiceCandidates), filtered to the
     /// radius as it filters them; the building wrappers are table
     /// entries of their own.
     fn service_candidates(&mut self, center: Vec3, radius: f64) -> List<UKey>;
     fn items_len(&self)->usize;
     fn item(&self,index:usize)->ItemSnap;
-    /// A Character's crew (ai/index.js objectiveCrew): its vehicle's
+    /// A Character's crew (objectiveCrew): its vehicle's
     /// driver and occupants as character indices, when seated.
     fn crew(&mut self, character: usize) -> Option<CrewSnap>;
     fn crew_occupants(&self,character:usize)->List<usize>;
@@ -775,13 +775,13 @@ pub trait AiWorld: Characters {
     fn tickets(&self, team: f64) -> Option<f64>;
     fn reinforcements(&self, team: f64) -> Option<f64>;
     fn mine_ground_height(&mut self, point: Vec3) -> f64;
-    /// The simulation journal's voice records (squads.js emitVo):
+    /// The simulation journal's voice records (emitVo):
     /// fields are (event, property, command kind or -1, context,
     /// positional, notice) as each call site spells them.
     fn emit_vo(&mut self, unit: UKey, event: &str, property: &str, command: f64, context: Option<f64>, positional: Option<bool>, notice: Option<bool>);
 
-    // -- AI combat services (classic/index.js combatAdapter +
-    // combat.js classicBinding; the combat package's).
+    // -- AI combat services (combatAdapter +
+    // classicBinding; the combat package's).
     /// A live native host keeps the control and combat projections of
     /// this controller current before entering combat. Boundary replays
     /// already supply their entry state and need no additional action.
@@ -851,7 +851,7 @@ pub trait AiWorld: Characters {
     /// the unit's snapshot list.
     fn weapons_selected(&mut self, controller: usize) -> Option<usize>;
     fn weapons_switch(&mut self, controller: usize, index: usize);
-    /// arsenal.select directly (classes.js chooseWeapon's other arm).
+    /// arsenal.select directly (chooseWeapon's other arm).
     fn weapons_select(&mut self, controller: usize, index: usize);
     fn weapons_effective_range(&mut self, controller: usize, weapon: usize) -> f64;
     fn weapons_firing_cone(&mut self, controller: usize, point: Vec3) -> bool;
@@ -885,7 +885,7 @@ pub trait AiWorld: Characters {
     }
     fn repair_matches(&self,target:UKey,current:UKey)->bool {target==current||self.unit(target).repair_aliases.contains(&current)}
 
-    // -- Vehicle AI services (classic/index.js VEHICLE_SERVICES; the
+    // -- Vehicle AI services (VEHICLE_SERVICES; the
     // vehicle AI package's, with its mounted policies).
     fn vehicles_notify(&mut self) -> List<(usize, EntRef)>;
     fn vehicles_request_exit(&mut self,core:&mut super::Core,controller:usize);
@@ -917,7 +917,7 @@ pub trait AiWorld: Characters {
     /// The mounted patrol returns its state and explicit Population
     /// publications. `objectives` is the characters' current objective
     /// table, checked before any callback writes are applied. None means
-    /// the hook is absent (patrol.js then asks out), not a false return.
+    /// the hook is absent (then asks out), not a false return.
     fn vehicles_patrol_mounted(&mut self,core:&mut super::Core, controller: usize, patrol: super::patrol::Patrol, shared: &mut ForeignShared, objectives: &[Option<usize>], support_holds: Option<f64>) -> Option<MountedPatrol>;
     /// controllerPolicy(unit) and its bind/controller/agent effects.
     fn vehicles_policy_of(&mut self, unit: UKey) -> Policy;
@@ -972,13 +972,13 @@ pub trait AiWorld: Characters {
     fn combat_writes(&mut self, controller: usize) -> CombatWrites;
     /// world.network && world.secondaryWorldActive.
     fn network_secondary_active(&self) -> bool;
-    /// nav/analogs.js navigationInput (executor step, posture/jet,
+    /// navigationInput (executor step, posture/jet,
     /// analogs into the intent) and analogs alone.
     fn nav_navigation_input(&mut self, _core:&mut crate::ai::control::Core, controller: usize, step: f64, aim: Option<Vec3>,facing:bool) -> (Option<HelperObs>, Vec<CoreEffect>);
     fn nav_analogs(&mut self, _core:&mut crate::ai::control::Core, controller: usize, aim: Option<Vec3>, step: f64,facing:bool) -> ([f64; 4], Vec<CoreEffect>);
 }
 
-/// A seated Character's crew (ai/index.js:24 objectiveCrew).
+/// A seated Character's crew (objectiveCrew).
 #[derive(Clone, Debug, PartialEq)]
 pub struct CrewSnap {
     pub vehicle: UKey,
@@ -988,7 +988,7 @@ pub struct CrewSnap {
 }
 
 /// The mission's team table the registry's relation reads
-/// (registry.js:74, spawning.js teamTable).
+/// (spawning.js teamTable).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TeamTable {
     pub relations: Vec<Option<Vec<f64>>>,
@@ -997,7 +997,7 @@ pub struct TeamTable {
 }
 
 impl TeamTable {
-    /// registry.js relation(a, b).
+    /// relation(a, b).
     pub fn relation(&self, a: f64, b: f64) -> f64 {
         if a == b {
             return if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 };

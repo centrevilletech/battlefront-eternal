@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""The front end's data: the menus' art and text, the shell's movies, music
-and transition sounds, the Instant Action map catalog, and the loading
-screen. docs/shell-assets.md has the schema.
+"""The front end's data: the menus' art and text, the list of the shell's
+movies, music and transition sounds, the Instant Action map catalog, and the
+loading screen. docs/shell-assets.md has the schema.
 
-    python3 tools/zero_shell.py                  # all of it, the movies last
+    python3 tools/zero_shell.py                  # all of it
     python3 tools/zero_shell.py --common         # common.json: the menus' textures, strings and rasterHud
     python3 tools/zero_shell.py --audio          # public/audio/shell: music, whooshes, interface sounds
-    python3 tools/zero_shell.py --catalog        # shell.json and the loading screen's pictures
-    python3 tools/zero_shell.py --movies [--jobs 2] [--only main kam1fly ...] [--force]
+    python3 tools/zero_shell.py --catalog        # shell.json, the movie list and the loading screen's pictures
 
 It reads the game as installed (data/game/install), with the add-ons beside
 it (GameData/AddOn; tools/zero_addon.py: their maps join the catalog, their
@@ -17,16 +16,15 @@ flyovers the movies), and writes only gitignored, retail-derived data:
     public/common/textures/           their PNGs, with KTX2 copies (tools/ktx2.py)
     public/common/raster-hud/         4x WebP atlases (tools/upscale_hud.py; needs Pillow)
     public/common/shell/shell.json    movies by screen, the map catalog, music, whooshes, the loading screen
-    public/common/shell/movies/       Movies/shell.mvs's Bink movies as VP9 WebM, with manifest.json
-                                      (--movie-index: the manifest alone, for the native client)
+    public/common/shell/movies/       manifest.json: each movie's name and where it is in the game's
+                                      archives (the client plays the Bink files from there)
     public/common/shell/load/         the loading screen's pictures
     public/audio/shell/               the music (Ogg Opus), the whooshes (FLAC), and the shell's
                                       sound for the audio engine (sound.json, bank.bin)
 
-Each part only adds to what is there, so running it again is harmless. A
-movie whose WebM was made with the same settings isn't encoded again
-(--force encodes it anyway). The movies need ffmpeg with the Bink decoders,
-libvpx-vp9 and libopus; the music and whooshes need ffmpeg with libopus.
+Each part only adds to what is there, so running it again is harmless. The
+movies are only listed, never decoded or converted; the music and whooshes
+need ffmpeg with libopus.
 
 Movies/shell.mvs is a ucfb tree whose tags are name hashes, as in the sound
 archives: an Info chunk (Name "shell", NumSegments, then SegmentInfo and a
@@ -39,15 +37,11 @@ segments, loops and fades.
 import argparse
 import json
 import mmap
-import shutil
 import struct
 import subprocess
 import sys
-import tempfile
-import threading
 import zlib
 from array import array
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import zero_addon
@@ -258,37 +252,6 @@ SCREEN_MOVIES = {
     "ifs_tutorials": ("ATTE_in", "ATTE_screen"),
 }
 
-# How each kind of movie is encoded: VP9 (profile 0, 4:2:0), tagged BT.601
-# limited range, as the Bink decoder's output is; two passes at constant
-# quality; a keyframe at least every 10 s. Every frame is kept, with its
-# timing, and nothing is added: a loop's last frame runs into its first.
-# One VP9 pass at speed 6: measured on the title screen's backdrop, 2.8x
-# faster than two passes at speed 4 for the same size and SSIM 0.9918 against
-# 0.9925 (the desktop app encodes every movie on first launch).
-ENCODES = {
-    # The backdrops and intros of the screens the shell always shows (800x600,
-    # silent): as they are, lower CRF preserving the logo and grid edges. They
-    # were stored at three times the size (Lanczos and a luma sharpen), which
-    # looked the same as the source stretched and cost most of the encode;
-    # the shell now upscales and sharpens them as it draws them
-    # (src/shell/video-sharpen.js).
-    "backdrop": {"scale": 1, "crf": 18, "speed": 6},
-    # The other screens' backdrops (the campaign, Galactic Conquest,
-    # splitscreen and tutorial stubs): as they are.
-    "screen": {"scale": 1, "crf": 20, "speed": 6},
-    # Instant Action's flyovers (720x480; Naboo: Theed's 640x480), drawn in a
-    # corner: as they are.
-    "flyover": {"scale": 1, "crf": 20, "speed": 6},
-    # The campaigns' and Galactic Conquest's movies, with sound: as they
-    # are, the sound as Opus. The front end's stubs don't play them yet, so
-    # they get the fastest of these settings.
-    "story": {"scale": 1, "crf": 22, "speed": 6, "audio": "160k"},
-}
-KEYFRAMES = 300
-# The screens the shell always shows: the title gate (the profile screen's
-# movie), the main menu, singleplayer and options. Encoded first.
-MAIN_SCREENS = ("start_screen", "main_trans", "main", "atat_in", "atat_screen", "coreship_in", "coreship_screen")
-
 
 def find_chunk(data, start, end, tag, depth=0):
     """The first chunk with this (hashed) tag in a raw ucfb tree, not
@@ -427,61 +390,8 @@ def movie_catalog(index, config, names):
         if not name:
             name = hexname(movie["hash"])
         name = name.lower()
-        out[name] = {**movie, "file": f"{name}.webm"}
+        out[name] = {**movie, "file": f"{name}.bik"}
     return out
-
-
-def movie_kind(name, info):
-    if info["audio"]:
-        return "story"
-    if name.endswith("fly"):
-        return "flyover"
-    return "backdrop" if name in MAIN_SCREENS else "screen"
-
-
-def encode_settings(kind, info):
-    """The ffmpeg arguments for one kind of movie, and a label of them."""
-    spec = ENCODES[kind]
-    width, height = info["width"] * spec["scale"], info["height"] * spec["scale"]
-    video = []
-    if spec["scale"] != 1:
-        video += ["-vf", f"scale={width}:{height}:flags=lanczos+accurate_rnd+full_chroma_int,unsharp=5:5:0.65:5:5:0"]
-    video += [
-        "-c:v", "libvpx-vp9", "-pix_fmt", "yuv420p", "-colorspace", "smpte170m", "-color_range", "tv",
-        "-crf", str(spec["crf"]), "-b:v", "0", "-deadline", "good", "-cpu-used", str(spec["speed"]),
-        "-row-mt", "1", "-tile-columns", "2" if width > 1024 else "1", "-threads", "4", "-g", str(KEYFRAMES),
-        "-auto-alt-ref", "1", "-lag-in-frames", "25",
-    ]
-    audio = ["-c:a", "libopus", "-b:a", spec["audio"], "-ar", "48000", "-ac", "2"] if spec.get("audio") and info["audio"] else ["-an"]
-    label = " ".join(video + audio)
-    return video, audio, label, width, height
-
-
-def transcode(name, movie, source, out_dir, kind, known=None, force=False):
-    """Encode one movie, unless its WebM exists with the same settings (its
-    manifest entry `known` says so). Returns its manifest entry."""
-    with open(source, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-        info = bink_info(data, movie["offset"])
-        video, audio, label, width, height = encode_settings(kind, info)
-        target = out_dir / movie["file"]
-        if not force and target.exists() and known and known.get("settings") == label and known.get("bytes") == target.stat().st_size:
-            return known
-        bink_bytes = data[movie["offset"]:movie["offset"] + movie["length"]]
-    with tempfile.TemporaryDirectory(prefix="bf-shell-") as scratch:
-        scratch = Path(scratch)
-        bink = scratch / f"{name}.bik"
-        bink.write_bytes(bink_bytes)
-        del bink_bytes
-        base = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", str(bink)]
-        part = scratch / movie["file"]
-        subprocess.run(base + video + audio + ["-f", "webm", str(part)], check=True)
-        shutil.move(str(part), target)
-    return {
-        "file": movie["file"], "hash": hexname(movie["hash"]), "kind": kind, "width": width, "height": height,
-        "frames": info["frames"], "fps": info["fps"], "duration": info["duration"], "audio": bool(info["audio"]),
-        "bytes": target.stat().st_size, "settings": label,
-        "source": {"offset": movie["offset"], "length": movie["length"], "width": info["width"], "height": info["height"]},
-    }
 
 
 def movie_sources(game=GAME):
@@ -525,65 +435,16 @@ def textures_in(data):
                     yield cstr_at(data, *name)
 
 
-def write_movies(catalog, game=GAME, public=PUBLIC, jobs=2, only=None, force=False):
-    """Encode the movies (the front end's first), keeping manifest.json up to
-    date as each lands."""
-    out = public / "common" / "shell" / "movies"
-    out.mkdir(parents=True, exist_ok=True)
-    # The shell's archive, or the add-on's a movie is in.
-    sources = {name: Path(movie.get("archive") or archives(game)["movies"]) for name, movie in catalog.items()}
-    manifest_path = out / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    manifest = {"version": 1, "movies": manifest.get("movies", {})}
-    infos = {}
-    for source in set(sources.values()):
-        with open(source, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-            infos.update({name: bink_info(data, movie["offset"]) for name, movie in catalog.items() if sources[name] == source})
-    rank = {"backdrop": 0, "flyover": 1, "screen": 2, "story": 3}
-    order = sorted(catalog, key=lambda n: (MAIN_SCREENS.index(n) if n in MAIN_SCREENS else len(MAIN_SCREENS),
-                                            rank[movie_kind(n, infos[n])], catalog[n]["offset"]))
-    if only:
-        order = [name for name in order if name in only]
-    lock = threading.Lock()
-
-    def job(name):
-        kind = movie_kind(name, infos[name])
-        with lock:
-            known = manifest["movies"].get(name)
-        try:
-            entry = transcode(name, catalog[name], sources[name], out, kind, known, force)
-        except (subprocess.CalledProcessError, OSError) as error:
-            print(f"  movie {name}: {error}", flush=True)
-            return
-        with lock:
-            manifest["movies"][name] = entry
-            manifest["movies"] = dict(sorted(manifest["movies"].items(), key=lambda kv: kv[1]["source"]["offset"]))
-            # Written whole, then renamed: a reader never sees half of it.
-            part = manifest_path.with_suffix(".json.part")
-            part.write_text(json.dumps(manifest, indent=1) + "\n")
-            part.replace(manifest_path)
-            if entry is not known:
-                print(f"  movie {name}: {entry['width']}x{entry['height']} {entry['duration']} s"
-                      f" {entry['bytes'] / 1e6:.1f} MB", flush=True)
-
-    with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        list(pool.map(job, order))
-    return manifest
-
-
 def write_movie_index(catalog, game=GAME, public=PUBLIC):
-    """movies/manifest.json without encoding anything: each movie's name, hash, archive and Bink header,
-    for the native client, which plays the Bink files from the game's own archives. An entry an encode
-    already wrote is kept as it is (it has the same hash), so a later encode still finds its WebMs."""
+    """movies/manifest.json: each movie's name, its name hash, and where its Bink file is in the
+    game's archives (the shell's, or an add-on's), with its size, frames and rate. Nothing is decoded:
+    the client plays the Bink files from the player's game folder and finds a movie by its hash.
+    WebM copies an earlier version of the preparation made are removed."""
     out = public / "common" / "shell" / "movies"
     out.mkdir(parents=True, exist_ok=True)
-    manifest_path = out / "manifest.json"
-    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else {}
-    movies = manifest.get("movies", {})
     install = game.parents[2]
+    movies = {}
     for name, movie in catalog.items():
-        if name in movies and movies[name].get("hash"):
-            continue
         source = Path(movie.get("archive") or archives(game)["movies"])
         with open(source, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
             info = bink_info(data, movie["offset"])
@@ -592,17 +453,20 @@ def write_movie_index(catalog, game=GAME, public=PUBLIC):
         except ValueError:
             archive = str(source)
         movies[name] = {
-            "hash": hexname(movie["hash"]), "kind": movie_kind(name, info), "width": info["width"],
-            "height": info["height"], "frames": info["frames"], "fps": info["fps"], "duration": info["duration"],
-            "audio": bool(info["audio"]),
-            "source": {"archive": archive, "offset": movie["offset"], "length": movie["length"],
-                       "width": info["width"], "height": info["height"]},
+            "hash": hexname(movie["hash"]), "width": info["width"], "height": info["height"],
+            "frames": info["frames"], "fps": info["fps"], "duration": info["duration"], "audio": bool(info["audio"]),
+            "source": {"archive": archive, "offset": movie["offset"], "length": movie["length"]},
         }
-    manifest = {"version": 1, "movies": dict(sorted(movies.items(), key=lambda kv: (kv[1]["source"].get("archive", ""), kv[1]["source"]["offset"])))}
+    manifest = {"version": 2, "movies": dict(sorted(movies.items(), key=lambda kv: (kv[1]["source"]["archive"], kv[1]["source"]["offset"])))}
+    manifest_path = out / "manifest.json"
     part = manifest_path.with_suffix(".json.part")
     part.write_text(json.dumps(manifest, indent=1) + "\n")
     part.replace(manifest_path)
-    print(f"  movie index: {len(movies)} movies", flush=True)
+    removed = 0
+    for old in out.glob("*.webm"):
+        old.unlink(missing_ok=True)
+        removed += 1
+    print(f"  movie index: {len(movies)} movies" + (f", {removed} old WebM copies removed" if removed else ""), flush=True)
     return manifest
 
 
@@ -1103,6 +967,8 @@ def write_catalog(locl, game=GAME, public=PUBLIC, music=None, whooshes=None):
     old = json.loads(path.read_text()) if path.exists() else {}
     sources = movie_sources(game)
     catalog, config = sources if sources else ({}, {})
+    if sources:
+        write_movie_index(catalog, game, public)
     screen, load = loading_screen(load_config(paths["load"].read_bytes()), locl) if paths["load"].exists() else ({}, {})
     written = write_load_pictures(screen, load, game, public)
     scripts = zero_addon.missions(game)
@@ -1132,15 +998,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--common", action="store_true", help="common.json: the menus' textures, strings and rasterHud")
     parser.add_argument("--audio", action="store_true", help="public/audio/shell: music, whooshes, interface sounds")
-    parser.add_argument("--catalog", action="store_true", help="shell.json and the loading screen's pictures")
-    parser.add_argument("--movies", action="store_true", help="transcode Movies/shell.mvs")
-    parser.add_argument("--movie-index", action="store_true",
-                        help="only list the movies in movies/manifest.json (the native client plays the Bink files)")
-    parser.add_argument("--jobs", type=int, default=2, help="movies encoded at once (each uses four threads)")
-    parser.add_argument("--only", nargs="*", help="only these movies (by file name without .webm)")
-    parser.add_argument("--force", action="store_true", help="encode movies again even if up to date")
+    parser.add_argument("--catalog", action="store_true", help="shell.json, the movie list and the loading screen's pictures")
     args = parser.parse_args()
-    every = not (args.common or args.audio or args.catalog or args.movies or args.movie_index)
+    every = not (args.common or args.audio or args.catalog)
     paths = archives()
     missing = [str(p) for p in paths.values() if not p.exists()]
     if missing:
@@ -1157,12 +1017,6 @@ def main():
         music, whooshes = write_shell_audio()
     if every or args.catalog or args.audio:
         write_catalog(locl, music=music, whooshes=whooshes)
-    if args.movie_index:
-        catalog, _ = movie_sources()
-        write_movie_index(catalog)
-    if every or args.movies:
-        catalog, _ = movie_sources()
-        write_movies(catalog, jobs=args.jobs, only=set(args.only) if args.only else None, force=args.force)
     return 0
 
 

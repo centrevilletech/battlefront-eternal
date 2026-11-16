@@ -1,11 +1,11 @@
-//! Character publications from network-entity-summary.js, retained by roster
+//! Character publications, retained by roster
 //! slot rather than transient visible soldier identities. Dead players remain
 //! on the scoreboard and an unreceived chunk leaves team-zero placeholders.
 // captureRosterSummaries groups twelve Characters, with at most 200 chunks.
 // Its byte cap belongs to the wire format, not a native text-buffer policy.
 const CHUNK: usize = 12;
 const CAPACITY: usize = CHUNK * 200;
-// LINK_KINDS in network-entity-summary.js: indices travel as one byte.
+// LINK_KINDS: indices travel as one byte.
 pub const LINKS: [&str; 5] = ["unknown", "direct4", "direct6", "relay4", "relay6"];
 // Keep wire names in their admitted bytes until the cold scoreboard asks for
 // text. Most roster heartbeats therefore copy no heap objects.
@@ -29,7 +29,7 @@ impl Character {
     }
 }
 /// One team slot of a Character's end-of-match record as packRecord shares it
-/// (src/battle-stats.js): the tallies in SHARED_TALLIES order (team kills,
+///: the tallies in SHARED_TALLIES order (team kills,
 /// vehicles destroyed, spree, survivalist, best kills in a life, headshots,
 /// deaths, escapes, longest life s, longest camp s), the favourite class,
 /// weapon and vehicle as (registry id, seconds), and victims by roster slot.

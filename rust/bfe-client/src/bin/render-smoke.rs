@@ -25,7 +25,7 @@ use std::{
     time::Instant,
 };
 
-/// Canonical family order matching `tools/renderer-smoke-manifests.mjs`.
+/// Canonical family order.
 /// Keeping this order deterministic ensures JSONL diffs and contact-sheet
 /// panel coordinates stay stable across software and hardware GL runs.
 const FAMILY_ORDER: [&str; 6] = [
@@ -118,7 +118,7 @@ struct ManifestProgram {
     key: String,
 }
 
-/// Per-variant compilation and link record matching `tools/renderer-smoke.mjs`.
+/// Per-variant compilation and link record.
 /// Recording `shaders`, `links`, and `cached` proves that `Bridge::add_owned_program`
 /// actually compiled both stages (`VERTEX` + `FRAGMENT`) and linked a fresh GL
 /// program rather than returning a pre-cached handle.
@@ -805,7 +805,7 @@ fn run() -> Result<(), String> {
         write_contact_sheet(png_path, args.width, args.height, &family_panels)?;
     }
 
-    // Build structured assertion results matching renderer-smoke.mjs.
+    // Build structured assertion results.
     let mut results = Vec::new();
     results.push(AssertionResult {
         name: "All 1,046 manifest shader variants compiled and linked uncached".into(),

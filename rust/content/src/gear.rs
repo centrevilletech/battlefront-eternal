@@ -1,9 +1,9 @@
 //! How far below its origin a flyer stands on its landing gear: src/flight/
-//! gear.js gearFoot, from the vehicle template's drawn batches (src/
-//! vehicle-rig.js vehicleBatches: every part in the rig's bind frame, on its
-//! joints) posed at the takeoff clip's first frame (src/anim.js Pose, its
+//! gearFoot, from the vehicle template's drawn batches (src/
+//! vehicleBatches: every part in the rig's bind frame, on its
+//! joints) posed at the takeoff clip's first frame (Pose, its
 //! Float32Array accumulators and all). A load-time number of the class:
-//! flight/model.js lands and lifts the craft by it.
+//! lands and lifts the craft by it.
 
 use crate::clips::Clip;
 use crate::derived::{rig_bones, RigBone};
@@ -21,7 +21,7 @@ pub struct Batch {
     pub weights: Vec<f32>,
 }
 
-/// vehicle-rig.js vehicleBatches(rig, parts) as a Vehicles template makes
+/// vehicleBatches(rig, parts) as a Vehicles template makes
 /// them (no separate bones): parts grouped by [texture, flags, scroll] in
 /// first-seen order, a rigid part's vertices carried to the rig's bind
 /// frame by its bone's world matrix (a root's world is its local itself),
@@ -100,7 +100,7 @@ pub fn vehicle_batches(rig: &Value, parts: &[Part]) -> Vec<Batch> {
     out
 }
 
-/// anim.js Pose: Float32Array accumulators (every `+=` rounds to f32).
+/// Pose: Float32Array accumulators (every `+=` rounds to f32).
 struct Pose {
     q: Vec<f32>,
     t: Vec<f32>,
@@ -213,7 +213,7 @@ impl Pose {
     }
 }
 
-/// gear.js gearFoot(rig, batches, clip): the lowest point of the model at
+/// gearFoot(rig, batches, clip): the lowest point of the model at
 /// the clip's first frame, negated; None without frames, bones or a finite
 /// point.
 pub fn gear_foot(rig: &Value, batches: &[Batch], clip: &Clip) -> Option<f64> {

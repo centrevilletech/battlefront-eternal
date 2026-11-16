@@ -20,19 +20,19 @@ use std::cmp::Ordering;
 
 use super::stats::{ScoreRow, ScoreboardPort, TeamHeader};
 
-/// Seconds without input before the end-of-match table quits (`IDLE_QUIT` in `src/scoreboard/model.js`).
+/// Seconds without input before the end-of-match table quits (`IDLE_QUIT`).
 pub const IDLE_QUIT: f64 = 30.0;
 
-/// Maximum seconds subtracted from the idle clock in a single frame (`IDLE_STEP` in `src/scoreboard/model.js`).
+/// Maximum seconds subtracted from the idle clock in a single frame (`IDLE_STEP`).
 pub const IDLE_STEP: f64 = 0.5;
 
-/// Number of rows shown above the local player's row when the table opens (`ABOVE_PLAYER` in `src/scoreboard/model.js`).
+/// Number of rows shown above the local player's row when the table opens (`ABOVE_PLAYER`).
 ///
 /// The original Lua script sets 1-based `FirstShownIdx = max(row - 4, 1)`, which places 5 rows
 /// above the local player's 0-based row (`first = selected.saturating_sub(5)`).
 pub const ABOVE_PLAYER: usize = 5;
 
-/// Lifecycle state of the scoreboard (`CLOSED`, `PEEK`, `END` in `src/scoreboard/model.js`).
+/// Lifecycle state of the scoreboard (`CLOSED`, `PEEK`, `END`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoardState {
     Closed,
@@ -40,7 +40,7 @@ pub enum BoardState {
     End,
 }
 
-/// Active sub-page while the scoreboard is open (`TABLE`, `DETAILS`, `AWARDS` in `src/scoreboard/model.js`).
+/// Active sub-page while the scoreboard is open (`TABLE`, `DETAILS`, `AWARDS`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BoardPage {
     Table,
@@ -48,7 +48,7 @@ pub enum BoardPage {
     Awards,
 }
 
-/// Sort modes matching `ScriptCB_SetTeamStatsSortMode` (`KILLS`, `DEATHS`, `POINTS`, `NAME` in `src/scoreboard/model.js`).
+/// Sort modes matching `ScriptCB_SetTeamStatsSortMode` (`KILLS`, `DEATHS`, `POINTS`, `NAME`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum SortMode {
@@ -59,7 +59,7 @@ pub enum SortMode {
 }
 
 impl SortMode {
-    /// Tie-break order for a given primary `SortMode` (`ORDER` in `src/scoreboard/model.js`).
+    /// Tie-break order for a given primary `SortMode` (`ORDER`).
     pub fn order(self) -> [SortMode; 4] {
         match self {
             SortMode::Kills => [
@@ -91,7 +91,7 @@ impl SortMode {
 }
 
 /// Compares two rows on a single `SortMode` key in its natural (non-reversed) direction
-/// (`KEYS` in `src/scoreboard/model.js`).
+/// (`KEYS`).
 fn compare_key(key: SortMode, a: &ScoreRow, b: &ScoreRow) -> Ordering {
     match key {
         SortMode::Kills => b.kills.cmp(&a.kills),
@@ -102,7 +102,7 @@ fn compare_key(key: SortMode, a: &ScoreRow, b: &ScoreRow) -> Ordering {
     }
 }
 
-/// Compares two `ScoreRow` entries under `mode` and `reverse` (`compareRows` in `src/scoreboard/model.js`).
+/// Compares two `ScoreRow` entries under `mode` and `reverse` (`compareRows`).
 ///
 /// `reverse` flips only the primary key (`i == 0`); rows equal in all four keys preserve roster `slot` order.
 pub fn compare_rows(mode: SortMode, reverse: bool, a: &ScoreRow, b: &ScoreRow) -> Ordering {
@@ -116,7 +116,7 @@ pub fn compare_rows(mode: SortMode, reverse: bool, a: &ScoreRow, b: &ScoreRow) -
     a.slot.cmp(&b.slot)
 }
 
-/// Subject of the `DETAILS` page (`{ side, slot, name }` in `src/scoreboard/model.js`).
+/// Subject of the `DETAILS` page (`{ side, slot, name }`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DetailsSubject {
     pub side: usize,
@@ -124,14 +124,14 @@ pub struct DetailsSubject {
     pub name: String,
 }
 
-/// Hover coordinates (`{ side, index }` in `src/scoreboard/model.js`).
+/// Hover coordinates (`{ side, index }`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RowCursor {
     pub side: usize,
     pub index: usize,
 }
 
-/// Events emitted by `ScoreboardModel` (`src/scoreboard/model.js`).
+/// Events emitted by `ScoreboardModel`.
 ///
 /// Consumed by [`ScoreboardController::drain_model_events`](super::controller::ScoreboardController)
 /// to trigger view transitions, cursor resets, and interface sound effects without coupling the
@@ -171,14 +171,14 @@ pub enum ScoreboardEvent {
     Quit,
 }
 
-/// Pure scoreboard model (`ScoreboardModel` in `src/scoreboard/model.js`).
+/// Pure scoreboard model (`ScoreboardModel`).
 pub struct ScoreboardModel {
     pub state: BoardState,
     pub mode: SortMode,
     pub reverse: bool,
-    /// Team 1 rows at index 0, team 2 rows at index 1 (`lists[1]` and `lists[2]` in JS).
+    /// Team 1 rows at index 0, team 2 rows at index 1.
     pub lists: [Vec<ScoreRow>; 2],
-    /// Team 1 header at index 0, team 2 header at index 1 (`titles[1]` and `titles[2]` in JS).
+    /// Team 1 header at index 0, team 2 header at index 1.
     pub titles: [Option<TeamHeader>; 2],
     /// Local player's team (`1` or `2`).
     pub team: i32,
@@ -236,7 +236,7 @@ impl ScoreboardModel {
         self.state != BoardState::Closed
     }
 
-    /// Length of the longer team list; both lists scroll together as one (`length` in `src/scoreboard/model.js`).
+    /// Length of the longer team list; both lists scroll together as one (`length`).
     #[inline]
     pub fn length(&self) -> usize {
         self.lists[0].len().max(self.lists[1].len())
@@ -253,7 +253,7 @@ impl ScoreboardModel {
     }
 
     /// Opens the scoreboard in `state` (`Peek` or `End`), refreshes rows from `port`,
-    /// selects the local player's row, and scrolls so 5 rows appear above it (`open` in `src/scoreboard/model.js`).
+    /// selects the local player's row, and scrolls so 5 rows appear above it (`open`).
     pub fn open(&mut self, state: BoardState, port: &dyn ScoreboardPort) -> bool {
         if state != BoardState::Peek && state != BoardState::End {
             return false;
@@ -284,7 +284,7 @@ impl ScoreboardModel {
         true
     }
 
-    /// Closes the scoreboard (`close` in `src/scoreboard/model.js`).
+    /// Closes the scoreboard (`close`).
     pub fn close(&mut self) {
         if self.state == BoardState::Closed {
             return;
@@ -295,7 +295,7 @@ impl ScoreboardModel {
         self.events.push(ScoreboardEvent::Close { state });
     }
 
-    /// Refreshes both teams' sorted rows and team headers from `port` (`refresh` in `src/scoreboard/model.js`).
+    /// Refreshes both teams' sorted rows and team headers from `port` (`refresh`).
     pub fn refresh(&mut self, port: &dyn ScoreboardPort) {
         let rows = port.roster();
         self.team = port.human_team();
@@ -310,7 +310,7 @@ impl ScoreboardModel {
         self.clamp();
     }
 
-    /// Finds `(side, index)` of the local human player's row (`findHuman` in `src/scoreboard/model.js`).
+    /// Finds `(side, index)` of the local human player's row (`findHuman`).
     pub fn find_human(&self) -> Option<(usize, usize)> {
         for side in [1usize, 2usize] {
             if let Some(index) = self.lists[Self::side_idx(side)].iter().position(|r| r.local) {
@@ -320,7 +320,7 @@ impl ScoreboardModel {
         None
     }
 
-    /// Returns the row at `index` on `side` (`1` or `2`), or `None` if past the end (`row` in `src/scoreboard/model.js`).
+    /// Returns the row at `index` on `side` (`1` or `2`), or `None` if past the end (`row`).
     pub fn row(&self, side: usize, index: usize) -> Option<&ScoreRow> {
         if side != 1 && side != 2 {
             return None;
@@ -328,7 +328,7 @@ impl ScoreboardModel {
         self.lists[Self::side_idx(side)].get(index)
     }
 
-    /// Sorts by `mode` (toggling `reverse` if already in `mode`) and refreshes (`sortBy` in `src/scoreboard/model.js`).
+    /// Sorts by `mode` (toggling `reverse` if already in `mode`) and refreshes (`sortBy`).
     pub fn sort_by(&mut self, mode: SortMode, port: &dyn ScoreboardPort) -> bool {
         if self.page != BoardPage::Table {
             return false;
@@ -350,7 +350,7 @@ impl ScoreboardModel {
         true
     }
 
-    /// Clamps `selected` to the active side's list length and `first` to the scrollable range (`clamp` in `src/scoreboard/model.js`).
+    /// Clamps `selected` to the active side's list length and `first` to the scrollable range (`clamp`).
     pub fn clamp(&mut self) {
         let count = self.lists[Self::side_idx(self.side)].len();
         self.selected = self.selected.min(count.saturating_sub(1));
@@ -358,7 +358,7 @@ impl ScoreboardModel {
         self.first = self.first.min(max_first);
     }
 
-    /// Scrolls `first` so `selected` remains in view (`autoscroll` in `src/scoreboard/model.js`).
+    /// Scrolls `first` so `selected` remains in view (`autoscroll`).
     pub fn autoscroll(&mut self) {
         // Mirrors `ListManager` autoscroll: clamp first, then shift the `[first, first + shown)`
         // window just enough to include `self.selected`, and clamp once more.
@@ -372,7 +372,7 @@ impl ScoreboardModel {
         self.clamp();
     }
 
-    /// Selects `index` on `side` (`1` or `2`) (`select` in `src/scoreboard/model.js`).
+    /// Selects `index` on `side` (`1` or `2`) (`select`).
     pub fn select(&mut self, side: usize, index: usize) -> bool {
         if self.page != BoardPage::Table || self.row(side, index).is_none() {
             return false;
@@ -388,7 +388,7 @@ impl ScoreboardModel {
         changed
     }
 
-    /// Moves selection up or down by `step` within the active list (`move` in `src/scoreboard/model.js`).
+    /// Moves selection up or down by `step` within the active list (`move`).
     pub fn move_selection(&mut self, step: isize) -> bool {
         let len = self.lists[Self::side_idx(self.side)].len();
         if len == 0 {
@@ -399,7 +399,7 @@ impl ScoreboardModel {
     }
 
     /// Pages up (`step < 0`) or down (`step > 0`): jumps to the top/bottom of the visible window first,
-    /// then by a full `shown` page (`turnPage` in `src/scoreboard/model.js`).
+    /// then by a full `shown` page (`turnPage`).
     pub fn turn_page(&mut self, step: isize) -> bool {
         // Replicates `ListManager` page-up / page-down behavior:
         // - If `selected` is not yet at the top (`step < 0`) or bottom (`step > 0`) edge of the
@@ -425,7 +425,7 @@ impl ScoreboardModel {
         self.select(self.side, index)
     }
 
-    /// Flips selection between team 1 and team 2 at the same row (or clamped to the other list's last row) (`flip` in `src/scoreboard/model.js`).
+    /// Flips selection between team 1 and team 2 at the same row (or clamped to the other list's last row) (`flip`).
     pub fn flip(&mut self) -> bool {
         // Switching between Team 1 and Team 2 preserves the row index `selected` when the
         // target team has at least that many entries, or clamps to `count - 1` when shorter,
@@ -446,7 +446,7 @@ impl ScoreboardModel {
         true
     }
 
-    /// Scrolls the view by `step` rows while keeping the selection inside the visible window (`scroll` in `src/scoreboard/model.js`).
+    /// Scrolls the view by `step` rows while keeping the selection inside the visible window (`scroll`).
     pub fn scroll(&mut self, step: isize) -> bool {
         // Clicking the up/down scroll arrows shifts `first` by `step` rows and pulls `selected`
         // inward if it would fall outside the new `[first, first + shown)` window.
@@ -469,25 +469,25 @@ impl ScoreboardModel {
         true
     }
 
-    /// Whether there are rows above the visible window (`canScrollUp` in `src/scoreboard/model.js`).
+    /// Whether there are rows above the visible window (`canScrollUp`).
     #[inline]
     pub fn can_scroll_up(&self) -> bool {
         self.first > 0
     }
 
-    /// Whether there are rows below the visible window (`canScrollDown` in `src/scoreboard/model.js`).
+    /// Whether there are rows below the visible window (`canScrollDown`).
     #[inline]
     pub fn can_scroll_down(&self) -> bool {
         self.first + self.shown < self.length()
     }
 
-    /// Resets the 30-second end-of-match idle timer on any user input (`touch` in `src/scoreboard/model.js`).
+    /// Resets the 30-second end-of-match idle timer on any user input (`touch`).
     #[inline]
     pub fn touch(&mut self) {
         self.idle = IDLE_QUIT;
     }
 
-    /// Opens the `DETAILS` page for the currently selected row (`showDetails` in `src/scoreboard/model.js`).
+    /// Opens the `DETAILS` page for the currently selected row (`showDetails`).
     pub fn show_details(&mut self) -> bool {
         // `DETAILS` (`ifs_personalstats`) can be opened from both in-battle `Peek` and end-of-match
         // `End` as long as a valid row is selected on `BoardPage::Table`. Captures the row's
@@ -514,7 +514,7 @@ impl ScoreboardModel {
         true
     }
 
-    /// Opens the `AWARDS` page on the end-of-match scoreboard (`showAwards` in `src/scoreboard/model.js`).
+    /// Opens the `AWARDS` page on the end-of-match scoreboard (`showAwards`).
     pub fn show_awards(&mut self) -> bool {
         // `AWARDS` (`ifs_awardstats`) is only available on the end-of-match scoreboard (`BoardState::End`),
         // never during mid-battle `Peek`.
@@ -531,7 +531,7 @@ impl ScoreboardModel {
         true
     }
 
-    /// Returns from `DETAILS` or `AWARDS` to `TABLE`, preserving selection (`back` in `src/scoreboard/model.js`).
+    /// Returns from `DETAILS` or `AWARDS` to `TABLE`, preserving selection (`back`).
     pub fn back(&mut self, port: &dyn ScoreboardPort) -> bool {
         if !self.is_open() || self.page == BoardPage::Table {
             return false;
@@ -556,7 +556,7 @@ impl ScoreboardModel {
     }
 
     /// Advances the end-of-match idle timer by at most `IDLE_STEP` (`0.5s`) per frame;
-    /// emits `ScoreboardEvent::Quit` and returns `true` when `idle < 0` (`update` in `src/scoreboard/model.js`).
+    /// emits `ScoreboardEvent::Quit` and returns `true` when `idle < 0` (`update`).
     pub fn update(&mut self, dt: f64) -> bool {
         if self.state != BoardState::End {
             return false;

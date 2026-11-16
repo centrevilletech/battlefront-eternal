@@ -11,7 +11,7 @@ use crate::js::{js_max, js_min, to_uint32};
 use crate::value::Value;
 use std::rc::Rc;
 
-/// collision.js triangleBounds: per triangle min x, y, z then max x, y, z
+/// triangleBounds: per triangle min x, y, z then max x, y, z
 /// (a Float32Array).
 pub fn triangle_bounds(positions: &[f32], indices: &[u32]) -> Vec<f32> {
     let mut out = vec![0f32; indices.len() * 2];
@@ -43,7 +43,7 @@ pub fn triangle_bounds(positions: &[f32], indices: &[u32]) -> Vec<f32> {
     out
 }
 
-/// collision.js TriangleGrid: the terrain's triangles filed by the ground
+/// TriangleGrid: the terrain's triangles filed by the ground
 /// cells their bounds cover.
 #[derive(Clone, Debug)]
 pub struct TriangleGrid {
@@ -122,7 +122,7 @@ impl TriangleGrid {
 }
 
 /// A body's triangles: corners, indices into them, each triangle's polygon
-/// number (collision.js addBody/createBodyShape's arguments).
+/// number (addBody/createBodyShape's arguments).
 #[derive(Clone, Debug)]
 pub struct BodyTriangles {
     pub positions: Rc<[f32]>,
@@ -142,7 +142,7 @@ pub struct MapCollision {
     pub tri_bounds: Vec<f32>,
     /// The terrain's grid (when it has triangles).
     pub grid: Option<TriangleGrid>,
-    /// game.js: below the battlefield, KILL_Y or 10 m under the lowest
+    /// below the battlefield, KILL_Y or 10 m under the lowest
     /// ground.
     pub kill_y: f64,
 }
@@ -189,7 +189,7 @@ pub fn json_shape(record: &Value) -> BodyTriangles {
     }
 }
 
-/// props.js `body(range)`: triangles `[first, first + count)` of the props'
+/// `body(range)`: triangles `[first, first + count)` of the props'
 /// collision (its corners shared whole).
 pub fn range_shape(positions: &Rc<[f32]>, indices: &[u32], polygons: &[u32], range: &Value) -> Option<BodyTriangles> {
     if !range.truthy() {

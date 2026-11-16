@@ -1,5 +1,4 @@
-//! Seat reservations, as the 2004 game keeps them
-//! (src/ai/classic/vehicles/reservations.js).
+//! Seat reservations, as the 2004 game keeps them.
 //!
 //! A reservation is { candidate, time, owner, type }: the vehicle (a weak
 //! reference), when it was made or last refreshed, the reserving unit (a
@@ -12,12 +11,10 @@
 use super::world::{Obj, Ref, World};
 use crate::ai::owned::scratch::List;
 
-/// reservations.js:125.
 pub const RESERVATION_LIFE: f64 = 3.0;
-/// reservations.js:126.
 pub const SEAT: f64 = 1.0;
 
-/// One record (reservations.js:179).
+/// One record.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reservation {
     pub candidate: Ref,
@@ -26,13 +23,13 @@ pub struct Reservation {
     pub kind: f64,
 }
 
-/// Reservations (reservations.js:133): the records in the order made.
+/// Reservations: the records in the order made.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reservations {
     pub records: Vec<Reservation>,
 }
 
-/// resolve(ref) (reservations.js:128): the unit, when it lives and is of
+/// resolve(ref): the unit, when it lives and is of
 /// the reference's generation.
 fn resolve<W: World + ?Sized>(w: &W, r: &Ref) -> Option<Obj> {
     let u = w.unit(r.obj);
@@ -44,14 +41,14 @@ fn resolve<W: World + ?Sized>(w: &W, r: &Ref) -> Option<Obj> {
 }
 
 impl Reservations {
-    /// live() (reservations.js:144): prune, keeping the live records.
+    /// live(): prune, keeping the live records.
     pub fn live<W: World + ?Sized>(&mut self, w: &W) -> &[Reservation] {
         let now = w.now();
         self.records.retain(|r| now < r.time + RESERVATION_LIFE && resolve(w, &r.candidate).is_some() && resolve(w, &r.owner).is_some());
         &self.records
     }
 
-    /// find(candidate, owner, type) (reservations.js:150): the index of the record.
+    /// find(candidate, owner, type): the index of the record.
     pub fn find<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) -> Option<usize> {
         self.live(w);
         self.records
@@ -59,12 +56,12 @@ impl Reservations {
             .position(|r| r.kind == kind && resolve(w, &r.candidate) == Some(candidate) && resolve(w, &r.owner) == Some(owner))
     }
 
-    /// has(candidate, owner, type) (reservations.js:157).
+    /// has(candidate, owner, type).
     pub fn has<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) -> bool {
         self.find(w, candidate, owner, kind).is_some()
     }
 
-    /// count(candidate, team, type) (reservations.js:162): live reservations
+    /// count(candidate, team, type): live reservations
     /// of `kind` on `candidate` by units of `team`.
     pub fn count<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, team: f64, kind: f64) -> f64 {
         self.live(w);
@@ -80,7 +77,7 @@ impl Reservations {
         n
     }
 
-    /// reserve(candidate, owner, type) (reservations.js:172): make, or
+    /// reserve(candidate, owner, type): make, or
     /// refresh the matching record.
     pub fn reserve<W: World + ?Sized>(&mut self, w: &W, candidate: Obj, owner: Obj, kind: f64) {
         if let Some(i) = self.find(w, candidate, owner, kind) {
@@ -96,20 +93,19 @@ impl Reservations {
         self.records.push(record);
     }
 
-    /// release(candidate, owner, type) (reservations.js:189): by identity
+    /// release(candidate, owner, type): by identity
     /// alone, whatever the generations.
     pub fn release(&mut self, candidate: Obj, owner: Obj, kind: f64) {
         self.records.retain(|r| !(r.kind == kind && r.candidate.obj == candidate && r.owner.obj == owner));
     }
 
-    /// clear() (reservations.js:193).
+    /// clear().
     pub fn clear(&mut self) {
         self.records.clear();
     }
 }
 
-/// freeCapacity(reservations, candidate, team, type, seats, humans)
-/// (reservations.js:200).
+/// freeCapacity(reservations, candidate, team, type, seats, humans).
 pub fn free_capacity<W: World + ?Sized>(reservations: &mut Reservations, w: &W, candidate: Obj, team: f64, kind: f64, seats: f64, humans: f64) -> f64 {
     let reserved = reservations.count(w, candidate, team, kind);
     let players = if kind == SEAT { humans } else { 0.0 };

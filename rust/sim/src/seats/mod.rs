@@ -1,5 +1,5 @@
-//! The seats (src/seats.js, src/boarding.js, the hulls' seat methods of
-//! src/vehicles.js Vehicles, src/runtime/network-seat.js and
+//! The seats (src/boarding.js, the hulls' seat methods of
+//! Vehicles and
 //! network-vehicle.js): who sits in which hull seat or turret, how he gets
 //! in, out and from seat to seat, and what his seat does with his intent,
 //! to the last bit.
@@ -43,7 +43,7 @@ pub enum Holder {
 }
 
 /// Who a blow is credited to (a hull's or turret's `lastAttacker`): nobody,
-/// the page's own player, a unit (by id) or a hull (by its place).
+/// the client's own player, a unit (by id) or a hull (by its place).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Attacker {
     #[default]
@@ -87,7 +87,7 @@ impl Reason {
     }
 }
 
-/// What the seats ask of the rest of the battle (src/seats-world.js), each
+/// What the seats ask of the rest of the battle, each
 /// call as the JavaScript makes it. Units are named by their registry id.
 /// Lease and hull rows are disjoint from the mutable occupant being sampled.
 pub struct RiderRows<'a> {

@@ -1,5 +1,5 @@
 //! UnitFactory's cold construction and the native host's remaining tick
-//! inputs (src/units.js, f3-sim.js preparePhase and PlayersBridge.actions).
+//! inputs (f3-sim.js preparePhase and PlayersBridge.actions).
 //! The store and F3's factory order are the source of identity here: stock
 //! waiting for a birth and the dormant viewpoint never contribute a row.
 use crate::gen::{PlayerActions, PlayerAdmission};
@@ -469,7 +469,7 @@ fn prepare_body(world: &mut World, cx: &mut super::rows::Cx, class_name: &str,
         crate::vehicles::module::f2::riders::f2_rider_birth_in(world);
         calls.push((Stage::Player,"f2_rider_birth",units::call(F2RiderBirth::WORDS,|r,h|rider.put(r,h))));
     }
-    // game.js instrument runs after F3's adoption and crew preparation.
+    // instrument runs after F3's adoption and crew preparation.
     // Assigning CombatFacade.random emits the flag setter, then refresh binds
     // its gameplay callback. Registration was earlier; this never draws it.
     for (action,field,value) in [(F3Action::CombatField,F3CombatField::Random as u32,1.),
@@ -508,13 +508,13 @@ fn droideka_class_id(world: &mut World, cx: &mut super::rows::Cx, parts: &super:
     Ok(id)
 }
 
-/// game.js 3111 headless: `unitsSim.adopt(playerUnit, true)` then
+/// 3111 headless: `unitsSim.adopt(playerUnit, true)` then
 /// `unitsSim.registerViewpoint(playerUnit)` and F3Factory.resident. The
 /// dormant viewpoint is the body PlayerBodies built and placed before the
 /// handoff: its Unit import carries the body_spawn answer (the grounded
-/// position, velocity and posture the page's spawnSoldier published onto
+/// position, velocity and posture the client's spawnSoldier published onto
 /// the soldier) and the placement's generation, alive flags and tick count
-/// (game.js placePlayer). F3 then prepares its skeleton and whole clip bank,
+/// (placePlayer). F3 then prepares its skeleton and whole clip bank,
 /// adopts it passively (no factory order, no corpse pool), binds its combat
 /// and weapon random callbacks (F3Random.refresh: every one is the gameplay
 /// stream), births its riders for every holder, keeps its class resources
@@ -544,7 +544,7 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     match (&mut body.unit.soldier, spawned) {
         (UnitBody::Soldier(soldier), Spawned::Soldier(spawned)) => {
             soldier.position = spawned.position; soldier.previous = spawned.previous; soldier.settled = spawned.settled;
-            // The soldier row keeps no `origin`: the page's body alone reads it.
+            // The soldier row keeps no `origin`: the client's body alone reads it.
             soldier.velocity = spawned.velocity; soldier.normal = spawned.normal;
             soldier.aim_yaw = spawned.aim_yaw; soldier.aim_pitch = spawned.aim_pitch; soldier.posture = spawned.posture;
             soldier.air = spawned.air; soldier.dive = spawned.dive; soldier.state_time = spawned.state_time;
@@ -562,7 +562,7 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     }
     body.unit.alive = true; body.unit.dead = false; body.unit.removed = false; body.unit.targetable = Some(true);
     body.unit.tick_count = 1.0;
-    // game.js: `new Unit({..., human: true})`, `playerUnit.team =
+    // `new Unit({..., human: true})`, `playerUnit.team =
     // playerTeam`, and createNativeAI's `playerUnit.character = battle.human`
     // all precede the headless adoption, so its import carries them.
     body.unit.human = true;
@@ -574,11 +574,11 @@ pub fn adopt_viewpoint(world: &mut World, cx: &mut super::rows::Cx, slot: u32, s
     if !crate::units::f3::active_in(&world.units) { return Err(fail("f3_init")); }
     // The Unit import (KIND_UNIT) replaces the row attachF3Combat's cmb_new
     // opened for the viewpoint's combat, so no cmb_new here, unlike
-    // UnitFactory.build; the import carries the page's whole unit state.
+    // UnitFactory.build; the import carries the client's whole unit state.
     let reference = match world.sim.store.unit.reference(slot) {
         Some(existing) => {
             if existing.gen != 0 { return Err(fail("viewpoint slot")); }
-            // The import carries the page's unit; the combat attachF3Combat
+            // The import carries the client's unit; the combat attachF3Combat
             // opened for it (cmb_new, its arsenal and settings) stays native.
             let row = world.sim.store.unit.get_mut(existing).ok_or_else(|| fail("viewpoint slot"))?;
             let combat = std::mem::take(&mut row.combat);

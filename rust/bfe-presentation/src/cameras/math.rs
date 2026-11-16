@@ -3,7 +3,7 @@
 //! No camera policy or object crosses this primitive arithmetic boundary.
 use three::{Matrix4, Quaternion as Q, Vector3 as V};
 
-// camera.js, death-shot.js and flight/camera.js used the host Math builtins.
+// camera.js and flight/camera.js used the host Math builtins.
 // Their elementary rounding is observable in the final camera matrix bits.
 // Keep that choice explicit instead of hiding it in a vector implementation.
 // The WASM adapter imports scalar arithmetic, never camera state or objects.
@@ -26,7 +26,7 @@ pub trait Math {
     fn pow(x: f64, y: f64) -> f64;
 }
 
-// Native records use the server's V8 arithmetic. A browser host binds its
+// Native records use the server's V8 arithmetic. A client host binds its
 // own standard math library; the phase still owns every camera operation.
 pub struct V8;
 impl Math for V8 {
@@ -264,7 +264,7 @@ pub fn look(position: V, target: V, up: V) -> Q {
     q.set_from_rotation_matrix(&m);
     q
 }
-// Ports lookBasis from vehicles.js and props.js, whose positive z is forward.
+// Ports lookBasis and props.js, whose positive z is forward.
 // Callers reverse that vector for a camera looking down local negative z.
 // Authored up may become parallel to forward on vertical flight or a turret.
 // The z cross product is the original first fallback, then the x axis.

@@ -11,7 +11,7 @@ pub const EXCHANGE: &str = "invalid page networking exchange";
 pub const ROOM: usize = crate::network_layout::net_limits::EXCHANGE;
 
 // Wire sections mix counted scalars with word-aligned packed byte spans. The
-// surrounding header, operations and pose rows come from page-net.mjs.
+// surrounding header, operations and pose rows come.
 // Counted streams borrow only the reserved input range. Every crossing count
 // is checked before it can become a slice length or a native table index.
 pub struct Words<'a> { pub values: &'a [f64], pub at: usize, }
@@ -110,7 +110,7 @@ impl Bindings {
         let mut table=self.table.borrow_mut();if table.rows.len()<=key{table.rows.resize(key+1,None);}
         table.rows[key]=Some(Binding{id,generation,kind,slot:owner.borrow().timeline.slot(id),lease:owner.borrow().lease});table.states[key*link::STRIDE+link::ACTIVE]=1.;
     }
-    // network-entity-game.js binds a soldier with every record it applies,
+    // binds a soldier with every record it applies,
     // a no-op while the binding holds. A binding retired on a life mismatch
     // (the timeline still showing the previous life just after a respawn)
     // is admitted again here; without this the body never samples again.

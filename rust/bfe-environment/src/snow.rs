@@ -1,4 +1,4 @@
-//! Snow (src/snow.js): a world's Precipitation of Type("Quads") as the 2004
+//! Snow: a world's Precipitation of Type("Quads") as the 2004
 //! engine draws it. `count` flakes fill a 5 m box and the box repeats over
 //! the world's 5 m grid out to `range` in view; the flakes keep their place
 //! in the world as the camera moves through them. The flakes move here, and
@@ -68,7 +68,7 @@ impl Wind {
 /// its wander, alpha, spin (turns a second) and turn (0..1), as 32-bit
 /// floats.
 // The flakes of one box: positions in a unit box, each with its wander, alpha,
-// spin (turns a second) and turn (0..1), as 32-bit floats as the page kept them
+// spin (turns a second) and turn (0..1), as 32-bit floats them
 // (the stores round alike).
 struct Flakes {
     count: usize,

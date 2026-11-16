@@ -1,5 +1,5 @@
-//! A network human's seat (src/runtime/network-seat.js cycleNetworkSeat,
-//! src/runtime/network-vehicle.js networkVehicleInput, and the seat switch
+//! A network human's seat (cycleNetworkSeat,
+//! networkVehicleInput, and the seat switch
 //! they share with the player's keys, src/boarding.js switchSeat): his
 //! mouse and keys in a hull's seat, and his move to another seat.
 
@@ -22,7 +22,7 @@ pub struct SeatCommand {
     pub flight_invert: bool,
 }
 
-/// The keys the driver's seat reads (boarding.js seatInput's drive branch):
+/// The keys the driver's seat reads (seatInput's drive branch):
 /// the forward, right and turn axes and whether Space is down.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatKeys {
@@ -32,7 +32,7 @@ pub struct SeatKeys {
     pub space: bool,
 }
 
-/// What a seat's keys are to the hull (boarding.js seatInput): a craft's
+/// What a seat's keys are to the hull (seatInput): a craft's
 /// flight keys (the flight package's flightInput, from the command's
 /// bindings, without steering assistance), the driving keys (Space brakes),
 /// or none for a gunner's seat.
@@ -43,7 +43,7 @@ pub enum SeatKeysOut {
     Turret,
 }
 
-/// boarding.js seatInput, but for the flight keys (the flight package's).
+/// seatInput, but for the flight keys (the flight package's).
 pub fn seat_input(v: &Vehicle, index: usize, keys: &SeatKeys) -> Option<SeatKeysOut> {
     Some(match seat_control(v, index)? {
         SeatControl::Flight => SeatKeysOut::Flight,
@@ -52,7 +52,7 @@ pub fn seat_input(v: &Vehicle, index: usize, keys: &SeatKeys) -> Option<SeatKeys
     })
 }
 
-/// networkVehicleInput (network-vehicle.js): his mouse on the seat (a
+/// networkVehicleInput: his mouse on the seat (a
 /// craft's pilot's virtual stick, else the seat's look, which is its aim at
 /// once), then his keys as the hull takes them.
 pub fn network_vehicle_input(v: &mut Vehicle, index: usize, keys: &SeatKeys, command: &SeatCommand) -> Option<SeatKeysOut> {
@@ -145,7 +145,7 @@ impl InputAccess for NativeInput<'_> {
     fn space(&mut self) -> Result<Value, Self::Error> { Ok(Value::boolean(self.keys.space)) }
 }
 
-/// boarding.js switchSeat: a person's seat switch, on to the next seat that
+/// switchSeat: a person's seat switch, on to the next seat that
 /// way that no other person holds; a bot there trades places with him. Into
 /// a gunner's seat his view goes with him, inside its arc; back at the
 /// controls he aims along the hull. Leaving the pilot's seat lets go of

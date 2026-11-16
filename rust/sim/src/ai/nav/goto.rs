@@ -1,6 +1,6 @@
-//! The ground and flyer movement helpers agents drive (nav/goto.js),
+//! The ground and flyer movement helpers agents drive,
 //! and the NavControl operations that need the world (the follow
-//! trail and the per-tick update, control.js:202-267).
+//! trail and the per-tick update).
 
 use super::analogs::{analogs, apply_jet_and_posture, Intent};
 use super::cursor::GraphCursor;
@@ -11,7 +11,7 @@ use super::{ControlHost, Nav};
 use crate::ai::random::Random;
 
 /// A resolved follow/leader target: its identity token and the fields
-/// the helpers read (goto.js:722 `resolve`, control.js:259).
+/// the helpers read (`resolve`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Resolved {
     pub id: u64,
@@ -21,18 +21,17 @@ pub struct Resolved {
 
 /// What goto and the follow trail ask of the battle. Implementations
 /// reproduce the JavaScript's lookups:
-/// - `random_a` is world.random (the AI generator, goto.js:80);
+/// - `random_a` is world.random (the AI generator);
 /// - `random_b` is the jet attempt's second generator (goto.js:746:
 ///   world.gameRandom, else a private stream seeded 0x9e3779b9 kept on
 ///   the world, shared by every helper) and the trail's
-///   (control.js:227: randomB ?? gameRandom ?? random);
+///   (randomB ?? gameRandom ?? random);
 /// - `resolve` is goto.js:722 (world.units.resolve when present, else
 ///   the ref's unit when alive and of the ref's generation);
 /// - `leader` is control.js:259 (the ref's unit when alive exactly
 ///   (truthy) and of the ref's generation), as a full snapshot, since
 ///   the trail reads its position and forward;
-/// - `remembered` is the helper options' remembered point
-///   (goto.js:538);
+/// - `remembered` is the helper options' remembered point;
 /// - `clear_above` is goto.js:730 (world.los 40 m up ignoring the unit,
 ///   else the collision cast, else clear);
 /// - `follow_far` is control.js:228 (the AI's followRadii.far, else the
@@ -48,7 +47,7 @@ pub trait GotoWorld {
     fn follow_far(&mut self) -> f64;
 }
 
-/// goto.js:722's fallback branch, for implementors: the ref's unit when
+/// fallback branch, for implementors: the ref's unit when
 /// `alive !== false` and (no generation named or it matches).
 pub fn resolve_ref(r: UnitRef, unit: Option<&NavUnit>) -> Option<Resolved> {
     let unit = unit.filter(|u| u.id == r.unit)?;
@@ -71,7 +70,7 @@ pub enum GotoMode {
     Straight,
 }
 
-/// GroundGotoHelper (goto.js:40), with the controller's aim state it
+/// GroundGotoHelper, with the controller's aim state it
 /// writes (aim_state, aim_point, aim_target).
 #[derive(Clone, Debug)]
 pub struct GroundGoto {
@@ -126,7 +125,7 @@ impl GroundGoto {
     }
 }
 
-/// FlyGotoHelper (goto.js:605).
+/// FlyGotoHelper.
 #[derive(Clone, Debug)]
 pub struct FlyGoto {
     pub control: usize,
@@ -143,9 +142,9 @@ impl FlyGoto {
 }
 
 impl Nav {
-    // ----- control operations that need the world (control.js) -----
+    // ----- control operations that need the world -----
 
-    /// Follow's temporary path recorder (control.js:202). Installing
+    /// Follow's temporary path recorder. Installing
     /// the recorded path steers at once, hence the unit.
     pub fn control_record_trail(&mut self, control: usize, on: bool, unit: &mut NavUnit) {
         if on {
@@ -175,7 +174,7 @@ impl Nav {
         }
     }
 
-    /// Quarter-second trail sampling (control.js:222).
+    /// Quarter-second trail sampling.
     pub fn control_sample_trail(&mut self, control: usize, dt: f64, leader: &NavUnit, world: &mut dyn GotoWorld, unit: &mut NavUnit) {
         if self.controls[control].executor.as_ref().map(|e| e.hold).unwrap_or(false) {
             return;
@@ -224,7 +223,7 @@ impl Nav {
         }
     }
 
-    /// The per-tick path step (control.js:257).
+    /// The per-tick path step.
     pub fn control_update(&mut self, control: usize, dt: f64, unit: &mut NavUnit, world: &mut dyn GotoWorld) {
         let leader_ref = self.controls[control].leader;
         let leader = leader_ref.and_then(|r| world.leader(r));
@@ -245,7 +244,7 @@ impl Nav {
             executor.complete
         };
         // The JavaScript drops the executor it ticked when it completed
-        // and is still the installed one (control.js:266); nothing in a
+        // and is still the installed one; nothing in a
         // tick installs another, so the executor taken out is it.
         if complete && leader.is_none() {
             executor.release(&mut self.store);
@@ -256,7 +255,7 @@ impl Nav {
         }
     }
 
-    /// The navigation half of the AI input step (analogs.js:208).
+    /// The navigation half of the AI input step.
     pub fn navigation_input(&mut self, control: usize, unit: &mut NavUnit, dt: f64, aim: Option<Vec3>, facing: bool, world: &mut dyn GotoWorld) -> Intent {
         self.control_attach(control, Some(unit));
         self.control_update(control, dt, unit, world);
@@ -276,13 +275,12 @@ impl Nav {
         intent
     }
 
-    // ----- GroundGotoHelper (goto.js:40) -----
+    // ----- GroundGotoHelper -----
 
     fn goto_attach(&mut self, helper: &GroundGoto, unit: &NavUnit) {
         self.control_attach(helper.control, Some(unit));
     }
 
-    /// goto.js:88.
     pub fn ground_goto(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, point: Vec3, mode: GotoMode) {
         self.goto_attach(helper, unit);
         self.control_strand(helper.control, false, Some(unit));
@@ -304,7 +302,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:105.
     pub fn ground_stop(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld) {
         self.ground_drop_route(helper);
         self.control_strand(helper.control, false, Some(unit));
@@ -312,14 +309,12 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:114.
     pub fn ground_hold_path(&mut self, helper: &GroundGoto, on: bool) {
         if let Some(e) = self.controls[helper.control].executor.as_mut() {
             e.hold = on;
         }
     }
 
-    /// goto.js:115.
     pub fn ground_install_path(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, points: &[Vec3]) {
         self.goto_attach(helper, unit);
         if points.is_empty() {
@@ -336,7 +331,6 @@ impl Nav {
         helper.pending = 0.0;
     }
 
-    /// goto.js:130.
     pub fn ground_follow(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, target: Option<UnitRef>, distance: f64, remembered: bool) {
         self.goto_attach(helper, unit);
         helper.follow_distance = distance;
@@ -360,7 +354,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:147.
     pub fn ground_tick(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, dt: f64) {
         self.goto_attach(helper, unit);
         for _ in 0..8 {
@@ -373,7 +366,6 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:157.
     pub fn ground_arrived(&self, helper: &GroundGoto) -> bool {
         let c = &self.controls[helper.control];
         match helper.state {
@@ -407,13 +399,11 @@ impl Nav {
         unit.position
     }
 
-    /// goto.js:193.
     pub fn ground_stance(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, value: f64) {
         self.controls[helper.control].stance = value;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:200.
     pub fn ground_jet(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, vector: Vec3) {
         let c = &mut self.controls[helper.control];
         c.jet.pending = true;
@@ -421,21 +411,20 @@ impl Nav {
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:209 (the controller branch: controller.js:613).
+    /// (the controller branch: controller.js:613).
     pub fn ground_aim_at(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, point: Vec3) {
         helper.aim_state = 1.0;
         helper.aim_point = point;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:219 (controller.js:618: aimTarget = ref ?? null).
+    /// (aimTarget = ref ?? null).
     pub fn ground_aim_at_target(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld, target: Option<UnitRef>) {
         helper.aim_state = 0.0;
         helper.aim_target = target;
         self.ground_flush(helper, unit, world);
     }
 
-    /// goto.js:229.
     pub fn ground_aim_along_path(&mut self, helper: &mut GroundGoto, unit: &mut NavUnit, world: &mut dyn GotoWorld) {
         helper.aim_state = 2.0;
         self.ground_flush(helper, unit, world);
@@ -849,9 +838,8 @@ impl Nav {
         self.ground_jet(helper, unit, world, Vec3::default());
     }
 
-    // ----- FlyGotoHelper (goto.js:605) -----
+    // ----- FlyGotoHelper -----
 
-    /// goto.js:624.
     pub fn fly_goto(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit, point: Vec3, mode: GotoMode) {
         self.control_attach(helper.control, Some(unit));
         if mode != GotoMode::Route {
@@ -875,7 +863,6 @@ impl Nav {
         self.fly_flush(helper, unit);
     }
 
-    /// goto.js:648.
     pub fn fly_stop(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit) {
         helper.pending = 5.0;
         self.fly_flush(helper, unit);
@@ -899,7 +886,6 @@ impl Nav {
         }
     }
 
-    /// goto.js:666.
     pub fn fly_tick(&mut self, helper: &mut FlyGoto, unit: &mut NavUnit) {
         self.control_attach(helper.control, Some(unit));
         self.fly_flush(helper, unit);
@@ -919,7 +905,6 @@ impl Nav {
         self.fly_flush(helper, unit);
     }
 
-    /// goto.js:685.
     pub fn fly_arrived(&self, helper: &FlyGoto) -> bool {
         let c = &self.controls[helper.control];
         if helper.state == 2.0 {
@@ -935,7 +920,7 @@ impl Nav {
     }
 }
 
-/// Shorten the end 1 m toward the start (goto.js:707).
+/// Shorten the end 1 m toward the start.
 fn pull_back(start: Vec3, end: &mut Vec3) {
     let dx = end.x - start.x;
     let dy = end.y - start.y;

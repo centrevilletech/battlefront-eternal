@@ -1,11 +1,8 @@
 # Recon droid authority and prediction
 
-Recon support had to start before serialization. `wireBody` attached
-`game.remotes` only to the original viewpoint's combat, and network humans,
-factory Units stepped through `Unit.tick`, had no remote controller, so their
-remote weapon could consume its throw without creating a usable droid. The
-multiplayer mailbox also always applied mouse look to the soldier. A pose
-record alone could not repair this.
+Every soldier who carries a recon droid can fly it, in single player and
+online alike: players on the client, network humans on a server and bots
+share one implementation, and the droid's state travels as world records.
 
 ## Shared authority
 
@@ -77,9 +74,9 @@ attribution without recursively copying the old soldier/resources.
 
 The droid's own guns are not combat registry definitions: its arsenal is
 built from copies of the content's weapon classes, and weapon classes are not
-registered anyway. A droid's shot therefore reaches pages as the presentation
+registered anyway. A droid's shot therefore reaches clients as the presentation
 event `remoteShot` naming the droid's class (registered, base `droid`) and the
-gun's channel (0 the blaster, 1 the destruct weapon); the page finds the gun
+gun's channel (0 the blaster, 1 the destruct weapon); the client finds the gun
 in the droid class for its flash. Naming the copied gun class instead would
 make the registry lookup throw inside the simulation's own event emit and stop
 the world ("combat definition absent from matched registry"), on a dedicated
@@ -87,15 +84,15 @@ server too. Presentation capture records any description it cannot make as a
 capture fault and never throws into the tick.
 
 `predictRemote` replays at most `REMOTE_REPLAY_TICKS` (120) ticks past the
-authoritative checkpoint. A downstream blackout keeps the page's input clock
+authoritative checkpoint. A downstream blackout keeps the client's input clock
 stamping commands while its checkpoint stands still; commands beyond the
 window wait for a newer checkpoint, so the flown droid is shown at the
 window's end instead of every frame failing with "recon replay window
 exceeded" until packets return.
 
 A pilot keeps his droid while his input stops. The world stills a player's
-controls when his world is suspended (`clearInput`, on the local server's
-`suspend`, which the pause menu and a hidden tab send, and on `lockstep`) and
+controls when his world is suspended (the local world thread's suspend,
+which a hidden window sends) and
 when no command has come from him for half a second (`inputsStale`): his
 soldier's and his hull's sticks and his droid's keys are zeroed, and the
 droid slows to a hover. Only `removePlayer` (he left) hands the droid back,
@@ -103,29 +100,29 @@ as his death does; his next command flies it again.
 `cargo test --locked --workspace` checks the pause, the gap and leaving against the
 shared world.
 
-## The strike drawn and felt on every page
+## The strike drawn and felt on every client
 
 The orbital strike's bolts and the ground shake were once missing on every
-page: offline (the page draws its world worker's battle) and online (a client
-of bfeserver), for the pilot, his body after the droid is gone, and any other
+client: offline (the client draws its local world thread's battle) and
+online (a client of bfeserver), for the pilot, his body after the droid is gone, and any other
 player. The droid's own blaster bolts were drawn.
 
-- **Bolts.** A bolt reaches a page as its launch record, which the snapshot
+- **Bolts.** A bolt reaches a client as its launch record, which the snapshot
   path sends in a compact form, its position quantized into the snapshot
   bounds (`DEFAULT_SNAPSHOT_BOUNDS`, height -400 to 300 m). The strike's bolts
-  leave about 515 m up (600 m out at 70 degrees): the page got them at 300 m
+  leave about 515 m up (600 m out at 70 degrees): the client got them at 300 m
   and drew each on a path 215 m too low and 78 m off, under the ground and out
   of view, while the world's bolts landed where they should. A launch or
   impact outside the bounds now travels as its exact payload
   (`rust/sim` (`wire`)), which every client already reads:
-  the fix is the server's (and the world worker's), and older clients draw
+  the fix is the server's (and the local world thread's), and older clients draw
   it right once their server has it.
 - **Shake.** Camera shake was set on the world's soldiers
-  (`Combat.explode`), and only the world ran that; a page, which never steps
-  the world, drew its own copy of the soldier, never shaken, for any
-  explosion (grenades and mortars too). The shake is now the page's
-  (`rust/bfe-presentation/rust/cameras/shake.rs`): `CombatPresentation` calls `onExplosion` for each
-  explosion it shows, and the page shakes its view by what its camera
+  in the world's combat phase, and only the world ran that; a client, which
+  never steps the world, drew its own copy of the soldier, never shaken,
+  for any explosion (grenades and mortars too). The shake is now the
+  client's (`rust/bfe-presentation/src/cameras/shake.rs`): each explosion
+  it shows shakes its view by what its camera
   follows (the droid he flies, the hull he drives, else his body as drawn),
   as the original game does (docs/formats.md, "Camera shake": two shakes
   per explosion, at most four held, each dying away linearly). The world
@@ -135,21 +132,13 @@ player. The droid's own blaster bolts were drawn.
   that high, so the pilot sees each bolt only in its last few metres; a
   bystander sees each one for the last 0.1 s or so (docs/formats.md, "The
   strike's bolts"). The initial blast destroys the droid, so the pilot is back
-  in his body for the rest of the salvo, and the page measures each later
+  in his body for the rest of the salvo, and the client measures each later
   shake to his body.
 - **Checks.** `cargo test --locked --workspace` flies a strike through the world
   and the snapshot host into a client's `CombatPresentation`: each bolt is
   drawn on its way down to its impact (200 m off before), and each blast
   shows and shakes (none before). `cargo test --locked --workspace` covers the
   shake's rules and `cargo test --locked --workspace` the exact launch.
-- **Stress.** `cargo test --locked --workspace` (headless, no renderer: the world, its
-  capture and pages applying its snapshots, 60 scenarios over the four recon
-  classes on nab2) and `cargo test --locked --workspace` (one drawn page on
-  its own clock, ten steps from launch to timeout). Neither is part of
-  `cargo test --locked --workspace`.
-- **Known gap.** A page plays no `OrdnanceSound` for a replicated round
-  (`SceneSounds.updateRounds` walks `ordnance.bolts`, `rounds` and
-  `grenades`, which replicated rounds never join), so the strike's falling
-  hum is silent on pages, as every other player's bolt's is (read from the
-  code, not measured).
+- **Not checked in the Rust client:** whether a replicated round plays its
+  `OrdnanceSound` (the strike's falling hum).
 

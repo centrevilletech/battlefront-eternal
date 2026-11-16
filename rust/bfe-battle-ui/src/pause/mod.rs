@@ -1,6 +1,6 @@
 // In-battle Classic pause menu (`ifs_pausemenu`), URL setting overrides, and `still_command`.
 //
-// Ports `src/pause/index.js`, `src/pause/overrides.js`, and `stillCommand` from `src/runtime/commands.js`
+// Ports `src/pause/index.js`, and `stillCommand`
 // across `menu` (state machine), `draw` (25-degree tilted Classic renderer), and `overrides` (URL settings).
 pub mod menu;
 pub mod overrides;

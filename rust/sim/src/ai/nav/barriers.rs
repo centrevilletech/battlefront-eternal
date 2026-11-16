@@ -1,4 +1,4 @@
-//! Planning barriers (nav/barriers.js): authored rectangles agents route
+//! Planning barriers: authored rectangles agents route
 //! around, with the uniform grid for candidate gathering. Barriers are
 //! indices into `list` where the JavaScript holds the objects. The
 //! planner's work counter (the JavaScript's `barriers.work` field while
@@ -8,14 +8,14 @@
 use super::math::{f32, normalize, tiny, tiny_dir, Vec3, FLT_MAX};
 use std::collections::HashMap;
 
-/// The planner's work budget (planner.js:104): counts barrier tests.
+/// The planner's work budget: counts barrier tests.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Work {
     pub count: f64,
     pub cap: f64,
 }
 
-/// A barrier record of ai-nav.json as numbers (barriers.js:22 reads
+/// A barrier record of ai-nav.json as numbers (reads
 /// `record.xfrm`, `record.size`, `record.flags`, `record.name`).
 #[derive(Clone, Debug)]
 pub struct BarrierRecord {
@@ -25,7 +25,7 @@ pub struct BarrierRecord {
     pub flags: f64,
 }
 
-/// A loaded barrier (barriers.js:26).
+/// A loaded barrier.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Barrier {
     pub index: usize,
@@ -76,7 +76,7 @@ pub fn barrier_from_record(record: &BarrierRecord, index: usize) -> Result<Barri
     })
 }
 
-/// Strictly inside the footprint grown by r (barriers.js:41).
+/// Strictly inside the footprint grown by r.
 pub fn inside(b: &Barrier, px: f64, py: f64, pz: f64, r: f64) -> bool {
     let dx = b.cx - px;
     let dy = b.cy - py;
@@ -84,7 +84,7 @@ pub fn inside(b: &Barrier, px: f64, py: f64, pz: f64, r: f64) -> bool {
     v8math::abs(b.xx * dx + b.xy * dy + b.xz * dz) < b.hx + r && v8math::abs(b.zx * dx + b.zy * dy + b.zz * dz) < b.hz + r
 }
 
-/// Corner i of the footprint grown by r + e (barriers.js:51).
+/// Corner i of the footprint grown by r + e.
 pub fn corner(b: &Barrier, i: usize, r: f64, e: f64) -> Vec3 {
     let u = b.hx + r + e;
     let v = b.hz + r + e;
@@ -97,7 +97,7 @@ pub fn corner(b: &Barrier, i: usize, r: f64, e: f64) -> Vec3 {
     )
 }
 
-/// A query segment: ends, midpoint and 3D half length (barriers.js:63).
+/// A query segment: ends, midpoint and 3D half length.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Segment {
     pub sx: f64,
@@ -131,14 +131,14 @@ pub fn segment(s: Vec3, e: Vec3) -> Segment {
     }
 }
 
-/// What a crossing reports (barriers.js:116).
+/// What a crossing reports.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CrossingHit {
     pub distance_sq: f64,
     pub normal: Vec3,
 }
 
-/// Segment against one barrier grown by r (barriers.js:83).
+/// Segment against one barrier grown by r.
 pub fn crossing(b: &Barrier, seg: &Segment, r: f64, work: Option<&mut Work>, hit: Option<&mut CrossingHit>) -> bool {
     let mx = seg.mx - b.cx;
     let mz = seg.mz - b.cz;
@@ -189,8 +189,8 @@ pub fn crossing(b: &Barrier, seg: &Segment, r: f64, work: Option<&mut Work>, hit
     true
 }
 
-/// Ejection candidate i (barriers.js:289); also returns the candidate
-/// point (the JavaScript's `out`).
+/// Ejection candidate i; also returns the candidate
+/// point.
 pub fn ejection(b: &Barrier, p: Vec3, r: f64, i: usize) -> (f64, Vec3) {
     let a = corner(b, i, r, 0.0);
     let c = corner(b, if i > 2 { 0 } else { i + 1 }, r, 0.0);
@@ -221,7 +221,7 @@ pub fn ejection(b: &Barrier, p: Vec3, r: f64, i: usize) -> (f64, Vec3) {
     (score, Vec3::new(qx + 0.01 * n.x, qy, qz + 0.01 * n.z))
 }
 
-/// The two extreme detour corners (barriers.js:319). Returns (found bits,
+/// The two extreme detour corners. Returns (found bits,
 /// left, right); a side that was not found leaves its point as the
 /// caller passed it, like the JavaScript's out parameters.
 pub fn detour(b: &Barrier, p: Vec3, q: Vec3, r: f64, left: &mut Vec3, right: &mut Vec3) -> u32 {
@@ -264,12 +264,12 @@ pub fn detour(b: &Barrier, p: Vec3, q: Vec3, r: f64, left: &mut Vec3, right: &mu
 }
 
 fn cell_key(x: f64, z: f64) -> i32 {
-    // barriers.js:142 `x * 73856093 ^ z * 19349663`: f64 products, then
+    // `x * 73856093 ^ z * 19349663`: f64 products, then
     // the ^ operator's ToInt32 on each.
     v8math::to_int32(x * 73856093.0) ^ v8math::to_int32(z * 19349663.0)
 }
 
-/// The barriers of a map with a uniform grid (barriers.js:124).
+/// The barriers of a map with a uniform grid.
 #[derive(Clone, Debug)]
 pub struct BarrierSet {
     pub list: Vec<Barrier>,
@@ -367,7 +367,7 @@ impl BarrierSet {
         }
     }
 
-    /// barriers.js:184. Returns (clear, the JavaScript's out.barrier).
+    /// barriers.js:184. Returns.
     pub fn point_clear(&mut self, p: Vec3, r: f64, mask: u32) -> (bool, Option<usize>) {
         self.gather_cached(p.x - r, p.z - r, p.x + r, p.z + r);
         for at in 0..self.found.len() {
@@ -383,7 +383,6 @@ impl BarrierSet {
         (true, None)
     }
 
-    /// barriers.js:199.
     pub fn segment_blocked(&mut self, s: Vec3, e: Vec3, r: f64, mask: u32, mut work: Option<&mut Work>) -> bool {
         let dx = s.x - e.x;
         let dy = s.y - e.y;

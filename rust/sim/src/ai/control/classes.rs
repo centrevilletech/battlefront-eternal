@@ -1,4 +1,4 @@
-//! The class jobs' data and pure helpers (classes.js): the repair
+//! The class jobs' data and pure helpers: the repair
 //! service book, health types, ammo and placement arithmetic, and
 //! perception's priority heap as the snipe selection uses it (float
 //! priorities; perception's own heaps store ints). The behavior is
@@ -11,7 +11,7 @@ pub const INT_MAX: f64 = 2147483647.0;
 
 pub const HEALTH_TYPES: [&str; 7] = ["Person", "Animal", "Droid", "Vehicle", "Building", "BuildingRebuild", "BuildingBuild"];
 
-/// healthType (classes.js:250).
+/// healthType.
 pub fn health_type(unit: &AiUnit) -> f64 {
     let runtime = unit.health_type_num.is_some() || unit.health_type_name.is_some();
     if !runtime {if let Some(value)=unit.class_def.as_ref().and_then(|c|c.prepared_health_type) {return value;}}
@@ -45,7 +45,7 @@ pub fn unit_radius(unit: &AiUnit) -> f64 {
     unit.sphere_radius.or(unit.radius).unwrap_or(0.0)
 }
 
-/// remainingAmmo (classes.js:147).
+/// remainingAmmo.
 pub fn remaining_ammo(weapon: &super::world::WeaponSnap) -> f64 {
     remaining_ammo_values(weapon.bottomless, weapon.rounds, weapon.clip, weapon.reserve)
 }
@@ -56,7 +56,7 @@ pub fn remaining_ammo_values(bottomless: bool, rounds: Option<f64>, clip: Option
     v8math::trunc(v8math::fround(v8math::fround(clip.unwrap_or(0.) + reserve.unwrap_or(0.)) * rounds.unwrap_or(1.)))
 }
 
-/// needs (classes.js:265).
+/// needs.
 pub fn needs(target: &AiUnit, ammo: bool) -> bool {
     if !ammo {
         return unit_health(target) < unit_maximum(target);
@@ -70,12 +70,12 @@ pub fn needs(target: &AiUnit, ammo: bool) -> bool {
     })
 }
 
-/// serviceAlive (classes.js:269).
+/// serviceAlive.
 pub fn service_alive(target: &AiUnit) -> bool {
     !target.removed && (target.alive || health_type(target) >= 5.0)
 }
 
-/// quantity (classes.js:274).
+/// quantity.
 pub fn quantity(qty: &QtySnap, ty: f64, ammo: bool) -> f64 {
     let idx = if ty >= 0.0 && ty == v8math::trunc(ty) { ty as usize } else { return 0.0 };
     if idx >= 7 {
@@ -91,7 +91,7 @@ pub fn quantity(qty: &QtySnap, ty: f64, ammo: bool) -> f64 {
     (if ammo { qty.named_ammo } else { qty.named_health })[idx].unwrap_or(0.0)
 }
 
-/// A repair reservation (classes.js RepairServices): the job, its
+/// A repair reservation (RepairServices): the job, its
 /// owner and when it was last touched.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reservation {
@@ -101,7 +101,7 @@ pub struct Reservation {
     pub time: f64,
 }
 
-/// A given-up job (classes.js futile).
+/// A given-up job (futile).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Futile {
     pub owner: UKey,
@@ -117,8 +117,8 @@ pub struct RepairServices {
     pub futile: Vec<Futile>,
 }
 
-/// PriorityHeap (perception.js:66) with float priorities, as the
-/// snipe hint heap uses it (classes.js:84). Capacity drop rule and
+/// PriorityHeap with float priorities, as the
+/// snipe hint heap uses it. Capacity drop rule and
 /// tie behavior as written; sentinel 0 in slot 0.
 pub struct FloatHeap {
     capacity: usize,

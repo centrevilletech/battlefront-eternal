@@ -19,7 +19,7 @@ sound) comes only from `zero_shell.py` (see [Regenerating](#regenerating)).
 | The loading screen's sprites (18) and tiled patterns (7) | `Load/load.lvl` `tex_` | the same |
 | 4× lossless WebP atlases of the 57 sprites | the PNGs, through `tools/upscale_hud.py` | `common/raster-hud/`, with `manifest.json` |
 | Every string the shell's and common's scripts use (637), and `common.loading` | `core.lvl` `Locl`, English; keys from the scripts in `shell.lvl` and `common.lvl` | `common.json` `strings` |
-| The 55 Bink movies, and each add-on's (Jabba's Palace's flyover) | `Movies/shell.mvs`; an add-on's `Movies/*.mvs`, named by its `Shell/ENG/shell.lvl` | `common/shell/movies/<name>.webm`, with `manifest.json` |
+| The 55 Bink movies, and each add-on's (Jabba's Palace's flyover) | `Movies/shell.mvs`; an add-on's `Movies/*.mvs`, named by its `Shell/ENG/shell.lvl` | `common/shell/movies/manifest.json`: each movie's name and where it is (the client plays the Bink files from the game folder) |
 | Each screen's intro and loop, and their fades | the movie config (`shell.lvl` `mcfg`) and the screens' `movieIntro` / `movieBackground` | `common/shell/shell.json` `movies` |
 | The Instant Action catalog | `shell.lvl`'s `missionlist` script (`sp_missionselect_listbox_contents`), then what each add-on's `addme.script` appends to it (`tools/zero_addon.py`), the mission scripts in `mission.lvl` and the add-ons', `public/maps/*/map.json` | `shell.json` `maps` |
 | The loading screen's config | `Load/load.lvl` `load` chunk | `shell.json` `load` and `maps[].load` |
@@ -74,7 +74,7 @@ All of it is additions; no existing key changes.
 
 ```json
 {
-  "movies":   { "<screen>": { "intro": "movies/<name>.webm" | null, "loop": "movies/<name>.webm",
+  "movies":   { "<screen>": { "intro": "movies/<name>.bik" | null, "loop": "movies/<name>.bik",
                               "fadeIn": s, "fadeOut": s, "introFadeIn": s, "introFadeOut": s } },
   "maps":     [ { "id", "name", "extracted", "eras": { "cw" | "gcw": { "teams", "attacker", "mission", "extracted" } },
                   "fly", "load": { "planet", "planetKey", "planetTexture", "stages": [ { "image", "target" } ] } } ],
@@ -85,11 +85,13 @@ All of it is additions; no existing key changes.
 ```
 
 Paths without a leading slash (`movies/...`, `load/...`) are relative to
-`/common/shell/`; the others are absolute URLs: the audio, and the loading
-screen's sprites, which are common textures (`/common/textures/<name>.png`).
-`RasterHudAssets.upgrade()` finds a sprite's 4× atlas by that path, as it
-does for `hud.texture(name)`; a 2D canvas can look it up in
-`raster-hud/manifest.json` under `textures/<name>.png`.
+`common/shell/`; the others start at the prepared data's root: the audio,
+and the loading screen's sprites, which are common textures
+(`/common/textures/<name>.png`). A sprite's 4x atlas is found by that path in
+`raster-hud/manifest.json` under `textures/<name>.png`. A movie is named by
+its file name without the extension; the client finds it in the movie list
+(`movies/manifest.json`), so data an earlier version prepared with `.webm`
+names plays the same movies.
 
 #### `movies`
 
@@ -99,7 +101,7 @@ screen (Esc, BACK) restarts the loop alone. The movie is stretched over the
 whole screen.
 
 ```json
-"ifs_main": {"intro": "movies/main_trans.webm", "loop": "movies/main.webm",
+"ifs_main": {"intro": "movies/main_trans.bik", "loop": "movies/main.bik",
              "fadeIn": 0.0, "fadeOut": 0.5, "introFadeIn": 0.0, "introFadeOut": 0.0}
 ```
 
@@ -135,7 +137,7 @@ highlighted map's flyover behind its hole; the multiplayer screens draw
 [shell.md](shell.md)).
 
 The other movies aren't any screen's background. Their files are named the
-same way (`movies/<name>.webm`): the campaigns' intros and outros
+same way (`movies/<name>.bik`): the campaigns' intros and outros
 (`bes1h01`, `bes2h01`, `end1h02`, `end1h03`, `geo1h01`, `hot1h02`,
 `kam1h01`, `kam1h02`, `kas2h01`, `nab1h01`, `nab2h01`, `tat1h01`,
 `tat2h01`, `yav1h01`, `yav2h01`), as the campaign tables name them, and
@@ -156,7 +158,7 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
     "cw":  {"teams": ["cis", "rep"], "attacker": 1, "mission": "nab2c", "extracted": true},
     "gcw": {"teams": ["all", "imp"], "attacker": 1, "mission": "nab2a", "extracted": false}
   },
-  "fly": "movies/nab2fly.webm",
+  "fly": "movies/nab2fly.bik",
   "load": {
     "planet": "NABOO", "planetKey": "planets.naboo.name", "planetTexture": "load/load_planet_naboo.png",
     "stages": [
@@ -169,7 +171,7 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 }
 ```
 
-- `id`: what `?map=` takes, the map archive's name (`public/maps/<id>/`).
+- `id`: the map's id, its archive's name (`public/maps/<id>/`).
 - `name`: the list's text (`planets.<planet>.mapname1` or `2`). An
   add-on's entry names it as written ("TATOOINE: JABBA"), which the shell
   shows as is when localization has nothing for it.
@@ -217,11 +219,11 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 | yav2 | YAVIN 4: ARENA | yav2r | yav2i | yav2i_h |
 | tat3 | TATOOINE: JABBA (add-on, `AddOn/Tat3`) | tat3c | tat3a | |
 
-**Eras and `?map=`.** A map's extraction holds every battle fought in its
-world (map.json's `missions`, by mission name), so each era of every map is
-`extracted` once the map is. `?map=<id>&era=<era>` plays that era's battle;
-`?map=<id>` alone plays its Clone Wars battle, or the one it has
-(`rust/sim` (`mission`)). The historical versions are imported and marked
+**Eras.** A map's extraction holds every battle fought in its world
+(map.json's `missions`, by mission name), so each era of every map is
+`extracted` once the map is. A battle request with a map and an era plays
+that era's battle; a map alone plays its Clone Wars battle, or the one it has
+(`rust/content` (`mission`)). The historical versions are imported and marked
 (`historical`) for a campaign mode to come; Instant Action and servers never
 pick them. The campaign's Naboo battles are fought in worlds of their own
 (`NAB/nab1_h.lvl` and `nab2_h.lvl`, which no map extracts yet): those two are
@@ -349,48 +351,27 @@ Each map's `load`:
 
 ### `public/common/shell/movies/`
 
-The native client does not use the WebMs: it plays the Bink movies straight
-from the game's archives (`rust/bfe-video`, decoding with the `bink-decoder`
-crate, a port of FFmpeg's Bink decoders whose every frame of all 56 movies
-was checked equal to FFmpeg's). For it the preparation writes only
-`manifest.json` (`zero_shell.py --movie-index`: each movie's name, hash,
-archive and Bink header, in about a second). The rest of this section is the
-Electron build's.
-
-The 55 movies of `shell.mvs` as WebM: VP9 profile 0, 4:2:0, tagged BT.601
-limited range (what the Bink decoder outputs; checked against a
-capture of the main menu, and Chromium decodes them so), one pass at
-constant quality, every source frame kept with its timing, a keyframe at
-least every 10 s, nothing faded or trimmed: a loop's last frame runs into
-its first as in the original. Sound, where a movie has it, is Opus 160
-kb/s, 48 kHz stereo. Only the campaign and Galactic Conquest movies have
-sound.
-
-| Kind | Movies | Size | Encoding |
-| --- | --- | --- | --- |
-| Main screens' backdrops | `start_screen`, `main_trans`, `main`, `atat_in`, `atat_screen`, `coreship_in`, `coreship_screen` | 800×600 | CRF 18, `cpu-used` 6 |
-| Other screens' backdrops | `generic2_*`, `generic3_*`, `gc_screen`, `hoth_*`, `atte_*` | 800×600 | CRF 20, `cpu-used` 6 |
-| Flyovers | `<map>fly` × 16 | 720×480 (`nab2fly` 640×480) | CRF 20, `cpu-used` 6 |
-| Campaign and Galactic Conquest movies | 15 + 8 | 800×600 | CRF 22, `cpu-used` 6 |
-
-Every movie is one VP9 pass at its source size. The main backdrops were
-once stored at 3× (Lanczos and a luma unsharp mask) to look sharper; side by
-side with the source that looked the same, since resampling cannot recover
-detail the 800×600 frames lack, and it cost most of the desktop app's
-first-launch encode. The shell now draws each movie through
-`rust/bfe-shell`: a Catmull-Rom upscale to the screen pixels it
-covers, then FSR 1's RCAS contrast-adaptive sharpening (strength 0.7;
-`?moviesharpen=0` to `1` overrides it, 0 shows the plain video). Without
-WebGL2 the plain `<video>` plays. The player contains the image instead of
-cropping and enlarging it on wide displays.
-
-`manifest.json` lists each movie (this example is from the earlier 2× import):
+The movies are not converted. The client plays the Bink movies straight
+from the player's game folder (`rust/bfe-video`, decoding with the
+[bink-decoder](https://github.com/centrevilletech/bink-decoder) crate, a port
+of FFmpeg's Bink decoders whose every frame of all 56 movies was checked
+equal to FFmpeg's). The preparation's catalog step (`zero_shell.py
+--catalog`) writes only `manifest.json`, reading each Bink header and
+nothing more, and removes `.webm` copies an earlier version made:
 
 ```json
-"main": {"file": "main.webm", "hash": "0xea90e208", "kind": "backdrop", "width": 1600, "height": 1200,
-         "frames": 900, "fps": [30, 1], "duration": 30.0, "audio": false, "bytes": 4954318,
-         "settings": "...the ffmpeg arguments...", "source": {"offset": 18630656, "length": 18006528, "width": 800, "height": 600}}
+{"version": 2, "movies": {
+  "main": {"hash": "0xea90e208", "width": 800, "height": 600, "frames": 900, "fps": [30, 1], "duration": 30.0,
+           "audio": false, "source": {"archive": "GameData/Data/_LVL_PC/Movies/shell.mvs", "offset": 18630656, "length": 18006528}}
+}}
 ```
+
+The client draws each movie through `rust/bfe-shell` (`movie_gpu`): a
+Catmull-Rom upscale to the screen pixels it covers, then FSR 1's RCAS
+contrast-adaptive sharpening (strength 0.7). It contains the image instead
+of cropping and enlarging it on wide displays. The front end plays the
+movies without their sound; only the campaign and Galactic Conquest movies
+have any.
 
 How `shell.mvs` is laid out: a ucfb tree whose tags are name hashes, like
 the sound archives. An `Info` chunk names the container (`shell`) and lists
@@ -430,11 +411,10 @@ once.
 
 ## Regenerating
 
-Everything (the movies take hours on a busy machine; a movie already
-encoded with the same settings is skipped):
+Everything:
 
 ```sh
-.venv/bin/python tools/zero_shell.py              # a venv with Pillow for the atlases; needs ffmpeg
+.venv/bin/python tools/zero_shell.py              # a venv with Pillow for the atlases; ffmpeg for the music
 ```
 
 Or a part at a time:
@@ -442,9 +422,7 @@ Or a part at a time:
 ```sh
 .venv/bin/python tools/zero_shell.py --common     # common.json, PNGs, KTX2 copies, atlases (~6 min)
 python3 tools/zero_shell.py --audio               # music, whooshes, sound.json; then shell.json (~7 min)
-python3 tools/zero_shell.py --catalog             # shell.json and the loading pictures (~2 min)
-python3 tools/zero_shell.py --movies --jobs 2     # the transcodes; --only main kam1fly; --force
-python3 tools/zero_shell.py --movie-index         # the native client's: the manifest alone, no encodes
+python3 tools/zero_shell.py --catalog             # shell.json, the movie list and the loading pictures (~2 min)
 ```
 
 - `--common` adds the textures, strings and `rasterHud` entries and writes
@@ -457,11 +435,6 @@ python3 tools/zero_shell.py --movie-index         # the native client's: the man
   run it after extracting a map. It keeps `music` and `whooshes`.
 - `--audio` rewrites `music` and `whooshes` and the catalog with them. It
   keeps existing `.opus` and `.flac` files; delete them to re-encode.
-- `--movies` keeps `movies/manifest.json` current as each movie lands, and
-  works through the main screens first, then the flyovers, the other
-  backdrops and the story movies. Each encode uses four threads; `--jobs`
-  runs several at once. The Bink is copied to a temporary folder and
-  removed after encoding.
 
 Running any part again is harmless.
 
@@ -472,7 +445,7 @@ Running any part again is harmless.
 | `common/textures/` additions | 100 PNG + 100 KTX2 | 7.2 MB + 5.5 MB |
 | `common/raster-hud/` additions | 57 atlases | 5.2 MB |
 | `common/shell/load/` | 48 PNG | 23 MB |
-| `common/shell/movies/` | 55 WebM + manifest | each movie's `bytes` in `manifest.json` |
+| `common/shell/movies/` | `manifest.json` | 16.9 KB |
 | `audio/shell/` | 6 Opus, 10 FLAC, `sound.json`, `bank.bin` | 17.4 + 2.9 + 5.1 MB |
 
 ## Checks
@@ -490,16 +463,8 @@ python3 -m unittest tests/test_shell_export.py   # synthetic, plus an audit of p
   `rasterHud`'s order (spawn screen, scoreboard, front end) and an atlas for
   each entry and for every page of the four fonts; the strings; every
   screen's and map's movie; each map's eras against its `map.json`; every
-  loading picture and sprite; the music and whooshes; and, with ffprobe,
-  every movie as VP9 at its manifest's size (with Opus where it has sound)
-  and every audio file's codec and length.
+  loading picture and sprite; the music and whooshes; the movie list (and
+  that no WebM copy is left); and, with ffprobe, every audio file's codec
+  and length.
 - `tests/test_scoreboard_export.py`'s audit now checks only its own slice of
   `rasterHud`.
-
-Headless Chromium plays the WebMs at their size, and its pixels match a
-BT.601 limited-range decode of the same frames (mean error under 0.2 of 255;
-BT.709 would be off by 1 to 6). A loop's seam is as small as the source's:
-`main.webm` keeps all 900 frames (30.000 s), and its step from the last frame
-back to its opening frame is 41.6 dB PSNR against 42.0 dB for the same frames of the Bink,
-upscaled the same way. The encode is 42 to 50 dB from the source at those
-frames.

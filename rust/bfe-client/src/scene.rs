@@ -546,7 +546,7 @@ fn frame_image(size: [i32; 2]) -> String {
 fn frame_target(size: [i32; 2], color: u32, stencil: bool, samples: i32) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"color":color,"depth":null,"depthBuffer":true,"stencil":stencil,"samples":samples,"resolveDepth":false,"resolveStencil":false,"cube":false}).to_string()
 }
-// How a content image is sampled (game.js loadTexture: repeating, trilinear)
+// How a content image is sampled (loadTexture: repeating, trilinear)
 // at an anisotropy. The driver's limit is applied where the value is set.
 fn content_sampling(anisotropy: f64) -> String {
     format!(
@@ -562,7 +562,7 @@ impl Scene {
     ) -> Result<(Self, MapCamera), String> {
         Self::load_with_random(root, map, size, None, load)
     }
-    /// Recorded random draws are admission facts, shared with a browser view.
+    /// Recorded random draws are admission facts, shared with a client view.
     /// Ordinary inspection uses one deterministic host stream instead.
     pub fn load_with_random(
         root: &Path,
@@ -784,7 +784,7 @@ impl Scene {
                 .map(|path| content.textures.load(path))
                 .transpose()
         })?;
-        // game.js constructs eight ordnance light shells and each visible post hologram.
+        // constructs eight ordnance light shells and each visible post hologram.
         // Preserve that cold catalog identity; this neutral inspection frame
         // publishes zero active lights until a native World supplies them.
         const ORDNANCE_LIGHTS: usize = 8;
@@ -1190,7 +1190,7 @@ impl Scene {
         bridge.r.world.sort(false);
         let mut water_host = if !water_data.is_null() {
             let far_reach = content.map["distance"]["farScene"][1].as_f64().unwrap_or(3000.);
-            // A weather of anything but quads storms (ocean-surface.js storms()).
+            // A weather of anything but quads storms (storms()).
             let rain = &content.map["weather"]["precipitation"];
             let stormy = rain.is_object() && !rain["Type"][0].as_str().unwrap_or("").eq_ignore_ascii_case("quads");
             let mut host = crate::water_host::WaterHost::new(
@@ -1649,7 +1649,7 @@ impl Scene {
     }
 
     /// The player's water choices (WATER QUALITY, OCEAN AND SKY, WATER AND
-    /// STEAM), applied as the page applied them: live.
+    /// STEAM), applied as the client applied them: live.
     pub fn set_water_settings(&mut self, settings: &WaterSettings) -> Result<(), String> {
         if let Some(storm) = &mut self.storm { storm.enabled = settings.ocean == "enhanced"; }
         if let Some(flyers) = &mut self.flyers { flyers.set_enhanced(settings.ocean == "enhanced"); }
@@ -1704,7 +1704,7 @@ impl Scene {
         let Some(frame) = &mut self.frame else {
             return Ok(());
         };
-        // settings.js ANTIALIASING; an unknown choice is the default's four.
+        // ANTIALIASING; an unknown choice is the default's four.
         let wanted = match choice {
             "off" | "fxaa-fast" | "fxaa" => 0,
             "2x" => 2,
@@ -2126,7 +2126,7 @@ impl Scene {
                 let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
                 if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;
-                // The view scene packs its own lights (point-lights.js): only the copies syncViewLights makes.
+                // The view scene packs its own lights: only the copies syncViewLights makes.
                 if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
         if let Some(native)=&self.temporal_motion{let count=native.count;self.publish(r::MOTION,k::MOTION,count,0,0);}
         if self.online.is_some(){self.publish(r::HUD0,k::HUD,0,0,0);}
@@ -2164,8 +2164,8 @@ impl Scene {
             return Ok(());
         };
         let clock = view.values[shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "time").unwrap_or(0)]];
-        // The frame step is the elapsed battle time, as the page's frame
-        // delta was: capped where the page capped it.
+        // The frame step is the elapsed battle time, as the client's frame
+        // delta was: capped where the client capped it.
         let dt = if self.water_time.is_nan() { 0. } else { (clock - self.water_time).clamp(0., 8. / 60.) };
         self.water_time = clock;
         // Without a battle nothing else builds the effect list.
@@ -2431,7 +2431,7 @@ impl Scene {
         row[m::BONES] = bones as f64;
         row[m::STEPS] = steps as f64;
         // FrameBank clips a full packet and retains its fault marker, just
-        // as the browser producer does. Capacity never terminates the window.
+        // as the client producer does. Capacity never terminates the window.
         self.bridge.frame_publish_frame(role as u32);
     }
     fn prepare_foliage(&mut self, view: &View) {

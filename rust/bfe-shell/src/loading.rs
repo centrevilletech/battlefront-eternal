@@ -1,12 +1,12 @@
 //! Loading timeline, tracking crosshairs, zoom view, rotating disk, 28 LEDs,
-//! and sound plan (`src/shell/loading.js` and `src/shell/loading-audio.js`).
+//! and sound plan.
 
 use crate::data::MapLoad;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Progress weights for each step of battle loading (`createGame`'s `onProgress`).
-/// Mirrors `STEPS` in `src/shell/loading.js`.
+/// Mirrors `STEPS`.
 pub mod steps {
     pub const DATA: f64 = 0.3;
     pub const WORLD: f64 = 0.5;
@@ -28,34 +28,34 @@ pub mod steps {
 
 /// The original redraws the loading screen at most every `50ms`; its lines move
 /// and its tracking pulse starts and stops on that step.
-/// Mirrors `STEP` in `src/shell/loading.js`.
+/// Mirrors `STEP`.
 pub const STEP: f64 = 0.05;
 
 /// A tracking line is considered still once it moves less than a thousandth of
 /// the screen in one [`STEP`].
-/// Mirrors `STILL` in `src/shell/loading.js`.
+/// Mirrors `STILL`.
 pub const STILL: f64 = 0.001;
 
 /// Lead time in seconds between picking the sequence start and starting playback.
-/// Mirrors `LEAD` in `src/shell/loading.js`.
+/// Mirrors `LEAD`.
 pub const LEAD: f64 = 0.1;
 
 /// Interface coordinate width (`1024`) used by the loading screen and HUD.
-/// Mirrors `IW` in `src/shell/loading.js`.
+/// Mirrors `IW`.
 pub const IW: f64 = 1024.0;
 
 /// Maximum time in milliseconds the loading screen may outlast a ready battle
 /// waiting for its own animation sequence.
-/// Mirrors `SEQUENCE_CAP` in `src/shell/loading.js`.
+/// Mirrors `SEQUENCE_CAP`.
 pub const SEQUENCE_CAP: u64 = 30_000;
 
 /// Maximum time in milliseconds to wait for battle asset loading.
-/// Mirrors `LOAD_CAP` in `src/shell/loading.js`.
+/// Mirrors `LOAD_CAP`.
 pub const LOAD_CAP: u64 = 60_000;
 
 /// Geometry and animation constants for the bottom-right rotating `LOADING` disk
 /// and 28-LED ring in `1024x768` interface units.
-/// Mirrors `DISK` in `src/shell/loading.js`.
+/// Mirrors `DISK`.
 pub mod disk {
     /// Horizontal offset (`252.0` units) of the disk center from the right screen edge.
     pub const RIGHT: f64 = 252.0;
@@ -77,7 +77,7 @@ pub mod disk {
 
 /// Top-left planet name coordinates in `1024xH` interface units (`5` units into
 /// the safe area's top-left corner).
-/// Mirrors `NAME` in `src/shell/loading.js`.
+/// Mirrors `NAME`.
 pub mod name_pos {
     /// Left X anchor (`51.2` units, `0.05 * 1024`) at the safe area's left margin.
     pub const X: f64 = 51.2;
@@ -88,7 +88,7 @@ pub mod name_pos {
 }
 
 /// Parameters of the 28-LED lit arc chasing around the loading ring.
-/// Mirrors `LIGHTS` in `src/shell/loading.js`.
+/// Mirrors `LIGHTS`.
 pub mod lights {
     /// Angular speed of the lit arc's head in full turns per second (`0.6`).
     pub const SPEED: f64 = 0.6;
@@ -103,13 +103,13 @@ pub mod lights {
 /// Sound constants from `src/shell/loading-audio.js` (`SOUNDS`, `BUS`, `AV`, `LATE`).
 pub mod audio_constants {
     /// `core.lvl`'s `shellfx` bus gain (`0.3`).
-    /// Mirrors `BUS` in `src/shell/loading-audio.js`.
+    /// Mirrors `BUS`.
     pub const BUS: f64 = 0.3;
     /// Audio-visual offset (`1 / 30` s): a sound is heard one or two refreshes
-    /// after its frame moment. Mirrors `AV` in `src/shell/loading-audio.js`.
+    /// after its frame moment. Mirrors `AV`.
     pub const AV: f64 = 1.0 / 30.0;
     /// Maximum lateness (`0.05` s) before a one-shot zoom sound is dropped.
-    /// Mirrors `LATE` in `src/shell/loading-audio.js`.
+    /// Mirrors `LATE`.
     pub const LATE: f64 = 0.05;
     /// Fade-out duration (`0.01` s) when a tracking pulse stops.
     pub const STOP: f64 = 0.01;
@@ -117,7 +117,7 @@ pub mod audio_constants {
     pub const FADE: f64 = 0.08;
 
     /// Maps a [`super::LoadingCue`] to its `core.lvl` sound name.
-    /// Mirrors `SOUNDS` in `src/shell/loading-audio.js`.
+    /// Mirrors `SOUNDS`.
     pub fn sound_name(cue: super::LoadingCue) -> &'static str {
         match cue {
             super::LoadingCue::YTrack => "load_ytracking",
@@ -129,7 +129,7 @@ pub mod audio_constants {
 }
 
 /// Theme look identifier for the loading screen (`"bf1"`, `"eternal"`, `"bf2"`).
-/// Mirrors the keys of `LOOKS` in `src/shell/loading.js`.
+/// Mirrors the keys of `LOOKS`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum LookId {
     /// Original 2004 look (`"bf1"`): grey lights on cyan disk, bitmap fonts.
@@ -152,7 +152,7 @@ impl LookId {
     }
 
     /// Normalizes an optional `menuTheme` setting into a [`LookId`], defaulting
-    /// any unrecognized or absent value to [`LookId::Eternal`] (`themeOf` in JS).
+    /// any unrecognized or absent value to [`LookId::Eternal`].
     pub fn from_theme(theme: Option<&str>) -> Self {
         match theme {
             Some("bf1") => Self::Bf1,
@@ -162,7 +162,7 @@ impl LookId {
     }
 
     /// Returns the hex color stops for the 28 ring lights in this look.
-    /// Mirrors `LOOKS[id].lights` in `src/shell/loading.js`.
+    /// Mirrors `LOOKS[id].lights`.
     pub fn light_stops(self) -> &'static [&'static str] {
         match self {
             Self::Bf1 => &["#0b0d0f", "#5c6166", "#b9bcbe"],
@@ -172,7 +172,7 @@ impl LookId {
     }
 
     /// Optional rim color around each LED (`"#06080c"` on `bf2`, `None` otherwise).
-    /// Mirrors `LOOKS[id].edge` in `src/shell/loading.js`.
+    /// Mirrors `LOOKS[id].edge`.
     pub fn light_edge(self) -> Option<[u8; 4]> {
         match self {
             Self::Bf2 => Some([6, 8, 12, 255]),
@@ -219,7 +219,7 @@ pub fn recolor_disk_rgba(rgba: &mut [u8], width: usize, height: usize, look: Loo
 /// Under classic menus (`classic_menus == true`), always returns `LookId::Bf1`;
 /// otherwise normalizes `theme` (`"bf1"`, `"bf2"`, or default `"eternal"`).
 ///
-/// Mirrors `loadingLook(params, theme)` in `src/shell/loading.js`.
+/// Mirrors `loadingLook(params, theme)`.
 pub fn loading_look(classic_menus: bool, theme: Option<&str>) -> LookId {
     if classic_menus {
         LookId::Bf1
@@ -230,7 +230,7 @@ pub fn loading_look(classic_menus: bool, theme: Option<&str>) -> LookId {
 
 /// Three-letter map prefix table `(prefix, localization_slug, fallback_display_name)`
 /// used by [`planet_name`] when `shell.json`'s `load.planet` does not supply a name.
-/// Mirrors `PLANETS` in `src/shell/loading.js`.
+/// Mirrors `PLANETS`.
 const PLANETS: [(&str, &str, &str); 10] = [
     ("bes", "bespin", "BESPIN"),
     ("end", "endor", "ENDOR"),
@@ -248,7 +248,7 @@ const PLANETS: [(&str, &str, &str); 10] = [
 /// `"yav1"` -> `"YAVIN 4"`), preferring `load.planet` or
 /// `strings["planets.<planet>.name"]` when present.
 ///
-/// Mirrors `planetName(map, strings, load)` in `src/shell/loading.js`.
+/// Mirrors `planetName(map, strings, load)`.
 pub fn planet_name(
     map: &str,
     strings: &BTreeMap<String, String>,
@@ -288,7 +288,7 @@ pub fn approach(t: f64, h: f64, step: f64) -> f64 {
 /// seconds) during which a tracking line with total travel `travel` moves more
 /// than `still` per `step`. Returns `None` if the line is too close to move.
 ///
-/// Mirrors `pulse(travel, h, step, still)` in `src/shell/loading.js`.
+/// Mirrors `pulse(travel, h, step, still)`.
 pub fn pulse(travel: f64, h: f64, step: f64, still: f64) -> Option<[f64; 2]> {
     let steps = (h / step - 1e-9).ceil() as usize;
     let mut from: Option<f64> = None;
@@ -361,7 +361,7 @@ pub struct TimelineAt {
 
 impl TimelineAt {
     /// Before the sequence starts: stage 0, `"wait"`, still.
-    /// Mirrors `WAIT` in `src/shell/loading.js`.
+    /// Mirrors `WAIT`.
     pub const WAIT: Self = Self {
         stage: 0,
         phase: LoadingPhase::Wait,
@@ -398,7 +398,7 @@ impl LoadingCue {
 
 /// Planned sound event `{ cue, at, until }` in seconds from sequence start
 /// (`until == None` for one-shots).
-/// Mirrors the entries returned by `LoadingTimeline.sounds()` in `src/shell/loading.js`.
+/// Mirrors the entries returned by `LoadingTimeline.sounds()`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlannedSound {
     /// Which loading sound cue (`YTrack`, `XTrack`, `Zoom`, or `Transition`) is scheduled.
@@ -418,7 +418,7 @@ pub const PICTURES: usize = 4;
 /// Pure clock-driven loading sequence timeline (`track`, `zoom`, `hold`,
 /// `targets`).
 ///
-/// Mirrors `LoadingTimeline` in `src/shell/loading.js`.
+/// Mirrors `LoadingTimeline`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LoadingTimeline {
     pub track: f64,
@@ -464,14 +464,13 @@ impl LoadingTimeline {
     }
 
     /// Number of stage pictures in the sequence.
-    /// Mirrors `get stages()` in `src/shell/loading.js`.
+    /// Mirrors `get stages()`.
     pub fn stages(&self) -> usize {
         self.targets.len()
     }
 
-    /// Total duration of the sequence in seconds, the same for every map:
-    /// `(PICTURES - 1) * (track + zoom) + hold` (`src/shell/loading.js` took
-    /// it from the map's stage count, so a map without pictures had none).
+    /// Total duration of the sequence in seconds, the same for every map
+    /// however many pictures it has: `(PICTURES - 1) * (track + zoom) + hold`.
     pub fn duration(&self) -> f64 {
         (PICTURES - 1) as f64 * (self.track + self.zoom) + self.hold
     }
@@ -482,7 +481,7 @@ impl LoadingTimeline {
     }
 
     /// Evaluates the sequence state `t` seconds after start.
-    /// Mirrors `LoadingTimeline.at(t)` in `src/shell/loading.js`.
+    /// Mirrors `LoadingTimeline.at(t)`.
     pub fn at(&self, t: f64) -> TimelineAt {
         let t = if t.is_finite() && t > 0.0 { t } else { 0.0 };
         let cycle = self.track + self.zoom;
@@ -533,7 +532,7 @@ impl LoadingTimeline {
 
     /// Builds the full sound plan `[{ cue, at, until }]` in seconds from sequence
     /// start.
-    /// Mirrors `LoadingTimeline.sounds()` in `src/shell/loading.js`.
+    /// Mirrors `LoadingTimeline.sounds()`.
     pub fn sounds(&self) -> Vec<PlannedSound> {
         let mut out = Vec::new();
         let cycle = self.track + self.zoom;
@@ -571,7 +570,7 @@ impl LoadingTimeline {
 
     /// Returns which sound cue is active at `t` seconds (`"ytrack"`, `"xtrack"`,
     /// `"zoom"`, or `"still"`).
-    /// Mirrors `LoadingTimeline.cue(t, sounds)` in `src/shell/loading.js`.
+    /// Mirrors `LoadingTimeline.cue(t, sounds)`.
     pub fn cue(&self, t: f64, sounds: Option<&[PlannedSound]>) -> &'static str {
         let owned;
         let list = match sounds {
@@ -600,7 +599,7 @@ impl LoadingTimeline {
 /// shrinks at an even exponential rate of scale, and the center moves in step
 /// with the size.
 ///
-/// Mirrors `zoomView(u, iw, ih, target)` in `src/shell/loading.js`.
+/// Mirrors `zoomView(u, iw, ih, target)`.
 pub fn zoom_view(u: f64, iw: f64, ih: f64, target: [f64; 4]) -> [f64; 4] {
     let [tx, ty, tw, th] = target;
     let w = (iw.ln() + (tw.max(1.0).ln() - iw.ln()) * u).exp();
@@ -618,7 +617,7 @@ pub fn zoom_view(u: f64, iw: f64, ih: f64, target: [f64; 4]) -> [f64; 4] {
 /// Maps a rectangle `[x, y, rw, rh]` in picture coordinates onto a `w x h`
 /// screen when `view` (`[vx, vy, vw, vh]`) fills the screen.
 ///
-/// Mirrors `onScreen(rect, view, w, h)` in `src/shell/loading.js`.
+/// Mirrors `onScreen(rect, view, w, h)`.
 pub fn on_screen(rect: [f64; 4], view: [f64; 4], w: f64, h: f64) -> [f64; 4] {
     let [x, y, rw, rh] = rect;
     let [vx, vy, vw, vh] = view;
@@ -631,7 +630,7 @@ pub fn on_screen(rect: [f64; 4], view: [f64; 4], w: f64, h: f64) -> [f64; 4] {
 }
 
 /// Placement `{ x, y, unit }` of the rotating `LOADING` disk on a `w x h` screen.
-/// Mirrors the object returned by `diskPlace(w, h)` in `src/shell/loading.js`.
+/// Mirrors the object returned by `diskPlace(w, h)`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DiskPlace {
     /// Horizontal center of the disk in viewport pixels (`w - 252 * unit`).
@@ -645,7 +644,7 @@ pub struct DiskPlace {
 /// Computes where the `LOADING` disk sits on a `w x h` screen: `unit = min(w / 1024, h / 768)`,
 /// centered `(252 * unit, 223 * unit)` from the bottom-right corner.
 ///
-/// Mirrors `diskPlace(w, h)` in `src/shell/loading.js`.
+/// Mirrors `diskPlace(w, h)`.
 pub fn disk_place(w: f64, h: f64) -> DiskPlace {
     let unit = (w / IW).min(h / 768.0);
     DiskPlace {
@@ -659,7 +658,7 @@ pub fn disk_place(w: f64, h: f64) -> DiskPlace {
 /// `behind` turns behind the lit arc's head, using the default [`lights`]
 /// parameters (`ramp = 1/28`, `tail = 0.75`, `ease = 2`).
 ///
-/// Mirrors `lightLevel(behind)` in `src/shell/loading.js`.
+/// Mirrors `lightLevel(behind)`.
 pub fn light_level(behind: f64) -> f64 {
     light_level_with(behind, lights::RAMP, lights::TAIL, lights::EASE)
 }
@@ -711,8 +710,7 @@ pub fn mix_color_rgb(stops: &[&str], level: f64) -> [u8; 3] {
     ]
 }
 
-/// Formats [`mix_color_rgb`] as `"rgb(r, g, b)"`, matching `mixColor(stops, level)`
-/// in `src/shell/loading.js`.
+/// Formats [`mix_color_rgb`] as `"rgb(r, g, b)"`, matching `mixColor(stops, level)`.
 pub fn mix_color(stops: &[&str], level: f64) -> String {
     let [r, g, b] = mix_color_rgb(stops, level);
     format!("rgb({r}, {g}, {b})")
@@ -723,7 +721,7 @@ pub fn mix_color(stops: &[&str], level: f64) -> String {
 /// `load_cap_ms`) and the animation sequence to be done (or `sequence_cap_ms`
 /// elapsed since `ready_at_ms`).
 ///
-/// Mirrors the completion rule of `handover` in `src/shell/loading.js`.
+/// Mirrors the completion rule of `handover`.
 pub fn handover_ready(
     battle_loaded: bool,
     sequence_done: bool,

@@ -1,4 +1,4 @@
-//! OrdnanceSim's tagged definition fields (ordnance-sim.js).
+//! OrdnanceSim's tagged definition fields.
 //!
 //! These fields are a tagged stream, not a generated fixed record. Keep the
 //! field names beside the port of writeFields; the native reader declares

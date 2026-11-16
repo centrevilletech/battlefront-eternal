@@ -1,7 +1,7 @@
-//! Menu widget hierarchy (`src/menus/widgets.js`).
+//! Menu widget hierarchy.
 //!
 //! Ports `Widget`, `Rows`, `List`, `Button`, `Text`, `Panel`, `HorizontalButtons`,
-//! `Tabs`, `Options`, and `OptionRow` from `src/menus/widgets.js`.
+//! `Tabs`, `Options`, and `OptionRow`.
 //! Each widget stores its logical state and layout parameters; Slint draws them.
 
 use crate::flashy::TitleIntro;
@@ -30,7 +30,7 @@ pub enum WidgetAction {
 }
 
 /// Layout configuration for an angled stack of [`RowsWidget`] bars
-/// (`Rows.layout` in `src/menus/widgets.js`, `TOP_LAYOUT` in `src/menus/option-pages.js`,
+/// (`Rows.layout`, `TOP_LAYOUT`,
 /// and `RowsLayout` in `rust/bfe-shell/src/render.rs`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RowsLayout {
@@ -48,14 +48,14 @@ pub struct RowsLayout {
     pub rot_y: f64,
     /// Local Z-axis Euler rotation in degrees.
     pub rot_z: f64,
-    /// When `true`, applies Euler rotations in `XYZ` order; when `false`, uses `YXZ` (`classic/index.js`).
+    /// When `true`, applies Euler rotations in `XYZ` order; when `false`, uses `YXZ`.
     pub xyz_order: bool,
     /// Bitmap font name for the row labels and header bar (`"gamefont_medium"`).
     pub font: &'static str,
     /// Vertical gap in interface units added to the font line height to form the row pitch `p`.
     pub y_spacing: f64,
     /// Optional total row count (including hidden console/PC rows) used by `rows_shift`
-    /// (`listCount` in `src/menus/widgets.js`, replicating `AddVerticalButtons`).
+    /// (`listCount`, replicating `AddVerticalButtons`).
     pub list_count: Option<usize>,
 }
 
@@ -77,7 +77,7 @@ impl Default for RowsLayout {
     }
 }
 
-/// One row item inside a [`RowsWidget`] (`{ id, label, disabled, hidden, action }` in `src/menus/widgets.js`).
+/// One row item inside a [`RowsWidget`] (`{ id, label, disabled, hidden, action }`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RowItem {
     /// Row identifier (`"game"`, `"video"`, `"audio"`, `"controls"`, `"online"`, etc.).
@@ -120,7 +120,7 @@ impl RowItem {
     }
 }
 
-/// Angled stack of menu rows under an orange header bar (`Rows` in `src/menus/widgets.js`).
+/// Angled stack of menu rows under an orange header bar (`Rows`).
 #[derive(Clone, Debug)]
 pub struct RowsWidget {
     /// Widget identifier (`"menu"`).
@@ -131,7 +131,7 @@ pub struct RowsWidget {
     pub rows: Vec<RowItem>,
     /// Index within `visible_rows()` of the currently highlighted row.
     pub selected: usize,
-    /// 3D placement, rotation, bar width, and font metrics (`Rows.layout` in `widgets.js`).
+    /// 3D placement, rotation, bar width, and font metrics (`Rows.layout`).
     pub layout: RowsLayout,
     /// Flashy intro timer for the row stack.
     pub intro: TitleIntro,
@@ -163,7 +163,7 @@ impl RowsWidget {
         w
     }
 
-    /// Returns the visible (`!hidden`) rows (`Rows.visibleRows` in `src/menus/widgets.js`).
+    /// Returns the visible (`!hidden`) rows (`Rows.visibleRows`).
     pub fn visible_rows(&self) -> impl Iterator<Item = &RowItem> {
         self.rows.iter().filter(|r| !r.hidden)
     }
@@ -179,7 +179,7 @@ impl RowsWidget {
     }
 
     /// Moves selection by `dy` (`-1` or `+1`) across visible enabled rows, wrapping around
-    /// (`MenuScreen.move` over `Rows.items` in `src/menus/screen.js` and `src/menus/widgets.js`).
+    /// (`MenuScreen.move` over `Rows.items` and `src/menus/widgets.js`).
     pub fn move_selection(&mut self, dy: i32) -> bool {
         let vis: Vec<(usize, bool)> = self
             .visible_rows()
@@ -204,7 +204,7 @@ impl RowsWidget {
         false
     }
 
-    /// Activates the currently selected visible row (`Rows.activate` in `src/menus/widgets.js`).
+    /// Activates the currently selected visible row (`Rows.activate`).
     pub fn accept(&self) -> Option<WidgetAction> {
         let row = self.visible_rows().nth(self.selected)?;
         if row.disabled {
@@ -215,16 +215,16 @@ impl RowsWidget {
     }
 }
 
-/// Column definition inside a [`ListWidget`] (`columns` in `List` in `src/menus/widgets.js`).
+/// Column definition inside a [`ListWidget`] (`columns` in `List`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ListColumn {
-    /// Horizontal offset of the column as a fraction (`0.0..1.0`) of the inner list width (`column.x` in `classic/index.js`).
+    /// Horizontal offset of the column as a fraction (`0.0..1.0`) of the inner list width (`column.x`).
     pub width: f64,
     /// Horizontal text alignment (`0` = left, `1` = right, `2` = center).
     pub align: u32,
 }
 
-/// Visual layout for a [`ListWidget`] (`List.look` in `src/menus/widgets.js` and `paintList` in `classic/index.js`).
+/// Visual layout for a [`ListWidget`] (`List.look` and `paintList`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ListLook {
     /// Normalized safe-area anchor `[ax, ay]`.
@@ -253,7 +253,7 @@ pub struct ListLook {
     pub pad_left: f64,
     /// Right horizontal padding inside `box_w` (`look.padRight`, default `15.0`).
     pub pad_right: f64,
-    /// Whether to draw the outer `border_3_pieces` 9-slice window (`look.window !== false` in `classic/index.js`).
+    /// Whether to draw the outer `border_3_pieces` 9-slice window (`look.window !== false`).
     pub show_frame: bool,
 }
 
@@ -278,7 +278,7 @@ impl Default for ListLook {
     }
 }
 
-/// One row inside a [`ListWidget`] (`src/menus/widgets.js`).
+/// One row inside a [`ListWidget`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct ListEntry {
     /// Row identifier (e.g., action id `"forward"` or map id).
@@ -336,14 +336,14 @@ impl ListEntry {
     }
 }
 
-/// Framed scrollable list of rows (`List` in `src/menus/widgets.js`).
+/// Framed scrollable list of rows (`List`).
 #[derive(Clone, Debug)]
 pub struct ListWidget {
     /// Widget identifier (`"bindings"` on `CONTROL OPTIONS`).
     pub id: String,
     /// Rows displayed inside the list box.
     pub rows: Vec<ListEntry>,
-    /// Column positions and alignments (`look.columns` in `classic/index.js`).
+    /// Column positions and alignments (`look.columns`).
     pub columns: Vec<ListColumn>,
     /// Index of the currently selected row (`0..rows.len()`).
     pub selected: usize,
@@ -387,7 +387,7 @@ impl ListWidget {
     }
 
     /// Updates `shown` from `look.box_h`, `look.inset`, and `look.pitch` and scrolls so
-    /// `selected` is within `[first, first + shown)` (`List.reveal()` in `src/menus/widgets.js`).
+    /// `selected` is within `[first, first + shown)` (`List.reveal()`).
     pub fn reveal(&mut self) {
         self.shown =
             (((self.look.box_h - 2.0 * self.look.inset) / self.look.pitch).floor() as usize).max(1);
@@ -407,7 +407,7 @@ impl ListWidget {
         self.first = self.first.min(max_first);
     }
 
-    /// Moves the selection by `dy` (`-1` or `+1`), wrapping around (`List.key` / `Screen.move` in `src/menus/widgets.js`).
+    /// Moves the selection by `dy` (`-1` or `+1`), wrapping around (`List.key` / `Screen.move`).
     pub fn move_selection(&mut self, dy: i32) -> bool {
         let n = self.rows.len();
         if n == 0 {
@@ -421,7 +421,7 @@ impl ListWidget {
         changed
     }
 
-    /// Scrolls the selection by `dy` rows without wrapping (`List.wheel` / `PageUp` / `PageDown` in `src/menus/widgets.js`).
+    /// Scrolls the selection by `dy` rows without wrapping (`List.wheel` / `PageUp` / `PageDown`).
     pub fn scroll(&mut self, dy: i32) -> bool {
         let n = self.rows.len();
         if n == 0 {
@@ -435,7 +435,7 @@ impl ListWidget {
     }
 }
 
-/// Bottom-edge or positioned action button (`Button` in `src/menus/widgets.js`).
+/// Bottom-edge or positioned action button (`Button`).
 #[derive(Clone, Debug)]
 pub struct ButtonWidget {
     /// Button identifier (`"back"`, `"reset"`, `"audioPanel"`, `"accept"`, etc.).
@@ -486,7 +486,7 @@ impl ButtonWidget {
     }
 }
 
-/// Visual style preset for a [`TextWidget`] (`Text.look` in `src/menus/widgets.js` and `paintText` in `classic/index.js`).
+/// Visual style preset for a [`TextWidget`] (`Text.look` and `paintText`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextLook {
     /// Screen title at top-center in `gamefont_large`.
@@ -503,12 +503,12 @@ pub enum TextLook {
     Label,
 }
 
-/// Static or flashy title/note label (`Text` in `src/menus/widgets.js`).
+/// Static or flashy title/note label (`Text`).
 #[derive(Clone, Debug)]
 pub struct TextWidget {
     /// Widget identifier (`"title"`, `"message"`, `"note"`, etc.).
     pub id: String,
-    /// Preset typography and layout mode (`paintText` in `src/menus/themes/classic/index.js`).
+    /// Preset typography and layout mode (`paintText`).
     pub look: TextLook,
     /// String content (may contain `\n` line breaks).
     pub text: String,
@@ -530,14 +530,14 @@ pub struct TextWidget {
     pub alpha: f64,
     /// Whether `intro` advances on `update(dt)`.
     pub flashy: bool,
-    /// Five-stage flashy reveal state (`TitleIntro` in `src/interface/flashy.js`).
+    /// Five-stage flashy reveal state (`TitleIntro`).
     pub intro: TitleIntro,
     /// When `true`, the text widget is not drawn.
     pub hidden: bool,
 }
 
 impl TextWidget {
-    /// Creates a top-center screen title (`new Text({ id: "title", look: "title", text, y })` in `widgets.js`).
+    /// Creates a top-center screen title (`new Text({ id: "title", look: "title", text, y })`).
     pub fn title(id: impl Into<String>, text: impl Into<String>, y: f64) -> Self {
         Self {
             id: id.into(),
@@ -557,7 +557,7 @@ impl TextWidget {
         }
     }
 
-    /// Creates a centered note line (`new Text({ id: "note", look: "note", text, y })` in `widgets.js`).
+    /// Creates a centered note line (`new Text({ id: "note", look: "note", text, y })`).
     pub fn note(id: impl Into<String>, text: impl Into<String>, y: f64) -> Self {
         Self {
             id: id.into(),
@@ -578,7 +578,7 @@ impl TextWidget {
     }
 }
 
-/// Framed 9-slice window panel (`Panel` in `src/menus/widgets.js`).
+/// Framed 9-slice window panel (`Panel`).
 #[derive(Clone, Debug)]
 pub struct PanelWidget {
     /// Widget identifier (`"window"`).
@@ -624,7 +624,7 @@ impl PanelWidget {
     }
 }
 
-/// One button inside [`HorizontalButtonsWidget`] (`src/menus/widgets.js`).
+/// One button inside [`HorizontalButtonsWidget`].
 #[derive(Clone, Debug)]
 pub struct HorizontalButtonItem {
     /// Button identifier (`"yes"`, `"no"`, `"ok"`).
@@ -637,7 +637,7 @@ pub struct HorizontalButtonItem {
     pub action: Option<WidgetAction>,
 }
 
-/// Centered horizontal row of text buttons (`HorizontalButtons` in `src/menus/widgets.js`,
+/// Centered horizontal row of text buttons (`HorizontalButtons`,
 /// porting the 2004 `AddHorizontalButtons` used on `Popup_YesNo` and `Popup_Ok`).
 #[derive(Clone, Debug)]
 pub struct HorizontalButtonsWidget {
@@ -649,7 +649,7 @@ pub struct HorizontalButtonsWidget {
     pub selected: usize,
     /// Vertical offset from the screen center (`63.0` units below center on popups).
     pub y: f64,
-    /// Horizontal center-to-center spacing between adjacent buttons (`85.0` units in `classic/index.js`).
+    /// Horizontal center-to-center spacing between adjacent buttons (`85.0` units).
     pub spacing: f64,
     /// Bitmap font name (`"gamefont_medium"`).
     pub font: &'static str,
@@ -675,7 +675,7 @@ impl HorizontalButtonsWidget {
     }
 
     /// Steps the selected button index left (`dx < 0`) or right (`dx > 0`), wrapping around
-    /// (`HorizontalButtons.key` in `src/menus/widgets.js`).
+    /// (`HorizontalButtons.key`).
     pub fn step(&mut self, dx: i32) -> bool {
         let n = self.buttons.len();
         if n == 0 {
@@ -689,7 +689,7 @@ impl HorizontalButtonsWidget {
     }
 }
 
-/// One tab item inside [`TabsWidget`] (`src/menus/widgets.js`).
+/// One tab item inside [`TabsWidget`].
 #[derive(Clone, Debug)]
 pub struct TabItem {
     /// Tab identifier (`"infantry"`, `"vehicle"`, `"starfighter"`).
@@ -706,7 +706,7 @@ pub struct TabItem {
     pub flipped: bool,
 }
 
-/// Horizontal tab bar (`Tabs` in `src/menus/widgets.js`, used for `INFANTRY` / `VEHICLE` / `STARFIGHTER`).
+/// Horizontal tab bar (`Tabs`, used for `INFANTRY` / `VEHICLE` / `STARFIGHTER`).
 #[derive(Clone, Debug)]
 pub struct TabsWidget {
     /// Widget identifier (`"tabs"`).
@@ -754,7 +754,7 @@ impl TabsWidget {
         }
     }
 
-    /// Steps to the previous or next tab (`Tabs.step` in `src/menus/widgets.js`) and returns the new active tab id.
+    /// Steps to the previous or next tab (`Tabs.step`) and returns the new active tab id.
     pub fn step(&mut self, dx: i32) -> Option<String> {
         let n = self.tabs.len();
         if n == 0 {
@@ -767,7 +767,7 @@ impl TabsWidget {
     }
 }
 
-/// Layout selector for [`OptionsWidget`] (`OPTION_LOOKS` in `src/menus/themes/classic/index.js`).
+/// Layout selector for [`OptionsWidget`] (`OPTION_LOOKS`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OptionsLayoutKind {
     /// `GAME OPTIONS`: centered `0.5` split (`labels: [0.5, -15], values: [0.5, 15], top: 150, pitch: 40`).
@@ -781,7 +781,7 @@ pub enum OptionsLayoutKind {
     Controls,
 }
 
-/// One option row inside an [`OptionsWidget`] (`OptionRow` in `src/menus/widgets.js`).
+/// One option row inside an [`OptionsWidget`] (`OptionRow`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct OptionsItem {
     /// Setting key in `OPTIONS` (e.g., `"fov"`, `"renderScale"`, `"masterVolume"`, `"sensitivity"`).
@@ -792,7 +792,7 @@ pub struct OptionsItem {
     pub value_text: String,
     /// Option interaction kind (`Choice`, `Toggle`, `Slider`, `Action`, `Fixed`).
     pub kind: OptionKind,
-    /// Normalized slider position (`0.0..=1.0`, `OptionRow.fraction()` in `widgets.js`).
+    /// Normalized slider position (`0.0..=1.0`, `OptionRow.fraction()`).
     pub ratio: f64,
     /// Minimum numeric value for slider options.
     pub min: f64,
@@ -802,7 +802,7 @@ pub struct OptionsItem {
     pub step: f64,
     /// When `true`, renders the value in [`crate::theme::GREY`] and skips focus.
     pub disabled: bool,
-    /// When `true` on a `Fixed` row, dims the value text to [`crate::theme::GREY`] (`row.dim` in `classic/index.js`).
+    /// When `true` on a `Fixed` row, dims the value text to [`crate::theme::GREY`] (`row.dim`).
     pub dim: bool,
     /// When `true`, hides the row from `paintOptions` and focus navigation.
     pub hidden: bool,
@@ -812,7 +812,7 @@ pub struct OptionsItem {
     pub action: Option<WidgetAction>,
 }
 
-/// Two-column `label | value` options widget (`Options` in `src/menus/widgets.js` and `paintOptions` in `classic/index.js`).
+/// Two-column `label | value` options widget (`Options` and `paintOptions`).
 #[derive(Clone, Debug)]
 pub struct OptionsWidget {
     /// Widget identifier (`"options"` or `"top"`).
@@ -889,7 +889,7 @@ impl OptionsWidget {
         w
     }
 
-    /// Returns true if `item` at `index` is enabled for focus (`Options.enabled(item)` in `src/menus/widgets.js`).
+    /// Returns true if `item` at `index` is enabled for focus (`Options.enabled(item)`).
     /// Read-only `OptionKind::Fixed` rows (such as `"RENDER RESOLUTION"`) are never focusable.
     pub fn is_item_enabled(&self, index: usize) -> bool {
         if self.disabled {
@@ -906,7 +906,7 @@ impl OptionsWidget {
         (0..self.items.len()).find(|&i| self.is_item_enabled(i))
     }
 
-    /// Recomputes `shown` from `surface_height` (`paintOptions` in `src/menus/themes/classic/index.js`).
+    /// Recomputes `shown` from `surface_height` (`paintOptions`).
     /// Only `VIDEO OPTIONS` (`look.bottom = 60`, `look.top = 32`, `look.pitch = 30`) paginates its rows.
     pub fn update_shown(&mut self, surface_height: f64) {
         if self.layout == OptionsLayoutKind::Video {
@@ -918,7 +918,7 @@ impl OptionsWidget {
         }
     }
 
-    /// Scrolls `first` so `selected` is within `[first, first + shown)` (`Options.reveal` in `src/menus/widgets.js`).
+    /// Scrolls `first` so `selected` is within `[first, first + shown)` (`Options.reveal`).
     pub fn reveal(&mut self) {
         let visible: Vec<usize> = self
             .items
@@ -974,7 +974,7 @@ impl OptionsWidget {
         changed
     }
 
-    /// Scrolls the visible window by `delta` rows (`Options.scrollBy` in `src/menus/widgets.js`).
+    /// Scrolls the visible window by `delta` rows (`Options.scrollBy`).
     pub fn scroll_by(&mut self, delta: i32) -> bool {
         if self.shown == usize::MAX {
             return false;
@@ -990,7 +990,7 @@ impl OptionsWidget {
     }
 }
 
-/// Standalone option row widget (`OptionRow` in `src/menus/widgets.js`).
+/// Standalone option row widget (`OptionRow`).
 #[derive(Clone, Debug)]
 pub struct OptionRowWidget {
     /// Option identifier key.
@@ -1025,31 +1025,31 @@ pub struct OptionRowWidget {
     pub hidden: bool,
 }
 
-/// Polymorphic menu widget enum (`Widget` subclasses in `src/menus/widgets.js`).
+/// Polymorphic menu widget enum (`Widget` subclasses).
 #[derive(Clone, Debug)]
 pub enum Widget {
-    /// Angled 3D stack of menu rows under an orange header bar (`Rows` in `widgets.js`).
+    /// Angled 3D stack of menu rows under an orange header bar (`Rows`).
     Rows(RowsWidget),
-    /// Scrollable 9-slice list box (`List` in `widgets.js`).
+    /// Scrollable 9-slice list box (`List`).
     List(ListWidget),
-    /// Bottom-corner or standalone text button (`Button` in `widgets.js`).
+    /// Bottom-corner or standalone text button (`Button`).
     Button(ButtonWidget),
-    /// Static or flashy title/popup/note text (`Text` in `widgets.js`).
+    /// Static or flashy title/popup/note text (`Text`).
     Text(TextWidget),
-    /// 9-slice `border_3_pieces` window frame (`Panel` in `widgets.js`).
+    /// 9-slice `border_3_pieces` window frame (`Panel`).
     Panel(PanelWidget),
-    /// Centered horizontal row of popup buttons (`HorizontalButtons` in `widgets.js`).
+    /// Centered horizontal row of popup buttons (`HorizontalButtons`).
     HorizontalButtons(HorizontalButtonsWidget),
-    /// Orange header-bar tab selector (`Tabs` in `widgets.js`).
+    /// Orange header-bar tab selector (`Tabs`).
     Tabs(TabsWidget),
-    /// Two-column `label | value` option page list (`Options` in `widgets.js`).
+    /// Two-column `label | value` option page list (`Options`).
     Options(OptionsWidget),
-    /// Standalone single option row (`OptionRow` in `widgets.js`).
+    /// Standalone single option row (`OptionRow`).
     OptionRow(OptionRowWidget),
 }
 
 impl Widget {
-    /// Returns the widget's string identifier (`widget.id` in `src/menus/widgets.js`).
+    /// Returns the widget's string identifier (`widget.id`).
     pub fn id(&self) -> &str {
         match self {
             Self::Rows(w) => &w.id,
@@ -1064,7 +1064,7 @@ impl Widget {
         }
     }
 
-    /// Returns true if the widget is hidden (`widget.hidden` in `src/menus/widgets.js`).
+    /// Returns true if the widget is hidden (`widget.hidden`).
     pub fn is_hidden(&self) -> bool {
         match self {
             Self::Rows(w) => w.hidden,
@@ -1079,7 +1079,7 @@ impl Widget {
         }
     }
 
-    /// Returns true if the widget is disabled (`!widget.enabled()` in `src/menus/widgets.js`).
+    /// Returns true if the widget is disabled (`!widget.enabled()`).
     pub fn is_disabled(&self) -> bool {
         match self {
             Self::Rows(w) => w.disabled,
@@ -1093,7 +1093,7 @@ impl Widget {
         }
     }
 
-    /// Returns true if the widget can receive focus (`MenuScreen.ring()` in `src/menus/screen.js`).
+    /// Returns true if the widget can receive focus (`MenuScreen.ring()`).
     pub fn can_focus(&self) -> bool {
         if self.is_hidden() || self.is_disabled() {
             return false;
@@ -1110,7 +1110,7 @@ impl Widget {
         }
     }
 
-    /// Advances any flashy intro timers on the widget (`MenuScreen.update(dt)` in `src/menus/screen.js`).
+    /// Advances any flashy intro timers on the widget (`MenuScreen.update(dt)`).
     pub fn update(&mut self, dt: f64) {
         match self {
             Self::Rows(w) => w.intro.step(dt),

@@ -45,7 +45,7 @@ def child(base, *parts):
     On disk because outputs record these paths (source_name): Windows finds
     "_LVL_PC" and "SIDE" in AddOn/Tat3, which spells them "_lvl_pc" and
     "Side", and must record what Linux does, or the content fingerprint
-    differs (src/runtime/content-hash.js)."""
+    differs."""
     at = Path(base)
     for part in parts:
         try:

@@ -3,7 +3,7 @@
 use crate::{world::owner::World,gen::{AiWeaponPolicy,AiWeaponPolicies,AiWeaponPolicyContent,AiWeaponPolicySource},store::DefId};
 use crate::ai::combat::weapons_ai::WeaponAiTable;
 
-/// A page has no AI battle. Cook its preview masks through the same content
+/// A client has no AI battle. Cook its preview masks through the same content
 /// parser and table as bots, without creating controllers or a second world.
 pub fn ai_weapon_policies_in(w:&mut World)->Option<&crate::store::block::Block> {
     let source={let(row,heap)=w.sim.calls.args();AiWeaponPolicySource::take(row,heap)};

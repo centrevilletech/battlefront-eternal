@@ -5,7 +5,7 @@ use serde_json::Value;
 pub fn new(content: &BattleContent) -> Option<bfe_sim::units::water::WaterState> {
     content.map.get("water").filter(|v| !v.is_null()).map(from_data)
 }
-/// The state for a map's water description, as the page's WaterState reads it.
+/// The state for a map's water description it.
 pub fn from_data(w: &Value) -> bfe_sim::units::water::WaterState {
     let cell = w["cell"].as_f64().unwrap_or(f64::NAN);
     let grid = w["grid"].as_f64().unwrap_or(0.);

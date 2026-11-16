@@ -23,11 +23,11 @@ STANDALONE OPTIONS:
     -V, --version             Print version and exit 0
     --content-dir <DIR>       Use prepared content directory (overrides persisted setting)
     --no-audio                Disable audio device initialization
-    --desktop-gl              Request desktop OpenGL 4.5 context instead of GLES 3.0
+    --desktop-gl              Request a desktop OpenGL 3.3 context instead of OpenGL ES 3.0
     --width <PX>              Initial window width in pixels (default: 1280)
     --height <PX>             Initial window height in pixels (default: 720)
     --fullscreen              Start in borderless fullscreen mode
-    --skip-update-check       Skip startup update check against master server
+    --skip-update-check       Skip the startup check for a newer release
     --script <MODE>           Scripted run: ia:<MAP> (one map, BFE_GATE_BATTLE_SECONDS) or platform-smoke
     --shots-dir <DIR>         Output directory for scripted screenshots
     --server <HOST:PORT>      Remote bfeserver address for scripted online join
@@ -55,7 +55,7 @@ pub struct StandaloneOptions {
     pub script: Option<String>,
     /// Optional directory where a scripted run writes screenshots and `gate-summary.json`.
     pub shots_dir: Option<PathBuf>,
-    /// Optional `HOST:PORT` server the browser pins (`--server`).
+    /// Optional `HOST:PORT` server the client pins (`--server`).
     pub server_target: Option<String>,
 }
 

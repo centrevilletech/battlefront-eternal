@@ -1,18 +1,18 @@
 //! The 2004 game's random numbers, drawn the way the game draws them
-//! (src/ai/random.js). This is the `jsrt` crate's generator, ported here
+//!. This is the `jsrt` crate's generator, ported here
 //! until that crate lands; the names and the draw for draw behaviour are
 //! the JavaScript's, so moving it later is a rename.
 //!
 //! A generator is one 32-bit state. Each draw steps it twice through
 //! x' = x * 1664525 + 1013904223 (mod 2^32) and returns the high half of the
-//! second step over the high half of the first (random.js:22-68).
+//! second step over the high half of the first.
 
 use std::collections::HashMap;
 
 const MUL: u32 = 1664525;
 const ADD: u32 = 1013904223;
 
-/// `ClassicRandom` (random.js:22).
+/// `ClassicRandom`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ClassicRandom {
     pub state: u32,
@@ -20,7 +20,7 @@ pub struct ClassicRandom {
 }
 
 impl ClassicRandom {
-    /// random.js:23: the seed as `seed >>> 0` of a JavaScript number.
+    /// the seed as `seed >>> 0` of a JavaScript number.
     pub fn new(seed: f64) -> Self {
         ClassicRandom { state: v8math::to_uint32(seed), draws: 0 }
     }
@@ -30,7 +30,7 @@ impl ClassicRandom {
         ClassicRandom { state, draws: 0 }
     }
 
-    /// A raw 32-bit draw, as an unsigned integer (random.js:28).
+    /// A raw 32-bit draw, as an unsigned integer.
     pub fn draw_count(&self) -> u64 { self.draws }
 
     pub fn next(&mut self) -> u32 {
@@ -46,12 +46,12 @@ impl ClassicRandom {
     pub fn range(&mut self,lo:f64,hi:f64)->f64 {Random::range(self,lo,hi)}
     pub fn modulo(&mut self,n:f64)->f64 {Random::modulo(self,n)}
 
-    /// The state (random.js:61 `get seed`).
+    /// The state (`get seed`).
     pub fn seed(&self) -> u32 {
         self.state
     }
 
-    /// random.js:65 `set seed`.
+    /// `set seed`.
     pub fn set_seed(&mut self, value: f64) {
         self.state = v8math::to_uint32(value);
     }
@@ -61,14 +61,14 @@ impl ClassicRandom {
 /// generator only for next(), so callbacks between draws see current state.
 pub trait Random {
     fn next(&mut self)->u32;
-    /// [0, 1) in float32 steps (random.js:36): `(next >>> 9) / 8388608`,
+    /// [0, 1) in float32 steps: `(next >>> 9) / 8388608`,
     /// an exact binary fraction, so the division is exact in f64.
     fn uniform(&mut self) -> f64 {
         (self.next() >> 9) as f64 / 8388608.0
     }
 
     /// An inclusive integer in [lo, hi], with the game's float32 rounding
-    /// (random.js:41). The JavaScript's `hi - lo + 1` and `+ lo` are f64
+    ///. The JavaScript's `hi - lo + 1` and `+ lo` are f64
     /// arithmetic on its (number) arguments.
     fn int(&mut self, lo: f64, hi: f64) -> f64 {
         if !(hi > lo) {
@@ -78,13 +78,13 @@ pub trait Random {
         v8math::trunc(v8math::fround(v8math::fround(u * v8math::fround(hi - lo + 1.0)) + lo))
     }
 
-    /// A float in [lo, hi): lo + U * (hi - lo), in float32 (random.js:49).
+    /// A float in [lo, hi): lo + U * (hi - lo), in float32.
     fn range(&mut self, lo: f64, hi: f64) -> f64 {
         let u = self.uniform();
         v8math::fround(v8math::fround(lo) + v8math::fround(u * v8math::fround(hi - lo)))
     }
 
-    /// A raw draw modulo n (n > 0), unsigned (random.js:56). The
+    /// A raw draw modulo n (n > 0), unsigned. The
     /// JavaScript's `%` runs on the draw as an f64; for the counts the
     /// game passes (small whole numbers) that is the integer remainder.
     fn modulo(&mut self, n: f64) -> f64 {
@@ -109,7 +109,7 @@ impl SharedRandom {
 }
 impl Random for SharedRandom {fn next(&mut self)->u32 {self.0.borrow_mut().next()}}
 
-/// Independent seeded streams by name (random.js:74). Iteration order of
+/// Independent seeded streams by name. Iteration order of
 /// the JavaScript's Map is observable only through `game.randomState()`,
 /// which the wire package owns; the streams themselves are kept in
 /// insertion order here too.
@@ -151,7 +151,7 @@ impl RandomStreams {
 }
 
 /// FNV-1a over the name's UTF-16 units, folded with the seed
-/// (random.js:119). `Math.imul` keeps the low 32 bits, as wrapping_mul
+///. `Math.imul` keeps the low 32 bits, as wrapping_mul
 /// does; the `^` before it is on the signed view of the same bits.
 fn mix(seed: u32, name: &str) -> u32 {
     let mut h = 0x811c_9dc5u32 ^ seed;

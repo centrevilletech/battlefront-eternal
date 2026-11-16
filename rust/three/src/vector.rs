@@ -1,4 +1,4 @@
-//! `Vector3.js`, `Vector2.js` and `Vector4.js` (r170). Note the
+//! `Vector3.js` and `Vector4.js` (r170). Note the
 //! spots where three's spelling is behaviour: `divideScalar` is
 //! `multiplyScalar(1 / scalar)`, `normalize` divides by
 //! `length || 1`, `applyMatrix4` multiplies by a computed `1 / w`
@@ -369,7 +369,7 @@ impl Vector3 {
         self.x * self.x + self.y * self.y + self.z * self.z
     }
 
-    /// `length()`: `Math.sqrt(x*x + y*y + z*z)` — not `hypot`.
+    /// `length()`: `Math.sqrt(x*x + y*y + z*z)`, not `hypot`.
     pub fn length(&self) -> f64 {
         (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
     }
@@ -543,8 +543,8 @@ impl Vector3 {
         self
     }
 
-    /// Reads through f32 storage (a Float32Array in JS): each value
-    /// widens as JavaScript reads it.
+    /// Reads through f32 storage: each value
+    /// widens it.
     pub fn from_array_f32(&mut self, array: &[f32], offset: usize) -> &mut Self {
         self.x = array[offset] as f64;
         self.y = array[offset + 1] as f64;
@@ -963,7 +963,7 @@ impl Vector4 {
         }
     }
 
-    /// `copy(v)`: note three's `v.w !== undefined ? v.w : 1` — a
+    /// `copy(v)`: note three's `v.w !== undefined ? v.w : 1`: a
     /// Vector4 always has a w here, so it is a plain copy; copying
     /// from a Vector3 in three gives w = 1, which is
     /// [`Vector4::copy_vector3`].

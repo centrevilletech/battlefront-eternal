@@ -1,4 +1,4 @@
-//! Squad commands and AI voice lines (squads.js): the command kinds,
+//! Squad commands and AI voice lines: the command kinds,
 //! the voice bank, and the entry lookup. Sending, distribution and
 //! receipt are the core's (mod.rs), where the roster is.
 
@@ -11,7 +11,7 @@ pub mod command {
     pub const UNBOARD: f64 = 5.0;
 }
 
-/// The command sound bank by offset (squads.js:57).
+/// The command sound bank by offset.
 pub const VO_BANK: [(f64, &str, &str); 13] = [
     (0x00 as f64, "FieldMoveOut", "tac_moveout"),
     (0x08 as f64, "FieldHold", "tac_hold"),
@@ -46,7 +46,7 @@ pub const VO_PROPERTIES:[[&str;2];13]=[
     ["AISCGunnerGetOutSound", "SCGunnerGetOutSound"],
 ];
 
-/// Command -> bank offset, per context (squads.js:75): 0 unboarded, 1
+/// Command -> bank offset, per context: 0 unboarded, 1
 /// other boarded control, 2 (never selected), 3 mounted turret.
 pub fn vo_offset(kind: f64, context: f64) -> Option<f64> {
     use command as k;
@@ -64,7 +64,7 @@ pub fn vo_offset(kind: f64, context: f64) -> Option<f64> {
     table.iter().find(|(c, _)| *c == kind).map(|e| e.1)
 }
 
-/// A bank entry (squads.js:84 voEntry).
+/// A bank entry (voEntry).
 pub struct VoEntry {
     pub offset: f64,
     pub property: &'static str,

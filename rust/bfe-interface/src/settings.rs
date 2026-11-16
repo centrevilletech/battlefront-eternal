@@ -1,5 +1,5 @@
 //! Persistent player, video, audio, and control settings (`src/settings.js`,
-//! `src/gpu-info.js`, `src/gpu-policy.json`, `src/cpu-info.js`).
+//! `src/gpu-info.js`, `src/gpu-policy.json`).
 //!
 //! Ports all 59 keys of `DEFAULTS`, `BATTLE_SIZES`, `PHYSICS_RATES`,
 //! `RENDER_SCALE_MIN`, `WORLD_SETTINGS`, `PERFORMANCE_PRESETS`, `PRESET_KEYS`,
@@ -15,26 +15,26 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Minimum render scale slider value (`RENDER_SCALE_MIN = 0.25` in `src/settings.js`).
+/// Minimum render scale slider value (`RENDER_SCALE_MIN = 0.25`).
 pub const RENDER_SCALE_MIN: f64 = 0.25;
 
-/// Supported simulation tick rates (`PHYSICS_RATES = ["60"]` in `src/settings.js`).
+/// Supported simulation tick rates (`PHYSICS_RATES = ["60"]`).
 pub const PHYSICS_RATES: [&str; 1] = ["60"];
 
 /// Settings that belong to the shared battle world rather than an individual client
-/// (`WORLD_SETTINGS = ["friendlyFire"]` in `src/settings.js`).
+/// (`WORLD_SETTINGS = ["friendlyFire"]`).
 pub const WORLD_SETTINGS: [&str; 1] = ["friendlyFire"];
 
-/// Antialiasing mode identifiers (`ANTIALIASING` in `src/settings.js`).
+/// Antialiasing mode identifiers (`ANTIALIASING`).
 pub const ANTIALIASING: [&str; 6] = ["off", "fxaa-fast", "fxaa", "2x", "4x", "8x"];
 
-/// Water quality tier identifiers (`WATER_QUALITIES` in `src/settings.js`).
+/// Water quality tier identifiers (`WATER_QUALITIES`).
 pub const WATER_QUALITIES: [&str; 3] = ["low", "high", "ultra"];
 
-/// View distance multipliers (`VIEW_DISTANCES` in `src/settings.js`).
+/// View distance multipliers (`VIEW_DISTANCES`).
 pub const VIEW_DISTANCES: [(&str, u32); 3] = [("original", 1), ("far", 2), ("max", 4)];
 
-/// Battle size unit caps per team (`BATTLE_SIZES` in `src/settings.js`).
+/// Battle size unit caps per team (`BATTLE_SIZES`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BattleSizeCap {
     /// Preset identifier (`"full"`, `"large"`, or `"small"`).
@@ -45,7 +45,7 @@ pub struct BattleSizeCap {
     pub gcw: u32,
 }
 
-/// Battle size presets (`BATTLE_SIZES` in `src/settings.js`).
+/// Battle size presets (`BATTLE_SIZES`).
 pub const BATTLE_SIZES: [BattleSizeCap; 3] = [
     // Full 2004 unit count (32 active units per team).
     BattleSizeCap {
@@ -67,7 +67,7 @@ pub const BATTLE_SIZES: [BattleSizeCap; 3] = [
     },
 ];
 
-/// Shadow quality preset parameters (`SHADOW_PRESETS` in `src/settings.js`).
+/// Shadow quality preset parameters (`SHADOW_PRESETS`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShadowPreset {
     /// Preset tier identifier (`"off"`, `"low"`, `"medium"`, `"high"`, or `"ultra"`).
@@ -84,9 +84,9 @@ pub struct ShadowPreset {
     pub objects: bool,
 }
 
-/// Shadow quality presets (`SHADOW_PRESETS` in `src/settings.js`).
+/// Shadow quality presets (`SHADOW_PRESETS`).
 pub const SHADOW_PRESETS: [ShadowPreset; 5] = [
-    // Shadows disabled (`null` in `src/settings.js`).
+    // Shadows disabled (`null`).
     ShadowPreset {
         id: "off",
         enabled: false,
@@ -133,7 +133,7 @@ pub const SHADOW_PRESETS: [ShadowPreset; 5] = [
     },
 ];
 
-/// Quality preset bundle (`PERFORMANCE_PRESETS` in `src/settings.js`).
+/// Quality preset bundle (`PERFORMANCE_PRESETS`).
 ///
 /// Selecting a named preset in [`Settings::set`] cascades all 27 fields below
 /// onto their corresponding keys in [`PRESET_KEYS`].
@@ -231,7 +231,7 @@ impl PerformancePreset {
 }
 
 /// All four named quality presets (`minimum`, `performance`, `balanced`, `quality`)
-/// from `PERFORMANCE_PRESETS` in `src/settings.js`.
+/// from `PERFORMANCE_PRESETS`.
 pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
     PerformancePreset {
         id: "minimum",
@@ -361,7 +361,7 @@ pub fn performance_preset(id: &str) -> Option<&'static PerformancePreset> {
     PERFORMANCE_PRESETS.iter().find(|p| p.id == id)
 }
 
-/// Keys governed by [`PERFORMANCE_PRESETS`] (`PRESET_KEYS` in `src/settings.js`).
+/// Keys governed by [`PERFORMANCE_PRESETS`] (`PRESET_KEYS`).
 ///
 /// Modifying any key in this list while `performancePreset` is set to a named
 /// preset (`minimum`, `performance`, `balanced`, `quality`) flips `performancePreset`
@@ -399,7 +399,7 @@ pub const PRESET_KEYS: [&str; 26] = [
     "farTerrain",
 ];
 
-/// Static default value in [`DEFAULTS`] (`src/settings.js`).
+/// Static default value in [`DEFAULTS`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DefaultVal {
     /// Boolean default (`true` or `false`).
@@ -410,7 +410,7 @@ pub enum DefaultVal {
     Number(f64),
     /// Static string literal default (such as `"custom"`, `"high"`, or `"PLAYER 1"`).
     Text(&'static str),
-    /// Empty custom key-binding map (`{}` in `src/settings.js`).
+    /// Empty custom key-binding map (`{}`).
     Bindings,
 }
 
@@ -475,7 +475,7 @@ impl SettingDefault {
     }
 }
 
-/// All 59 keys and defaults from `DEFAULTS` in `src/settings.js`, in exact source order.
+/// All 59 keys and defaults from `DEFAULTS`, in exact source order.
 pub const DEFAULTS: [SettingDefault; 59] = [
     // Simulation rate (`"60"` Hz fixed tick) and video preset / pacing / upscaling.
     // 1. Fixed 60 Hz gameplay simulation tick rate.
@@ -802,14 +802,14 @@ impl From<BTreeMap<String, Vec<String>>> for SettingValue {
     }
 }
 
-/// GPU classification result (`oldGpu` / `gpuState` in `src/gpu-info.js`).
+/// GPU classification result (`oldGpu` / `gpuState`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GpuInfo {
-    /// Trimmed WebGL/graphics renderer string.
+    /// Trimmed GL renderer string.
     pub renderer: String,
     /// Trimmed GPU vendor string.
     pub vendor: String,
-    /// True for pre-Ivy Bridge Intel GPUs (`oldGpu` in `src/gpu-info.js`).
+    /// True for pre-Ivy Bridge Intel GPUs (`oldGpu`).
     pub is_old_intel: bool,
     /// True when the GPU requires the `minimum` preset on first launch.
     pub is_blocklisted: bool,
@@ -817,7 +817,7 @@ pub struct GpuInfo {
     pub reason: Option<String>,
 }
 
-/// The first-run policy from `src/gpu-info.js`: pre-Ivy Bridge Intel only.
+/// The first-run policy: pre-Ivy Bridge Intel only.
 pub fn classify_gpu(renderer: &str, vendor: &str) -> GpuInfo {
     let renderer = renderer.trim();
     let vendor = vendor.trim();
@@ -840,14 +840,14 @@ pub fn classify_gpu(renderer: &str, vendor: &str) -> GpuInfo {
         is_blocklisted: old, reason: old.then(|| "Pre-Ivy Bridge Intel GPU".into()) }
 }
 
-/// CPU hardware probe result (`getCpuInfo` in `src/cpu-info.js`).
+/// CPU hardware probe result (`getCpuInfo`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CpuInfo {
     /// Logical processor count (`navigator.hardwareConcurrency`, default `8`).
     pub threads: u32,
     /// Approximate RAM in GiB (`navigator.deviceMemory`, default `8.0`).
     pub memory: f64,
-    /// True when `threads <= 4 && memory <= 4.0` (`lowEndCpu` in `src/cpu-info.js`).
+    /// True when `threads <= 4 && memory <= 4.0` (`lowEndCpu`).
     pub low_end_cpu: bool,
 }
 
@@ -859,7 +859,7 @@ impl Default for CpuInfo {
 
 impl CpuInfo {
     /// Evaluates `low_end_cpu` (`threads <= 4 && memory <= 4.0`) from `threads` and `memory`
-    /// (`getCpuInfo` in `src/cpu-info.js`).
+    /// (`getCpuInfo`).
     #[inline]
     pub fn new(threads: u32, memory: f64) -> Self {
         let t = if threads > 0 { threads } else { 8 };
@@ -890,20 +890,20 @@ pub struct DesktopSettingsSnapshot {
     pub values: Map<String, Value>,
 }
 
-/// Persistent and session-overridden settings container (`Settings` in `src/settings.js`).
+/// Persistent and session-overridden settings container (`Settings`).
 #[derive(Clone, Debug)]
 pub struct Settings {
-    /// Current effective saved values (`this.values` in `src/settings.js`).
+    /// Current effective saved values (`this.values`).
     pub values: BTreeMap<String, SettingValue>,
-    /// Transient session overrides (`this.overrides` in `src/settings.js`, e.g. URL query params).
+    /// Transient session overrides (`this.overrides`, e.g. URL query params).
     pub overrides: BTreeMap<String, SettingValue>,
-    /// Keys that already had a saved value when loaded (`this.saved` in `src/settings.js`).
+    /// Keys that already had a saved value when loaded (`this.saved`).
     pub saved: BTreeMap<String, bool>,
-    /// Keys modified during this session via [`Self::set`] or [`Self::reset`] (`this.changed` in `src/settings.js`).
+    /// Keys modified during this session via [`Self::set`] or [`Self::reset`] (`this.changed`).
     pub changed: BTreeMap<String, bool>,
-    /// True if no setting was previously saved (`this.fresh` in `src/settings.js`).
+    /// True if no setting was previously saved (`this.fresh`).
     pub fresh: bool,
-    /// True if the backing desktop record is complete (`this.complete` in `src/settings.js`).
+    /// True if the backing desktop record is complete (`this.complete`).
     pub complete: bool,
     /// Monotonic counter incremented whenever settings are mutated, allowing zero-allocation polling.
     pub revision: u64,
@@ -937,8 +937,7 @@ impl Settings {
     }
 
     /// Loads [`Settings`] from a `localStorage`-style string map (`bfe_setting_<key>` -> JSON)
-    /// and an optional desktop `{ complete, values }` snapshot, matching `Settings.load()` in
-    /// `src/settings.js`.
+    /// and an optional desktop `{ complete, values }` snapshot, matching `Settings.load()`.
     pub fn from_storage_and_desktop(
         storage: &BTreeMap<String, String>,
         desktop: Option<&DesktopSettingsSnapshot>,
@@ -976,7 +975,7 @@ impl Settings {
                 }
             }
         }
-        // `physicsRate` is fixed at 60 Hz (`src/settings.js`).
+        // `physicsRate` is fixed at 60 Hz.
         settings
             .values
             .insert("physicsRate".to_string(), SettingValue::from("60"));
@@ -1022,7 +1021,7 @@ impl Settings {
     }
 
     /// Serializes [`Settings`] as a desktop snapshot (`{ complete, values }`), matching
-    /// `Settings.persist()` in `src/settings.js` and the desktop host.
+    /// `Settings.persist()` and the desktop host.
     pub fn to_desktop_snapshot(&self) -> DesktopSettingsSnapshot {
         let mut values = Map::new();
         // Complete records write all 59 keys in `DEFAULTS` order.
@@ -1106,7 +1105,7 @@ impl Settings {
     }
 
     /// Returns the effective value of `key` (checking `overrides` first, then `values`, then `DEFAULTS`).
-    /// Mirrors `Settings.get(key)` in `src/settings.js`.
+    /// Mirrors `Settings.get(key)`.
     pub fn get(&self, key: &str) -> SettingValue {
         if let Some(v) = self.overrides.get(key) {
             return v.clone();
@@ -1120,7 +1119,7 @@ impl Settings {
     }
 
     /// Returns the saved value of `key`, ignoring transient `overrides`.
-    /// Mirrors `Settings.getSaved(key)` in `src/settings.js`.
+    /// Mirrors `Settings.getSaved(key)`.
     pub fn get_saved(&self, key: &str) -> SettingValue {
         if let Some(v) = self.values.get(key) {
             return v.clone();
@@ -1164,8 +1163,7 @@ impl Settings {
     }
 
     /// Sets `key` to `value` (clearing any session override on `key` and cascading
-    /// `performancePreset` changes across [`PRESET_KEYS`]), matching `Settings.set(key, value)`
-    /// in `src/settings.js`.
+    /// `performancePreset` changes across [`PRESET_KEYS`]), matching `Settings.set(key, value)`.
     pub fn set(&mut self, key: &str, value: impl Into<SettingValue>) {
         if key == "physicsRate" {
             return;
@@ -1194,7 +1192,7 @@ impl Settings {
             }
         } else if PRESET_KEYS.contains(&key) {
             // Changing any individual `PRESET_KEYS` entry away from the active preset's value
-            // flips `performancePreset` back to `"custom"` (`src/settings.js`).
+            // flips `performancePreset` back to `"custom"`.
             let current_preset = self
                 .values
                 .get("performancePreset")
@@ -1218,7 +1216,7 @@ impl Settings {
     }
 
     /// Sets a session-only override for `key` without modifying persisted values.
-    /// Mirrors `Settings.override(key, value)` in `src/settings.js`.
+    /// Mirrors `Settings.override(key, value)`.
     pub fn override_value(&mut self, key: &str, value: impl Into<SettingValue>) {
         if key == "physicsRate" {
             return;
@@ -1239,13 +1237,13 @@ impl Settings {
         }
     }
 
-    /// Clears all transient session overrides (`Settings.clearOverrides()` in `src/settings.js`).
+    /// Clears all transient session overrides (`Settings.clearOverrides()`).
     pub fn clear_overrides(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         self.overrides.clear();
     }
 
-    /// Resets every setting to [`DEFAULTS`] (`Settings.reset()` in `src/settings.js`).
+    /// Resets every setting to [`DEFAULTS`] (`Settings.reset()`).
     ///
     /// Clears all session overrides, marks all 59 keys as saved and changed, marks
     /// the record as `complete = true`, and flushes to disk if file-backed.
@@ -1284,8 +1282,7 @@ impl Settings {
         self.persist_if_backed();
     }
 
-    /// Adopts hardware-appropriate defaults on first run (`Settings.adoptHardwareDefaults(gpu, cpu)`
-    /// in `src/settings.js`):
+    /// Adopts hardware-appropriate defaults on first run (`Settings.adoptHardwareDefaults(gpu, cpu)`):
     /// - If `fresh && gpu.is_old_intel`, sets `performancePreset` to `"minimum"` (cascading all
     ///   27 [`PRESET_KEYS`] to their minimum preset values).
     /// - If `!saved["audioQuality"] && cpu.low_end_cpu`, sets `audioQuality` to `"original"`.
@@ -1310,7 +1307,7 @@ impl Settings {
 
     /// Converts the `mouseSensitivity` slider (`0.5..10.0`, default `5.0`) into the mouse look
     /// multiplier `2^((clamp(slider, 0.5, 10) - 5) / 5)` (`0.5 -> ~0.536x`, `5.0 -> 1.0x`, `10.0 -> 2.0x`),
-    /// matching `Settings.mouseScale()` in `src/settings.js`.
+    /// matching `Settings.mouseScale()`.
     pub fn mouse_scale(&self) -> f64 {
         // Fall back to the neutral `5.0` midpoint if the stored value is non-finite.
         let raw = self.get_f64("mouseSensitivity");
@@ -1368,7 +1365,7 @@ mod tests {
         hw.set("shadows", "high");
         assert_eq!(hw.get_string("performancePreset"), "custom");
 
-        // The presets set the same 26 keys as the browser build's, adaptive resolution among them and
+        // The presets set the same 26 keys as the client build's, adaptive resolution among them and
         // sharpening and the death camera not.
         assert_eq!(PRESET_KEYS.len(), 26);
         assert_eq!(s.get_string("dynamicResolution"), "0");

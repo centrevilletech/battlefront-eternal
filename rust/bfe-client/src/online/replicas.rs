@@ -22,7 +22,7 @@ use three::Matrix4;
 use crate::app::page_battle::appearance::{self,Appearance};
 use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
-// combat.js FLASH_SCALE: the flash model's size at a muzzle.
+// FLASH_SCALE: the flash model's size at a muzzle.
 const FLASH_SCALE: f64 = 0.6;
 struct Model {
     row: [f64; draw::REC_STRIDE],
@@ -91,7 +91,7 @@ struct Slot {
     glow: Option<u32>,
 }
 /// The player's VIDEO settings that pick a look here. Each effect setting is
-/// Enhanced unless it says "classic", as the browser reads it.
+/// Enhanced unless it says "classic" it.
 #[derive(Clone, Copy)]
 pub struct Looks {
     pub arcs: bool,
@@ -124,7 +124,7 @@ pub struct Replicas {
     pub fountains: Option<Box<super::fountains::Fountains>>,
     pub trails: Box<super::trails::Trails>,
     rollers: Vec<super::trails::Roller>,
-    // The player's own body, whose droideka alone trails dust (game.js).
+    // The player's own body, whose droideka alone trails dust.
     own: (u32, u32),
     guns: super::lightning::Guns,
     soft: bool,
@@ -156,7 +156,7 @@ pub struct Replicas {
     // By class: a class's own skin on its shared body (OverrideTexture), as
     // the body's draw textures and spawn screen preview parts.
     skins: Vec<Option<([f64; 4], Vec<Appearance>)>>,
-    // game.js lightAt for every drawn body and the first-person view.
+    // lightAt for every drawn body and the first-person view.
     light: super::unit_light::UnitLight,
     // The sun's direction toward the scene, the frame's dt, the player's feet,
     // and FirstPersonView.sunSeen (eased: is the sun seen from the gun?).
@@ -388,7 +388,7 @@ impl Replicas {
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
         }
-        // units.js buildBody: a class's OverrideTexture re-skins its body.
+        // buildBody: a class's OverrideTexture re-skins its body.
         // A class the world can field but no body draws would fight unseen.
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
@@ -683,7 +683,7 @@ impl Replicas {
             rollers: Vec::with_capacity(16),
             own: (0, 0),
             guns,
-            // The browser's defaults, until the player's settings arrive.
+            // The defaults, until the player's settings arrive.
             soft: true,
             tick: 0.,
             collision,
@@ -843,7 +843,7 @@ impl Replicas {
                 self.slots[slot].rider = (-1., false, None, false);
                 self.slots[slot].identity = Some(key);
                 self.slots[slot].active = true;
-                // units.js: a walker with a shield look has a bubble.
+                // a walker with a shield look has a bubble.
                 if kind == k::DROIDEKA {
                     self.slots[slot].bubble = self.shields.take(row[r::CLASS_ID] as usize);
                 }
@@ -954,7 +954,7 @@ impl Replicas {
                     self.units.input[f::COMMANDS] += 1.;
                 }
             }
-            // game.js onDeath: a droid that comes apart, killed on its feet,
+            // onDeath: a droid that comes apart, killed on its feet,
             // shorts out the Enhanced way.
             if dead && !self.slots[slot].dead && self.slots[slot].gone.is_none() && self.combat.destruction.chunked(self.slots[slot].class) {
                 self.slots[slot].dead = true;
@@ -1207,7 +1207,7 @@ impl Replicas {
                 slot.death_pending = false;
             }
             // Unit.presentGone keeps the body's clock; a droideka whose death
-            // clip played out goes up by itself (goneUp, src/droideka.js).
+            // clip played out goes up by itself (goneUp).
             if slot.active && (slot.gone.is_some() || out[o::GONE_BIRTH] != 0.) {
                 slot.gone = Some(out[o::GONE_TIME]);
             }
@@ -1447,7 +1447,7 @@ impl Replicas {
         self.present_flashes(receiver, dt, bridge);
         self.present_jets(dt, bridge);
     }
-    // game.js updateJetFlame for every body drawn: a soldier jetting and
+    // updateJetFlame for every body drawn: a soldier jetting and
     // alive (`soldier.air === "jet"`) burns at his ribcage as posed this
     // frame, with the Enhanced flame and wake or, in Classic, his class's
     // JetExhaust effect.
@@ -1483,14 +1483,14 @@ impl Replicas {
         self.jets.finish(self.soft, bridge);
         self.presented.shown[13] = self.jets.draws + self.combat.total_flames;
     }
-    // combat.js updateFlashes, for every body: the flash model sits at the
+    // updateFlashes, for every body: the flash model sits at the
     // muzzle of the gun in his hand (0.6 of its size, FLASH_SCALE) while the
     // flash lasts and that gun is the one drawn, at full alpha for the
-    // first half of its time and fading through the second. The browser
+    // first half of its time and fading through the second. The earlier build
     // counts the flash down once a simulation tick (Combat.update), the
     // first time on the tick of the shot, so a rifle's 0.025 s flash shows
     // for one tick however fast frames are drawn; the time left here is
-    // counted from the ticks gone by the same way. The browser also lights
+    // counted from the ticks gone by the same way. The earlier build also lights
     // the scene from it; there are no such lights here.
     fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
@@ -1549,7 +1549,7 @@ impl Replicas {
             }
         }
     }
-    /// The looks the player's settings choose, as the browser reads them.
+    /// The looks the player's settings choose them.
     /// A class registry id's name ("" when unknown).
     pub fn class_name(&self, id: usize) -> &str {
         self.class_names.get(id).map_or("", String::as_str)
@@ -1666,7 +1666,7 @@ impl Replicas {
         if let Some(fountains) = &mut self.fountains {
             fountains.frame(dt, &self.combat.map_effects.fountains, &self.combat.map_effects.wakes, camera, screen, gpu, bridge);
         }
-        // DroidekaTrail.update for the player's droideka (game.js keeps one
+        // DroidekaTrail.update for the player's droideka (keeps one
         // trail, his own; Droideka mode 12: rolling), where it is drawn.
         self.rollers.clear();
         for slot in self.slots.iter().filter(|s| s.active && s.walker && s.identity == Some(self.own)) {
@@ -1853,8 +1853,8 @@ impl Replicas {
         );
     }
 
-    // DeathShot.frame (death-shot.js) follows the dead player's ribcage bone
-    // where the page draws it. The camera owner runs before this frame's pose,
+    // DeathShot.frame follows the dead player's ribcage bone
+    // where the client draws it. The camera owner runs before this frame's pose,
     // so this is the node bank as the previous frame placed it; the shot's
     // own spring follows the point, and a body at rest does not move.
     pub fn drawn_chest(&self, receiver: &Receiver) -> Option<[f64; 3]> {
@@ -1871,7 +1871,7 @@ impl Replicas {
         let world = self.units.nodes.get(at..at + 16)?;
         Some([world[12], world[13], world[14]])
     }
-    // drawnKiller (death-shot.js) reads the killer's feet from his drawn
+    // drawnKiller reads the killer's feet from his drawn
     // actor root, not from the newest network row.
     pub fn drawn_feet(&self, id: u32, generation: u32) -> Option<[f64; 3]> {
         let slot = self
@@ -1885,7 +1885,7 @@ impl Replicas {
 
     // PlayerCombat.updateHud reads the displayed unit's existing aim basis.
     // Reusing it preserves posture, interpolation and the authored walker eye.
-    /// The gun's origin and aim direction of the page's own soldier on foot
+    /// The gun's origin and aim direction of the client's own soldier on foot
     /// (PlayerCombat.origin and aimDir), where the reticle's target search
     /// starts whichever view he is drawn in.
     pub fn aim_ray(&self, receiver: &Receiver) -> Option<([f64; 3], [f64; 3])> {

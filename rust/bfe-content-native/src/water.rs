@@ -1,5 +1,5 @@
 //! Water.surface's authored grid and clipped patches. Cold geometry preserves
-//! the browser's vertex order, UVs and final Float32 conversion.
+//! the client's vertex order, UVs and final Float32 conversion.
 use serde_json::Value;
 pub struct Surface {
     pub vertices: Vec<f32>,

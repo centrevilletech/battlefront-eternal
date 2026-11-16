@@ -59,7 +59,7 @@ impl Collision {
    count=body_shapes::standing(Vector3::new(x[i::POSITION],x[i::POSITION+1],x[i::POSITION+2]),x[i::YAW],posture,x[i::SCALE],(x[i::WALKER]!=0.0).then_some(x[i::MODE]),x[i::BALL_RADIUS],&mut cache.shapes);
   }
   let(center,radius)=body_shapes::bounds(&cache.shapes[..count]);out[o::COUNT]=count as f64;out[o::CENTER..o::CENTER+3].copy_from_slice(&[center.x,center.y,center.z]);out[o::RADIUS]=radius;out[o::CHANGED]=1.0;
-  // Publish a fixed prefix. The page retains vectors and its result array
+  // Publish a fixed prefix. The client retains vectors and its result array
   // while native counts change between ordinary bodies and ten rider limbs.
   for n in 0..count {let h=cache.shapes[n];let at=(id*lim::SHAPES+n)*s::STRIDE;let row=&mut self.shapes[at..][..s::STRIDE];
    row[s::KIND]=match h.kind{Kind::Sphere=>k::SPHERE,Kind::Cylinder=>k::CYLINDER,Kind::Box=>k::BOX,Kind::Capsule=>k::CAPSULE}as f64;

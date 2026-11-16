@@ -1,4 +1,4 @@
-//! Registry-backed CombatWorld sensors (weapon-targeting.js, heroes.js and
+//! Registry-backed CombatWorld sensors (heroes.js and
 //! runtime/hit-history.js). Flags are read before lazy geometry is observed.
 use super::{f3, registry, shapes::v3};
 use crate::combat::{
@@ -164,7 +164,7 @@ impl history::World for Sensors<'_> {
             } else {
                 s.radius
             };
-            // capture asks sphere before strikeable, matching hit-history.js.
+            // capture asks sphere before strikeable,.
             // A later exposed-seat query must see that same observation stamp.
             if registry::strikeable(r.slot, u, world) {
                 // HitShape contains only fixed numeric values, so this copies
@@ -646,7 +646,7 @@ fn missile_member_in(world_ctx: &mut crate::world::owner::World, id: f64, genera
     ((Sensors { w: world_ctx }).facts(member).alive && life_in(world_ctx, member) == generation).then_some(member)
 }
 
-/// missileTarget (ordnance-world.js) uses aimPoint: a Unit observes its lazy
+/// missileTarget uses aimPoint: a Unit observes its lazy
 /// sphere here. Prop aim points are already facts from the phase boundary.
 pub(crate) fn missile_target_in(world_ctx: &mut crate::world::owner::World, id: f64, generation: f64) -> Option<[f64;3]> {
     let member = missile_member_in(world_ctx, id,generation)?;
@@ -656,7 +656,7 @@ pub(crate) fn missile_target_in(world_ctx: &mut crate::world::owner::World, id: 
     })
 }
 
-/// navigateMissile (ordnance-world.js) uses target.position, not aimPoint.
+/// navigateMissile uses target.position, not aimPoint.
 /// It does not refresh shapes. An invalid life retains its target id; only
 /// the seeker's cone or roll break changes it to minus one.
 pub(crate) fn navigate_missile_in(world_ctx: &mut crate::world::owner::World,
@@ -685,7 +685,7 @@ pub(crate) fn navigate_missile_in(world_ctx: &mut crate::world::owner::World,
     if retained { id } else { -1.0 }
 }
 
-/// WaterState.crossing (runtime/water-state.js). F3 and the later F1 update
+/// WaterState.crossing. F3 and the later F1 update
 /// use the same bobbed level. The map's numeric water grid is loaded once.
 /// Only downward crossings count, including a start exactly on the surface.
 pub(crate) fn water_crossing_in(_world_ctx: &mut crate::world::owner::World, from: [f64;3], to: [f64;3]) -> Option<[f64;3]> {

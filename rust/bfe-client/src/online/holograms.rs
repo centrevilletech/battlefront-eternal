@@ -1,4 +1,4 @@
-//! The command posts' holograms (src/commandposts.js Hologram). Over each
+//! The command posts' holograms (Hologram). Over each
 //! post that has one stands its owner's logo, turning and flickering in the
 //! colour the viewer's team sees the owner in, with a beam beneath it, a
 //! flare at its foot and a soft halo round it. Fade, flicker, reach and the
@@ -26,7 +26,7 @@ pub const HOLOGRAMS: usize = 64;
 const PARTS: usize = 4;
 /// Matrices of the effect bank this owner writes, counted back from its end.
 pub const MATRICES: usize = HOLOGRAMS * PARTS;
-// The shared texture the page scrolls under every logo that uses it.
+// The shared texture the client scrolls under every logo that uses it.
 const LOGO_TEXTURE: &str = "com_icon_controlzone";
 const FLARE_TEXTURE: &str = "commandpostflare";
 
@@ -89,7 +89,7 @@ pub struct Holograms {
     fields: Fields,
     // The posts' clock, which turns the logos and scrolls their texture.
     time: f64,
-    // The flicker's cosmetic draws (the page uses Math.random).
+    // The flicker's cosmetic draws (the client uses Math.random).
     seed: u64,
     data: usize,
     matrices: usize,
@@ -224,7 +224,7 @@ impl Holograms {
             Ok(Model { id: row[0] as u32, values: row[4..].iter().map(|v| *v as f32).collect() })
         };
         // The owner's procedural art: a 128 square halo, then the beam's
-        // 4 by 64 gradient, which the page uploads flipped.
+        // 4 by 64 gradient, which the client uploads flipped.
         let art = |resources: &mut crate::resources::Resources, bridge: &mut Bridge, pixels: &[u8], width: usize, height: usize, flip: bool| -> Result<i32, String> {
             let source = resources.source(&serde_json::json!({"width":width,"height":height,"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false}).to_string())?;
             resources.source_pixels(source, pixels)?;
@@ -253,7 +253,7 @@ impl Holograms {
         let vertices = bfe_content_native::geometry::floats(&content.textures.read("common/holograms.bin")?)?;
         let indices = bfe_content_native::geometry::words(&content.textures.read("common/holograms_index.bin")?)?;
         for (team, name) in logo_models(content) {
-            // Every part draws with the first part's texture, as the page's
+            // Every part draws with the first part's texture, as the client's
             // single logo material does.
             let Some(texture) = part(common, &name).map(|p| p.get("texture").and_then(Value::as_str).unwrap_or("")) else {
                 continue;

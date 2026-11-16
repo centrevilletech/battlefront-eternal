@@ -1,4 +1,4 @@
-//! Cold placements from props.js::LiveObjects. The shared rig batch builder
+//! Cold placements::LiveObjects. The shared rig batch builder
 //! owns bind transforms and grouping; this host supplies initial looks only.
 use crate::{loader::authored_json, BattleContent};
 use serde_json::{json, Value};

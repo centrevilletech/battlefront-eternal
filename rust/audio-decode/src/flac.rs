@@ -197,7 +197,7 @@ impl Flac {
 // browser's positive reciprocal is 1/32767 and its negative reciprocal is
 // 1/32768; multiply after rounding both operands to f32. Symmetric division
 // would alter positive samples even for otherwise lossless FLAC.
-// Above 16 bits the browser uses power-of-two scaling instead. This differs
+// Above 16 bits Chromium uses power-of-two scaling instead. This differs
 // from the original game's raw S16 bank, which deliberately uses 1/32768
 // on both signs; the two asset formats must not share a normalization rule.
 pub fn integer_pcm(value: i32, bits: u32) -> f32 {

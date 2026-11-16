@@ -22,7 +22,7 @@ pub fn utf16_len(s: &str) -> usize {
 }
 
 /// `s.charCodeAt(i)` where `s` is held as code units: the unit, or
-/// NaN (as JavaScript returns) when out of range. Index arithmetic
+/// NaN when out of range. Index arithmetic
 /// follows ToIntegerOrInfinity, as the spec's does.
 pub fn char_code_at(units: &[u16], index: f64) -> f64 {
     let i = crate::conv::to_integer_or_infinity(index);

@@ -1,5 +1,5 @@
-//! First-run choices and preflight checks, following electron/main.js's
-//! askToPrepare/checkCopy and electron/ui/prepare.js's state text.
+//! First-run choices and preflight checks: whether to ask before preparing,
+//! checks of a chosen copy, and the setup screen's state text.
 use super::settings::{
     application_resources, current_arch_str, current_platform_str, AppSettingsStore,
 };
@@ -74,7 +74,7 @@ pub struct SetupView {
     pub error: bool,
 }
 
-/// How a content transfer ended, for the notice screen (prepare.js `transfer-done` and
+/// How a content transfer ended, for the notice screen (`transfer-done` and
 /// `transfer-error`).
 #[derive(Clone, Debug)]
 pub struct TransferEnd {
@@ -155,7 +155,7 @@ pub struct Setup {
     pub copies: Vec<GameInstall>,
     pub selected: usize,
     pub cursor: usize,
-    /// The action the keyboard's focus is on, if any (the page's `:focus-visible` element).
+    /// The action the keyboard's focus is on, if any (the client's `:focus-visible` element).
     /// `cursor` is the lit button: the hovered one, the focused one, else the state's own choice.
     pub focus: Option<usize>,
     pub check: Option<Value>,
@@ -279,7 +279,7 @@ impl Setup {
             Some((_, Action::Sound | Action::Pick(_) | Action::Details))
         )
     }
-    /// Tab order of the page: the sound option, the other-copy buttons, the actions, then the
+    /// Tab order of the client: the sound option, the other-copy buttons, the actions, then the
     /// details link, as prepare.js lays them out.
     fn focus_order(&self) -> Vec<usize> {
         let actions = self.actions();
@@ -309,7 +309,7 @@ impl Setup {
         };
         let target = order[next];
         self.focus = Some(target);
-        // prepare.js lights a button when it takes the focus; focus leaving the
+        // lights a button when it takes the focus; focus leaving the
         // button group lights the state's own choice again.
         self.cursor = if self.is_group_button(target) {
             target
@@ -338,7 +338,7 @@ impl Setup {
         }
         if self.message.is_some() {
             if let Some(end) = &self.transfer {
-                // prepare.js: MAIN MENU (primary) when there is content, IMPORT CONTENT EXPORT,
+                // MAIN MENU (primary) when there is content, IMPORT CONTENT EXPORT,
                 // CHOOSE GAME FOLDER when there is none.
                 let mut actions = Vec::new();
                 if end.content.is_some() {
@@ -427,7 +427,7 @@ impl Setup {
                 }
                 .into();
                 v.code = end.file.clone();
-                // prepare.js styles `error` for loader errors only; a stopped transfer keeps the plain title.
+                // styles `error` for loader errors only; a stopped transfer keeps the plain title.
             } else {
                 v.title = "SOMETHING WENT WRONG".into();
                 v.error = true;
@@ -638,7 +638,7 @@ impl Setup {
         v
     }
 }
-/// Ports `foundIn` in electron/ui/prepare.js: where a copy of the game came from.
+/// Ports `foundIn`: where a copy of the game came from.
 fn found_in(copy: &GameInstall) -> String {
     match copy.source.as_str() {
         "chosen" => "The folder you chose".into(),
@@ -681,7 +681,7 @@ pub fn options(
     }
 }
 
-/// estimate(snapshot) and drawProgress from the browser: duration-weighted
+/// estimate(snapshot) and drawProgress from the client: duration-weighted
 /// work, capped running fractions, batched armies/maps and the same clock text.
 pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
     let mut v = SetupView::default();
@@ -843,7 +843,7 @@ pub fn progress_view(snapshot: &PrepareSnapshot) -> SetupView {
         fraction,
         label,
         numbers: if known {
-            // prepare.js joins with two spaces each side; the page's `white-space: nowrap`
+            // joins with two spaces each side; the client's `white-space: nowrap`
             // collapses them, so the drawn text has one.
             numbers.join(" \u{00b7} ")
         } else {
@@ -893,7 +893,7 @@ pub struct TransferWork {
     current: TransferProgress,
 }
 
-/// One progress report from an archive transfer: the phase the browser's `onProgress` names
+/// One progress report from an archive transfer: the phase the client's `onProgress` names
 /// ("Importing and verifying", "Restoring shared content", "Exporting content"), the file, and
 /// bytes done of total.
 #[derive(Clone, Debug, Default)]
@@ -1006,7 +1006,7 @@ impl TransferWork {
             }
         })
     }
-    /// The transfer view of prepare.js: the title, the phase as the detail line (or "Starting…"),
+    /// The transfer view: the title, the phase as the detail line (or "Starting…"),
     /// the file under it, a bar of bytes done over total, the phase beside a percentage, CANCEL.
     pub fn view(&self) -> SetupView {
         let progress = &self.current;
@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     /// A checked copy with a second install: the sound option, the other copy's
-    /// button and the three actions, in the order prepare.js puts them in the page.
+    /// button and the three actions, in the order prepare.js puts them in the client.
     fn ready() -> Setup {
         let mut setup = Setup::missing(false);
         setup.copies = vec![copy("/opt/example/one"), copy("/opt/example/two")];
@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn a_finished_transfer_names_itself_and_offers_the_menus_actions() {
-        // prepare.js `transfer-done`: the title by operation, the file under the message,
+        // `transfer-done`: the title by operation, the file under the message,
         // MAIN MENU first when there is content, and no folder choice then.
         let done = notice(false, TransferKind::Export, Some("/opt/example/content"));
         let view = done.view();

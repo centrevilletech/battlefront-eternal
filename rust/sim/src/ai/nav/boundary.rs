@@ -1,4 +1,4 @@
-//! The playable area from the `bnd_` config (nav/boundary.js).
+//! The playable area from the `bnd_` config.
 
 use super::math::Vec3;
 
@@ -10,7 +10,7 @@ struct Edge {
     nz: f64,
 }
 
-/// Boundary (boundary.js:13). Polygons are point lists as loaded; the
+/// Boundary. Polygons are point lists as loaded; the
 /// JavaScript accepts {x, z} objects or [x, y, z, ...] arrays, and
 /// data.rs passes the loaded paths' points as Vec3s (y is unused here).
 #[derive(Clone, Debug, Default)]
@@ -47,12 +47,11 @@ impl Boundary {
         Boundary { polygons }
     }
 
-    /// boundary.js:28.
     pub fn empty(&self) -> bool {
         self.polygons.is_empty()
     }
 
-    /// Inside polygon i (boundary.js:33).
+    /// Inside polygon i.
     pub fn contains(&self, i: usize, p: Vec3) -> bool {
         for e in &self.polygons[i] {
             if (p.x - e.x) * e.nx + (p.z - e.z) * e.nz > 0.0 {
@@ -62,7 +61,7 @@ impl Boundary {
         true
     }
 
-    /// Outside every polygon of a nonempty boundary (boundary.js:41).
+    /// Outside every polygon of a nonempty boundary.
     pub fn outside(&self, p: Vec3) -> bool {
         if self.polygons.is_empty() {
             return false;

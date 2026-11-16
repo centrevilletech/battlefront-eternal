@@ -1,5 +1,5 @@
 //! The connected players a dedicated match keeps (src/runtime/
-//! multiplayer-world.js `players`): each one's command queues, connection
+//! `players`): each one's command queues, connection
 //! facts and the per-body facts the JavaScript kept on its Unit objects.
 //! Bodies are pooled, so those facts are kept by body slot, as the objects
 //! were, and outlive the player who set them exactly as the source's did.
@@ -11,7 +11,7 @@ use crate::store::{block::Block, handles::Pool, Ref, StrId, Strings};
 /// How many players a match admits at most (world-worker's 64 connections
 /// plus the dedicated world's own viewpoint), the size of every view block.
 pub const PLAYER_CAPACITY: usize = 65;
-/// MAX_INPUT_LEAD_TICKS and ONLINE_PLAYOUT_MAX_TICKS (src/runtime/network-hit-limits.js).
+/// MAX_INPUT_LEAD_TICKS and ONLINE_PLAYOUT_MAX_TICKS.
 pub const MAX_INPUT_LEAD_TICKS: f64 = 24.0;
 pub const ONLINE_PLAYOUT_MAX_TICKS: f64 = 10.0;
 
@@ -37,7 +37,7 @@ pub struct NetworkFacts {
 }
 
 /// Unit.intent.flight: never written, `{}` after his input stopped, or
-/// the seat's keys as the hull takes them (boarding.js seatInput).
+/// the seat's keys as the hull takes them (seatInput).
 #[derive(Clone, Copy, Debug, Default)]
 pub enum Flight {
     #[default]
@@ -58,8 +58,8 @@ pub struct UnitShadow {
 }
 
 /// The string ids the controls are read with: the world's key tables
-/// (src/input.js WORLD_AXES, HOLDS, PRESSES) and the flight package's
-/// default bindings (src/flight/controls.js FLIGHT_BINDINGS).
+/// (WORLD_AXES, HOLDS, PRESSES) and the flight package's
+/// default bindings (FLIGHT_BINDINGS).
 pub struct Names {
     pub forward: [[StrId; 2]; 2],
     pub right: [[StrId; 2]; 2],
@@ -129,7 +129,7 @@ impl Names {
     }
 }
 
-/// One connection (multiplayer-world.js `p`): its lanes and flags, the
+/// One connection (`p`): its lanes and flags, the
 /// Character the roster gave it and when it last spoke.
 pub struct Player {
     pub mailbox: usize,

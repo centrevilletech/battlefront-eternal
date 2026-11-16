@@ -11,7 +11,7 @@ use crate::value::{Object, Value};
 use std::collections::HashSet;
 use std::rc::Rc;
 
-/// game.js `data` (3386) as registryContent picks from it: the battle's
+/// `data` (3386) as registryContent picks from it: the battle's
 /// common, effects, props, vehicles and world, and its fielded sides (by
 /// sorted name) and their effects. A side is game.js's `sides[name]` record
 /// ({ dir, units, items, texture, firePoints }; `texture` is a function,
@@ -40,7 +40,7 @@ pub fn registry_content(c: &Content) -> Value {
             (Rc::from("firePoints"), side.fire_points.clone()),
         ]);
         sides.push((Rc::from(name.as_str()), Value::Object(Rc::new(record))));
-        // game.js: sideFx holds a side's effects.json when it has one.
+        // sideFx holds a side's effects.json when it has one.
         let fx = if side.name == b.side { b.side_fx.clone() } else { side.fx.clone() };
         if let Some(fx) = fx.filter(|f| f.truthy()) {
             side_fx.push((Rc::from(name.as_str()), fx));
@@ -153,7 +153,7 @@ pub fn combat_registry(content: &Value) -> Result<Vec<(String, Value)>, String> 
     Ok(out)
 }
 
-/// network-entity-registry.js name(): a non-empty string of at most 128
+/// name(): a non-empty string of at most 128
 /// UTF-16 units.
 fn valid_name(v: Option<&Value>) -> Result<String, String> {
     match v {
@@ -190,7 +190,7 @@ pub struct EntityRegistry {
 
 /// The battle's posts as the registry names them (entity-spawn-posts.js
 /// entityPostNames): each map post (`desc.name || '#<index>'`,
-/// commandposts.js Post), then `transport-<i>` for each vehicle slot.
+/// Post), then `transport-<i>` for each vehicle slot.
 pub fn post_names(c: &Content) -> Vec<Option<Value>> {
     let b = &c.battle;
     let mut out: Vec<Option<Value>> = Vec::new();

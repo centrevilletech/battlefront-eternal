@@ -67,7 +67,7 @@ pub trait World {
     fn cast(&mut self, w:&mut crate::world::owner::World,from:&Vector3,direction:&Vector3,span:f64,ignore:Option<Ref<Body>>)->Option<Option<Ref<Body>>>;
     fn raycast(&mut self, w:&mut crate::world::owner::World,from:&Vector3,direction:&Vector3,span:f64,exclude:&[Member])->bool;
 }
-/// goto.js clearAbove uses the game's LOS service: ignore the rider's hull
+/// clearAbove uses the game's LOS service: ignore the rider's hull
 /// collision body and its own registry member, then test the full 40 m span.
 /// Owners are lent explicitly so lazy F3 shape reads cannot reacquire them.
 pub fn clear_above( w:&mut crate::world::owner::World,world:&mut impl World,from:&Vector3,unit:&crate::gen::AiLifeHandle)->bool {

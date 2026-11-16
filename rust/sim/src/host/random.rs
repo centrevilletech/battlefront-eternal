@@ -1,4 +1,4 @@
-//! F3Random.push (src/sim/wasm/f3-random.js) supplies the initial words of
+//! F3Random.push supplies the initial words of
 //! absent named streams, without drawing or materializing them. A native
 //! host must do this at admission too: a zero-filled lazy bank otherwise
 //! starts its first held-trigger spread from zero instead of the match seed.
@@ -6,7 +6,7 @@ use crate::abi::context::{Context, Error};
 use crate::gen::{F3RandomGlobals, F3RandomState};
 use crate::units::f3;
 
-/// RandomStreams.draw names from game.js and multiplayer-world.js. Bare AI
+/// RandomStreams.draw names and multiplayer-world.js. Bare AI
 /// generators are deliberately excluded: they have their own shared owners.
 pub const NAMES: [&str; 5] = [
     "gameplay",
@@ -25,7 +25,7 @@ pub struct Bindings {
 impl Bindings {
     /// Configure is cold. Existing live generators retain both their state
     /// and their first-use sequence; preparing an absent one does not insert
-    /// its name into the page's observed registry or advance its generator.
+    /// its name into the client's observed registry or advance its generator.
     pub fn initialize(&self, words: &mut [f64], seed: u32) {
         for (name, id) in NAMES.iter().zip(self.ids) {
             let Some(id) = id else { continue };

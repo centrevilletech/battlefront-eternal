@@ -3,7 +3,7 @@
 //! consumed held/view values rather than serializing every actor each time.
 use crate::{gen::*,store::{handles::Pool,StrId,Strings}};
 // WiView keeps protocol presence independent of numeric values and truthiness.
-/// The view record's presence bits (src/runtime/input-view.js VIEW).
+/// The view record's presence bits (VIEW).
 pub mod view_flags {
     pub const INVERT_MOUSE:u16=1;pub const FIRST_PERSON:u16=2;pub const FLIGHT:u16=4;pub const FLIGHT_INVERT:u16=8;
     pub const GAMEPAD:u16=16;pub const MOUSE_SCALE:u16=32;pub const ASPECT:u16=64;pub const VIEW_TICK:u16=128;
@@ -97,7 +97,7 @@ impl Mailbox {
         for &id in &result.retired {if self.consumed.len()<self.consumed.capacity() {self.consumed.push(id);}}
     }
     /// The host's exchange learns of the natively consumed packets too
-    /// (src/sim/wasm/runtime/input-mailbox.js run reads `retired`).
+    /// (run reads `retired`).
     pub fn lend_consumed(&mut self,result:&mut ImResult) {result.retired.extend(self.consumed.drain(..));}
     /// The host's result lends this retained list for the held codes.
     pub fn lend_down(&mut self,result:&mut ImResult) {result.down=std::mem::take(&mut self.down_out);result.down.clear();result.down.extend_from_slice(&self.down);}

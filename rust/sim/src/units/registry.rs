@@ -1,4 +1,4 @@
-//! The registry (src/registry.js Units): every combatant in the battle in
+//! The registry (Units): every combatant in the battle in
 //! the order it was added, the teams' relations, and the questions rounds,
 //! capture and the AI ask of it: who is near a point (`query`) and what a
 //! segment passes through (`raycast`).
@@ -16,7 +16,7 @@ use crate::store::{Slab, Strings};
 /// The faction SetTeamName gives a name it doesn't know.
 pub const LOCALS: f64 = 5.0;
 
-/// The mission's table (src/ai/classic/spawning.js teamTable): each team's
+/// The mission's table (teamTable): each team's
 /// view of another, its faction and whom it captures for, by team number.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TeamTable {
@@ -35,7 +35,7 @@ fn index(team: f64, len: usize) -> Option<usize> {
     }
 }
 
-/// What a raycast found (registry.js makeUnitHit): the unit, the distance,
+/// What a raycast found (makeUnitHit): the unit, the distance,
 /// the point, the shape's outward normal there and which part.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitHit {
@@ -82,7 +82,7 @@ fn number_text(x: f64) -> String {
     }
 }
 
-/// strikeable(unit) (registry.js): whether a round can meet this unit's
+/// strikeable(unit): whether a round can meet this unit's
 /// body: a soldier on foot or a body lying where it fell, or a rider shown
 /// on an exposed seat; not one inside a vehicle or turret.
 pub fn strikeable(id: u32, unit: &Unit, world: &mut dyn UnitsWorld) -> bool {
@@ -99,7 +99,7 @@ pub fn target_id(m: Member) -> u32 {
     }
 }
 
-/// A reference held across a death (registry.js `ref`): the unit and the
+/// A reference held across a death (`ref`): the unit and the
 /// life it was taken in.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitRef {
@@ -108,7 +108,7 @@ pub struct UnitRef {
 }
 
 impl Units {
-    /// add(unit) (registry.js): the next id, the member at the list's end.
+    /// add(unit): the next id, the member at the list's end.
     /// Returns the id (a unit's slot).
     pub fn add(&mut self, kind: impl FnOnce(u32) -> Member) -> u32 {
         let id = self.next_id as u32;
@@ -117,7 +117,7 @@ impl Units {
         id
     }
 
-    /// remove(unit) (registry.js): out of the list (the next keep their order).
+    /// remove(unit): out of the list (the next keep their order).
     pub fn remove(&mut self, m: Member) {
         if let Some(i) = self.list.iter().position(|x| *x == m) {
             self.list.remove(i);
@@ -141,7 +141,7 @@ impl Units {
         }
     }
 
-    /// unitsClear(units, from, to, exclude) (registry.js): whether a segment
+    /// unitsClear(units, from, to, exclude): whether a segment
     /// from `from` to `to` passes clear of every living unit but those
     /// excluded (a sight test: seated units are left out).
     pub fn units_clear(&self, units: &mut Slab<Unit>, from: &Vector3, to: &Vector3, exclude: Exclude, world: &mut dyn UnitsWorld) -> bool {
@@ -155,7 +155,7 @@ impl Units {
         self.raycast(units, from, &d, span, exclude, None, false, world).is_none()
     }
 
-    /// relation(a, b) (registry.js): team a's relation to team b, 1 friend,
+    /// relation(a, b): team a's relation to team b, 1 friend,
     /// 0 neutral, -1 enemy.
     pub fn relation(&self, a: f64, b: f64, teams: Option<&TeamTable>, strings: &mut Strings) -> f64 {
         if a == b {
@@ -196,7 +196,7 @@ impl Units {
         teams.and_then(|t| index(team, t.capture.len()).and_then(|i| t.capture[i])).unwrap_or(team)
     }
 
-    /// query(center, radius, out, filter) (registry.js): the living members
+    /// query(center, radius, out, filter): the living members
     /// whose broadphase sphere meets the ball, in the registry's order.
     pub fn query(
         &self,
@@ -245,7 +245,7 @@ impl Units {
     }
 
     /// raycast(origin, direction, far, exclude, out, filter, riders)
-    /// (registry.js): the nearest soldier on foot a segment from `origin`
+    ///: the nearest soldier on foot a segment from `origin`
     /// along unit `direction` for `far` meets, by his hit shapes (a body
     /// still lying where it fell stops rounds too). `riders`: rounds also
     /// meet a soldier shown on an exposed seat.

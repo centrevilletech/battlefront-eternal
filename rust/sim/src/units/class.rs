@@ -1,7 +1,7 @@
 //! A body's numbers from its class (its ODF definition in a side's
 //! units.json), as the Soldier and Droideka constructors and units.js
 //! buildBody take them: what a soldier moves and jumps at, his jetpack, what
-//! landing too hard does to him (src/collision-damage.js collisionRule), a
+//! landing too hard does to him (collisionRule), a
 //! droideka's turn, ball and eye; the mission's ceiling; a soldier's get-up
 //! and dive times from his clips.
 
@@ -26,7 +26,7 @@ fn js_string(v: &Value) -> String {
     }
 }
 
-/// triple(value, defaults) (collision-damage.js): what the ODF sets over the
+/// triple(value, defaults): what the ODF sets over the
 /// defaults, as the original game reads "%f %f %f" into fields that keep
 /// their defaults. An array's numbers count as they are (anything else in it
 /// is no number); a string is split at white space and each part read as
@@ -77,7 +77,7 @@ fn num_or(def: &Value, key: &str, fallback: f64) -> f64 {
     }
 }
 
-/// The soldier class's numbers (soldier.js CLASS_DEFAULTS and the jetpack's).
+/// The soldier class's numbers (CLASS_DEFAULTS and the jetpack's).
 const CLASS_DEFAULTS: [(&str, f64); 6] = [("MaxSpeed", 9.0), ("MaxStrafeSpeed", 7.0), ("MaxJumpSpeed", 8.0), ("MaxTurnSpeed", 2.0), ("MaxPitchSpeed", 0.5), ("Acceleraton", 70.0)];
 const JET_DEFAULTS: [(&str, f64); 6] = [("JetJump", 7.0), ("JetPush", 14.0), ("JetFuelRechargeRate", 0.0), ("JetFuelCost", 0.2), ("JetFuelInitialCost", 0.0), ("JetFuelMinBorder", 0.1)];
 

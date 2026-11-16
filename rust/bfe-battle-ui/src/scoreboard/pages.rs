@@ -1,5 +1,5 @@
 //! `DETAILS` and `AWARDS` sub-pages, 3D hologram logo flights, and 2D batch drawing
-//! for `ClassicScoreboardView` (`src/scoreboard/classic/pages.js`, `src/scoreboard/classic/view.js`).
+//! for `ClassicScoreboardView`.
 
 use bfe_render::interface::{anchor, mul, scale, translate, Batch, Matrix};
 
@@ -19,19 +19,19 @@ use crate::shapes::{
     WHITE,
 };
 
-/// Base Y-axis angular velocity in radians per second per `OmegaY` unit (`30 deg/s` = `PI / 6`, `OMEGA` in `src/scoreboard/classic/view.js`).
+/// Base Y-axis angular velocity in radians per second per `OmegaY` unit (`30 deg/s` = `PI / 6`, `OMEGA`).
 pub const OMEGA: f64 = std::f64::consts::PI / 6.0; // 30 deg/s
 
-/// Duration in seconds over which the `"PERSONAL STATS"` and `"PLAYER AWARDS"` headings fade in (`TITLE_FADE = 0.4` in `src/scoreboard/classic/pages.js`).
+/// Duration in seconds over which the `"PERSONAL STATS"` and `"PLAYER AWARDS"` headings fade in (`TITLE_FADE = 0.4`).
 pub const TITLE_FADE: f64 = 0.4;
 
-/// Maximum stagger delay in seconds before a `StatsPage` label or value row starts its `TitleIntro` (`ROW_DELAY = 0.25` in `src/scoreboard/classic/pages.js`).
+/// Maximum stagger delay in seconds before a `StatsPage` label or value row starts its `TitleIntro` (`ROW_DELAY = 0.25`).
 pub const ROW_DELAY: f64 = 0.25;
 
 /// Fixed capacity of `TitleIntro` slots per column on a `StatsPage` (accommodating 9 personal stats + `CONNECTION`).
 pub const MAX_STAT_ROWS: usize = 16;
 
-/// Linearly interpolates between `a` (`t = 0.0`) and `b` (`t = 1.0`) (`lerp` in `src/scoreboard/classic/view.js`).
+/// Linearly interpolates between `a` (`t = 0.0`) and `b` (`t = 1.0`) (`lerp`).
 #[inline]
 pub(crate) fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
@@ -40,7 +40,7 @@ pub(crate) fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// Deterministic pseudo-random delay in `[0.0, max_delay]` avoiding allocation or external RNG state.
 ///
 /// Uses a PCG-style 32-bit permutation (`747_796_405` multiplier + xorshift-multiply-xorshift)
-/// to replace `Math.random() * max_delay` from `src/scoreboard/classic/pages.js` and `view.js`
+/// to replace `Math.random() * max_delay` and `view.js`
 /// with reproducible per-row/per-column stagger delays (`ROW_DELAY = 0.25s`, `INTRO_DELAY = 0.15s`).
 #[inline]
 pub(crate) fn hash_delay(seed: u32, max_delay: f64) -> f64 {
@@ -50,7 +50,7 @@ pub(crate) fn hash_delay(seed: u32, max_delay: f64) -> f64 {
     (z as f64 / u32::MAX as f64) * max_delay
 }
 
-/// Endpoint state of a 3D hologram flight (`Flight` in `src/scoreboard/classic/view.js`).
+/// Endpoint state of a 3D hologram flight (`Flight`).
 ///
 /// Captures the 2D interface-plane coordinates `(x, y)`, scale factor `size` (multiplied by
 /// `LOGO_UNITS` when placed in 3D), and hologram material opacity `alpha`.
@@ -66,7 +66,7 @@ pub struct FlightPoint {
     pub alpha: f64,
 }
 
-/// Linear 3D model flight with spin (`Flight` in `src/scoreboard/classic/view.js`).
+/// Linear 3D model flight with spin (`Flight`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Flight {
     pub from: FlightPoint,
@@ -84,7 +84,7 @@ pub struct Flight {
 }
 
 impl Flight {
-    /// Starts a flight from `from` to `to` over `length` seconds (`Flight.start` in `src/scoreboard/classic/view.js`).
+    /// Starts a flight from `from` to `to` over `length` seconds (`Flight.start`).
     ///
     /// Resets `self.time = 0.0` while preserving `self.spin` so a hologram that starts a new
     /// flight (e.g. flying from `Table` to the `DETAILS` corner and back) continues rotating
@@ -105,13 +105,13 @@ impl Flight {
         self.rest = rest;
     }
 
-    /// Whether the flight is still in transit (`flying` in `src/scoreboard/classic/view.js`).
+    /// Whether the flight is still in transit (`flying`).
     #[inline]
     pub fn flying(&self) -> bool {
         self.time < self.length
     }
 
-    /// Advances spin and elapsed time by `dt` seconds (`update` in `src/scoreboard/classic/view.js`).
+    /// Advances spin and elapsed time by `dt` seconds (`update`).
     pub fn update(&mut self, dt: f64) {
         let rate = if self.flying() {
             self.omega
@@ -122,7 +122,7 @@ impl Flight {
         self.time = (self.time + dt).min(self.length);
     }
 
-    /// Current interpolated position, size, and opacity (`state` in `src/scoreboard/classic/view.js`).
+    /// Current interpolated position, size, and opacity (`state`).
     pub fn state(&self) -> FlightPoint {
         let t = if self.length > 0.0 {
             (self.time / self.length).clamp(0.0, 1.0)
@@ -138,7 +138,7 @@ impl Flight {
     }
 }
 
-/// One row of a `StatsPage` (`DETAILS` or `AWARDS`, `src/scoreboard/classic/pages.js`).
+/// One row of a `StatsPage` (`DETAILS` or `AWARDS`).
 ///
 /// Pairs a localization `key` (`"ifs.stats.headshots"`, `"ifs.stats.tankbuster"`, etc.) and
 /// English `label` fallback with the formatted right-column `value` string (e.g. `"12"`,
@@ -150,9 +150,9 @@ pub struct StatsPageRow {
     pub value: String,
 }
 
-/// `DETAILS` or `AWARDS` page renderer (`StatsPage` in `src/scoreboard/classic/pages.js`).
+/// `DETAILS` or `AWARDS` page renderer (`StatsPage`).
 ///
-/// Manages the per-page elapsed clock `time` (driving the 0.4s `TITLE_FADE` on the page heading),
+/// Manages the per-page elapsed clock `time` (driving the 0.4s `TITLE_FADE` on the screen heading),
 /// the `TitleIntro` animations for the heading (`title_intro`), player name (`name_intro` on `DETAILS`),
 /// and up to `MAX_STAT_ROWS` (`16`) left-aligned/right-aligned row pairs (`label_intros`, `value_intros`),
 /// plus the current `content` rows fetched from [`ScoreboardPort`].
@@ -194,7 +194,7 @@ impl StatsPage {
         }
     }
 
-    /// Opens the page with `content` and restarts all flashy text intros (`open` in `src/scoreboard/classic/pages.js`).
+    /// Opens the screen with `content` and restarts all flashy text intros (`open`).
     ///
     /// Resets `self.time = 0.0` (restarting the 0.4s `TITLE_FADE` on `"PERSONAL STATS"` or
     /// `"PLAYER AWARDS"`), starts `title_intro` and `name_intro` immediately (`delay = 0.0`),
@@ -211,7 +211,7 @@ impl StatsPage {
         }
     }
 
-    /// Refreshes row values without restarting intros (`refresh` in `src/scoreboard/classic/pages.js`).
+    /// Refreshes row values without restarting intros (`refresh`).
     ///
     /// Called every frame while `BoardPage::Details` is open so live personal stats (such as
     /// `LONGEST LIVING STREAK` or `FAVORITE CLASS` clock times during in-battle `Peek`) update
@@ -220,9 +220,9 @@ impl StatsPage {
         self.content = content;
     }
 
-    /// Steps the page timer and flashy text intros (`update` in `src/scoreboard/classic/pages.js`).
+    /// Steps the screen timer and flashy text intros (`update`).
     ///
-    /// Advances `self.time` (which drives the 0.4-second `TITLE_FADE` on the page heading),
+    /// Advances `self.time` (which drives the 0.4-second `TITLE_FADE` on the screen heading),
     /// `title_intro`, `name_intro`, and the active prefix (`0..content.len().min(MAX_STAT_ROWS)`)
     /// of `label_intros` and `value_intros`.
     pub fn update(&mut self, dt: f64) {
@@ -235,7 +235,7 @@ impl StatsPage {
         }
     }
 
-    /// Draws the `DETAILS` or `AWARDS` text rows (`draw` in `src/scoreboard/classic/pages.js`).
+    /// Draws the `DETAILS` or `AWARDS` text rows (`draw`).
     pub fn draw(
         &self,
         surface: &dyn BattleUiSurface,
@@ -244,7 +244,7 @@ impl StatsPage {
         subject_name: Option<&str>,
     ) {
         // Compute the `DETAILS` (`DETAILS_ROWS`) or `AWARDS` (`AWARDS_ROWS`) layout for the current height.
-        // The page title fades in over `TITLE_FADE` (`0.4s`) while playing its `TitleIntro` at `layout.title`,
+        // The screen title fades in over `TITLE_FADE` (`0.4s`) while playing its `TitleIntro` at `layout.title`,
         // and `DETAILS` draws the inspected player's uppercase name 30 units below the title.
         let layout = stats_page_layout(surface.height(), self.rows_cfg);
         let title_str = if self.is_details {
@@ -331,7 +331,7 @@ impl StatsPage {
     }
 }
 
-/// 3D placement state for a scoreboard team logo or award icon (`place` in `src/scoreboard/classic/view.js`).
+/// 3D placement state for a scoreboard team logo or award icon (`place`).
 ///
 /// Returned by [`ClassicScoreboardView::logo_placements`] so the 3D interface pass between
 /// `draw_under` and `draw_over` can position, scale (`size * LOGO_UNITS`), rotate (`rotation_y`),
@@ -350,7 +350,7 @@ pub struct LogoPlacement {
 
 impl ClassicScoreboardView {
     /// Draws a nine-sliced window or cursor frame (`border_3_pieces`, `listbox_cursor`, `listbox_hilight`)
-    /// centered at `(x, y)` with 16-unit corners (`window` in `src/scoreboard/classic/view.js`),
+    /// centered at `(x, y)` with 16-unit corners (`window`),
     /// or a translucent dark-blue solid quad inset by 4 units when the texture is unavailable.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn draw_window(
@@ -385,7 +385,7 @@ impl ClassicScoreboardView {
         draw_nine_slice(batch, m, x, y, w, h, 16.0, texture, color);
     }
 
-    /// Draws the dimmed backdrop and nine-sliced `border_3_pieces` window under the 3D logos (`drawUnder` in `src/scoreboard/classic/view.js`).
+    /// Draws the dimmed backdrop and nine-sliced `border_3_pieces` window under the 3D logos (`drawUnder`).
     pub fn draw_under(&self, surface: &dyn BattleUiSurface, batch: &mut Batch) {
         // 1. Fill the full `1024xH` screen with `opaque_black` (or a solid `rgba(0, 0, 0, 119)`
         //    quad when `opaque_black` is absent) so the live battle world remains dimly visible behind
@@ -423,7 +423,7 @@ impl ClassicScoreboardView {
         );
     }
 
-    /// Draws the rows, headers, buttons, sub-pages, and mouse cursor over the 3D logos (`drawOver` in `src/scoreboard/classic/view.js`).
+    /// Draws the rows, headers, buttons, sub-pages, and mouse cursor over the 3D logos (`drawOver`).
     pub fn draw_over(
         &self,
         surface: &dyn BattleUiSurface,
@@ -465,7 +465,7 @@ impl ClassicScoreboardView {
         }
     }
 
-    /// Draws one team's half of the `Table` page (`drawSide` in `src/scoreboard/classic/view.js`).
+    /// Draws one team's half of the `Table` page (`drawSide`).
     #[allow(clippy::too_many_arguments)]
     fn draw_side(
         &self,
@@ -691,7 +691,7 @@ impl ClassicScoreboardView {
         }
     }
 
-    /// Draws the up (`step < 0`) or down (`step > 0`) `small_arrow` scroll button (`drawArrow` in `src/scoreboard/classic/view.js`).
+    /// Draws the up (`step < 0`) or down (`step > 0`) `small_arrow` scroll button (`drawArrow`).
     ///
     /// Because the authored `small_arrow` texture points right (`+X`), the original Lua script
     /// rotates it 90 degrees by assigning diagonal UV corners (`[[1, 1], [0, 1], [1, 0], [0, 0]]`
@@ -732,7 +732,7 @@ impl ClassicScoreboardView {
     }
 
     /// Draws a nine-sliced row cursor frame (`listbox_cursor` or `listbox_hilight`) around visible row `k`
-    /// (`drawCursor` in `src/scoreboard/classic/view.js`).
+    /// (`drawCursor`).
     ///
     /// Vertically offset by `layout.cursor_dy` (`+4.0` units below the row center) with height
     /// `PITCH + 10.0` (`37.0` units), matching `ListManager`'s cursor geometry.
@@ -763,7 +763,7 @@ impl ClassicScoreboardView {
     }
 
     /// Truncates `text` one character at a time from the right until its width in `FONT_NAME_MEDIUM`
-    /// at `ROW_SCALE` (`0.8`) fits within `max_width` (`clip` in `src/scoreboard/classic/view.js`).
+    /// at `ROW_SCALE` (`0.8`) fits within `max_width` (`clip`).
     fn clip(surface: &dyn BattleUiSurface, text: &str, max_width: f64) -> String {
         let mut out = text.to_string();
         while !out.is_empty() && surface.text_width(FONT_NAME_MEDIUM, &out, ROW_SCALE) > max_width {
@@ -772,7 +772,7 @@ impl ClassicScoreboardView {
         out
     }
 
-    /// Draws text playing a `TitleIntro` (`drawText` in `src/scoreboard/classic/view.js`).
+    /// Draws text playing a `TitleIntro` (`drawText`).
     #[allow(clippy::too_many_arguments)]
     pub fn draw_flashy_text(
         surface: &dyn BattleUiSurface,
@@ -855,7 +855,7 @@ impl ClassicScoreboardView {
         );
     }
 
-    /// Draws the bottom action buttons on the `Table` page (`drawButtons` in `src/scoreboard/classic/view.js`):
+    /// Draws the bottom action buttons on the `Table` page (`drawButtons`):
     /// - Bottom-left: `"DONE"` on the end-of-match table (when `port.can_restart()` is true) or
     ///   `"BACK"` during in-battle `Peek`.
     /// - Bottom-right: `"AWARDS"` on the end-of-match table only.
@@ -951,7 +951,7 @@ impl ClassicScoreboardView {
     }
 
     /// Draws the bottom-left `"BACK"` button on the `DETAILS` and `AWARDS` sub-pages
-    /// (`drawBack` in `src/scoreboard/classic/view.js`).
+    /// (`drawBack`).
     pub(crate) fn draw_back(
         &self,
         surface: &dyn BattleUiSurface,
@@ -975,7 +975,7 @@ impl ClassicScoreboardView {
     }
 
     /// Draws the 32x32 Classic `mousecursor` sprite (or an 8x8 solid white fallback quad)
-    /// over all scoreboard layers (`drawPointer` in `src/scoreboard/classic/view.js`).
+    /// over all scoreboard layers (`drawPointer`).
     pub(crate) fn draw_pointer(
         &self,
         surface: &dyn BattleUiSurface,

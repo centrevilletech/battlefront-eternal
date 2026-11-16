@@ -337,7 +337,7 @@ impl<'a> Publication<'a> {
             }
         }
         for own in self.table(P::OWN, O::WORDS)?.chunks_exact(O::WORDS) {
-            // Own checkpoints follow shared records, as in local-server.js.
+            // Own checkpoints follow shared records,.
             // Presentation's replay owner resolves the resulting control lease.
             if own[O::CLIENT] == client as f64 {
                 receiver.message(false, self.span(own, O::SPAN)?, now_ms);

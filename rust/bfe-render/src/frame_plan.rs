@@ -17,7 +17,7 @@ pub struct FramePlan {
     pub operations: [Operation; L::OPERATIONS],
     pub count: usize,
     // Native rendering may hold distant moving casters on a slow frame.
-    // The default retains the browser's cadence and every invalid window refreshes.
+    // The default retains the client's cadence and every invalid window refreshes.
     pub shadow_periods: [u32; 4],
 }
 impl Default for FramePlan {

@@ -1,9 +1,9 @@
-//! The command posts as the page constructs them (commandposts.js Post,
-//! post-data.js attachPostAI) and the host-object imports createNativeAI
+//! The command posts as the client constructs them (Post,
+//! attachPostAI) and the host-object imports createNativeAI
 //! makes before its first call (ai-world-load.js 69-72: the posts, the
 //! command posts, the mobile posts, the battle), plus the same import twin
 //! for any host object a later owner re-imports from the store. An import
-//! is two calls, as the page makes them: the import room sized for the
+//! is two calls, as the client makes them: the import room sized for the
 //! rows, written with the rows and their heap, then sim_import of the kind.
 use super::super::super::{dispatch, sequence, AdmitError, Stage};
 use super::super::{Call, Calls, Cx};
@@ -50,7 +50,7 @@ fn row_of(slot: u32, generation: u32, stride: usize, heap: &mut Vec<f64>, put: i
     row
 }
 
-/// regions.js buildRegion as the gen Built record.
+/// buildRegion as the gen Built record.
 fn built(region: &Value) -> Result<Built, AdmitError> {
     let b = bfe_content::regions::build_region(region);
     let kind = match b.kind.as_ref().and_then(Value::as_str) { Some("box") => RegionType::Box, Some("cylinder") => RegionType::Cylinder, _ => RegionType::Sphere };
@@ -58,7 +58,7 @@ fn built(region: &Value) -> Result<Built, AdmitError> {
     Ok(Built { r#type: kind, half, radius: b.radius, center: [b.center.x, b.center.y, b.center.z], inverse: b.inverse.elements })
 }
 
-/// post-data.js postAI / attachPostAI: a post's AI record from the
+/// postAI / attachPostAI: a post's AI record from the
 /// mission's record of the same name (an unnamed post's by its position),
 /// else the map's own facts: the spawn path the map resolved, the yaw of
 /// its placement, no ally path.

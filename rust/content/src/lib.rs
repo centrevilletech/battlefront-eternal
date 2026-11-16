@@ -33,6 +33,6 @@ pub mod value;
 
 pub use value::{Object, Value};
 
-/// src/soldier.js ENGINE.diveLength: the share of the dive clip a dive
-/// lasts (units.js buildBody: diveTime).
+/// ENGINE.diveLength: the share of the dive clip a dive
+/// lasts (buildBody: diveTime).
 pub const DIVE_LENGTH: f64 = 0.75;

@@ -1,6 +1,6 @@
 //! What a soldier's combat asks of the rest of the battle: the trait its
 //! Rust reaches it through, method for method the boundary object of
-//! src/combat-world.js (CombatWorld), plus the body calls combat makes on
+//! (CombatWorld), plus the body calls combat makes on
 //! a droideka's hidden gun rig and its shield's hook, and the draws of its
 //! generators. In a battle the module answers (the subsystems that are
 //! Rust's, JavaScript's through imports until they move); in a replay the
@@ -88,12 +88,12 @@ pub enum Presentation<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Droid(pub u32);
 
-/// The combat's boundary (src/combat-world.js, its methods in its order).
+/// The combat's boundary (its methods in its order).
 pub trait CombatWorld: WeaponDraws {
     /// cast(origin, direction, far, out, null, staticOnly).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
 
-    // ---- His recon droids (src/remote.js), a network player's.
+    // ---- His recon droids, a network player's.
     /// remoteOf(weapon): the live droid the weapon at `weapon` launched.
     fn remote_of(&mut self, weapon: u32) -> Option<Droid>;
     fn remote_enter(&mut self, droid: Droid, unit: &mut Unit, combat: &mut Combat);
@@ -111,7 +111,7 @@ pub trait CombatWorld: WeaponDraws {
         combat: &mut Combat,
     );
 
-    // ---- A repair tool (src/props.js lockOn, repair).
+    // ---- A repair tool (lockOn, repair).
     #[allow(clippy::too_many_arguments)]
     /// (`tool`: the weapon at `weapon` as it is now, its level its `def`.)
     fn lock_on(
@@ -169,7 +169,7 @@ pub trait CombatWorld: WeaponDraws {
         unit: &mut Unit,
         combat: &mut Combat,
     ) -> bool;
-    /// meleeStrike() (src/heroes.js).
+    /// meleeStrike().
     fn melee_strike(&mut self, unit: &mut Unit, combat: &mut Combat);
     /// arcTargets(): what the arc caster can link.
     fn arc_targets(&mut self) -> Vec<ArcTarget>;
@@ -206,7 +206,7 @@ pub trait CombatWorld: WeaponDraws {
     fn respawn(&mut self, unit: &mut Unit, combat: &mut Combat);
     fn presentation(&mut self, event: &Presentation);
 
-    // ---- A droideka's body (src/droideka.js): its hidden gun rig, and its
+    // ---- A droideka's body: its hidden gun rig, and its
     // shield's hook (onShieldHit: the battle's shieldHit).
     /// nextGun(out): the next gun's muzzle, in turn (its counter and
     /// lastGun move on: the unit's body).

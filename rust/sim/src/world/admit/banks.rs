@@ -1,5 +1,5 @@
 //! The owners' banks by name, for a host without the module's memory: what
-//! the page reaches through the descriptors' addresses (a child block of the
+//! the client reaches through the descriptors' addresses (a child block of the
 //! seat or firing phase, an input bank it writes before a step, the
 //! collision kernel's exchange) comes and goes here as owned words or bytes.
 //! A read answers the bank as it is; a write copies the host's bytes into it,

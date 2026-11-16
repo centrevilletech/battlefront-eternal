@@ -1,7 +1,7 @@
 //! What the connections' bodies hand the unit and hull phases each tick:
-//! their intent rows and network shot facts (src/f3-sim.js preparePhase's
+//! their intent rows and network shot facts (preparePhase's
 //! rows for network humans) and the network pilots' flight keys
-//! (src/f2-sim.js prepareStep's flight rows). The host still writes rows
+//! (prepareStep's flight rows). The host still writes rows
 //! for bodies it drives itself; these are written beside them.
 use super::owner::{Flight, Players, Shot, UnitShadow};
 use crate::flight::model::FlightInput;
@@ -63,7 +63,7 @@ pub fn write(w: &mut World, players: &mut Players) {
     if dropped > 0 { players.faults = players.faults.wrapping_add(1); }
 }
 
-/// vehicle-phase-data.js flightKeys of `{}`: every key undefined.
+/// flightKeys of `{}`: every key undefined.
 fn no_keys() -> FlightInput {
     let nan = f64::NAN;
     FlightInput { forward: nan, right: nan, turn: nan, pitch: nan, up: nan, down: nan, takeoff: nan, stick_x: None, stick_y: None,

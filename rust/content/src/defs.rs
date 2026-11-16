@@ -28,7 +28,7 @@ pub fn identity(v: &Value) -> Option<usize> {
 pub struct Drop {
     pub class: Option<Name>,
     pub probability: Option<f64>,
-    /// The side's item class it names (game.js: `sides[unit.side].items`).
+    /// The side's item class it names (`sides[unit.side].items`).
     pub item: Option<usize>,
 }
 
@@ -48,10 +48,10 @@ pub struct ClassDef {
     /// Indices into `Defs::weapons`, in the class's order.
     pub weapons: Vec<usize>,
     pub drops: Vec<Drop>,
-    /// units.js buildBody: getting up from prone, a dive (s).
+    /// buildBody: getting up from prone, a dive (s).
     pub getup_time: f64,
     pub dive_time: f64,
-    /// droideka.js arm: its guns' bones and barrel tips.
+    /// arm: its guns' bones and barrel tips.
     pub droideka_guns: Vec<DroidekaGun>,
     /// The wire's class id.
     pub registry_id: Option<u16>,
@@ -67,7 +67,7 @@ pub struct WeaponDef {
     pub base: Option<Name>,
     pub geometry: Option<Name>,
     pub record: Value,
-    /// combat.js: the held model's muzzle, for the first weapon of each
+    /// the held model's muzzle, for the first weapon of each
     /// model a class holds (None for the others and model-less weapons).
     pub muzzle: Option<Muzzle>,
     /// Index into `Defs::items` (a dispenser's or mine layer's item).
@@ -84,7 +84,7 @@ pub struct ItemDef {
     pub class: Option<Name>,
     pub base: Option<Name>,
     pub record: Value,
-    /// items.js itemState: the model's radius and pickup centre.
+    /// itemState: the model's radius and pickup centre.
     pub radius: f64,
     pub pickup_center: Option<Vector3>,
 }
@@ -318,7 +318,7 @@ impl Defs {
     }
 
     /// The wire's combat id of a definition (by identity, as
-    /// network-combat-registry.js definitionId).
+    /// definitionId).
     pub fn combat_id(&self, def: &Value) -> Option<u16> {
         identity(def).and_then(|id| self.combat_ids.get(&id).copied())
     }

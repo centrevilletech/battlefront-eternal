@@ -1,5 +1,5 @@
-//! The Enhanced fountains (fountain-jets.js FountainJets, as
-//! environment-effects.js drives it): each fountain in view, out to 90 m,
+//! The Enhanced fountains (FountainJets, as
+//! drives it): each fountain in view, out to 90 m,
 //! throws its jets on the GPU from fixed seeds and the clock alone. Far to
 //! near: the pools' rings and foam, the tier's overflow, the soft spray
 //! (drawn at half size into a texture of its own and laid over the frame),
@@ -7,7 +7,7 @@
 //! the near halves of the same. The jets refract the frame drawn so far,
 //! copied once just before the first of them. Classic plays the fountains'
 //! stock effect instead (map_effects.rs). The basins' Enhanced water
-//! (fountain-water.js FountainWater) is drawn here too: the tier filled to its
+//! (FountainWater) is drawn here too: the tier filled to its
 //! lip and the outer pool, reading a copy of the opaque scene for what shows
 //! through, with foam, caustics, the plume's shadow and reflection, and rings
 //! where someone wades (the environment's wakes).

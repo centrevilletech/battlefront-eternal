@@ -1,4 +1,4 @@
-//! `Euler.js` (r170). The `_onChangeCallback` sync to a sibling
+//! (r170). The `_onChangeCallback` sync to a sibling
 //! quaternion lives in [`crate::TransformNode`]; a bare `Euler`
 //! here is just the angles and their order, as it is in three when
 //! nothing registered a callback.

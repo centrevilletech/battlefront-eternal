@@ -174,7 +174,7 @@ impl Database {
                     }
                     // The magnitude-weighted phase slope estimates bulk group delay.
                     // HRTFKernel retains a twenty-frame lead-in when possible; removing the
-                    // entire delay would shift the browser's impulse onset.
+                    // entire delay would shift Chromium's impulse onset.
                     let mut delay = -(sum / weight) / (2.0 * PI / analysis_size as f64);
                     if delay > 20.0 {
                         delay -= 20.0;

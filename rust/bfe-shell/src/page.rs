@@ -1,5 +1,5 @@
-//! Native page layout over ShellApp's existing screen stack. Geometry follows
-//! src/menus/themes/page/style.js; looks follow electron/ui/looks.css.
+//! The front end's own look laid over ShellApp's screen stack: geometry and
+//! looks of the three themes (bf1, bf2, eternal).
 mod battle;
 mod browser;
 mod media;

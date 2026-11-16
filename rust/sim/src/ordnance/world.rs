@@ -1,8 +1,8 @@
 //! What the rounds and items ask of the rest of the battle: the trait their
 //! Rust reaches it through, method for method the boundary object of
-//! src/ordnance-world.js (OrdnanceWorld and ItemsWorld), called at the same
+//! (OrdnanceWorld and ItemsWorld), called at the same
 //! points in the same order. In a battle the module's imports implement it
-//! (JavaScript answers); in a replay the capture does (rust/sim-replay's
+//!; in a replay the capture does (rust/sim-replay's
 //! `Log`), checking every argument.
 
 use super::defs::Field;
@@ -16,7 +16,7 @@ pub enum Out {
     Behind,
 }
 
-/// A cast's answer (src/collision.js cast, castMoving): how far along the
+/// A cast's answer (cast, castMoving): how far along the
 /// ray, where, the surface's normal facing back, whether the terrain was
 /// hit, and the body hit (null for the terrain and the world's buildings).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -28,7 +28,7 @@ pub struct Hit {
     pub body: Option<Ref<Body>>,
 }
 
-/// A unit raycast's answer (src/registry.js raycast).
+/// A unit raycast's answer (raycast).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitHit {
     pub unit: Ref<Unit>,

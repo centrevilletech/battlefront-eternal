@@ -22,7 +22,7 @@ fn infantry_frames_leave_source_owners_unread(){
  bindings.fill(&mut input);assert_eq!(input[f::STRIDE+i::HELD],7.0);
 }
 
-// The page has no authority body owner. Its coarse collision phase must
+// The client has no authority body owner. Its coarse collision phase must
 // join the same native source and anatomical clip used by held/rider poses.
 #[test]
 fn replica_hit_shapes_follow_native_mount_and_hold_frames(){

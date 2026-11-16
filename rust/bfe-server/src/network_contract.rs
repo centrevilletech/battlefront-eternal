@@ -1,10 +1,10 @@
-//! Network contract metadata and validation (`src/network-contract.js`).
+//! Network contract metadata and validation.
 
 use bfe_transport::layout::network_contract as contract;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// Full multiplayer engine network contract (`validateNetworkContract` return shape in `src/network-contract.js`).
+/// Full multiplayer engine network contract (`validateNetworkContract` return shape).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NetworkContract {
@@ -18,7 +18,7 @@ pub struct NetworkContract {
 }
 
 /// Subset of the network contract advertised on `/info`, LAN discovery, master listings, and the
-/// `BFE-UDP/1` handshake (`export function wireCompatibility(contract)` in `src/network-contract.js`).
+/// `BFE-UDP/1` handshake (`export function wireCompatibility(contract)`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WireCompatibility {
     pub protocol: usize,
@@ -33,7 +33,7 @@ impl Default for NetworkContract {
 }
 
 impl NetworkContract {
-    /// Returns the active compiled network contract (`loadNetworkContract` in `src/network-contract.js`).
+    /// Returns the active compiled network contract (`loadNetworkContract`).
     pub fn current() -> Self {
         Self {
             manifest_version: contract::MANIFEST_VERSION,
@@ -45,7 +45,7 @@ impl NetworkContract {
         }
     }
 
-    /// Serializes the contract to JSON for `/healthz` (`networkContract` field in `src/main.js`).
+    /// Serializes the contract to JSON for `/healthz` (`networkContract` field).
     pub fn to_json(&self) -> Value {
         json!({
             "manifestVersion": self.manifest_version,
@@ -58,7 +58,7 @@ impl NetworkContract {
     }
 }
 
-/// Validates a network contract JSON object (`export function validateNetworkContract(value)` in `src/network-contract.js`).
+/// Validates a network contract JSON object (`export function validateNetworkContract(value)`).
 pub fn validate_network_contract(value: &Value) -> Result<NetworkContract, String> {
     let Some(obj) = value.as_object() else {
         return Err("Missing engine network contract".to_string());
@@ -102,7 +102,7 @@ pub fn validate_network_contract(value: &Value) -> Result<NetworkContract, Strin
 }
 
 /// Extracts `{ protocol, profile, simulation }` for wire-version admission checks
-/// (`export function wireCompatibility(contract)` in `src/network-contract.js`).
+/// (`export function wireCompatibility(contract)`).
 pub fn wire_compatibility(contract: &NetworkContract) -> WireCompatibility {
     WireCompatibility {
         protocol: contract.protocol,
@@ -111,7 +111,7 @@ pub fn wire_compatibility(contract: &NetworkContract) -> WireCompatibility {
     }
 }
 
-/// Matches `/^bfe-sim-[1-9][0-9]{0,5}$/` from `validateNetworkContract` in `src/network-contract.js`.
+/// Matches `/^bfe-sim-[1-9][0-9]{0,5}$/` from `validateNetworkContract`.
 fn valid_simulation_revision(sim: &str) -> bool {
     let Some(digits) = sim.strip_prefix("bfe-sim-") else {
         return false;

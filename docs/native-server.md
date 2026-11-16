@@ -43,7 +43,7 @@ configured, `fault` when `config.json` cannot be read or admission fails.
 | `discoveryPort` | `18452` | UDP port for `BFE-LAN/1` discovery (`BFE_DISCOVERY_PORT` overrides) |
 | `stun` | `["stun.cloudflare.com:3478"]` | STUN servers for reflexive address discovery |
 | `rotationDelayMs` | `8000` | Delay before advancing to the next rotation entry after victory |
-| `description`, `sponsor`, `location` | omitted | Sanitized public browser metadata |
+| `description`, `sponsor`, `location` | omitted | Sanitized metadata for the server list |
 
 ## Identity and global bans
 
