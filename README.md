@@ -150,10 +150,14 @@ only introduces players to servers; battles run on the servers themselves. [MULT
 
 ## Build from source
 
-You need Rust (the pinned toolchain, `1.99.0`, is installed by `rustup` from
-`rust/rust-toolchain.toml`), Python 3 for the preparation tools, and your own
-copy of the game. On Debian and Ubuntu also install `libfontconfig1-dev` and
-`libasound2-dev`.
+You need [rustup](https://rustup.rs) (it installs the pinned toolchain,
+`1.99.0`, from `rust/rust-toolchain.toml` on the first `cargo` command),
+Python 3 for the preparation tools, and your own copy of the game. On Debian
+and Ubuntu the build also needs:
+
+```bash
+sudo apt install build-essential pkg-config libfontconfig1-dev libasound2-dev
+```
 
 ```bash
 git clone https://github.com/centrevilletech/battlefront-eternal.git
@@ -163,8 +167,10 @@ cargo run --release --locked -p bfe-client # builds and starts the game
 cargo build --release --locked -p bfe-server  # the dedicated server, bfeserver
 ```
 
-On first launch a source build finds and prepares the game as the packaged
-app does. The [development guide](docs/development.md) covers preparing data
+On first launch a source build finds the game as the packaged app does and
+prepares it with the checkout's `tools/` and your system Python 3 (a step
+whose Python packages are missing is skipped and reported). The
+[development guide](docs/development.md) covers preparing data
 with the Python tools, the command-line options, the generated code
 (`cargo xtask`) and building the packages.
 
