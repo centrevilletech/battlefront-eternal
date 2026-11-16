@@ -31,7 +31,6 @@ CRCCheck on
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "StrFunc.nsh"
-${StrStr}
 ${UnStrStr}
 
 !ifdef ICON_FILE
@@ -81,17 +80,25 @@ Section "Install" SecInstall
     RMDir /r "$INSTDIR\locales"
     ; app.asar, the Node.js server and the old tools; ours are written right after.
     RMDir /r "$INSTDIR\resources"
-    ; Its uninstall entry: one named like ours, under another key, whose uninstaller is here.
+    ; Its uninstall entry: under another key, a name that begins with ours (331 wrote
+    ; "Battlefront Eternal 0.1.0-preview.331"), and an uninstaller inside this folder (331 wrote
+    ; it quoted, with /currentuser after it). StrCmp ignores case, as Windows paths do.
+    StrLen $6 "${PRODUCT_NAME}"
+    StrLen $7 "$INSTDIR\"
     StrCpy $0 0
     electron_entries:
       EnumRegKey $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
       StrCmp $1 "" no_electron
       StrCmp $1 "${PRODUCT_NAME}" electron_next
       ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "DisplayName"
+      StrCpy $2 $2 $6
       StrCmp $2 "${PRODUCT_NAME}" 0 electron_next
       ReadRegStr $3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "UninstallString"
-      ${StrStr} $4 $3 "$INSTDIR\"
-      StrCmp $4 "" electron_next
+      StrCpy $4 $3 1
+      StrCmp $4 '"' 0 +2
+        StrCpy $3 $3 "" 1
+      StrCpy $3 $3 $7
+      StrCmp $3 "$INSTDIR\" 0 electron_next
       DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1"
       Goto electron_entries
     electron_next:
