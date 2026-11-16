@@ -45,7 +45,9 @@ ARM64), and update themselves.
 - **Multiplayer.** Server-authoritative battles at 60 Hz over an encrypted
   UDP transport, up to 32 versus 32 with bots filling empty slots. An online
   server browser with measured ping, LAN games, direct connect, and hosting
-  from the app. No account needed.
+  from the app. A server behind a home router is reached directly when the
+  routers allow it (hole punching), else through the project's relay. No
+  account needed.
 - **Your copy stays yours.** The app finds the game in Steam, GOG Galaxy or
   Heroic (or a folder you choose), prepares its data in your user folder, and
   only ever reads your installation. Prepared data can be exported and
@@ -108,7 +110,7 @@ Measured on an old machine, with the preset the app picked by itself:
 
 Busy maps (Endor, Mos Eisley, Geonosis) are the hardest. Minimum draws the
 scenery out to the 2004 game's SHORT view distance; past that, a lower
-RENDER SCALE helps most on a weak chip.
+RENDER SCALE or a lower full-screen RESOLUTION helps most on a weak chip.
 
 ## Classic and Enhanced
 
@@ -138,13 +140,19 @@ client, through the same pipeline as an online battle.
 
 **Multiplayer** lists online servers with their ping, finds LAN servers, and
 joins by address. The online server list (`online.battlefronteternal.com`)
-only introduces players to servers; battles run on the servers themselves.
+introduces players to servers and helps them connect: the client tries a
+direct path first, punching through home routers where it can, and goes
+through the relay (`relay.battlefronteternal.com`) when no direct path
+answers. Battles run on the servers themselves; the transport stays
+encrypted end to end through the relay.
 [MULTIPLAYER.md](MULTIPLAYER.md) describes the design.
 
 ## Hosting a server
 
 - **From the app:** MULTIPLAYER > CREATE starts the bundled `bfeserver` on
-  your PC; players on your network find it under LAN.
+  your PC: for your network only (players find it under LAN), or public,
+  listed online and joinable from anywhere, directly or through the relay,
+  without opening ports on your router.
 - **Dedicated server:** `bfeserver` runs headless on a Linux machine (x64
   or ARM64, no GPU). Run `bfeserver` with no arguments for its setup menu,
   `bfeserver --serve` to serve, and `bfeserver --help` for the options. It
