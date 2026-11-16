@@ -640,17 +640,21 @@ impl HudModel {
 
     // BattleHud.render's own groups. Host layers still draw their independent
     // surfaces around this batch; an overlay that covers HUD emits no groups.
-    // The stats line in the small game font, white over a one-unit shadow, at the bottom left corner where the
-    // browser build's overlay shows it.
+    // The stats line: small (about 7 interface units, the browser overlay's 12 px at 1080 lines, scaling with
+    // the HUD), centred on the bottom edge below the safe margin, where no HUD group draws (the minimap and its
+    // labels sit bottom left, messages lower right, flight prompts at 87.5% height, the damage bar ends at the
+    // safe margin). Not over a spawn screen or scoreboard layer.
     fn draw_stats_line(&mut self) {
-        if self.stats_line.len == 0 {
+        if self.stats_line.len == 0 || self.input[H::LAYER] != 0. || self.fonts[0].height <= 0. {
             return;
         }
-        let m = self.at(0., 1., false);
-        let y = -self.fonts[0].height - 4.;
+        const HEIGHT: f64 = 7.;
+        let scale = HEIGHT / self.fonts[0].height;
+        let m = self.at(0.5, 1., false);
+        let y = -HEIGHT - 2.;
         let text = self.stats_line.text();
-        self.fonts[0].draw(&mut self.batch, m, 10., y + 1., text, SHADOW, 0, 1., 1., 0.);
-        self.fonts[0].draw(&mut self.batch, m, 9., y, text, [242. / 255., 239. / 255., 230. / 255., 1.], 0, 1., 1., 0.);
+        self.fonts[0].draw(&mut self.batch, m, 0.5, y + 0.5, text, SHADOW, 2, scale, scale, 0.);
+        self.fonts[0].draw(&mut self.batch, m, 0., y, text, [242. / 255., 239. / 255., 230. / 255., 1.], 2, scale, scale, 0.);
     }
     pub fn build(&mut self, mode: u32) {
         self.commands();
