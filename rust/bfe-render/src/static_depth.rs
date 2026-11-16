@@ -40,14 +40,16 @@ fn bins(g:&Geometry,numeric:bool)->(Vec<u32>,Vec<Cell>) {
     let mut order:Vec<_>=(0..parts.len()).collect();
     order.sort_by_key(|i|spread(parts[*i].x)*2+spread(parts[*i].z));
     let mut cells:Vec<_>=parts.iter().map(|p|Cell{first:0,end:0,min:p.min,max:p.max}).collect();let mut cursor=0;
-    for at in order {cells[at].first=cursor;cursor+=parts[at].count as u32;cells[at].end=cursor;}
+    for &at in &order {cells[at].first=cursor;cursor+=parts[at].count as u32;cells[at].end=cursor;}
     let mut fill:Vec<_>=cells.iter().map(|c|c.first as usize).collect();let mut sorted=vec![0;g.index.len()];
     for (t,&at) in g.index.as_chunks::<3>().0.iter().zip(&cell_of) {let first=fill[at];sorted[first..first+3].copy_from_slice(t);fill[at]+=3;}
-    (sorted,cells)
+    // Cells in index order, so visible neighbours join into one range.
+    let mut cells:Vec<Option<Cell>>=cells.into_iter().map(Some).collect();
+    (sorted,order.iter().filter_map(|&at|cells[at].take()).collect())
 }
 impl DepthGeometry {
     // partitionShadowCaster keeps small or compact cutouts on the live layer;
-    // large buckets draw one Morton span on the cached static layer. Fabric
+    // large buckets draw their visible cells on the cached static layer. Fabric
     // always remains live because its depth vertices sway with the frame time.
     pub fn cutout(source:&Geometry)->Self {
         let mut geometry=Geometry {vertices:source.vertices.clone(),index:source.index.clone(),index_width:source.index_width,interleaved:source.interleaved,
@@ -74,19 +76,23 @@ impl DepthGeometry {
         geometry.update_bounds();let (index,cells)=bins(&geometry,true);geometry.index=index;
         Self {geometry,cells,layer:2,clipped}
     }
-    // The old cached onBeforeShadow hook submits the first-to-last visible
-    // Morton span, including intervening cells. It does not compact indices.
-    pub fn range(&self,frustum:&Frustum)->(u32,u32) {range(&self.geometry.bounds,self.geometry.index.len() as u32,&self.cells,frustum)}
 }
 
-pub fn range(bounds:&[f64;10],count:u32,cells:&[Cell],frustum:&Frustum)->(u32,u32) {
-    if !frustum.sphere(&[bounds[0],bounds[1],bounds[2]],bounds[3]) {return (0,0);}
-    // Unpartitioned cutouts retain their complete range after sphere culling.
-    // Partitioned groups preserve gaps between the first and last visible cell.
-    if cells.is_empty() {return (0,count);}
-    let (mut first,mut end)=(u32::MAX,0);
-    for cell in cells {if frustum.aabb(&cell.min,&cell.max) {first=first.min(cell.first);end=end.max(cell.end);}}
-    if first==u32::MAX {(0,0)} else {(first,end-first)}
+// The index ranges of a caster a shadow camera sees: its visible cells, neighbours in index order joined into one
+// range (first index, index count) each, written to `out`. Unpartitioned casters keep their whole range once their
+// sphere is in view. Returns how many ranges there are.
+pub fn ranges(bounds:&[f64;10],count:u32,cells:&[Cell],frustum:&Frustum,out:&mut Vec<(u32,u32)>)->usize {
+    out.clear();
+    if !frustum.sphere(&[bounds[0],bounds[1],bounds[2]],bounds[3]) {return 0;}
+    if cells.is_empty() {out.push((0,count));return 1;}
+    for cell in cells {
+        if !frustum.aabb(&cell.min,&cell.max) {continue;}
+        match out.last_mut() {
+            Some((first,n)) if *first+*n==cell.first => *n+=cell.end-cell.first,
+            _ => out.push((cell.first,cell.end-cell.first)),
+        }
+    }
+    out.len()
 }
 
 // Native shadow resources retain GPU ids and bounds/ranges, sharing source
@@ -100,7 +106,7 @@ pub struct Record {
 }
 pub const MAX_RECORDS:usize=4096;
 #[derive(Default)]
-pub struct Bank {pub sources:Vec<Source>,pub records:Vec<Option<Record>>,pub clipped:u32}
+pub struct Bank {pub sources:Vec<Source>,pub records:Vec<Option<Record>>,pub clipped:u32,ranges:Vec<(u32,u32)>,counts:Vec<i32>,offsets:Vec<i32>}
 impl Bank {
     // Admission is cold; a larger-than-content scene clips depth resources in
     // source order with telemetry instead of throwing in a slow frame.
@@ -108,10 +114,10 @@ impl Bank {
         if self.sources.len()>=MAX_RECORDS-2 {self.clipped=self.clipped.saturating_add(1);return u32::MAX;}
         let id=self.sources.len() as u32;self.sources.push(Source{source,texture});id
     }
-    pub fn draw<C:glow::HasContext,M:crate::core::MultiDraw>(&self, core:&mut crate::core::Core<C,M>,matrices:&mut HashMap<(usize,usize),[f32;16]>,id:usize,view:&[f64],frustum:&Frustum) {
+    pub fn draw<C:glow::HasContext,M:crate::core::MultiDraw>(&mut self, core:&mut crate::core::Core<C,M>,matrices:&mut HashMap<(usize,usize),[f32;16]>,id:usize,view:&[f64],frustum:&Frustum) {
         let Some(Some(r))=self.records.get(id) else {return;};
         if !r.active || r.program>=core.programs.len() || r.geometry as usize>=core.geometries.len() {return;}
-        let (first,count)=range(&r.bounds,r.count,&r.cells,frustum);if count==0 {return;}
+        if ranges(&r.bounds,r.count,&r.cells,frustum,&mut self.ranges)==0 {return;}
         core.state.use_program(&core.gl,&mut core.stats,core.programs[r.program].program);
         // shadow-casters.js anchors were identity children of static world
         // meshes. Only the light camera changes between these native draws.
@@ -135,8 +141,16 @@ impl Bank {
         let (gl,state,stats)=(&core.gl,&mut core.state,&mut core.stats);
         state.cull(gl,stats,r.side);state.front_face(gl,stats,glow::CCW);
         let g=&core.geometries[r.geometry as usize];
-        unsafe {gl.bind_vertex_array(Some(g.vao));gl.draw_elements(glow::TRIANGLES,count as i32,g.index_type,first as i32*g.index_bytes);}
-        core.profile.draw(count as u64,1,1);
+        let indices:u64=self.ranges.iter().map(|r|r.1 as u64).sum();
+        unsafe {gl.bind_vertex_array(Some(g.vao));}
+        if let [(first,count)]=self.ranges[..] {
+            unsafe {gl.draw_elements(glow::TRIANGLES,count as i32,g.index_type,first as i32*g.index_bytes);}
+        } else {
+            self.counts.clear();self.offsets.clear();
+            for &(first,count) in &self.ranges {self.counts.push(count as i32);self.offsets.push(first as i32*g.index_bytes);}
+            core.multi.multi_draw(glow::TRIANGLES,&mut self.counts,g.index_type,&mut self.offsets);
+        }
+        core.profile.draw(indices,1,core.multi.multi_draw_calls(self.ranges.len()));
         stats.gl_calls+=2;stats.pass_draws[crate::core::PASS_SHADOW]+=1;
     }
 }
@@ -144,6 +158,20 @@ impl Bank {
 #[cfg(test)]
 mod capacity_tests {
     use super::*;
+    // Three cells side by side in index order, the middle one out of view: two ranges, not one span over all three.
+    #[test]
+    fn hidden_cells_between_visible_ones_are_not_drawn() {
+        let identity=[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];
+        let frustum=Frustum::from_matrix(&identity);
+        let cell=|first,end,x:f64|Cell{first,end,min:[x,-0.5,-0.5],max:[x+0.4,0.5,0.5]};
+        let cells=[cell(0,30,-0.9),cell(30,90,5.),cell(90,96,0.5),cell(96,99,0.6)];
+        let bounds=[0.,0.,0.,10.,0.,0.,0.,0.,0.,0.];
+        let mut out=vec![];
+        assert_eq!(ranges(&bounds,99,&cells,&frustum,&mut out),2);
+        assert_eq!(out,[(0,30),(90,9)]);
+        assert_eq!(ranges(&bounds,99,&[],&frustum,&mut out),1);
+        assert_eq!(out,[(0,99)]);
+    }
     #[test]
     fn depth_admission_over_content_capacity_is_bounded() {
         let mut bank=Bank::default();

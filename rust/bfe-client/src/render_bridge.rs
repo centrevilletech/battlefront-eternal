@@ -1919,7 +1919,7 @@ if texture < -1 || texture>=0 && texture as usize>=self.r.core.native_texture_co
             if !sources.is_empty() {jobs.push((id,None,side,-1,"actors/depth-solid",DepthGeometry::merged(&sources)));}
         }
         // Cutouts retain each source's map and subdivision representation.
-        // Native cells select the same Morton span as the old shadow proxies.
+        // Each shadow camera draws only the cells it sees.
         for (i,row) in refs.iter().enumerate() {
             let source=&self.static_sources[row.source as usize];let cut=source.record.flags&2!=0;let fabric=source.geometry.fabric;
             if !cut&&!fabric {continue;}
