@@ -141,8 +141,35 @@ impl Phase {
     pub fn render_controls(&mut self, dt: f64, stream_busy: &[bool]) {
         self.engine.time += dt; self.engine.ducks(dt, stream_busy);
         let mut cursor = 0;
+        // The voices playing as the step begins, by serial: walked in order
+        // instead of searching every slot for the next one at each step. A
+        // voice that ends or loses its slot meanwhile is passed over; voices
+        // started during the step (their serials newer than all of these) are
+        // found by the search, as before.
+        let mut live = [(0u64, 0u16); CAPACITY];
+        let mut count = 0;
+        for (id, v) in self.engine.voices.iter().enumerate() {
+            if !v.done {
+                live[count] = (v.serial, id as u16);
+                count += 1;
+            }
+        }
+        live[..count].sort_unstable();
+        let mut next = 0;
         loop {
-            let voice = self.engine.voices.iter().enumerate().filter(|(_, v)| !v.done && v.serial > cursor).min_by_key(|(_, v)| v.serial).map(|(id, v)| (id, v.serial));
+            while next < count {
+                let (serial, id) = live[next];
+                let v = &self.engine.voices[id as usize];
+                if !v.done && v.serial == serial && serial > cursor {
+                    break;
+                }
+                next += 1;
+            }
+            let voice = if next < count {
+                Some((live[next].1 as usize, live[next].0))
+            } else {
+                self.engine.voices.iter().enumerate().filter(|(_, v)| !v.done && v.serial > cursor).min_by_key(|(_, v)| v.serial).map(|(id, v)| (id, v.serial))
+            };
             let group = self.layers.next_after(cursor);
             if let Some((id, serial)) = group.filter(|(_, serial)| voice.is_none_or(|(_, vs)| *serial < vs)) {
                 cursor = serial; let handle = self.layers.handle(id);
