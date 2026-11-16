@@ -1,7 +1,8 @@
 //! Where each front-end movie is: its Bink file inside the player's game archives. Built once when the
 //! menus start, from the first game folder candidate that holds `GameData/Data/_LVL_PC/Movies/shell.mvs`
 //! (letter case ignored), plus every add-on's `GameData/AddOn/<name>/Data/_lvl_pc/Movies/*.mvs`.
-//! Movies are named as in shell.json (`/common/shell/movies/<name>.webm`); a name maps to its archive
+//! Movies are named as in shell.json (`/common/shell/movies/<name>.bik`; `.webm` in content prepared by
+//! earlier versions, the same name); a name maps to its archive
 //! entry through the prepared content's `common/shell/movies/manifest.json` (`hash`), else through the
 //! name's own hash. Without a game folder the library is empty and every movie fails at once.
 use crate::archive::{self, Entry};
@@ -51,7 +52,7 @@ pub fn find_ignoring_case(base: &Path, parts: &[&str]) -> Option<PathBuf> {
     Some(path)
 }
 
-/// The movie name in a shell.json url (`/common/shell/movies/main.webm` -> `main`).
+/// The movie name in a shell.json url (`/common/shell/movies/main.bik` -> `main`), whatever the extension.
 fn name_of(url: &str) -> String {
     let file = url.rsplit(['/', '\\']).next().unwrap_or(url);
     let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
@@ -234,17 +235,20 @@ mod tests {
         std::fs::create_dir_all(&addon).unwrap();
         std::fs::write(shell.join("shell.mvs"), archive(&["main", "atat_in"])).unwrap();
         std::fs::write(addon.join("tat3.MVS"), archive(&["tat3fly"])).unwrap();
-        // The prepared content names the Galactic Conquest ending by its own hash.
+        // The prepared content names the Galactic Conquest ending by its own hash. This is content an
+        // earlier version prepared: its manifest describes a WebM copy, which lies beside it and is never
+        // read (the movie plays from the game's archive).
         let content = root.join("content");
         std::fs::create_dir_all(content.join("common/shell/movies")).unwrap();
         std::fs::write(
             content.join("common/shell/movies/manifest.json"),
             format!(
-                r#"{{"version":1,"movies":{{"rebel_win":{{"hash":"0x{:08x}"}}}}}}"#,
+                r#"{{"version":1,"movies":{{"rebel_win":{{"file":"rebel_win.webm","hash":"0x{:08x}","settings":"-c:v libvpx-vp9","bytes":4}}}}}}"#,
                 hash("atat_in")
             ),
         )
         .unwrap();
+        std::fs::write(content.join("common/shell/movies/rebel_win.webm"), b"junk").unwrap();
 
         // The preparation record's path (inside the game) works as well as the game folder; a missing
         // candidate is passed over.
@@ -252,18 +256,20 @@ mod tests {
         let library = MovieLibrary::open(Some(&content), &candidates);
         assert_eq!(library.game_dir(), Some(game.as_path()));
         assert_eq!(library.archive_count(), 2);
-        let main = library.resolve("/common/shell/movies/main.webm").unwrap();
+        let main = library.resolve("/common/shell/movies/main.bik").unwrap();
         assert_eq!(main.path, shell.join("shell.mvs"));
-        let atat = library
-            .resolve("/common/shell/movies/atat_in.webm")
-            .unwrap();
+        // An earlier version's shell.json names the same movie with .webm.
+        assert_eq!(
+            library.resolve("/common/shell/movies/main.webm"),
+            Some(main.clone())
+        );
+        let atat = library.resolve("/common/shell/movies/atat_in.bik").unwrap();
         assert_eq!(library.resolve("movies/rebel_win.webm"), Some(atat.clone()));
-        let fly = library
-            .resolve("/common/shell/movies/tat3fly.webm")
-            .unwrap();
+        assert_eq!(library.resolve("movies/rebel_win.bik"), Some(atat.clone()));
+        let fly = library.resolve("/common/shell/movies/tat3fly.bik").unwrap();
         assert_eq!(fly.path, addon.join("tat3.MVS"));
         assert!(library
-            .resolve("/common/shell/movies/nothing.webm")
+            .resolve("/common/shell/movies/nothing.bik")
             .is_none());
 
         // The movie found plays.
@@ -280,16 +286,20 @@ mod tests {
         // No game folder: nothing resolves.
         let empty = MovieLibrary::open(Some(&content), &[root.join("moved away")]);
         assert_eq!(empty.archive_count(), 0);
-        assert!(empty.resolve("/common/shell/movies/main.webm").is_none());
+        assert!(empty.resolve("/common/shell/movies/main.bik").is_none());
 
         // Every folder of the main archive in other letters: found, under the names on disk.
         let other = root.join("Other Game");
-        let movies = other.join("gamedata").join("DATA").join("_lvl_pc").join("movies");
+        let movies = other
+            .join("gamedata")
+            .join("DATA")
+            .join("_lvl_pc")
+            .join("movies");
         std::fs::create_dir_all(&movies).unwrap();
         std::fs::write(movies.join("SHELL.MVS"), archive(&["main"])).unwrap();
         let library = MovieLibrary::open(None, std::slice::from_ref(&other));
         assert_eq!(library.game_dir(), Some(other.as_path()));
-        let main = library.resolve("/common/shell/movies/main.webm").unwrap();
+        let main = library.resolve("/common/shell/movies/main.bik").unwrap();
         assert_eq!(main.path, movies.join("SHELL.MVS"));
         // A decoder thread may still hold a file for a moment; Windows does not remove an open file.
         let _ = std::fs::remove_dir_all(&root);
