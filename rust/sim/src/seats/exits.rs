@@ -1,7 +1,7 @@
 //! Where someone getting out of a seat is set down: the 2004 game's exit
-//! search for bots and every turret crew (src/seats.js classicSeatExit:
+//! search for bots and every turret crew (classicSeatExit:
 //! nine candidates, up to 99 casts), and a person's search out of a hull
-//! (src/vehicles.js safeExitPoint and personExitPoint: twelve spots, up to
+//! (safeExitPoint and personExitPoint: twelve spots, up to
 //! 24 casts and 12 overlap tests).
 
 use super::SeatWorld;

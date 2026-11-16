@@ -99,7 +99,7 @@ fn unit_class(cx: &mut Cx, def: &Value) -> Result<Call, AdmitError> {
     Ok(call)
 }
 
-/// F4Live.prepareWeapon's row for a weapon definition (weapons.js Weapon:
+/// F4Live.prepareWeapon's row for a weapon definition (Weapon:
 /// levels are the definition and its charges merged over it, the name its
 /// class, the channel its own): ammunition per level, the key, the labels.
 fn weapon_class(cx: &mut Cx, def: &Value) -> Result<Call, AdmitError> {

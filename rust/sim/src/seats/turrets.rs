@@ -1,6 +1,6 @@
-//! The turret crews (src/seats.js TurretSeats: man, canMan, requestExit,
+//! The turret crews (TurretSeats: man, canMan, requestExit,
 //! leave, vacate, destroyed, update, drive, pose; turretAimPoint) and the
-//! turrets they drive (src/props.js Turret: steer, holdYaw, present,
+//! turrets they drive (Turret: steer, holdYaw, present,
 //! gunWant, aimGun, muzzle, fireDirection, viewDirection, aimFrame,
 //! eyePoint, cameraTurn, cameraRest, aimOrigin, seatPoint, seatYaw).
 

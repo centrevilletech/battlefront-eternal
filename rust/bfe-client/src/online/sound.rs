@@ -262,7 +262,7 @@ pub struct Sound {
     /// the battle's weapon list (lightning.rs Guns).
     pub ahead: (Vec<bool>, Vec<usize>),
     /// The player's volumes, 0 to 1: master, effects, ambience, music, voice,
-    /// interface (engine.js applyVolumes and categoryVolume).
+    /// interface (applyVolumes and categoryVolume).
     pub volumes: [f64; 6],
     /// The own body's feet above its origin as drawn (Replicas::own_feet).
     pub own_feet: [f64; 3],

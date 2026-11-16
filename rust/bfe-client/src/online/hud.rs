@@ -224,7 +224,7 @@ struct Post{id:usize,row:[f64;P::WORDS],label:String,region:Option<bfe_content::
 }
 impl Post {
     // The capture region holds this point, while the post is in the battle
-    // (commandposts.js at(): a destroyed post has no capture gauge).
+    // (at(): a destroyed post has no capture gauge).
     fn holds(&self,at:[f64;3])->bool {
         self.row[P::ACTIVE]!=0.&&self.region.as_ref().is_some_and(|region|bfe_sim::vehicles::native::in_region(region,&three::Vector3::new(at[0],at[1],at[2])))
     }

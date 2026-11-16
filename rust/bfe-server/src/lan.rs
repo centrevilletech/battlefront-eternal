@@ -1,4 +1,4 @@
-//! LAN discovery responder and scanner (`src/lan.js` and `startLanDiscovery`).
+//! LAN discovery responder and scanner (and `startLanDiscovery`).
 
 use bfe_transport::crypto::random;
 use bfe_transport::server::normalize_ip;

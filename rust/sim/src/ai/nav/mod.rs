@@ -35,7 +35,7 @@ use units::{kind, NavUnit, UnitRef};
 
 use bfe_content::Value;
 
-/// The planner's options (planner.js:94-105, index.js:30's pools).
+/// The planner's options (index.js:30's pools).
 #[derive(Clone, Copy, Debug)]
 pub struct PlannerOptions {
     pub paths: f64,

@@ -117,7 +117,7 @@ fn bot<W: RosterWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W)
 }
 
 /// Whether the team fields bots: with aiMode off its unit count stays 0 and
-/// its places only wait for players (game.js makes no AI at all then).
+/// its places only wait for players (makes no AI at all then).
 fn fielded(s: &Store, team: usize) -> bool {
     s.spawning.teams[team].unit_count > 0.0
 }

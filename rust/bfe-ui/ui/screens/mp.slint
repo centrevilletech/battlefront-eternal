@@ -841,7 +841,7 @@ export component MultiplayerScreen inherits Rectangle {
     }
 }
 
-// Host Dialog (`src/shell/host-dialog.js`, `ScreenId::HostDialog`).
+// Host Dialog (`ScreenId::HostDialog`).
 // Modal overlay over the server browser when the user selects `CREATE`.
 export component HostDialogModal inherits Rectangle {
     visible: MpModel.host-active;
@@ -1104,7 +1104,7 @@ export component HostDialogModal inherits Rectangle {
     }
 }
 
-// Direct Connection Dialog (`src/shell/direct-connect.js`, `ScreenId::DirectConnect`).
+// Direct Connection Dialog (`ScreenId::DirectConnect`).
 export component DirectConnectModal inherits Rectangle {
     visible: MpModel.direct-active;
 
@@ -1238,7 +1238,7 @@ export component DirectConnectModal inherits Rectangle {
     }
 }
 
-// Online Privacy Notice (`src/shell/online-notice.js`, `PopupState::OnlineNotice`).
+// Online Privacy Notice (`PopupState::OnlineNotice`).
 // Uses `bfe-ui`'s `OfferDialog` (`600px` max-width, `253x48` buttons) with the
 // exact strings from `ShellApp::online_notice()`.
 export component OnlineNoticeModal inherits Rectangle {

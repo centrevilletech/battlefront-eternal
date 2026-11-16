@@ -1,4 +1,4 @@
-//! A hull and its tick on the ground (src/vehicles.js `Vehicle`: tick,
+//! A hull and its tick on the ground (`Vehicle`: tick,
 //! aimCrew, steer, aimPlayerSeat, clampAim, holdYaw, syncBody, damage,
 //! setHealth, the wheels and sleeping; src/vehicle-water.js
 //! waterDamageStep).
@@ -105,7 +105,7 @@ pub struct WaterRule {
     pub amount: f64,
 }
 
-/// A hover spring (src/vehicle-hover.js hoverClass: an AddSpringBody
+/// A hover spring (hoverClass: an AddSpringBody
 /// sphere in the hull's frame, its travel and its six factors).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Spring {

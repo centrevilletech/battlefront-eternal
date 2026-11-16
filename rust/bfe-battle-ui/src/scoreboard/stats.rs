@@ -5,7 +5,7 @@
 // (`LINK_LABELS`, `scoreboardPort`), and `src/runtime/network-entity-summary.js`
 // (schemas 1 through 5).
 //
-// Statistical rules matching the 2004 game (`src/battle-stats.js` and `docs/scoreboard.md`):
+// Statistical rules matching the 2004 game (and `docs/scoreboard.md`):
 // - Two-slot per-character records (`slot_of`): Team 2 accumulates tallies in `slots[1]` and
 //   every other team in `slots[0]`, so a character who switches teams mid-battle retains
 //   separate tallies for each side.
@@ -786,7 +786,7 @@ pub struct NetworkPlayerRow {
     pub ping: Option<i32>,
 }
 
-/// Decoded network entity summary (`src/runtime/network-entity-summary.js`, schemas 1..5).
+/// Decoded network entity summary (schemas 1..5).
 ///
 /// Represents a versioned world/roster/record summary datagram (`schema` 1: battle tickets & clocks;
 /// 2: command post state; 3: authoritative human spawn state; 4: chunked character roster with

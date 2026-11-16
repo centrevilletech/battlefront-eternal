@@ -194,7 +194,7 @@ pub(crate) fn player_in(world_ctx: &mut crate::world::owner::World, character: R
         combat_random,weapon_random,recon_key,recon_seed};
     let reference=realize_in(world_ctx, &request,services.reborrow())?;
     // A body of another class is another unit, with a life count of its own.
-    // It takes the player's on (multiplayer-world.js: `unit.generation =
+    // It takes the player's on (`unit.generation =
     // Math.max(unit.generation, previous.generation)`), so the spawn below
     // starts a life newer than his last. Without it his controls, which
     // refuse the stamps of an older life, refused every command of the new

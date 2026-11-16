@@ -5,7 +5,7 @@
 //! Command posts, following the 2004 game.
 //!
 //! Soldiers inside a post's capture region count for their team's capture
-//! team (src/registry.js captureTeam: an army for itself, a local team for the
+//! team (captureTeam: an army for itself, a local team for the
 //! one army it is friendly with, for nobody when it is friendly with both, for
 //! itself when with neither). N soldiers of a team capture at 1 + 1/2 + ...
 //! (N terms) times the base rate. An owned post that other teams stand in is

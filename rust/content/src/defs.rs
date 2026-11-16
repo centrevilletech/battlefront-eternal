@@ -28,7 +28,7 @@ pub fn identity(v: &Value) -> Option<usize> {
 pub struct Drop {
     pub class: Option<Name>,
     pub probability: Option<f64>,
-    /// The side's item class it names (game.js: `sides[unit.side].items`).
+    /// The side's item class it names (`sides[unit.side].items`).
     pub item: Option<usize>,
 }
 

@@ -1,5 +1,5 @@
-//! The seats (src/seats.js, src/boarding.js, the hulls' seat methods of
-//! Vehicles, src/runtime/network-seat.js and
+//! The seats (src/boarding.js, the hulls' seat methods of
+//! Vehicles and
 //! network-vehicle.js): who sits in which hull seat or turret, how he gets
 //! in, out and from seat to seat, and what his seat does with his intent,
 //! to the last bit.

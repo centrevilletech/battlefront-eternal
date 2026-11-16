@@ -769,7 +769,7 @@ impl Gpu {
             let picked = i as u8 + 1 == own;
             let plate = l.teams[i];
             // The emblem's box beside its plate; the model fills it, the other team's smaller, and both grow
-            // in over the swap (view.js renderAfter: size * (own ? 1 : 0.8) * (0.8 + 0.2 * min(t, 1))).
+            // in over the swap (renderAfter: size * (own ? 1 : 0.8) * (0.8 + 0.2 * min(t, 1))).
             let boxed = (l.height * 0.074).clamp(46., 80.);
             let awake = woken == Some(i);
             let size = boxed

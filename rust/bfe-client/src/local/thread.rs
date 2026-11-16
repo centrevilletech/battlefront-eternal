@@ -1,5 +1,5 @@
 //! Dedicated 60 Hz local world thread and bounded non-blocking command/publication
-//! boundary for Instant Action battles (`src/game.js` `step` loop,
+//! boundary for Instant Action battles (`step` loop,
 //! snapshot delivery).
 //!
 //! Why a separate thread with pre-allocated mailboxes:

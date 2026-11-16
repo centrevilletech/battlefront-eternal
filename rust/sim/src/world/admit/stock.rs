@@ -26,7 +26,7 @@ fn prepared(cx: &Cx, class_name: &str) -> bool { bodies::prepare::parts(cx, clas
 /// locals' may fail and then field nobody. Every class that prepared is
 /// what createNativeAI later reads as `factory.prepared(name)`: those
 /// names are published on the AI receipts, in the sides' table order
-/// (ai-world-load.js walks `factory.sides` to collect them).
+/// (walks `factory.sides` to collect them).
 pub fn build(world: &mut World, cx: &mut Cx) -> Result<Calls, AdmitError> {
     let battle = cx.battle;
     let mission = battle.world.get("mission");
@@ -127,7 +127,7 @@ fn dispatch(world: &mut World, cx: &mut Cx, calls: &mut Calls, name: &'static st
 /// constructed from the class record as JSON.stringify spells it.
 pub(crate) fn page_body(world: &mut World, cx: &mut Cx, parts: &bodies::prepare::Parts, class_name: &str, calls: &mut Calls) -> Result<(), AdmitError> {
     let bank = parts.walker.unwrap_or(parts.shared);
-    // A droideka's clips are loaded for each body (units.js walkerData,
+    // A droideka's clips are loaded for each body (walkerData,
     // loadClips per buildBody): nothing is shared between bodies, and the
     // constructor's samples are registered apart from the animator's bank.
     // Prepared stock reuses one construction slot, so the factory's cookie

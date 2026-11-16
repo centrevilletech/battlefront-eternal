@@ -456,7 +456,7 @@ fn body_refs(world: &mut World, cx: &mut Cx, made: &[Made], kernel: usize) -> Ve
 }
 
 /// VehicleContent.collider(v): a gather cache per wall probe and per
-/// spring (collision.js gatherCache, WALL_CACHE_MARGIN), then the header
+/// spring (gatherCache, WALL_CACHE_MARGIN), then the header
 /// with the body, its kernel slot and its local bounds.
 fn collider(world: &mut World, cx: &mut Cx, m: &mut Made, hull: &Hull, data: &Value) -> Result<[(Stage, &'static str, Call); 2], AdmitError> {
     let def = data.get("classes").and_then(|c| c.get(&m.name)).ok_or_else(|| error(format!("vehicle class {} is missing", m.name)))?;
@@ -674,7 +674,7 @@ fn construct_prop_bodies(world: &mut World, cx: &mut Cx) -> Result<(), AdmitErro
         for (look, (name, shape)) in [("built", &prop.built), ("destroyed", &prop.destroyed), ("unbuilt", &prop.unbuilt)].into_iter().enumerate() {
             let Some(shape) = shape else { continue };
             // buildBVH over the shared props corners: copied into the kernel
-            // the first time (ray-kernel.js positions caches by array).
+            // the first time (positions caches by array).
             let key = std::rc::Rc::as_ptr(&shape.positions) as *const f32;
             let id = match positions.iter().find(|(k, _)| *k == key) {
                 Some(&(_, id)) => id,
@@ -715,7 +715,7 @@ fn attach_turrets(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(),
             && desc.get("model").and_then(Value::as_str).and_then(|m| models.get(m)).is_some_and(Value::truthy))
         .map(|(i, desc)| (i, desc.clone())).collect();
     for _ in &turrets { world.sim.store.units.add(|id| Member::TurretTarget(Ref::new(id, 0))); }
-    // registerObjectives (src/objectives.js, game.js after the turrets): every
+    // registerObjectives (game.js after the turrets): every
     // destructible command post's building an ObjectiveTarget.
     let posts = instances.iter().filter(|desc| desc.get("base").and_then(Value::as_str) == Some("commandpost")
         && desc.get("model").and_then(Value::as_str).and_then(|m| models.get(m)).is_some_and(Value::truthy)).count();
@@ -842,7 +842,7 @@ fn prop_poses(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static s
 
 /// The Vehicle constructor's Pose: a hull that walks on its clips (not a
 /// flyer, whose clip only moves its gear) gets one over the rig's bones,
-/// rooted at its dummy root or -1 (vehicles.js `new Pose(this.bones.length,
+/// rooted at its dummy root or -1 (`new Pose(this.bones.length,
 /// shell.records.poseRoot ?? -1)`).
 fn walking_pose(world: &mut World, cx: &mut Cx, calls: &mut Vec<(Stage, &'static str, Call)>, template: &bfe_content::content::VehicleTemplate, def: &Value) -> Result<(), AdmitError> {
     if !template.clips.as_ref().is_some_and(|clips| !clips.list.is_empty()) || base_of(def) == "flyer" { return Ok(()); }

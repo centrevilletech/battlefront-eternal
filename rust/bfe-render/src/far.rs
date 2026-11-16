@@ -525,7 +525,7 @@ impl<C: HasContext> FarPass<C> {
         self.counted = PASS_FAR;
     }
 
-    // A face of a sky probe's capture (sky-probe.js, renderer.rs
+    // A face of a sky probe's capture (renderer.rs
     // far_probe_frame): the far pass for the face's camera into the face
     // three bound, with a frame block of the probe's own for the face; after
     // the last face, the cube's mipmaps when three would make them.

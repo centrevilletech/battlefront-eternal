@@ -34,5 +34,5 @@ pub mod value;
 pub use value::{Object, Value};
 
 /// ENGINE.diveLength: the share of the dive clip a dive
-/// lasts (units.js buildBody: diveTime).
+/// lasts (buildBody: diveTime).
 pub const DIVE_LENGTH: f64 = 0.75;

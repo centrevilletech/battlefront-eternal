@@ -58,7 +58,7 @@ pub struct UnitShadow {
 }
 
 /// The string ids the controls are read with: the world's key tables
-/// (src/input.js WORLD_AXES, HOLDS, PRESSES) and the flight package's
+/// (WORLD_AXES, HOLDS, PRESSES) and the flight package's
 /// default bindings (FLIGHT_BINDINGS).
 pub struct Names {
     pub forward: [[StrId; 2]; 2],

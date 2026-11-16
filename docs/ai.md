@@ -228,7 +228,7 @@ difficulty (`rust/sim/src/ai/control/difficulty.rs`), spawning (whose
 Characters become `battle.characters`, `rust/sim/src/battle/spawning.rs`),
 the mission controls, the deferred line-of-sight queue
 (`rust/sim/src/ai/combat/perception.rs`) and each side's class data itself;
-the page's AI object exposes only the spawning view and the navigation
+the AI object exposes only the spawning view and the navigation
 boundary. VO is written to
 `world.events` as `kind: "vo"` records. Soldier and Droideka physics carry
 `avoidance`, the near-horizontal building/prop contact normals summed since

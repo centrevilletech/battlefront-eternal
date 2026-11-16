@@ -1,7 +1,7 @@
 //! How far below its origin a flyer stands on its landing gear: src/flight/
 //! gearFoot, from the vehicle template's drawn batches (src/
 //! vehicleBatches: every part in the rig's bind frame, on its
-//! joints) posed at the takeoff clip's first frame (src/anim.js Pose, its
+//! joints) posed at the takeoff clip's first frame (Pose, its
 //! Float32Array accumulators and all). A load-time number of the class:
 //! lands and lifts the craft by it.
 

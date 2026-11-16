@@ -48,7 +48,7 @@ const TARGETS: [u32; 3] = [glow::TEXTURE_CUBE_MAP, glow::TEXTURE_3D, glow::TEXTU
 // The views a frame draws, each with a frame block of its own: the near
 // scene, the far scene (its own camera range), the first-person view scene,
 // one spare (a mirror's near scene), and the far scene seen from a water's
-// mirror (water.js reflect, drawn before the frame's own far scene).
+// mirror (reflect, drawn before the frame's own far scene).
 pub const VIEW_NEAR: usize = 0;
 pub const VIEW_FAR: usize = 1;
 pub const VIEW_FIRST_PERSON: usize = 2;

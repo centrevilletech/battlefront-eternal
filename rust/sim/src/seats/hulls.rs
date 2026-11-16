@@ -1,4 +1,4 @@
-//! The hulls' seats (src/vehicles.js Vehicles: board, eligibleSeat,
+//! The hulls' seats (Vehicles: board, eligibleSeat,
 //! requestExit, unboard, vacate, promote, move, displace, destroyedCrew,
 //! latchCrews, seatOf; Vehicle: restYaw, restAim, clampAim, holdYaw,
 //! seatFrameForward, sphere).

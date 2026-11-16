@@ -3,7 +3,7 @@
 //! Front-end shell menus (`MAIN MENU`, `SINGLEPLAYER`, `INSTANT ACTION`,
 //! `OPTIONS`, `PROFILE MANAGEMENT`, `MULTIPLAYER`, `EXIT TO WINDOWS`), click gate,
 //! screen media transitions, shell audio/music, loading timeline, and launch state.
-//! Ports `src/shell/*.js`, `src/launch.js`, and `src/mission.js` to native Rust.
+//! Ports `src/shell/*.js`, and `src/mission.js` to native Rust.
 
 pub mod audio;
 pub mod data;

@@ -9,7 +9,7 @@ use super::math::{d2, f32, near_waypoint, normalize, same, tiny, Vec3, FLT_MAX};
 use super::planner::{PathNode, PathStore};
 use super::units::{kind, NavUnit};
 
-/// The control side of an executor (control.js `consumeSegment`,
+/// The control side of an executor (`consumeSegment`,
 /// `writeRequest`, `avoidSide`).
 pub trait ExecutorHost {
     fn consume_segment(&mut self);

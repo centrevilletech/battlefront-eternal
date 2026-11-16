@@ -889,7 +889,7 @@ pub(crate) fn bind_random_in(world_ctx: &mut crate::world::owner::World, unit: R
 }
 
 /// A network human's mouse samples for a Look or Network command
-/// (src/f2-seats.js invoke with looks): the header names only the samples.
+/// (invoke with looks): the header names only the samples.
 pub(crate) fn seat_samples_in(world_ctx: &mut crate::world::owner::World, scales: &crate::seats::boarding::LookScales, looks: &[[f64; 2]]) {
     let state = seats_state(&mut world_ctx.fleet.seats);
     let o = F2SeatHeader::WORDS as u32;

@@ -101,7 +101,7 @@ pub fn person_lease(lease: &SeatLease, units: &Slab<Unit>) -> bool {
 }
 
 /// The seat as the AI drives it (SeatUnit) as its lease plays it: whether
-/// a controller drives it, and its own intent (seats.js blankSeatIntent
+/// a controller drives it, and its own intent (blankSeatIntent
 /// and what the AI writes there).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct SeatControl {

@@ -12,7 +12,7 @@
 //   that keeps them so: the Enhanced sniper's); here they are interleaved
 //   and uploaded with one call into a vertex buffer of the batch's own,
 //   which its vertex array reads. An analytic batch's owner
-//   (effects-gpu.js GpuEffects: its tracks, and the frame's emitters, a row
+//   (GpuEffects: its tracks, and the frame's emitters, a row
 //   an effect) is a texture of three's for the tracks and one of the
 //   renderer's for the emitters, a row of which the client writes for each
 //   effect playing.
@@ -82,7 +82,7 @@ pub const INPUT_LEN: usize = DRAW_AT + MAX_DRAWS * DRAW_STRIDE;
 pub const DATA_LEN: usize = 1 << 18;
 // The models' world matrices a frame (f64, 16 each).
 pub const MATRICES_LEN: usize = MAX_DRAWS * 16;
-// Floats of an emitter row (effects-gpu.js: three RGBA texels).
+// Floats of an emitter row (three RGBA texels).
 const EMITTER_FLOATS: usize = 12;
 
 // The material values the batches' programs read from the frame (by name,
@@ -244,7 +244,7 @@ pub struct EffectsPass<C: HasContext> {
 // add_batch's corner for a batch with a base of its own (batch_base).
 pub const NO_CORNER: u32 = u32::MAX;
 
-// The quad every batch draws (particles.js QUAD, QUAD_INDEX).
+// The quad every batch draws (QUAD, QUAD_INDEX).
 const QUAD:[f32;8]=crate::effect_resources::Descriptor::corner().0;
 const QUAD_INDEX:[u16;6]=crate::effect_resources::Descriptor::corner().1;
 
