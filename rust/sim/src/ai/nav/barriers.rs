@@ -15,7 +15,7 @@ pub struct Work {
     pub cap: f64,
 }
 
-/// A barrier record of ai-nav.json as numbers (barriers.js:22 reads
+/// A barrier record of ai-nav.json as numbers (reads
 /// `record.xfrm`, `record.size`, `record.flags`, `record.name`).
 #[derive(Clone, Debug)]
 pub struct BarrierRecord {

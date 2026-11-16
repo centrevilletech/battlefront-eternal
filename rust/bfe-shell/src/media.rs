@@ -1,5 +1,5 @@
 //! Screen media transitions (`SCREEN_MEDIA`, `PREVIEW_DELAY`, `previewRect`,
-//! `ShellMedia` in `src/shell/media.js` and `MoviePlayer`).
+//! `ShellMedia` and `MoviePlayer`).
 
 use crate::{
     data::{MovieClip, ScreenMovie, ShellData},

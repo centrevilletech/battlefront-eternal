@@ -83,7 +83,7 @@ pub fn fallback_logo_for_side(side: &str) -> &'static str {
 }
 
 /// Placement of the `spawn_map()` square on the `1024xH` interface plane
-/// (`src/hud.js` `spawnMapPlace` and `bfe_render::hud_model::map::spawn_map`).
+/// (`spawnMapPlace` and `bfe_render::hud_model::map::spawn_map`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpawnMapPlacement {
     /// Horizontal center of the tactical spawn map in `1024xH` interface units.

@@ -384,7 +384,7 @@ pub fn draw_nine_slice(
 
 /// Draws a 9-sliced window centered at `(cx, cy)` under `m` into `batch`,
 /// falling back to a solid navy rectangle if `texture == 0`
-/// (`src/spawn-screen/classic/view.js` `drawBackground`, `src/scoreboard/classic/view.js` `window`).
+/// (`drawBackground`, `src/scoreboard/classic/view.js` `window`).
 #[allow(clippy::too_many_arguments)]
 pub fn draw_nine_slice_window(
     batch: &mut Batch,

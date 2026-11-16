@@ -1,7 +1,7 @@
 //! What the connections' bodies hand the unit and hull phases each tick:
-//! their intent rows and network shot facts (src/f3-sim.js preparePhase's
+//! their intent rows and network shot facts (preparePhase's
 //! rows for network humans) and the network pilots' flight keys
-//! (src/f2-sim.js prepareStep's flight rows). The host still writes rows
+//! (prepareStep's flight rows). The host still writes rows
 //! for bodies it drives itself; these are written beside them.
 use super::owner::{Flight, Players, Shot, UnitShadow};
 use crate::flight::model::FlightInput;

@@ -1,4 +1,4 @@
-//! The Enhanced steam of the maps' vents (environment-effects.js with
+//! The Enhanced steam of the maps' vents (with
 //! EnvironmentVolume and SteamWisps): each vent in view, out to 90 m, is a
 //! ray-marched box of rolling vapour drawn at half the screen's size into a
 //! texture of its own, then laid over the scene by a depth-aware composite;

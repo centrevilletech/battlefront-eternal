@@ -204,7 +204,7 @@ fn vehicle_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller:
 // ---------------------------------------------------------------------------
 // Cover hints and their reservations.
 
-/// A hint's reservation (combat.js:244: owner, time).
+/// A hint's reservation (owner, time).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Reservation {
     pub owner: Option<Obj>,
@@ -388,7 +388,7 @@ impl Default for Patterns {
     }
 }
 
-/// The combat source goal (controller.js SourceGoal: mode 0 location, 1
+/// The combat source goal (SourceGoal: mode 0 location, 1
 /// target, 2 evade, 3 prone; its point; refA the target).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Goal {

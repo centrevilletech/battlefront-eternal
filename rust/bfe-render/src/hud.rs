@@ -88,7 +88,7 @@ impl<C: HasContext> HudPass<C> {
         }
     }
 
-    // The batch's index (batch.js: two triangles a quad), once.
+    // The batch's index (two triangles a quad), once.
 // Batch.init's resource role: allocate one index buffer and four attribute
 // buffers. Their order matches SIZES/LOCATIONS and reupload's mirror list.
 // The optional VAO marks allocation, not a runtime choice of drawer.

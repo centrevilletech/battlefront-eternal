@@ -53,7 +53,7 @@ pub fn anchor_matrix(ax: f64, ay: f64, safe: bool, height: f64) -> Matrix {
 }
 
 /// Post-multiplies `a` by a rotation of `angle` radians around the local X axis
-/// (`THREE.Matrix4.makeRotationX` in `src/interface/space.js` and `rust/bfe-shell/src/render.rs`).
+/// (`THREE.Matrix4.makeRotationX` and `rust/bfe-shell/src/render.rs`).
 #[inline]
 pub fn rotate_x(a: Matrix, angle: f64) -> Matrix {
     let (s, c) = (angle.sin(), angle.cos());

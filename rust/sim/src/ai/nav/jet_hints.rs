@@ -19,7 +19,7 @@ pub struct JetHintJob {
     pub started: f64,
 }
 
-/// The pick among candidate hint positions (jet-hints.js:15-34, the part
+/// The pick among candidate hint positions (the part
 /// after the hint query): random removal order, the least
 /// 2.25 * horizontal distance squared wins, ties keep the earlier pick.
 /// `hints` are indices into the service's hint list with their positions.

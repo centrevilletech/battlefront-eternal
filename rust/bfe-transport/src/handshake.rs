@@ -116,7 +116,7 @@ impl ClientHandshake{
 }
 
 /// Half-open state for a single client `INITIATION` awaiting `CONFIRM`
-/// (`src/net/handshake.js` `ServerHandshakes` `pending` map entry).
+/// (`ServerHandshakes` `pending` map entry).
 struct Pending {
     // Server-chosen 32-bit session identifier echoed in `RESPONSE` and `CONFIRM`.
     // Client-chosen 32-bit session identifier from `INITIATION`.

@@ -176,7 +176,7 @@ impl RiderSkeleton {
     }
 }
 
-/// A seat's sample of the rider's clip (src/vehicles.js riderSample,
+/// A seat's sample of the rider's clip (riderSample,
 /// Turret.riderSample, AnimatedProp.heldFrame): a time in it,
 /// or the 9-pose's pitch and turn.
 #[derive(Clone, Copy)]

@@ -55,7 +55,7 @@ impl Identity{
         let text=STANDARD.encode(der);let id=hash(&[text.as_bytes()]);Self{key,der,id}
     }
     /// Parses `identity.json`'s base64 SPKI `publicKey` and PKCS#8 PEM
-    /// `privateKey` (`identity.js` `loadIdentity` and `src/net/crypto.js`
+    /// `privateKey` (`loadIdentity` and `src/net/crypto.js`
     /// `identityKeys`). Rejects any keypair whose public key does not match
     /// the seed inside its PKCS#8 envelope.
     pub fn from_keypair(public_key_b64: &str, private_key_pem: &str) -> Result<Self> {
@@ -159,7 +159,7 @@ impl Identity{
     }
 }
 /// Verifies an Ed25519 signature (`signature_b64` base64) over `message`
-/// under a base64 SPKI `public_key_b64` (`identity.js` `verifyProof` and
+/// under a base64 SPKI `public_key_b64` (`verifyProof` and
 /// `BanCache.refresh`).
 pub fn verify_spki_base64(public_key_b64: &str, message: &[u8], signature_b64: &str) -> bool {
     let Ok(der) = STANDARD.decode(public_key_b64.trim()) else {

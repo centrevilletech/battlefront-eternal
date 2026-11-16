@@ -14,7 +14,7 @@ use crate::collision::MAX_BODIES;
 use scene::{GroundCache, Scene};
 use soldier::{Air, Input, Mover, Posture, Trig, PART_CACHES, V3};
 
-// The exchange slots (src/movement-kernel.js mirrors them).
+// The exchange slots (mirrors them).
 pub const POSITION: usize = 0;
 pub const SETTLED: usize = 3;
 pub const VELOCITY: usize = 6;

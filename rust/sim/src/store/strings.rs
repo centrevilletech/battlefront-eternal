@@ -1,5 +1,5 @@
 //! The instance's strings: what a `str` field holds is an index here, the
-//! same on both sides (src/sim/runtime.js `StringTable` interns through
+//! same on both sides (`StringTable` interns through
 //! `sim_str_intern` and keeps a copy of each).
 
 use super::StrId;

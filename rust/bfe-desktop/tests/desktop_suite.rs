@@ -745,8 +745,8 @@ fn prepare_summarizes_addon_failures_and_clears_only_prepared_outputs() {
                 error: Some("bad lvl".to_string()),
             },
             PrepareFailureRecord {
-                id: "movies".to_string(),
-                label: Some("Shell movies".to_string()),
+                id: "textures".to_string(),
+                label: Some("Compressing textures".to_string()),
                 error: Some("missing".to_string()),
             },
         ]),
@@ -818,7 +818,7 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
                 { "id": "common", "kind": "common", "label": "Common assets", "status": "pending" },
                 { "id": "map:bes2a", "kind": "map", "label": "Map: bes2a", "status": "pending" },
                 { "id": "map:tat1i", "kind": "map", "label": "Map: tat1i", "status": "pending" },
-                { "id": "movies", "kind": "movies", "label": "Shell movies", "status": "unavailable" }
+                { "id": "textures", "kind": "textures", "label": "Compressing textures", "status": "unavailable" }
             ]
         }),
         10_000,
@@ -890,7 +890,6 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
             audio: 2,
             sound: 10,
             textures: 1,
-            movies: 1,
         },
         2,
         Some(&timings),
@@ -905,7 +904,6 @@ fn prepare_tracks_progress_events_and_estimates_remaining_time() {
             audio: 2,
             sound: 10,
             textures: 1,
-            movies: 1,
         },
         2,
         Some(&timings),

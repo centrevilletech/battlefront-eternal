@@ -1,4 +1,4 @@
-//! The command posts as the client constructs them (commandposts.js Post,
+//! The command posts as the client constructs them (Post,
 //! attachPostAI) and the host-object imports createNativeAI
 //! makes before its first call (ai-world-load.js 69-72: the posts, the
 //! command posts, the mobile posts, the battle), plus the same import twin

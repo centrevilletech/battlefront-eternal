@@ -6,7 +6,7 @@ use crate::abi::context::{Context, Error};
 use crate::gen::{F3RandomGlobals, F3RandomState};
 use crate::units::f3;
 
-/// RandomStreams.draw names from game.js and multiplayer-world.js. Bare AI
+/// RandomStreams.draw names and multiplayer-world.js. Bare AI
 /// generators are deliberately excluded: they have their own shared owners.
 pub const NAMES: [&str; 5] = [
     "gameplay",

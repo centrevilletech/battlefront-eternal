@@ -1,4 +1,4 @@
-//! A flyer's tick (src/vehicles.js `Vehicle.tick`, its flyer path, and
+//! A flyer's tick (`Vehicle.tick`, its flyer path, and
 //! `Vehicle.fly`): the last pose moved on, then, for a craft that is alive
 //! and awake or manned, its crew's aim and its flight: pilotless, or the
 //! flight model on its pilot's input (a network player's flight keys, a
@@ -82,7 +82,7 @@ pub struct ShotTarget {
     pub target_generation: f64,
 }
 
-/// What a flyer's missile is given after it is fired (vehicles.js emitShot,
+/// What a flyer's missile is given after it is fired (emitShot,
 /// through the rounds' `Cx::flight_missile`): it steers by its class's
 /// seeker, lives the class's missile lifetime, and flies at its missile
 /// speed along its velocity.

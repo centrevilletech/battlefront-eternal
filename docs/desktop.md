@@ -343,7 +343,12 @@ counted as done when a current record is already there, and a battle reuses the
 samples an earlier battle finished instead of remaking and rewriting them.
 
 Preparation runs `tools/prepare.py` with the bundled toolchain, into the app's
-`game-data` folder:
+`game-data` folder. On a 2011 quad-core (i5-2400, four jobs, Enhanced sound
+off) the whole run takes about 9 minutes and the game is playable after about
+5; the longest steps are a map (80 to 130 s each, several at once), what every
+side shares (about 130 s) and the interface (about 115 s). Movies are only
+listed, never converted: with the earlier build's movie conversion the same
+PC took 48 minutes.
 
 | Step (key) | Tool | After | Needs |
 | --- | --- | --- | --- |

@@ -445,7 +445,7 @@ Running any part again is harmless.
 | `common/textures/` additions | 100 PNG + 100 KTX2 | 7.2 MB + 5.5 MB |
 | `common/raster-hud/` additions | 57 atlases | 5.2 MB |
 | `common/shell/load/` | 48 PNG | 23 MB |
-| `common/shell/movies/` | `manifest.json` | a few kB |
+| `common/shell/movies/` | `manifest.json` | 16.9 KB |
 | `audio/shell/` | 6 Opus, 10 FLAC, `sound.json`, `bank.bin` | 17.4 + 2.9 + 5.1 MB |
 
 ## Checks

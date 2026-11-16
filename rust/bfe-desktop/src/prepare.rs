@@ -107,8 +107,6 @@ pub fn expected_baseline_seconds(kind: &str) -> f64 {
         "hud" => 23.0,
         "audio" => 40.0,
         "textures" => 100.0,
-        "movies" => 86.0,
-        "movie-index" => 2.0,
         _ => 30.0,
     }
 }
@@ -971,8 +969,6 @@ pub fn expected_seconds(step: &PrepareStep, timings: Option<&StepTimings>) -> f6
             | "hud"
             | "audio"
             | "textures"
-            | "movies"
-            | "movie-index"
     ) {
         key
     } else {
@@ -1149,8 +1145,6 @@ pub struct PlanCounts {
     pub sound: u32,
     /// Number of texture steps.
     pub textures: u32,
-    /// Number of movie steps.
-    pub movies: u32,
 }
 
 /// Estimated total and sound-only seconds returned by [`plan_estimate`].
@@ -1182,7 +1176,6 @@ pub fn plan_estimate(
         + kind_sec("hud")
         + (counts.audio + sound_steps) as f64 * kind_sec("audio")
         + counts.textures as f64 * kind_sec("textures")
-        + counts.movies as f64 * kind_sec("movies")
         + kind_sec("catalog-update");
     let parallel = (counts.maps as f64 * kind_sec("map")) / (workers.max(1) as f64);
     PlanEstimateResult {
@@ -1444,8 +1437,6 @@ impl PrepareSession {
         if !opts.enhanced_sound {
             cmd.arg("--no-enhanced-sound");
         }
-        // The native client plays the movies from the game's archives: list them, convert nothing.
-        cmd.arg("--movie-index");
         cmd.env_clear();
         for (k, v) in &child_env {
             cmd.env(k, v);
@@ -1767,8 +1758,7 @@ mod child_protocol_tests {
     fn real_child_arguments_environment_and_framed_output_reach_the_snapshot() {
         let (root, options) = fixture();
         fs::write(&options.toolchain.script,r#"import argparse,json,os
-p=argparse.ArgumentParser();p.add_argument('--jobs');p.add_argument('--movie-index',action='store_true');a=p.parse_args()
-assert a.movie_index, 'the native client lists the movies instead of converting them'
+p=argparse.ArgumentParser();p.add_argument('--jobs');a=p.parse_args()
 assert os.environ['BFE_GAME_DIR'].endswith('game')
 assert os.environ['BFE_CONTENT_DIR'].endswith('content')
 for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':'Naboo','weight':120,'available':True}]},{'event':'step','key':'map:nab2','status':'start'},{'event':'step','key':'map:nab2','status':'done'},{'event':'finished','complete':True,'playable':True}]:
@@ -1801,7 +1791,7 @@ for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':
         let kept = options.content_dir.join("common/kept.json");
         fs::write(&kept, b"keep").unwrap();
         fs::write(&options.toolchain.script,r#"import argparse,json,sys
-p=argparse.ArgumentParser();p.add_argument('--jobs');p.add_argument('--check',action='store_true');p.add_argument('--movie-index',action='store_true');a=p.parse_args();assert a.check
+p=argparse.ArgumentParser();p.add_argument('--jobs');p.add_argument('--check',action='store_true');a=p.parse_args();assert a.check
 print('@@'+json.dumps({'event':'check','ok':False,'problems':[{'code':'program','message':'Synthetic program'}]}),flush=True)
 sys.exit(1)
 "#).unwrap();

@@ -9,10 +9,10 @@ use serde_json::{json, Value};
 use std::net::SocketAddr;
 
 /// Little-endian u32 magic `'BNI1'` (`0x31494e42`) for client entity-input datagrams
-/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()`).
+/// (`STATE_MAGICS` and `binary()`).
 pub const INPUT_MAGIC: u32 = 0x3149_4e42; // 'BNI1'
 /// Little-endian u32 magic `'BNA1'` (`0x31414e42`) for 10-byte client snapshot-ack keepalive datagrams
-/// (`STATE_MAGICS` in `src/udp-peer.js` and `binary()`).
+/// (`STATE_MAGICS` and `binary()`).
 pub const ACK_MAGIC: u32 = 0x3141_4e42; // 'BNA1'
 /// Little-endian u32 magic `'BNS1'` (`0x31534e42`) for server shared entity-snapshot delta datagrams
 /// (`entityPacket`).
@@ -116,7 +116,7 @@ impl StateBudget {
 }
 
 /// Validates incoming client `state` datagram magic and length bounds
-/// (`receive("state", payload)` in `src/udp-peer.js` and `GameSession.binary`).
+/// (`receive("state", payload)` and `GameSession.binary`).
 ///
 /// Checks `10 <= bytes.len() <= 1100` and requires either:
 /// - `ACK_MAGIC` (`0x31414e42`, `'BNA1'`) with exact length `10`, or
@@ -226,7 +226,7 @@ impl UdpPeerState {
     }
 
     /// Queues a message or binary datagram on `lane` (`UdpPeer.sendEncoded`, `UdpPeer.sendBinary`,
-    /// and `GameSession.entityPacket` in `src/udp-peer.js` and `src/game-session.js`).
+    /// and `GameSession.entityPacket` and `src/game-session.js`).
     #[allow(clippy::too_many_arguments)]
     pub fn send_lane(
         &mut self,
