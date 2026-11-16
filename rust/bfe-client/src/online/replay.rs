@@ -315,6 +315,11 @@ impl Replay {
     pub fn ahead(&self) -> bool {
         self.body.is_some() || self.walker_ahead
     }
+    /// BFE_HUD_TRACE: each weapon's lock (target id, life, elapsed) as the
+    /// server's last correction restored it, before this client replays.
+    pub fn restored_locks(&self) -> Vec<(f64, f64, f64)> {
+        self.arsenal.rows.iter().map(|w| (w.lock_target_id, w.lock_generation, (w.lock_elapsed * 100.).round() / 100.)).collect()
+    }
     pub fn selected(&self) -> [f64; 2] {
         if self.fleet.identity.is_some() {
             return [0.; 2];
