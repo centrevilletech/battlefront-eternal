@@ -985,7 +985,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             self.wayland = matches!(raw_handle, raw_window_handle::RawWindowHandle::Wayland(_));
             let display = config.display();
 
-            // Prefer OpenGL ES 3.0 by default (matching WebGL2 shaders), falling back to OpenGL 3.3.
+            // Prefer OpenGL ES 3.0 (the shaders are GLSL ES 3.00), falling back to desktop OpenGL 3.3.
             let context_api = if self.opts.desktop_gl {
                 ContextApi::OpenGl(Some(Version::new(3, 3)))
             } else {
