@@ -21,10 +21,10 @@ given. Writes public/audio/hrtf/ (gitignored):
                         are kept: the filters MagLS gives aren't mirror
                         images of each other channel by channel)
     sadie2_d1_3oa.json  provenance, the convention, the level, test values
-                        of the harmonics for the browser to check its
+                        of the harmonics for the client to check its
                         encoder against, and each ear's level for a few
                         directions and frequencies, decoded and as measured
-                        on the head, for the browser to check its decoding
+                        on the head, for the client to check its decoding
                         against
 
 Level: scaled so a source straight ahead comes out at -3 dB in each ear
@@ -64,7 +64,7 @@ except ImportError as error:  # pragma: no cover - optional dependencies
 
 def sh_closed_form(x, y, z):
     """The 16 orthonormal real harmonics at a unit vector (x front, y left,
-    z up), the same closed forms the browser's encoder uses."""
+    z up), the same closed forms the client's encoder uses."""
     return [
         0.28209479177387814,
         0.4886025119029199 * y,

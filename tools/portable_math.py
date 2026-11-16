@@ -1,6 +1,6 @@
 """sin, cos and atan2 that give the same bits on every platform.
 
-What the tools write is fingerprinted (src/runtime/content-hash.js): a
+What the tools write is fingerprinted: a
 player's preparation must match the server's to the last bit, whatever
 computer either ran on. Python's math.sin, cos and atan2 (and x ** y) come
 from the platform's C library, and their last bits differ: the Windows

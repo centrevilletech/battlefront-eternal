@@ -1,7 +1,6 @@
 """Map-authored precipitation; absent/disabled effects never invent weather.
 
-Type("Streaks") is rain (src/weather.js); Type("Quads") is snow
-(src/snow.js): textured squares spinning at Rotation ± RotationRange / 2
+Type("Streaks") is rain; Type("Quads") is snow: textured squares spinning at Rotation ± RotationRange / 2
 turns a second. The Wind effect's velocity changes every
 1 / VelocityChangeRate seconds by up to VelocityRange.
 """
