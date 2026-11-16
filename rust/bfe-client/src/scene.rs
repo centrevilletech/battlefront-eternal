@@ -957,7 +957,7 @@ impl Scene {
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
         let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count)?;
+            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count, true)?;
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
