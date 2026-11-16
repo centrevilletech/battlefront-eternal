@@ -63,6 +63,10 @@ pub struct Renderer<C: HasContext, M: MultiDraw> {
     pub shadow: ShadowPass<C>,
     pub motion: MotionPass<C>,
     pub canopies: CanopiesPass<C>,
+    /// The near fade (start, end) of units, vehicles, held weapons and props when it differs from the
+    /// static world's: at the SHORT view distance the map's own geometry hands over to the far scene at the
+    /// 2004 game's short range, while everything instanced stays drawn out to the authored range.
+    pub actor_fade: Option<[f64; 2]>,
 }
 
 impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
@@ -81,7 +85,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         let shadow = ShadowPass::new(&mut core);
         let motion = MotionPass::new(&mut core);
         let canopies = CanopiesPass::new(&mut core);
-        Renderer { prepare: crate::prepare::Prepare::default(), cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies }
+        Renderer { prepare: crate::prepare::Prepare::default(), cameras: crate::cameras::Cameras::default(), scene: crate::scene::SceneRegistry::default(), frames: crate::frame::FrameBank::default(), core, world, instances, far, transparent, effects, foliage, view, post, post_chain: crate::post_chain::PostChain::default(), hud, interface: InterfacePass::default(), water, shadow, motion, canopies, actor_fade: None }
     }
 
     // Replace a pending image's sampler in every retained draw binding.
@@ -147,7 +151,18 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         self.canopies.draw(core);
         core.profile.end(&core.gl,"canopies",timer);
         let timer=core.profile.begin(&core.gl);
-        self.instances.draw(core, &camera, records);
+        let fade = crate::shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == "fade").map(|i| crate::shader::FRAME_OFFSETS[i]);
+        let actors = self.actor_fade.zip(fade).filter(|(f, at)| core.input[*at] != f[0] || core.input[*at + 1] != f[1]);
+        if let Some((f, at)) = actors {
+            let world = [core.input[at], core.input[at + 1]];
+            core.input[at..at + 2].copy_from_slice(&f);
+            core.upload_frame(crate::core::VIEW_ACTORS);
+            self.instances.draw(core, &camera, records);
+            core.input[at..at + 2].copy_from_slice(&world);
+            core.bind_frame(VIEW_NEAR);
+        } else {
+            self.instances.draw(core, &camera, records);
+        }
         core.profile.end(&core.gl,"skinned units",timer);
         let timer=core.profile.begin(&core.gl);
         self.foliage.draw(core);

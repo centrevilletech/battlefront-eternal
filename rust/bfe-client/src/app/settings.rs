@@ -10,6 +10,9 @@ use bfe_shell::{
     screens::{ShellApp, ShellSettings},
 };
 use serde::{Deserialize, Serialize};
+
+/// The saved record's revision: 1 fixed the old mouse sensitivity default, 2 gave Minimum the SHORT view distance.
+const NATIVE_SETTINGS_VERSION: u32 = 2;
 use serde_json::{Map, Value};
 use std::{
     collections::BTreeMap,
@@ -164,7 +167,7 @@ impl Default for PersistedPlayerSettings {
         Self {
             profile_name: bfe_shell::profile::DEFAULT_PLAYER_NAME.to_string(),
             privacy_notice_accepted: false,
-            native_settings_version: 1,
+            native_settings_version: NATIVE_SETTINGS_VERSION,
             complete: snap.complete,
             values: snap.values,
             shell,
@@ -408,6 +411,13 @@ impl AppSettingsStore {
         if parsed.native_settings_version == 0 {
             parsed.native_settings_version = 1;
         }
+        // Version 2: the Minimum preset's view distance became SHORT. A player still on Minimum gets it; a
+        // player who set a view distance by hand is on "custom" and keeps theirs.
+        let minimum_view = parsed.native_settings_version < 2 && Self::adopt_minimum_view(&mut parsed.values);
+        if parsed.native_settings_version < NATIVE_SETTINGS_VERSION {
+            parsed.native_settings_version = NATIVE_SETTINGS_VERSION;
+        }
+        let migrated = migrated || minimum_view;
         // Rehydrate `InterfaceSettings` from `parsed.values` when present, or seed from `parsed.shell`.
         let mut interface = if !parsed.values.is_empty() {
             let snapshot = DesktopSettingsSnapshot {
@@ -447,6 +457,16 @@ impl AppSettingsStore {
             ));
         interface.fresh = fresh;
         (parsed, interface, migrated)
+    }
+
+    /// Version 2's change to a saved record: on the Minimum preset with the old Minimum view distance, SHORT.
+    fn adopt_minimum_view(values: &mut Map<String, Value>) -> bool {
+        let minimum = values.get("performancePreset").and_then(Value::as_str) == Some("minimum");
+        let old = values.get("viewDistance").and_then(Value::as_str).is_none_or(|v| v == "original");
+        if minimum && old {
+            values.insert("viewDistance".into(), Value::from("short"));
+        }
+        minimum && old
     }
 
     /// The first run's quality preset: Minimum for a pre-Ivy Bridge Intel GPU (as the
@@ -673,6 +693,24 @@ mod tests {
     }
 
     #[test]
+    fn minimum_players_get_the_short_view_and_hand_set_distances_stay() {
+        for (preset, saved, expected) in [("minimum", "original", "short"), ("custom", "original", "original"), ("minimum", "far", "far"), ("balanced", "original", "original")] {
+            let paths = test_paths();
+            let mut old = PersistedPlayerSettings::default();
+            old.native_settings_version = 1;
+            old.values.insert("performancePreset".into(), Value::from(preset));
+            old.values.insert("viewDistance".into(), Value::from(saved));
+            fs::write(&paths.player_settings_file, serde_json::to_vec(&old).unwrap()).unwrap();
+            let store = AppSettingsStore::load(paths.clone());
+            assert_eq!(store.interface.get_string("viewDistance"), expected, "{preset} {saved}");
+            // A changed record is saved once, so the menus show the preset's own value.
+            let written: Value = serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
+            assert_eq!(written["values"]["viewDistance"], expected);
+            fs::remove_dir_all(paths.user_data_dir).unwrap();
+        }
+    }
+
+    #[test]
     fn native_mouse_default_is_the_neutral_browser_slider_value() {
         let player = PersistedPlayerSettings::default();
         assert_eq!(player.shell.mouse_sensitivity, 5.);
@@ -718,7 +756,7 @@ mod tests {
             assert_eq!(store.player.pause_kv["mouseSensitivity"], "5.00");
             let saved: Value =
                 serde_json::from_slice(&fs::read(&paths.player_settings_file).unwrap()).unwrap();
-            assert_eq!(saved["nativeSettingsVersion"], 1);
+            assert_eq!(saved["nativeSettingsVersion"], 2);
             assert_eq!(saved["values"]["mouseSensitivity"], 5.);
             // A subsequent intentional minimum slider value must survive reload.
             store.player.shell.mouse_sensitivity = 0.5;

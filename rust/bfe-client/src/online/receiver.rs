@@ -746,6 +746,20 @@ impl Receiver {
         // publish 5. Destroyed and dying hulls no longer carry their crew.
         row[r::GENERATION] == generation as f64 && (0. ..4.).contains(&row[r::STATE])
     }
+    /// The live record of one kind with this identity and generation. Ids are
+    /// unique only within a kind: a dropped power-up's slot number and life can
+    /// equal a hull's id and generation in the same snapshot.
+    pub fn record(&self, kind: u32, id: f64, generation: f64) -> Option<&[f64; r::STRIDE]> {
+        let &index = self.indices.get(&(kind, id as u32))?;
+        let row = &self.facts[index];
+        (row[r::GENERATION] == generation).then_some(row)
+    }
+    #[cfg(test)]
+    pub(crate) fn insert_fact(&mut self, kind: u32, row: [f64; r::STRIDE]) {
+        let index = self.free.pop().unwrap();
+        self.indices.insert((kind, row[r::ID] as u32), index);
+        self.facts[index] = row;
+    }
     pub fn vehicle_seats(&self, id: u32, generation: u32) -> u16 {
         let mut seats = 0;
         for row in self.active().filter(|row| row[r::ID] != self.own.id && matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA)) {
@@ -825,5 +839,26 @@ mod tests {
         assert!(!receiver.in_aircraft());
         receiver.own.flight = Some(0);
         assert!(receiver.in_aircraft());
+    }
+
+    #[test]
+    fn a_power_up_with_the_hull_id_and_generation_is_not_the_hull() {
+        // A dropped power-up's slot 2, life 1 beside hull 2, generation 1: the
+        // item's bucket comes first, so a lookup by id and generation alone
+        // took the item for the hull the player drives.
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        for (kind, class) in [(k::VEHICLE, 12.), (k::ITEM, 0.)] {
+            let mut row = [0.; r::STRIDE];
+            row[r::KIND] = kind as f64;
+            row[r::ID] = 2.;
+            row[r::GENERATION] = 1.;
+            row[r::CLASS_ID] = class;
+            receiver.insert_fact(kind, row);
+        }
+        let first = receiver.active().find(|row| row[r::ID] == 2. && row[r::GENERATION] == 1.).unwrap();
+        assert_eq!(first[r::KIND], k::ITEM as f64);
+        let hull = receiver.record(k::VEHICLE, 2., 1.).unwrap();
+        assert_eq!((hull[r::KIND], hull[r::CLASS_ID]), (k::VEHICLE as f64, 12.));
+        assert!(receiver.record(k::VEHICLE, 2., 2.).is_none());
     }
 }
