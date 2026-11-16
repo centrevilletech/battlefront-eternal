@@ -8,6 +8,7 @@ containing only what a headless dedicated server needs:
   - toolchain/
   - legal/
   - bfe-tree.json
+  - install-server.sh (installs the server, or moves one running the Node.js server to it)
 """
 
 import argparse
@@ -28,13 +29,14 @@ SERVER_ARCH_MAP = {
 }
 
 
-def build_server_tree_index(root: Path, platform: str) -> dict:
+def build_server_tree_index(root: Path, platform: str, version: str | None = None) -> dict:
     normalize_permissions(root)
     files, links, dirs = walk_tree(root, is_windows=False, exclude_paths={'bfe-tree.json'})
     manifest = {
         'schema': 1,
         'platform': platform,
         'executable': 'bfeserver',
+        **({'version': version} if version else {}),
         'files': files,
         'links': links,
         'dirs': dirs,
@@ -56,6 +58,7 @@ def verify_server_archive(archive_path: Path) -> None:
         'legal/LICENSE',
         'legal/THIRD-PARTY-NOTICES.md',
         'bfe-tree.json',
+        'install-server.sh',
     )
     for req in required:
         if req not in members:
@@ -102,10 +105,13 @@ def build_server_archive(
                 raise FileNotFoundError(f'Missing resources/{section} in {staged_dir}')
             shutil.copytree(src, stage / section, symlinks=True)
 
-        clean_bytecode(stage)
-        build_server_tree_index(stage, platform)
+        shutil.copy2(Path(__file__).resolve().parent / 'install-server.sh', stage / 'install-server.sh')
+        (stage / 'install-server.sh').chmod(0o755)
 
-        entries = ['bfeserver', 'tools', 'toolchain', 'legal', 'bfe-tree.json']
+        clean_bytecode(stage)
+        build_server_tree_index(stage, platform, version)
+
+        entries = ['bfeserver', 'tools', 'toolchain', 'legal', 'bfe-tree.json', 'install-server.sh']
         with out_path.open('wb') as out_file:
             tar_proc = subprocess.Popen(
                 ['tar', '-cf', '-', *entries],

@@ -538,7 +538,9 @@ fn handle_operator_connection(
         } else {
             503
         };
+        // `ok` is what the dedicated server updater of earlier releases waits for.
         let payload = json!({
+            "ok": status != "fault",
             "service": "bfeserver",
             "status": status,
             "tick": control.tick(),

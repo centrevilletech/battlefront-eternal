@@ -7,7 +7,8 @@ It drives the authoritative simulation (`bfe-sim`), content loaders
 
 Build with `cargo build --manifest-path rust/Cargo.toml -p bfe-server --release`
 and run `bfeserver --serve`, `bfeserver --admin '{"action":"status"}'`,
-`bfeserver --version`, or `bfeserver` for the interactive setup and
+`bfeserver --version`, `bfeserver --contract` (the network contract as JSON, as
+`/healthz` reports it), or `bfeserver` for the interactive setup and
 administration menu. `bfeserver --help` prints every flag and environment
 variable; an unknown flag prints the same text and exits with status 2.
 
@@ -105,8 +106,8 @@ heap allocations on the transport packet path.
 
 - `GET /healthz`: unauthenticated JSON readiness probe reporting `ok`,
   `service` (`"bfeserver"`), `status` (`"setup"`, `"loading"`, `"running"`, or
-  `"fault"`), `multiplayerReady`, `tick`, `uptimeMs`, `error`, and
-  `networkContract`.
+  `"fault"`), `multiplayerReady`, `tick`, `error`, and `networkContract`.
+  `ok` is false only in a fault.
 - `POST /admin`: bearer-authenticated (`operator-token`, mode `0600`) JSON
   actions (`status`, `kick`, `ban`, `unban`, `stats`, `message`, `restart`,
   `stop`) backed by `operator.sqlite` (`bans`, `scores`, and `audit` tables in

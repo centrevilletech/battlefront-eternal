@@ -674,6 +674,7 @@ fn operator_sqlite_and_http_admin_and_healthz_round_trip() {
     let body_start = resp_str.find("\r\n\r\n").unwrap() + 4;
     let health: Value = serde_json::from_str(&resp_str[body_start..]).unwrap();
     assert_eq!(health.get("service").and_then(Value::as_str), Some("bfeserver"));
+    assert_eq!(health.get("ok").and_then(Value::as_bool), Some(true));
     assert_eq!(health.get("multiplayerReady").and_then(Value::as_bool), Some(true));
     assert_eq!(health.get("tick").and_then(Value::as_u64), Some(420));
 
