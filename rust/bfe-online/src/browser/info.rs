@@ -19,6 +19,11 @@ use super::{
 // the client's own contract values so minimal LAN or development beacons are
 // not falsely marked incompatible ("a server that doesn't say is taken at its
 // word" in `src/shell/server-browser.js`).
+/// The revision number of a simulation contract name (`"bfe-sim-28"` -> 28).
+pub fn sim_number(sim: &str) -> Option<u32> {
+    sim.rsplit('-').next()?.parse().ok()
+}
+
 pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
     let sim = server
         .simulation
@@ -479,12 +484,18 @@ pub fn describe_server(
         .as_deref()
         .or_else(|| server.contract.as_ref().map(|c| c.sim.as_str()))
         .unwrap_or(contract.sim.as_str());
+    // A mismatch says which side is behind: a newer server needs a game update, an older
+    // one cannot be joined until it updates itself.
     let version_text = if ok {
         let digits: String = sim_source.chars().filter(|ch| ch.is_ascii_digit()).collect();
         let sim_num = if digits.is_empty() { "?" } else { &digits };
         format!("SIM {sim_num} \u{2713}")
     } else {
-        "UPDATE TO JOIN".to_string()
+        match (sim_number(sim_source), sim_number(&contract.sim)) {
+            (Some(theirs), Some(ours)) if theirs < ours => format!("OLDER SERVER (SIM {theirs})"),
+            (Some(theirs), Some(ours)) if theirs > ours => format!("UPDATE TO JOIN (SIM {theirs})"),
+            _ => "UPDATE TO JOIN".to_string(),
+        }
     };
 
     // Maps `relayPolicy` and `address` to the `LINK` fact in `GAME INFO`:
