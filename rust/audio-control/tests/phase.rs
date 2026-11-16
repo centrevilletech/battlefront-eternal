@@ -24,10 +24,6 @@ impl Collision for Room {
         Some(Hit { distance, point: [from[0] + direction[0] * distance, from[1] + direction[1] * distance, from[2] + direction[2] * distance], terrain: false })
     }
 }
-fn packet(runtime: &mut Runtime, at: &mut usize, kind: usize, row: &[f64]) -> usize {
-    runtime.input[*at + packet::KIND] = kind as f64; runtime.input[*at + packet::COUNT] = 1.0; *at += packet::STRIDE;
-    let start = *at; runtime.input[start..start + row.len()].copy_from_slice(row); *at += row.len(); start
-}
 fn bank(runtime: &mut Runtime, duration: f64) {
     let mut row = [f64::NAN; sound::STRIDE]; row[sound::KIND] = 1.0; row[sound::BUS] = -1.0; row[sound::STREAM] = -1.0;
     row[sound::MODE3D] = 1.0; row[sound::MIN_DISTANCE] = 3.0; row[sound::MAX_DISTANCE] = 90.0; row[sound::MUTE_DISTANCE] = 80.0; row[sound::GAIN] = 0.6;
