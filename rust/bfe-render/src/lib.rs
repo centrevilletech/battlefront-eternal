@@ -40,6 +40,7 @@ pub mod post_chain;
 pub mod frame_plan;
 pub mod frame;
 pub mod programs;
+pub mod program_cache;
 pub mod prepare;
 pub mod renderer;
 pub mod shader;

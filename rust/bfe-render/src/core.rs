@@ -364,6 +364,11 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     pub(crate) multi: M,
     pub(crate) programs: Vec<Program<C>>,
     pub(crate) owned_programs: Vec<(String, u32)>,
+    // The program cache folder for this driver: None until asked, then
+    // Some(None) where the driver gives no program binaries or no folder is set.
+    binary_dir: Option<Option<std::path::PathBuf>>,
+    // The last program's cache entry and whether it came from the cache.
+    pub(crate) last_cached: Option<(bool, crate::program_cache::Entry)>,
     pub(crate) instance_programs: Vec<usize>,
     pub(crate) geometries: Vec<Geometry<C>>,
     pub(crate) textures: Vec<C::Texture>,
@@ -484,7 +489,7 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
-            gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], instance_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
+            gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], binary_dir: None, last_cached: None, instance_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
@@ -575,6 +580,24 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         self.add_program_lamps(kind, vs, fs, attributes, material_uniforms, false)
     }
 
+    // The program cache folder, where the driver offers program binaries
+    // (ES 3.0 and GL 4.1 have them; older desktop GL only by extension).
+    fn binary_dir(&mut self) -> Option<std::path::PathBuf> {
+        if self.binary_dir.is_none() && !crate::program_cache::enabled() {
+            self.binary_dir = Some(None);
+        }
+        if self.binary_dir.is_none() {
+            let gl = &self.gl;
+            let version = gl.version();
+            let offered = version.is_embedded || (version.major, version.minor) >= (4, 1) || gl.supported_extensions().contains("GL_ARB_get_program_binary");
+            let formats = if offered { unsafe { gl.get_parameter_i32(glow::NUM_PROGRAM_BINARY_FORMATS) } } else { 0 };
+            unsafe { while gl.get_error() != glow::NO_ERROR {} }
+            let driver = unsafe { [glow::VENDOR, glow::RENDERER, glow::VERSION, glow::SHADING_LANGUAGE_VERSION].map(|name| gl.get_parameter_string(name)).join("\n") };
+            self.binary_dir = Some((formats > 0).then(|| crate::program_cache::driver_dir(&driver)).flatten());
+        }
+        self.binary_dir.clone().flatten()
+    }
+
     // add_program, the lamps read from the lamp table (lamps: lamp lighting
     // is on and the program's pass gives each draw its lamps); a world
     // program's lamp inputs are then uniforms of its own (WORLD_LAMP_UNIFORMS,
@@ -587,35 +610,57 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         let desktop = shader::desktop_glsl(gl.version().is_embedded, gl.supported_extensions().contains("GL_ARB_ES3_compatibility"));
         let packing = gl.supported_extensions().contains("GL_ARB_shading_language_packing");
         let (vs, fs) = if desktop { (shader::to_desktop_glsl(&vs, packing), shader::to_desktop_glsl(&fs, packing)) } else { (vs, fs) };
+        let cache = self.binary_dir().map(|dir| crate::program_cache::entry(&dir, &vs, &fs, attributes));
+        let gl = &self.gl;
         unsafe {
-            let program = gl.create_program()?;
-            let mut shaders = vec![];
-            for (stage, src) in [(glow::VERTEX_SHADER, &vs), (glow::FRAGMENT_SHADER, &fs)] {
-                let s = gl.create_shader(stage)?;
-                gl.shader_source(s, src);
-                gl.compile_shader(s);
-                if !gl.get_shader_compile_status(s) {
-                    let log = gl.get_shader_info_log(s);
-                    gl.delete_shader(s);
+            let mut program = gl.create_program()?;
+            let mut cached = false;
+            if let Some((format, buffer)) = cache.as_ref().and_then(crate::program_cache::load) {
+                gl.program_binary(program, &glow::ProgramBinary { buffer, format });
+                cached = gl.get_program_link_status(program);
+                if !cached {
+                    // Refused (another driver build): clear its error and compile instead.
+                    while gl.get_error() != glow::NO_ERROR {}
                     gl.delete_program(program);
-                    return Err(format!("{} shader: {}", if stage == glow::VERTEX_SHADER { "vertex" } else { "fragment" }, log));
+                    program = gl.create_program()?;
                 }
-                gl.attach_shader(program, s);
-                shaders.push(s);
             }
-            for (name, location) in attributes {
-                gl.bind_attrib_location(program, *location, name);
+            if !cached {
+                let mut shaders = vec![];
+                for (stage, src) in [(glow::VERTEX_SHADER, &vs), (glow::FRAGMENT_SHADER, &fs)] {
+                    let s = gl.create_shader(stage)?;
+                    gl.shader_source(s, src);
+                    gl.compile_shader(s);
+                    if !gl.get_shader_compile_status(s) {
+                        let log = gl.get_shader_info_log(s);
+                        gl.delete_shader(s);
+                        gl.delete_program(program);
+                        return Err(format!("{} shader: {}", if stage == glow::VERTEX_SHADER { "vertex" } else { "fragment" }, log));
+                    }
+                    gl.attach_shader(program, s);
+                    shaders.push(s);
+                }
+                for (name, location) in attributes {
+                    gl.bind_attrib_location(program, *location, name);
+                }
+                if cache.is_some() {
+                    gl.program_binary_retrievable_hint(program, true);
+                }
+                gl.link_program(program);
+                for s in shaders {
+                    gl.detach_shader(program, s);
+                    gl.delete_shader(s);
+                }
+                if !gl.get_program_link_status(program) {
+                    let log = gl.get_program_info_log(program);
+                    gl.delete_program(program);
+                    return Err(format!("link: {log}"));
+                }
+                if let (Some(entry), Some(binary)) = (&cache, gl.get_program_binary(program)) {
+                    crate::program_cache::store(entry, binary.format, &binary.buffer);
+                }
             }
-            gl.link_program(program);
-            for s in shaders {
-                gl.detach_shader(program, s);
-                gl.delete_shader(s);
-            }
-            if !gl.get_program_link_status(program) {
-                let log = gl.get_program_info_log(program);
-                gl.delete_program(program);
-                return Err(format!("link: {log}"));
-            }
+            self.last_cached = cache.map(|entry| (cached, entry));
             if let Some(block) = gl.get_uniform_block_index(program, "BfeFrame") {
                 gl.uniform_block_binding(program, block, 0);
             }
