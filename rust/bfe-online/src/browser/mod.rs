@@ -1541,9 +1541,9 @@ mod tests {
         assert_eq!(info_a.facts[3], ("NEXT", "Hoth: Echo Base".to_string()));
         assert_eq!(info_a.facts[4], ("ROTATION", "2 BATTLES".to_string()));
         assert_eq!(info_a.facts[5], ("UP FOR", "2H 32M".to_string()));
-        // Listed without an endpoint: the row and LINK say so before JOIN.
-        assert_eq!(info_a.facts[7], ("LINK", "RELAY ONLY (NOT YET)".to_string()));
-        assert_eq!(row_tag(&servers[0], browser.contract()), "NO DIRECT ADDRESS");
+        // Listed without an endpoint (relay policy auto): joined through the master.
+        assert_eq!(info_a.facts[7], ("LINK", "DIRECT OR RELAY".to_string()));
+        assert_eq!(row_tag(&servers[0], browser.contract()), "");
         assert_eq!(row_tag(&servers[3], browser.contract()), "OTHER VERSION");
         let mut direct = servers[0].clone();
         direct.relay_policy = Some("never".to_string());
