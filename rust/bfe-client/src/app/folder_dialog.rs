@@ -265,7 +265,7 @@ fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
             format!("{prelude}$d=New-Object System.Windows.Forms.SaveFileDialog; $d.Title='Export prepared game content'; $d.Filter='Battlefront Eternal content|*.bfepack'; $d.FileName='{EXPORT_NAME}'; $d.InitialDirectory='{start}'; $d.OverwritePrompt=$true; if($d.ShowDialog() -eq 'OK'){{[Console]::Write($d.FileName)}}")
         }
     };
-    let output = std::process::Command::new("powershell.exe")
+    let output = hidden_powershell()
         .args(["-NoProfile", "-STA", "-Command", &script])
         .output()
         .map_err(|e| e.to_string())?;
@@ -325,7 +325,7 @@ fn warning_native(path: &std::path::Path) -> Result<(), String> {
 fn warning_native(path: &std::path::Path) -> Result<(), String> {
     let detail = path.to_string_lossy().replace('\'', "''");
     let script=format!("Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}' + [Environment]::NewLine + '{}','Battlefront Eternal','OK','Warning')|Out-Null",INVALID,detail);
-    std::process::Command::new("powershell.exe")
+    hidden_powershell()
         .args(["-NoProfile", "-STA", "-Command", &script])
         .status()
         .map_err(|e| e.to_string())?;
@@ -365,11 +365,19 @@ pub fn fatal_message(detail: &str) {
         flush_dialog_changes(gtk)
     } })();
 }
+/// PowerShell for a dialog, without a console window of its own (the dialog still shows).
+#[cfg(target_os = "windows")]
+fn hidden_powershell() -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    let mut command = std::process::Command::new("powershell.exe");
+    command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    command
+}
 #[cfg(target_os = "windows")]
 pub fn fatal_message(detail: &str) {
     let detail = detail.replace('\'', "''");
     let script = format!("Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}','{}','OK','Error')|Out-Null", detail, FATAL_TITLE);
-    let _ = std::process::Command::new("powershell.exe").args(["-NoProfile", "-STA", "-Command", &script]).status();
+    let _ = hidden_powershell().args(["-NoProfile", "-STA", "-Command", &script]).status();
 }
 #[cfg(not(any(target_os = "linux", target_os = "windows")))]
 pub fn fatal_message(_: &str) {}

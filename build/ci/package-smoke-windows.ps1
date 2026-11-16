@@ -93,6 +93,9 @@ Start-Sleep -Seconds 30
 $running = @(Get-Process bfe-client -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Id })
 Check 'first start keeps running' ($running.Count -ge 1) ("{0} process(es)" -f $running.Count)
 Screenshot (Join-Path $Output 'first-start.png')
+# A player gets the game's window only: no console window (conhost, Windows Terminal) titled after it.
+$consoles = @(Get-Process | Where-Object { $_.MainWindowTitle -like '*Battlefront Eternal*' -and $_.ProcessName -ne 'bfe-client' })
+Check 'no console window beside the game' ($consoles.Count -eq 0) (($consoles | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }) -join '; ')
 $running | ForEach-Object { Stop-Process -Id $_.Id -Force }
 Start-Sleep -Seconds 2
 foreach ($folder in @((Join-Path $env:APPDATA 'Battlefront Eternal'), (Join-Path $env:LOCALAPPDATA 'Battlefront Eternal'))) {

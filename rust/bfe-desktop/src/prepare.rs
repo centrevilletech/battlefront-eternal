@@ -1463,6 +1463,12 @@ impl PrepareSession {
             use std::os::unix::process::CommandExt;
             cmd.process_group(0);
         }
+        // The client is a windowed program: without this every Python process would open a console.
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        }
 
         let log = log_file.and_then(|path| {
             fs::create_dir_all(path.parent()?).ok()?;
