@@ -1,7 +1,7 @@
 # Architecture overview
 
 `bfe-client` is the standalone native game binary: it opens a native desktop
-window, owns its OpenGL ES 3.0 / OpenGL 4.5 context and `cpal` audio device,
+window, owns its OpenGL ES 3.0 (or desktop OpenGL 3.3) context and `cpal` audio device,
 runs the shell menus, server browser, and battle UI overlays in Rust, steps
 Instant Action battles on a dedicated 60 Hz local world thread, and connects to
 `bfeserver` instances over `BFE-UDP/1`. `bfeserver` (`rust/bfe-server`) is the
