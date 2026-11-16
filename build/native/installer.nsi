@@ -31,6 +31,7 @@ CRCCheck on
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 !include "StrFunc.nsh"
+${StrStr}
 ${UnStrStr}
 
 !ifdef ICON_FILE
@@ -51,16 +52,51 @@ ${UnStrStr}
 
 Section "Install" SecInstall
   SetShellVarContext current
-  ; Preview 331 and older (the Electron builds) installed into this folder too, with an
-  ; uninstaller of the same name and an uninstall entry of their own. Run that uninstaller
-  ; first, silently and in place, as the per-user install it is (its uninstall entry passes
-  ; /currentuser): it removes the Electron files, its shortcuts and its entry.
-  ; /updated keeps the update folder; the player's settings and game data in %APPDATA% are
-  ; never touched by it.
+  ; Preview 331 and older (the Electron builds) installed into this same folder, with an
+  ; uninstaller of the same name and an uninstall entry of their own. Their uninstaller did not
+  ; remove them when run from here on Windows, so the files are removed by name instead (the
+  ; Electron layout of preview 331), and the entry by what it points at. The shortcuts have the
+  ; same names as ours and are replaced below. The player's settings and game data in %APPDATA%
+  ; are never touched.
   IfFileExists "$INSTDIR\Battlefront Eternal.exe" 0 no_electron
-  IfFileExists "$INSTDIR\${UNINSTALLER_NAME}" 0 no_electron
-    ExecWait '"$INSTDIR\${UNINSTALLER_NAME}" /S /currentuser /updated _?=$INSTDIR'
+    Delete "$INSTDIR\Battlefront Eternal.exe"
+    Delete "$INSTDIR\chrome_100_percent.pak"
+    Delete "$INSTDIR\chrome_200_percent.pak"
+    Delete "$INSTDIR\d3dcompiler_47.dll"
+    Delete "$INSTDIR\dxcompiler.dll"
+    Delete "$INSTDIR\dxil.dll"
+    Delete "$INSTDIR\ffmpeg.dll"
+    Delete "$INSTDIR\icudtl.dat"
+    Delete "$INSTDIR\LICENSE.electron.txt"
+    Delete "$INSTDIR\LICENSES.chromium.html"
+    Delete "$INSTDIR\resources.pak"
+    Delete "$INSTDIR\snapshot_blob.bin"
+    Delete "$INSTDIR\v8_context_snapshot.bin"
+    Delete "$INSTDIR\vk_swiftshader_icd.json"
+    Delete "$INSTDIR\vk_swiftshader.dll"
+    Delete "$INSTDIR\vulkan-1.dll"
+    Delete "$INSTDIR\libEGL.dll"
+    Delete "$INSTDIR\libGLESv2.dll"
     Delete "$INSTDIR\${UNINSTALLER_NAME}"
+    RMDir /r "$INSTDIR\locales"
+    ; app.asar, the Node.js server and the old tools; ours are written right after.
+    RMDir /r "$INSTDIR\resources"
+    ; Its uninstall entry: one named like ours, under another key, whose uninstaller is here.
+    StrCpy $0 0
+    electron_entries:
+      EnumRegKey $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall" $0
+      StrCmp $1 "" no_electron
+      StrCmp $1 "${PRODUCT_NAME}" electron_next
+      ReadRegStr $2 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "DisplayName"
+      StrCmp $2 "${PRODUCT_NAME}" 0 electron_next
+      ReadRegStr $3 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1" "UninstallString"
+      ${StrStr} $4 $3 "$INSTDIR\"
+      StrCmp $4 "" electron_next
+      DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\$1"
+      Goto electron_entries
+    electron_next:
+      IntOp $0 $0 + 1
+      Goto electron_entries
   no_electron:
   SetOutPath "$INSTDIR"
   File /r "${SOURCE_DIR}\*.*"
