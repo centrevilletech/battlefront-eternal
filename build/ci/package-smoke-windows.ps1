@@ -3,7 +3,9 @@
 # Writes checks.json, screenshots and logs to -Output; exits 1 if a check failed.
 param(
     [Parameter(Mandatory=$true)][string]$Packages,
-    [Parameter(Mandatory=$true)][string]$Output
+    [Parameter(Mandatory=$true)][string]$Output,
+    # A folder holding an earlier release's installer: installed first, so the new installer runs over it.
+    [string]$OldInstallerDir = ''
 )
 $ErrorActionPreference = 'Stop'
 New-Item -ItemType Directory -Force $Output | Out-Null
@@ -32,11 +34,31 @@ Check 'installer signature (informational)' $true $signature.Status
 
 # A per-user install needs no administrator: the installer asks for none.
 $dir = Join-Path $env:LOCALAPPDATA 'Programs\Battlefront Eternal'
+function UninstallEntries {
+    Get-ChildItem 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall' -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ItemProperty $_.PSPath } | Where-Object { $_.DisplayName -like 'Battlefront Eternal*' }
+}
+if ($OldInstallerDir) {
+    $old = Get-ChildItem (Join-Path $OldInstallerDir '*-win-x64.exe') | Select-Object -First 1
+    $process = Start-Process -FilePath $old.FullName -ArgumentList '/S', '/currentuser' -Wait -PassThru
+    Check 'earlier release installs' ($process.ExitCode -eq 0 -and (Test-Path (Join-Path $dir 'Battlefront Eternal.exe'))) ("{0}: exit {1}" -f $old.Name, $process.ExitCode)
+    Get-ChildItem $dir | Select-Object Name, Length | Out-File (Join-Path $Output 'folder-before.txt')
+    Check 'earlier uninstall entries (informational)' $true ((UninstallEntries | ForEach-Object { "$($_.DisplayName) $($_.DisplayVersion)" }) -join '; ')
+    Get-Process 'Battlefront Eternal' -ErrorAction SilentlyContinue | Stop-Process -Force
+}
 $started = Get-Date
 $process = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
 Check 'silent install exit code' ($process.ExitCode -eq 0) ("{0} in {1:n0} s" -f $process.ExitCode, ((Get-Date) - $started).TotalSeconds)
 $client = Join-Path $dir 'bfe-client.exe'
 Check 'client installed per user' (Test-Path $client) $client
+if ($OldInstallerDir) {
+    Get-ChildItem $dir | Select-Object Name, Length | Out-File (Join-Path $Output 'folder-after.txt')
+    $left = @(Get-ChildItem $dir | ForEach-Object Name | Where-Object { $_ -notin @('bfe-client.exe', 'bfeserver.exe', 'resources', 'Uninstall Battlefront Eternal.exe') })
+    Check 'earlier release files removed' ($left.Count -eq 0) ($left -join ', ')
+    Check 'no app.asar left' (-not (Test-Path (Join-Path $dir 'resources\app.asar'))) ''
+    $entries = @(UninstallEntries)
+    Check 'one uninstall entry, the new version' ($entries.Count -eq 1 -and $entries[0].DisplayVersion -eq (Get-Content (Join-Path $dir 'resources\bfe-release.json') -Raw | ConvertFrom-Json).version) (($entries | ForEach-Object { "$($_.DisplayName) $($_.DisplayVersion) $($_.UninstallString)" }) -join '; ')
+}
 Check 'server installed' (Test-Path (Join-Path $dir 'bfeserver.exe')) $dir
 Check 'licence and notices' ((Test-Path (Join-Path $dir 'resources\legal\LICENSE')) -and (Test-Path (Join-Path $dir 'resources\legal\THIRD-PARTY-NOTICES.md'))) 'resources\legal'
 $release = Get-Content (Join-Path $dir 'resources\bfe-release.json') -Raw | ConvertFrom-Json
