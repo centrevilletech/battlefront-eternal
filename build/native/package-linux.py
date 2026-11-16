@@ -12,6 +12,7 @@ import argparse
 import os
 from pathlib import Path
 import platform as host_platform
+import re
 import shutil
 import subprocess
 import sys
@@ -85,6 +86,22 @@ fi
 """
 
 
+def glibc_minimum(binaries: list[Path], floor: tuple[int, ...] = (2, 35)) -> str:
+    """The glibc the programs cannot load without: weak references excluded, at least `floor`.
+
+    The linkers differ per architecture: on x86_64 the newest symbols std uses are weak, on
+    arm64 the same symbols leave a hard version requirement.
+    """
+    needed = floor
+    for binary in binaries:
+        if not binary.is_file() or binary.read_bytes()[:4] != b'\x7fELF':
+            continue
+        text = subprocess.run(['readelf', '-V', '--wide', str(binary)], check=True, capture_output=True, text=True).stdout
+        for match in re.finditer(r'Name: GLIBC_([0-9.]+)\s+Flags: none', text):
+            needed = max(needed, tuple(int(part) for part in match.group(1).split('.')))
+    return '.'.join(map(str, needed))
+
+
 def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo_root: Path = REPO_ROOT) -> Path:
     arch_info = ARCH_MAP[platform]
     deb_arch = arch_info['deb_arch']
@@ -127,7 +144,7 @@ def build_deb(staged_dir: Path, platform: str, version: str, out_dir: Path, repo
             # Linked: libc6, libstdc++6, libgcc-s1, libfontconfig1, libasound2. Opened by name when the window is
             # made: X11 (libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxkbcommon-x11-0, libgl1),
             # Wayland (libwayland-client0/-cursor0/-egl1, libxkbcommon0, libegl1); the folder dialog: GTK 3.
-            'Depends: libc6 (>= 2.35), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, '
+            f'Depends: libc6 (>= {glibc_minimum([staged_dir / "bfe-client", staged_dir / "bfeserver"])}), libstdc++6, libgcc-s1, libfontconfig1, libasound2t64 | libasound2, '
             'libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxkbcommon-x11-0, libxkbcommon0, '
             'libwayland-client0, libwayland-cursor0, libwayland-egl1, libegl1, libgl1, libgtk-3-0t64 | libgtk-3-0, '
             'ca-certificates',

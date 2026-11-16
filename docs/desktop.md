@@ -461,7 +461,8 @@ and steps whose dependencies are missing are skipped.
 
 ## Linux system requirements
 
-The client needs glibc 2.35 or newer (Debian 12, Ubuntu 22.04 and newer). The
+The client needs glibc 2.35 or newer on x64 (Debian 12, Ubuntu 22.04 and newer) and 2.39 or newer
+on arm64 (Debian 13, Ubuntu 24.04 and newer). The
 Debian package declares everything it uses. The AppImage bundles none of the
 system's libraries and takes them from the desktop, as any desktop install has
 them: ALSA (`libasound.so.2`), fontconfig, OpenGL or EGL from Mesa or the GPU
