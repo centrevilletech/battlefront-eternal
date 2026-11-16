@@ -1,5 +1,4 @@
-// First-run setup and content preparation screens (electron/ui/prepare.html,
-// prepare.css, prepare.js). All setup state stays in Rust (FirstRun / ImportWork);
+// First-run setup and content preparation screens. All setup state stays in Rust (FirstRun / ImportWork);
 // this module owns only presentation and forwards user actions through SetupModel.
 import { Theme, ControlState, MenuSound } from "../theme.slint";
 import { Interaction } from "../components/interaction.slint";
@@ -60,7 +59,7 @@ export global SetupModel {
     // Progress section (#progress)
     in-out property <bool> progress-visible: false;
     in-out property <bool> progress-estimating: false;
-    // The look's pattern faded along the page's ellipse, built by the host for the viewport.
+    // The look's pattern faded along the screen's ellipse, built by the host for the viewport.
     in-out property <image> pattern;
     in-out property <float> progress-fraction: 0.0;
     in-out property <string> progress-step: "";
@@ -354,7 +353,7 @@ component DiskArcSegment inherits Path {
     Close {}
 }
 
-// #disk loading indicator (prepare.js drawDisk + prepare.css #disk).
+// The setup screen's loading disk.
 export component SetupDisk inherits Rectangle {
     in property <float> time: 0.0;
     in property <[color]> led-colors: SetupModel.disk-led-colors;
@@ -516,7 +515,7 @@ export component SetupScreen inherits Rectangle {
         shadows: Theme.bfe-panel-shadow;
         animate y { duration: 350ms; easing: ease; }
 
-        // #panel is `overflow-y: auto` and shrinks to the page: past that height it scrolls.
+        // #panel is `overflow-y: auto` and shrinks to the screen: past that height it scrolls.
         panel-scroll := Flickable {
             x: 0px; y: 0px;
             width: parent.width;
@@ -581,7 +580,7 @@ export component SetupScreen inherits Rectangle {
                     // .confirm-facts (dl grid: max-content 1fr, gap 6px 18px)
                     if SetupModel.facts.length > 0: VerticalLayout {
                         padding-bottom: (SetupModel.problems.length > 0 || SetupModel.help-text != "" || SetupModel.sound-visible || SetupModel.other-copies.length > 0 || SetupModel.busy) ? 14px : 0px;
-                        // The grid's 6px row gap less what a layout row adds over the page's 1.5 line height.
+                        // The grid's 6px row gap less what a layout row adds over the screen's 1.5 line height.
                         spacing: 4.5px;
                         for fact in SetupModel.facts: HorizontalLayout {
                             // The path's inline-block code box sits 2px inside its dd, one more than a layout row gives.
@@ -964,7 +963,7 @@ export component SetupScreen inherits Rectangle {
                 }
             }
         }
-        // The browser's thin scrollbar, shown only when the panel overflows.
+        // The thin scrollbar, shown only when the panel overflows.
         if panel-scroll.viewport-height > panel-scroll.height + 0.5px: Rectangle {
             x: parent.width - 7px;
             y: (-panel-scroll.viewport-y / panel-scroll.viewport-height) * panel-scroll.height;

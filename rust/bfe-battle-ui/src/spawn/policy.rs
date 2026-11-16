@@ -1,4 +1,4 @@
-//! Startup spawn policy and URL/parameter resolution (`src/spawn-screen/policy.js`).
+//! Startup spawn policy and URL/parameter resolution.
 //!
 //! Decides whether a battle opens on the Classic spawn screen or bypasses it into
 //! an immediate spawn (`unit=`, `side=`, `spawn=`, `spawnscreen=0|1`), and picks
@@ -10,7 +10,7 @@
 use crate::shapes::GameFamily;
 
 /// Historical default unit class when no mission or URL override names one
-/// (`src/spawn-screen/policy.js` `DEFAULT_UNIT`).
+/// (`DEFAULT_UNIT`).
 pub const DEFAULT_UNIT: &str = "rep_inf_clone_trooper";
 
 /// A team's roster definition from `map.json` (`teams[1]`, `teams[2]`).
@@ -24,7 +24,7 @@ pub struct MissionTeamSpec {
     pub classes: Vec<String>,
 }
 
-/// Mission roster metadata read by [`spawn_policy`] (`src/spawn-screen/policy.js`).
+/// Mission roster metadata read by [`spawn_policy`].
 ///
 /// Captures the game family (`Swbf1` or `Swbf2`), the faction prefixes present
 /// on the map (`"rep"`, `"cis"`, `"all"`, `"imp"`), and the two team specs.
@@ -48,8 +48,7 @@ impl MissionSpec {
     }
 }
 
-/// Immediate auto-spawn choice when the spawn screen is bypassed (`auto` in
-/// `src/spawn-screen/policy.js`).
+/// Immediate auto-spawn choice when the spawn screen is bypassed (`auto`).
 ///
 /// When present on [`SpawnPolicy`], the world confirms this team, class, and
 /// command post automatically at map load and after every death.
@@ -60,7 +59,7 @@ pub struct AutoSpawnPick {
     pub post: Option<String>,
 }
 
-/// Resolved startup spawn policy (`src/spawn-screen/policy.js` `spawnPolicy`).
+/// Resolved startup spawn policy (`spawnPolicy`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SpawnPolicy {
     /// Whether the spawn screen opens at the start of the battle.
@@ -118,7 +117,7 @@ impl SpawnParams {
 }
 
 /// Returns the non-hero playable class names of a team in roster order
-/// (`src/spawn-screen/policy.js` `playableClasses`).
+/// (`playableClasses`).
 ///
 /// The hero unit (`rep_inf_macewindu`, `all_inf_lukeskywalkersnow`, etc.) is
 /// never selectable on the spawn screen even when listed in `classes`.
@@ -136,7 +135,7 @@ pub fn playable_classes(team: Option<&MissionTeamSpec>) -> Vec<String> {
 
 /// Finds which team (`1` or `2`) owns `class_name`, including team heroes;
 /// falls back to team `1` when neither team lists the class
-/// (`src/spawn-screen/policy.js` `teamOfClass`).
+/// (`teamOfClass`).
 pub fn team_of_class(mission: Option<&MissionSpec>, class_name: &str) -> u8 {
     let Some(mission) = mission else {
         return 1;
@@ -164,7 +163,7 @@ fn class_prefix(class_name: &str) -> &str {
 }
 
 /// Resolves the faction side (`"rep"`, `"cis"`, `"all"`, `"imp"`, etc.) for
-/// `class_name` in `mission` (`src/spawn-screen/policy.js` `sideOfClass`).
+/// `class_name` in `mission` (`sideOfClass`).
 pub fn side_of_class(mission: Option<&MissionSpec>, class_name: &str) -> String {
     let prefix = class_prefix(class_name);
     let Some(mission) = mission else {
@@ -226,13 +225,13 @@ fn non_empty(opt: &Option<String>) -> Option<&str> {
 }
 
 /// Resolves the startup spawn policy from URL query string `query` and `mission`
-/// (`src/spawn-screen/policy.js` `spawnPolicy`).
+/// (`spawnPolicy`).
 pub fn spawn_policy_from_query(query: &str, mission: Option<&MissionSpec>) -> SpawnPolicy {
     spawn_policy(&SpawnParams::from_query(query), mission)
 }
 
 /// Resolves the startup spawn policy from structured [`SpawnParams`] and `mission`
-/// (`src/spawn-screen/policy.js` `spawnPolicy`).
+/// (`spawnPolicy`).
 pub fn spawn_policy(params: &SpawnParams, mission: Option<&MissionSpec>) -> SpawnPolicy {
     let online = matches!(non_empty(&params.network), Some("1" | "true"));
     let unit = if online {

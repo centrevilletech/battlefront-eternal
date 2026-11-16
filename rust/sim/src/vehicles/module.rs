@@ -27,7 +27,7 @@ use crate::store::{Ref, StrId};
 use std::collections::HashMap;
 use three::{Matrix4, Quaternion, Vector3};
 
-/// vehicles.js FIXED_STEP: a ground hull's substep.
+/// FIXED_STEP: a ground hull's substep.
 const FIXED_STEP: f64 = 1.0 / 120.0;
 
 /// A ground hull's pose kept in the module: the life it was taken for, the
@@ -37,7 +37,7 @@ struct Posed {
     pose: HullPose,
     turn_rates: Vec<f64>,
 }
-/// Each posed hull's seats as an observer reads them (the page's
+/// Each posed hull's seats as an observer reads them (the client's
 /// `Vehicle.seats[i].yawRate/target/weapons[].barrel/aimers[]`): by hull
 /// slot, per seat its yaw rate, its target, and per weapon its barrel and
 /// aimers' yaw, pitch, on-target flag, limit flag and facing.
@@ -200,13 +200,13 @@ pub(crate) fn veh_class_in(world_ctx: &mut crate::world::owner::World, name: u32
 /// The map's data the hulls ask about, as JSON (`water`: its cell, offset,
 /// grid and the cell numbers its Set holds, or null; `deathRegions` and
 /// `mission.deathRegions` as the map has them), and the kill height under
-/// the battlefield (game.js killY): the water and the death regions are
+/// the battlefield (killY): the water and the death regions are
 /// answered here from then on.
 
 pub(crate) fn veh_map_in(world_ctx: &mut crate::world::owner::World, json: u32, kill_y: f64) { Fleet::veh_map(&world_ctx.sim.strings, &mut world_ctx.fleet.map, json, kill_y) }
 
 /// The battle's collision as the module holds it: the kernel's world
-/// (collision.js rayWorld) and the vehicle-only barriers' fixed set (-1
+/// (rayWorld) and the vehicle-only barriers' fixed set (-1
 /// none). The world is required; body mappings stay with its lifetime.
 
 pub(crate) fn veh_collision_in(world_ctx: &mut crate::world::owner::World, world: i32, blockers: i32) { Fleet::veh_collision(&mut world_ctx.fleet.collision, world, blockers); }

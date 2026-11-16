@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
 publish = false
-description = "JavaScript semantics for the Rust simulation port: conversions, rounding, sorts, ordered maps, number text and the game's random streams, bit-identical to V8 13.6."
+description = "The simulation's number semantics, kept from its first (JavaScript) implementation: conversions, rounding, sorts, ordered maps, number text and the game's random streams, bit-identical to V8 13.6."
 
-# A plain library: the sim module links it natively and as WebAssembly.
+# A plain library, linked by the simulation and its hosts.
 [lib]
 crate-type = ["rlib"]
 

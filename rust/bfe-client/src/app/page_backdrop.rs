@@ -1,4 +1,4 @@
-//! MovieBackdrop/SideMovie from src/shell/backdrop.js. Each side keeps playing
+//! MovieBackdrop/SideMovie. Each side keeps playing
 //! beneath every page; a screen without its own movie must not clear it.
 use bfe_shell::{
     data::{MovieClip, ScreenMovie},
@@ -6,7 +6,7 @@ use bfe_shell::{
     page::FrameTexture,
 };
 
-// SIDES and CROSS in backdrop.js. The existing decoder and compositor own
+// SIDES and CROSS. The existing decoder and compositor own
 // frame recycling, sharpening and fades, independently of menu transitions.
 const SIDES: [[&str; 3]; 2] = [
     ["republic_win", "republic_base", "cis_win"],

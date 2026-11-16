@@ -1,4 +1,4 @@
-//! What the weather and atmosphere systems share: the page camera as the
+//! What the weather and atmosphere systems share: the client camera as the
 //! phase receives it, the view frustum, the engine's random numbers and an
 //! allocation-free stable sort.
 
@@ -6,7 +6,7 @@ use crate::layout::view as v;
 use jsrt::conv::to_int32;
 use three::{Matrix4, Plane, Vector3};
 
-/// The engine's random numbers (src/atmosphere.js EngineRandom): two steps of
+/// The engine's random numbers (EngineRandom): two steps of
 /// a 32-bit LCG make one draw, the seed first xored with 0xC71C2830.
 #[derive(Clone, Copy)]
 // The engine's random numbers: two steps of a 32-bit LCG make one draw, the
@@ -34,7 +34,7 @@ impl EngineRandom {
     }
 }
 
-/// THREE.Frustum, r170 (WebGL clip space): six planes from a projection
+/// THREE.Frustum, r170 (OpenGL clip space, depth -1..1): six planes from a projection
 /// times view matrix.
 #[derive(Clone, Copy, Default)]
 // A view frustum as three.js makes it from a projection and a view (the
@@ -70,9 +70,9 @@ impl Frustum {
     }
 }
 
-/// The camera the page hands over each frame: its world matrix, the world
+/// The camera the client hands over each frame: its world matrix, the world
 /// matrix inverse and the projection (three keeps all three), and the lens.
-// The camera the page hands over each frame: its world matrix, the world
+// The camera the client hands over each frame: its world matrix, the world
 // matrix inverse and the projection (three keeps all three), the lens, and
 // its position (which differs from the world matrix's if it is parented).
 pub struct Camera {
@@ -127,7 +127,7 @@ impl Camera {
 /// Sorts `order` (indices into `keys`) by key, largest first, keeping the
 /// order of equal keys (Array.prototype.sort with `(a, b) => b - a`), using
 /// `scratch` of the same length. A merge sort, so nothing is allocated.
-// A stable merge sort of indices by key, largest first: the page sorted with
+// A stable merge sort of indices by key, largest first: the client sorted with
 // Array.prototype.sort and a descending comparator (stable), and a sort that
 // allocates would allocate every frame.
 pub fn sort_descending(keys: &[f64], order: &mut [u32], scratch: &mut [u32]) {

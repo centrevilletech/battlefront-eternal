@@ -1,10 +1,10 @@
-//! The map's haze (src/atmosphere.js): the FogCloud band of big soft squares
+//! The map's haze: the FogCloud band of big soft squares
 //! around the camera and the dusteffect clouds placed through the map, as
 //! the 2004 engine simulates them. Each texture is one batch of at most
 //! CAPACITY squares gathered each frame, sorted back to front, for the
 //! renderer to draw as one instanced draw.
 //!
-//! Terrain heights under the fog come from the page's collision world (the
+//! Terrain heights under the fog come from the client's collision world (the
 //! only thing here the phase asks of the host): each grid corner is asked
 //! once and blended between.
 
@@ -63,11 +63,11 @@ impl GroundHeights {
         GroundHeights { cell, limit, keys: vec![EMPTY; slots], heights: vec![0.0; slots], count: 0 }
     }
 
-    // A corner's height, asked of the page the first time. The table is full at
+    // A corner's height, asked of the client the first time. The table is full at
     // the limit and then cleared whole (as the Map it replaces was), which keeps
     // the lookup bounded.
     fn corner(&mut self, ix: i64, iz: i64, ground: &mut dyn FnMut(f64, f64) -> f64) -> f64 {
-        // A corner's key: its two numbers in one, as the page's Map had them.
+        // A corner's key: its two numbers in one them.
         let key = ix * 1048576 + iz;
         let mask = self.keys.len() - 1;
         let mut at = ((key as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40) as usize & mask;
@@ -83,7 +83,7 @@ impl GroundHeights {
             at = ((key as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40) as usize & mask;
         }
         // NaN: no ground there.
-        // The page's collision world answers (NaN for no ground there).
+        // The client's collision world answers (NaN for no ground there).
         let height = ground(ix as f64 * self.cell, iz as f64 * self.cell);
         self.keys[at] = key;
         self.heights[at] = height;
@@ -122,9 +122,9 @@ impl GroundHeights {
 
 /// One dusteffect class's particles, shared by every object of the class
 /// (DustCloud). Each is [x, y, z, vx, vy, vz, size, life left, age, alpha]
-/// in the object's frame, kept as 32-bit floats as the page kept them.
+/// in the object's frame, kept as 32-bit floats them.
 // One dusteffect class's particles, shared by every object of the class. Their
-// state is 32-bit floats, as the page kept them, so the stores round alike.
+// state is 32-bit floats them, so the stores round alike.
 pub struct Dust {
     def: Vec<f64>,
     random: EngineRandom,

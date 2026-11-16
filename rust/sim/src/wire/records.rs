@@ -1,5 +1,5 @@
 //! Semantic capture records to snapshot entries, following
-//! runtime/snapshot-records.js and snapshot-codec.js quantizers.
+//! and snapshot-codec.js quantizers.
 use crate::gen::{WireBounds, WireClass, WireEntry, WireField, WireMount, WireQuaternion,
     WireRecord, WireRecordKind, WireRecordState, WireSlot, WireSnapshot, WireVelocity};
 use crate::store::Strings;

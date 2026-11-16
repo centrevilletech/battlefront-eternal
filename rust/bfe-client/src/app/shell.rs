@@ -100,7 +100,7 @@ fn shell_textures_to_interface_surface(
     surf
 }
 
-/// Map the browser hostDialog fields directly to the bundled server options.
+/// Map the client hostDialog fields directly to the bundled server options.
 /// Its single selected map and side form one mission. Instant Action's playlist
 /// and the old native SET GAME OPTIONS fields do not participate in this form.
 pub fn host_options_from_shell(cfg: &HostConfig) -> HostOptions {
@@ -155,7 +155,7 @@ pub struct LiveServerBrowser {
     rx: Option<mpsc::Receiver<BrowserRefreshMessage>>,
     /// Optional explicit `HOST:PORT` target injected from `--server` or `BFE_SERVER_TARGET`.
     server_target: Option<String>,
-    /// Consent survives source changes, which reset the browser presentation state.
+    /// Consent survives source changes, which reset the client presentation state.
     pub privacy_accepted: bool,
 }
 
@@ -510,7 +510,7 @@ pub struct ShellHost {
     pub core: Core<glow::Context, Ranges>,
     /// 2D/3D-anchored HUD/interface quad pass (`post-hud/hud`).
     pub hud: HudPass<glow::Context>,
-    /// CPU-side quad batch: the page backdrop (`Page::draw`) or the loading screen (`draw_loading`).
+    /// CPU-side quad batch: the client backdrop (`Page::draw`) or the loading screen (`draw_loading`).
     pub batch: Batch,
     /// Bitmap fonts (`large`, `medium`, `small`, `tiny`) for `bfe-shell`.
     pub fonts: ShellFonts,
@@ -1016,10 +1016,10 @@ impl ShellHost {
     }
 
     /// Opens option page `page` (`"game"`, `"video"`, `"audio"`, `"controls"`) over a paused battle, as the
-    /// pause menu's OPTIONS does (`optionsMenu({ inBattle: true, viewpoint })` in `src/pause/index.js`).
+    /// pause menu's OPTIONS does (`optionsMenu({ inBattle: true, viewpoint })`).
     ///
     /// The controller is rebuilt from the live settings with `in_battle` set, so the notes and the VIEWPOINT
-    /// row read as they do in the browser; the page is its root, so BACK or Escape empties the stack.
+    /// row read as they do in the client; the client is its root, so BACK or Escape empties the stack.
     pub(super) fn open_battle_options(
         &mut self,
         page: &str,
@@ -1095,7 +1095,7 @@ impl ShellHost {
             ) && self.app.stack.len() > 1
             {
                 // Return through normal shell navigation so its backdrop and
-                // music also leave Options, just like the browser onEmpty hook.
+                // music also leave Options, just like the client onEmpty hook.
                 self.app.back();
             }
             self.app.rebuild_cached_rows();
@@ -1875,7 +1875,7 @@ impl ShellHost {
                 .is_some_and(|row| row.id == "refresh");
         self.app
             .handle_key(key, false, false, false, &mut self.browser);
-        // The key that lifts the title gate is also the main menu's first key, as in the browser build:
+        // The key that lifts the title gate is also the main menu's first key, as in the client build:
         // one Enter lands in SINGLEPLAYER.
         if prev_screen == ScreenId::Gate && self.app.current_screen() != ScreenId::Gate {
             self.app
@@ -1890,7 +1890,7 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
+        // The client fetches the list as the screen is entered (`onEnter`), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(
                 self.app.current_screen(),
@@ -2143,7 +2143,7 @@ impl ShellHost {
             self.options_ctrl.stack.clear();
             self.sync_options_controller(settings);
         }
-        // The page fetches the list as the screen is entered (`onEnter` in server-browser.js), not on a timer.
+        // The client fetches the list as the screen is entered (`onEnter`), not on a timer.
         let entered_list = prev_screen != self.app.current_screen()
             && matches!(
                 self.app.current_screen(),
@@ -2468,7 +2468,7 @@ impl ShellHost {
     }
 
     /// Creates a linear-filtered `CLAMP_TO_EDGE` 2D OpenGL texture from raw RGBA8 bytes.
-    /// A page font's coverage as one channel (a quarter of RGBA's memory),
+    /// A client font's coverage as one channel (a quarter of RGBA's memory),
     /// sampled as white with that alpha; mip levels for its smaller sizes.
     pub(super) fn upload_page_font(
         gl: &glow::Context,

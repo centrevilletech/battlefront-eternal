@@ -1,4 +1,4 @@
-//! LiveObjects' combat services (props.js). Prepared geometry and native
+//! LiveObjects' combat services. Prepared geometry and native
 //! lifecycle effects share F4's canonical health and trap rows. Only the
 //! touched prop's visibility and foreign notifications cross synchronously.
 use super::f3::{self, WorldServices};
@@ -250,7 +250,7 @@ pub(crate) fn target_facts_in(world_ctx: &crate::world::owner::World) -> Vec<(f6
     out
 }
 /// Every building entry's three bodies (built, destroyed, unbuilt, the
-/// page's LOOKS order) as kernel slots, for the enabled flags the page
+/// page's LOOKS order) as kernel slots, for the enabled flags the client
 /// wrote when a building changed its shown state.
 pub(crate) fn prop_body_kernels_in(world_ctx: &crate::world::owner::World) -> Vec<(usize, [Option<u32>; 3])> {
     let props = f3::props_read(&world_ctx.units);

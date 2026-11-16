@@ -1,4 +1,4 @@
-//! PlayerCombat.aimBasis and eye from combat.js, shared by unit display,
+//! PlayerCombat.aimBasis and eye, shared by unit display,
 //! immediate command preview and speculative shot publication.
 use crate::cameras::math::{Math, cross, plus, add, sub};
 use three::Vector3 as V;

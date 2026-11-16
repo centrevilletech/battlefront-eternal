@@ -1,9 +1,9 @@
-//! The effects the map's placed objects carry (environment-effects.js):
+//! The effects the map's placed objects carry:
 //! torches, campfires, smoke, mist, waterspouts, steam vents and fountains.
 //! Each plays its stock effect while it is in view, out to the near scene's
 //! end, and is killed when it leaves; on entering view it is stepped ahead
 //! by up to its particles' lifetime, so a torch is already burning.
-//! The browser's Enhanced forms of fountains and steam vents (water and
+//! The Enhanced forms of fountains and steam vents (water and
 //! volume shaders) are not drawn natively; those play their stock effect in
 //! both modes.
 use super::effects::Spawner;
@@ -19,7 +19,7 @@ struct Instance {
     handle: Option<u32>,
     // Seconds stepped at once when it comes into view.
     warmup: f64,
-    // A steam vent's Enhanced volume (environment-effects.js), none for the
+    // A steam vent's Enhanced volume, none for the
     // effects that have no Enhanced form.
     volume: Option<super::steam::Volume>,
     // A fountain's slot and pool levels, for the Enhanced jets.
@@ -69,7 +69,7 @@ pub struct MapEffects {
     pub started: u64,
     pub visible: usize,
     // BFE_BENCH fx=name,name,...: each named effect group in turn, every 3 s,
-    // 6 m ahead of the camera and 2.5 m right, for side-by-side captures with the browser.
+    // 6 m ahead of the camera and 2.5 m right, for side-by-side captures with the client.
     show: Vec<(String, usize)>,
     show_next: usize,
     show_clock: f64,

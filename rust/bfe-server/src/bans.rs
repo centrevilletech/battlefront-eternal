@@ -1,4 +1,4 @@
-//! Signed master ban-list verification and caching (`src/bans.js`).
+//! Signed master ban-list verification and caching.
 
 use crate::identity::{verify, write_mode_600};
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ struct SignedBans<'a> {
     public_key: String,
 }
 
-/// A single global ban entry inside `document.payload.bans` (`src/bans.js`).
+/// A single global ban entry inside `document.payload.bans`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BanItem {
     /// 64-character lowercase hex SHA-256 SPKI identity of the banned player (`b.player`).
@@ -38,9 +38,9 @@ pub struct BanItem {
     pub reason: Option<String>,
 }
 
-/// Verified cache of the master server's signed global ban list (`export class BanCache` in `src/bans.js`).
+/// Verified cache of the master server's signed global ban list (`export class BanCache`).
 ///
-/// Mirrors the fields of `BanCache` in `src/bans.js`:
+/// Mirrors the fields of `BanCache`:
 /// `this.master`, `this.file`, `this.bans`, `this.expires`, and `this.key`.
 pub struct BanCache<R: BanRequester> {
     master: Arc<R>,
@@ -51,7 +51,7 @@ pub struct BanCache<R: BanRequester> {
 }
 
 impl<R: BanRequester> BanCache<R> {
-    /// Constructs a `BanCache` (`constructor(master, file)` in `src/bans.js`).
+    /// Constructs a `BanCache` (`constructor(master, file)`).
     ///
     /// If `file` (`master-ban-key`) already exists on disk, reads and trims the pinned base64 SPKI
     /// public key (`existsSync(file) ? readFileSync(file, 'utf8').trim() : null`).
@@ -81,7 +81,7 @@ impl<R: BanRequester> BanCache<R> {
 
     /// Fetches `/v1/bans` (and `/v1/info` on first run), verifies the Ed25519 signature over
     /// the payload's received bytes, validates lifetime bounds, and persists `master-ban-key`
-    /// (`async refresh()` in `src/bans.js`).
+    /// (`async refresh()`).
     pub fn refresh(&mut self) -> Result<(), String> {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -119,7 +119,7 @@ impl<R: BanRequester> BanCache<R> {
         let payload: Value = serde_json::from_str(document.payload.get())
             .map_err(|_| "Invalid ban list signature".to_string())?;
         // Validate list size (`<= 10000`), issue skew (`<= now + 60000`), and expiry window
-        // (`now <= expires <= now + 600000`) (`BanCache.refresh` in `src/bans.js`).
+        // (`now <= expires <= now + 600000`) (`BanCache.refresh`).
         let bans_arr = payload
             .get("bans")
             .and_then(Value::as_array)
@@ -165,7 +165,7 @@ impl<R: BanRequester> BanCache<R> {
         Ok(())
     }
 
-    /// Returns `true` if `id` is currently banned in a non-expired ban list (`contains(id)` in `src/bans.js`).
+    /// Returns `true` if `id` is currently banned in a non-expired ban list (`contains(id)`).
     pub fn contains(&self, id: &str) -> bool {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)

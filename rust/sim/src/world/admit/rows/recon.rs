@@ -19,7 +19,7 @@ pub trait Definitions {
     fn emit(&mut self, _name: &'static str, _call: &Call) {}
 }
 
-/// weapon-content-sim.js valueWords, including depth 12 and JavaScript's own
+/// valueWords, including depth 12 and JavaScript's own
 /// property order. None is undefined; it must remain different from null.
 pub fn value_words(value: Option<&Value>, intern: &mut impl FnMut(&str) -> StrId) -> Vec<f64> {
     fn write(value: Option<&Value>, depth: usize, intern: &mut impl FnMut(&str) -> StrId, out: &mut Vec<f64>) {

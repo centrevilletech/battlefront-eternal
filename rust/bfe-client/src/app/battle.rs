@@ -139,8 +139,8 @@ use bfe_shell::{launch::BattleRequest, screens::MultiplayerLaunch};
 use std::path::Path;
 use winit::{event::MouseButton, keyboard::KeyCode};
 
-/// Commands one rendered frame may make: as the page's input clock
-/// (runtime/fixed-clock.js maxSteps), so a frame of 0.1 s still makes one
+/// Commands one rendered frame may make: as the client's input clock
+/// (maxSteps), so a frame of 0.1 s still makes one
 /// for each of its six ticks.
 const MAX_FRAME_STEPS: usize = 8;
 
@@ -251,7 +251,7 @@ pub struct LiveSpawnPort {
 
 /// The spawn screen's Math.random (spawn-screen/index.js gives its model no
 /// other source): uniform in [0, 1) and different on every run, so a team
-/// switch lands on any of the new team's posts, as the page's does.
+/// switch lands on any of the new team's posts, as the client's does.
 pub(super) fn unit_random() -> f64 {
     use std::hash::{BuildHasher, Hasher};
     static DRAWS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -733,7 +733,7 @@ impl LiveScoreboardPort {
     }
 }
 
-/// applyRecord (src/battle-stats.js): a Character's shared record as the
+/// applyRecord: a Character's shared record as the
 /// end-of-match screens read it, its favourites named from the content.
 /// Without one (no tally above zero yet) the record is empty.
 fn character_record(packed: Option<&crate::online::roster::Records>, names: &crate::online::hud::RecordNames) -> CharacterRecord {
@@ -1607,7 +1607,7 @@ impl BattleController {
             return;
         }
         self.settings_revision = rev;
-        // Graphics settings the browser applies as they change.
+        // Graphics settings the client applies as they change.
         let target=settings.interface.get_string("dynamicResolution").parse().unwrap_or(0.);
         let limit=settings.interface.get_string("frameLimit").parse().unwrap_or(0.);
         if let Err(err)=self.scene.set_resolution(settings.interface.get_f64("renderScale"),target,limit){eprintln!("battle settings: resolution not applied: {err}");}
@@ -1638,7 +1638,7 @@ impl BattleController {
             ocean: settings.interface.get_string("oceanEffects"),
         };
         if let Err(err) = self.scene.set_water_settings(&water) { eprintln!("battle settings: water not applied: {err}"); }
-        // The effect looks the browser reads the same two settings for.
+        // The effect looks the client reads the same two settings for.
         if let Some(online) = &mut self.scene.online {
             let enhanced = |name: &str| settings.interface.get_string(name) != "classic";
             let volume = |name: &str| {
@@ -1899,7 +1899,7 @@ impl BattleController {
         // The render loop runs at display refresh rate while simulation and network
         // input ticks run at a fixed 60 Hz (`STEP = 1.0 / 60.0` seconds).
         // We accumulate `dt` (clamped to `0.25s` max catch-up), consume up to 8
-        // discrete 60 Hz steps per rendered frame (the page's input clock
+        // discrete 60 Hz steps per rendered frame (the client's input clock
         // takes as many: a slow frame sends a command for every tick it spans), and use the residual fraction
         // `alpha_interp = (input_accumulator / STEP)` to smoothly interpolate the
         // 3D camera between the previous and current 60 Hz simulation states.
@@ -1974,7 +1974,7 @@ impl BattleController {
                     *now_ms += dt * 1000.0;
                 }
                 world.set_paused(self.pause_menu.is_open);
-                // As the page's world worker: a battle without the window's
+                // As the client's local world thread: a battle without the window's
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
                 world.set_suspended(hidden);
@@ -2156,7 +2156,7 @@ impl BattleController {
             }
         };
 
-        // spawn-screen/index.js closes at battle.over, including when the
+        // closes at battle.over, including when the
         // player was dead or had never spawned. Otherwise an open spawn
         // view would keep the end scoreboard from updating forever.
         if self.scene.online.as_ref().is_some_and(|r| r.hud.over)
@@ -2183,7 +2183,7 @@ impl BattleController {
             self.was_alive = false;
             self.death_screen_pending = true;
         }
-        // human-spawn.js emits awaitingSpawn only after the 4 s dying hold
+        // emits awaitingSpawn only after the 4 s dying hold
         // completes (phase == Awaiting, corpse removed). Opening early hides
         // DeathShot and causes COMMIT_WAIT (1.0 s) to cancel an early SPAWN click.
         if self.death_screen_pending
@@ -2353,7 +2353,7 @@ impl BattleController {
                     client.receiver.own.alive,
                     client.receiver.own.team,
                 );
-                // spawn-screen/index.js follows the authoritative teamChanged
+                // follows the authoritative teamChanged
                 // event even when its initial screen opened before welcome.
                 if self.spawn_port.human.team != previous_team {
                     self.spawn_ctrl.notify_team_changed(&self.spawn_port, self.spawn_port.human.team, unit_random());
@@ -2509,7 +2509,7 @@ impl BattleController {
         }
     }
 
-    /// LEAVING BATTLEFIELD (`presentLeaving` in src/game.js): from what the player controls as this page
+    /// LEAVING BATTLEFIELD (`presentLeaving`): from what the player controls as this client
     /// shows him, alive and outside the map's boundary.
     fn present_leaving(&mut self) {
         let (own, tick) = match &self.authority {
@@ -2614,7 +2614,7 @@ impl BattleController {
         dst.end = v1;
     }
 
-    // Format into retained storage; the page overlay supplies CSS-pixel sizing.
+    // Format into retained storage; the client overlay supplies CSS-pixel sizing.
     fn update_stats_line(&mut self) {
         use std::fmt::Write;
         let mean = self.frame_seconds / self.frames.max(1) as f64;
@@ -2741,7 +2741,7 @@ impl BattleController {
                 .key(code, false, false, false, false, |_, _| None);
         }
 
-        // 1. Chat overlay runs first in capture order (`src/chat.js`): when open, `Escape`
+        // 1. Chat overlay runs first in capture order: when open, `Escape`
         // closes chat rather than opening `PauseMenu`, and all keys are swallowed.
         if self.chat.is_open() {
             if down {
@@ -2926,7 +2926,7 @@ impl BattleController {
         }
 
         // 6. Track held `Space` while inactive so holding `Space` during the death camera
-        // spawns on the first frame `SpawnScreen` opens (`src/spawn-screen/input.js`).
+        // spawns on the first frame `SpawnScreen` opens.
         if down {
             let _ = self.spawn_ctrl.input.key(
                 &self.spawn_ctrl.model,

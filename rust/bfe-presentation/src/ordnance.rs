@@ -1,4 +1,4 @@
-//! Why one kernel for all of it: the page used to push a quad per streak into
+//! Why one kernel for all of it: the client used to push a quad per streak into
 //! a particle batch, a light request per round and a mesh move per rocket from
 //! JavaScript, one round at a time, every frame. The draw state is small and
 //! entirely numeric, so it is computed here in one call and the host only
@@ -10,7 +10,7 @@
 //! Ordnance.present and the draw helpers it calls (drawBolt, drawBeam,
 //! drawProjectileView, boltSpan, linearBoltFrame), plus the network
 //! projectile presentation (ProjectilePresentation.receive/end/present/smooth)
-//! as one coarse frame. The page writes a record for every round it wants
+//! as one coarse frame. The client writes a record for every round it wants
 //! drawn, in draw order; the kernel returns the instanced quads of each
 //! batch, the blaster capsules, and an ordered list of what the host still
 //! does with its own objects (light requests, sniper trace touches, mesh and
@@ -34,18 +34,18 @@ use v8math::{exp, hypot3, max, min};
 /// recycled: a bolt is drawn every frame it lives, and a clock run back
 /// brings it back within a second or two.
 const VIEW_WINDOW: u32 = 120;
-/// Ordnance.js MERGE: the metres over which a bolt drawn from the muzzle
+/// MERGE: the metres over which a bolt drawn from the muzzle
 /// joins its path.
 const MERGE: f64 = 8.0;
-/// ordnance.js CORE_TAPER and GLOW_TAPER: a streak's tail share of its width.
+/// CORE_TAPER and GLOW_TAPER: a streak's tail share of its width.
 const CORE_TAPER: [f64; 3] = [0.5, 0.0, 0.0];
 const GLOW_TAPER: [f64; 3] = [0.8, 0.0, 0.0];
-/// particles.js STREAK.
+/// STREAK.
 const STREAK: f32 = 1.0;
 /// A muzzle further than this (squared, 20 m) from its round is a respawn or
 /// a seat, and is ignored.
 const FAR_MUZZLE: f64 = 400.0;
-/// network-combat-projectile.js constants.
+/// constants.
 const COAST_TICKS: f64 = 6.0;
 const COAST_FULL_TICKS: f64 = 3.0;
 const SMOOTH_SECONDS: f64 = 0.08;
@@ -67,7 +67,7 @@ fn or(x: f64, d: f64) -> f64 {
     }
 }
 
-/// A style is what the page knows about an ordnance class (numbers from its
+/// A style is what the client knows about an ordnance class (numbers from its
 /// definition, the blaster look, which batches draw it), registered once.
 #[derive(Clone, Copy, Default)]
 struct Style {
@@ -76,7 +76,7 @@ struct Style {
     core: i32,
     glow: i32,
     beam: i32,
-    // The class's numbers as the JavaScript read them. `||` defaults (a
+    // The class's numbers them. `||` defaults (a
     // LaserWidth of 0 is "not named") are applied where they were, at draw.
     laser_width: f64,
     laser_length: f64,
@@ -87,10 +87,10 @@ struct Style {
     blur_length: f64,
     fade_out: f64,
     light_radius: f64,
-    // Colours with their alpha folded in (ordnance.js color01).
+    // Colours with their alpha folded in (color01).
     light_color: [f64; 3],
     glow_color: [f64; 3],
-    // Ordnance.blasterLook, worked out by the page once the texture's hue is
+    // Ordnance.blasterLook, worked out by the client once the texture's hue is
     // known: the sheath colour and the capsule's proportions.
     look_color: [f64; 3],
     look_glow: f64,
@@ -123,8 +123,8 @@ const EMPTY_VIEW: View = View { key: UNUSED, stamp: 0, seed: f64::NAN, presented
 /// Open addressing over a fixed table. A view not drawn for VIEW_WINDOW
 /// frames is stale and its slot is reused; a table three quarters full of
 /// ever-used slots is rebuilt into the spare one.
-// ordnance.js kept `presented` and `seed` as properties on each bolt object.
-// Here a bolt is named by a number the page gives it (its simulation slot and
+// kept `presented` and `seed` as properties on each bolt object.
+// Here a bolt is named by a number the client gives it (its simulation slot and
 // generation, or a counter for the replicated and predicted ones), and the
 // table is sized once: a long battle recycles views instead of growing.
 struct Views {
@@ -241,7 +241,7 @@ struct Sample {
 }
 
 /// A network projectile (ProjectilePresentation's `objects` entry), by the
-/// slot the page gave it.
+/// slot the client gave it.
 #[derive(Clone, Copy)]
 struct Net {
     active: bool,
@@ -320,7 +320,7 @@ struct Out {
     tail: Vec<f32>,
     blaster_color: Vec<f32>,
     size: Vec<f32>,
-    /// ordnance.js `boltAxis`, the scratch direction boltSpan leaves.
+    /// `boltAxis`, the scratch direction boltSpan leaves.
     bolt_axis: [f64; 3],
 }
 
@@ -328,7 +328,7 @@ impl Out {
     /// `style.core/glow/beam.push(...)`: one quad into batch `handle`'s
     /// region. A handle past the table, or a full region, drops the quad.
     #[allow(clippy::too_many_arguments)]
-    // The region per batch handle is fixed, not packed: the page copies each
+    // The region per batch handle is fixed, not packed: the client copies each
     // handle's quads to its batch with one typed-array set per attribute,
     // and no sorting by batch is needed to keep each batch's order as the
     // JavaScript pushed it.
@@ -382,7 +382,7 @@ impl Out {
 
     /// `BlasterBatch.push(head, tail, rgb, brightness, core, glow, seed, taper)`.
     #[allow(clippy::too_many_arguments)]
-    // The page's BlasterBatch has one array set for every Enhanced bolt and
+    // The client's BlasterBatch has one array set for every Enhanced bolt and
     // beam, in the order they were drawn.
     fn blaster(
         &mut self,
@@ -460,7 +460,7 @@ impl Out {
         }
     }
 
-    /// ordnance.js boltSpan: the visible path converges from the displayed
+    /// boltSpan: the visible path converges from the displayed
     /// muzzle to the gameplay ray; both ends of the streak are computed on
     /// it. Leaves the streak's axis in `bolt_axis` and returns its length.
     fn bolt_span(&mut self, b: &BoltDraw, span_in: f64) -> f64 {
@@ -515,7 +515,7 @@ struct BoltDraw {
     first_draw: bool,
 }
 
-/// linear-bolt.js boltFade: all of a bolt in flight; after its end a class
+/// boltFade: all of a bolt in flight; after its end a class
 /// with a FadeOutTime fades linearly, and any other is gone at once.
 fn bolt_fade(fade_out: f64, after: f64) -> f64 {
     if after < 0.0 {
@@ -529,8 +529,8 @@ fn bolt_fade(fade_out: f64, after: f64) -> f64 {
     }
 }
 
-// The page writes into `input`, `net_input` and `style_input` and reads the
-// rest through the pointers the browser binding gives it; a native host
+// The client writes into `input`, `net_input` and `style_input` and reads the
+// rest through the pointers the client binding gives it; a native host
 // (the replay tool, the tests) uses these fields directly. Everything is
 // sized once, so a frame never allocates.
 pub struct Ordnance {
@@ -540,7 +540,7 @@ pub struct Ordnance {
     /// Network commands, in arrival order.
     pub net_input: Vec<f64>,
     pub header: Vec<f64>,
-    /// A style's row, written by the page before `set_style`.
+    /// A style's row, written by the client before `set_style`.
     pub style_input: Vec<f64>,
     styles: Vec<Style>,
     views: Views,
@@ -553,7 +553,7 @@ pub struct Ordnance {
     refused_views: usize,
     out: Out,
     frame: u32,
-    /// ordnance.js `boltSeed`.
+    /// `boltSeed`.
     bolt_seed: f64,
 }
 
@@ -622,13 +622,13 @@ impl Ordnance {
     }
 
     /// Registers the class whose numbers are in `style_input` as style
-    /// `index` (the page registers a class once, and again when a texture
+    /// `index` (the client registers a class once, and again when a texture
     /// hue arrives); a bad index is ignored.
     pub fn set_style(&mut self, index: usize) {
         if index >= lim::STYLES {
             return;
         }
-        // The row was written by the page just before this call (a class's
+        // The row was written by the client just before this call (a class's
         // numbers, or the same class again when a texture's hue arrives).
         let s = &self.style_input;
         let v3 = |at: usize| [s[at], s[at + 1], s[at + 2]];
@@ -662,8 +662,8 @@ impl Ordnance {
     /// then the network projectiles. A frame never fails: a full table drops
     /// what it cannot hold and counts it in the header.
     pub fn present(&mut self) {
-        // A page built against another layout would read garbage rows; it is
-        // refused whole and the page reports it, which is a build error.
+        // A client built against another layout would read garbage rows; it is
+        // refused whole and the client reports it, which is a build error.
         let version_ok = self.input[fr::VERSION] == VERSION as f64;
         self.header[hd::VERSION] = VERSION as f64;
         self.header[hd::STATUS] = if version_ok { status::OK } else { status::VERSION_MISMATCH } as f64;
@@ -680,7 +680,7 @@ impl Ordnance {
         }
         if version_ok {
             // Commands first: a sample received this frame belongs to the
-            // present that follows, as `receive` ran before `present` in JS.
+            // present that follows, as `receive` ran before `present`.
             self.net_flush(clamp_count(self.input[fr::NET_COMMANDS], lim::NET_COMMANDS));
             let enhanced = self.input[fr::ENHANCED_BOLTS] != 0.0;
             let sniper = self.input[fr::ENHANCED_SNIPER] != 0.0;
@@ -692,7 +692,7 @@ impl Ordnance {
             }
         }
         // The header tells the host how much to read and what was refused, so
-        // the page can report a crowded frame once instead of failing it.
+        // the client can report a crowded frame once instead of failing it.
         let o = &self.out;
         self.header[hd::CALLS] = o.call_count as f64;
         self.header[hd::BLASTERS] = o.blasters as f64;
@@ -706,7 +706,7 @@ impl Ordnance {
         self.header[hd::SKIPPED_NET] = self.skipped_net as f64;
     }
 
-    /// Applies the first `count` network commands, in order. The page calls
+    /// Applies the first `count` network commands, in order. The client calls
     /// this itself when its block fills between frames (a long load or a
     /// pause with events but no update), so no command is ever lost.
     pub fn net_flush(&mut self, count: usize) {
@@ -715,7 +715,7 @@ impl Ordnance {
         }
     }
 
-    // A record or sample naming a class the page never registered draws
+    // A record or sample naming a class the client never registered draws
     // nothing (it cannot be told how).
     fn style(&self, index: f64) -> Option<Style> {
         let i = index as usize;
@@ -741,7 +741,7 @@ impl Ordnance {
             return;
         }
         // Flags are named bits (the layout's `OrdnanceFlag`): which optional
-        // fields of the row the page filled this frame.
+        // fields of the row the client filled this frame.
         let flags = r[rc::FLAGS] as u32;
         let has = |f: u32| flags & (1 << f) != 0;
         let v3 = |k: usize| Vector3::new(r[k], r[k + 1], r[k + 2]);
@@ -760,7 +760,7 @@ impl Ordnance {
             return;
         };
         let k = r[rc::KIND] as u32;
-        // The kinds map to the page's four lists: Ordnance.present drew
+        // The kinds map to the client's four lists: Ordnance.present drew
         // `beams`, `bolts`, `rounds` and `grenades` in that order, and the
         // page writes its records in the same order.
         if k == kind::BEAM {
@@ -814,7 +814,7 @@ impl Ordnance {
         }
     }
 
-    /// ordnance.js drawBeam.
+    /// drawBeam.
     // A beam is a straight fat ray from its source to where it struck; it
     // fades over its last 0.08 s. Classic draws one textured streak at the
     // far end back along the ray; Enhanced draws a capsule from end to source.
@@ -842,7 +842,7 @@ impl Ordnance {
         self.out.light(position, s.glow_color, or(s.light_radius, 3.0));
     }
 
-    /// ordnance.js drawProjectileView (and, for a network projectile, the
+    /// drawProjectileView (and, for a network projectile, the
     /// same call with alpha 1 and no launch). `wants_light` is its third
     /// argument.
     #[allow(clippy::too_many_arguments)]
@@ -898,7 +898,7 @@ impl Ordnance {
         self.out.calls[at + cl::D + 3] = q.w;
     }
 
-    // The page moves a mesh with this call; `q` is absent for a model that
+    // The client moves a mesh with this call; `q` is absent for a model that
     // keeps its orientation (a grenade, which only moves).
     fn mesh_call(&mut self, kind: u32, source: f64, p: &Vector3, q: Option<&Quaternion>) {
         if let Some(c) = self.out.call(kind, source) {
@@ -910,7 +910,7 @@ impl Ordnance {
         }
     }
 
-    /// ordnance.js drawBolt, with linear-bolt.js linearBoltFrame for a
+    /// drawBolt, with linear-bolt.js linearBoltFrame for a
     /// replicated bolt flown on the playout clock.
     fn draw_bolt(&mut self, r: &[f64; rc::STRIDE], s: &Style, flags: u32, enhanced: bool, sniper: bool) {
         let has = |f: u32| flags & (1 << f) != 0;
@@ -937,7 +937,7 @@ impl Ordnance {
         }
         // Two ways a bolt's extent is known. A replicated bolt carries only its
         // launch sample, and its flight is worked out from the displayed tick
-        // (linear-bolt.js linearBoltFrame). A bolt the page steps carries
+        // (linearBoltFrame). A bolt the client steps carries
         // this and the previous step's distances, drawn between them at alpha.
         let (flown, drawn, ended, fade);
         if has(fl::LINEAR) {
@@ -1085,9 +1085,9 @@ impl Ordnance {
         self.out.light(&light_at, s.light_color, or(s.light_radius, 0.0));
     }
 
-    // ---- network projectiles (network-combat-projectile.js) ----
+    // ---- network projectiles ----
 
-    // Leaves the live list and frees the slot for the page to reuse.
+    // Leaves the live list and frees the slot for the client to reuse.
     fn unlink(&mut self, slot: u32) {
         let (prev, next) = (self.net[slot as usize].prev, self.net[slot as usize].next);
         if prev == NONE {
@@ -1112,7 +1112,7 @@ impl Ordnance {
             row
         };
         let kind = c[nc::KIND] as u32;
-        // RESET is the epoch changing: the page has already let go of every
+        // RESET is the epoch changing: the client has already let go of every
         // mesh and trail, so only the kernel's state is cleared here.
         if kind == nk::RESET {
             let mut slot = self.net_head;
@@ -1143,7 +1143,7 @@ impl Ordnance {
         let v3 = |k: usize| Vector3::new(c[k], c[k + 1], c[k + 2]);
         if kind == nk::END {
             let n = &mut self.net[slot as usize];
-            // A terminal for a projectile this page never held, or held in
+            // A terminal for a projectile this client never held, or held in
             // another life, is nothing to end.
             if !n.active || n.generation != c[nc::GENERATION] || n.len == 0 {
                 return;
@@ -1169,7 +1169,7 @@ impl Ordnance {
             self.skipped_net += 1;
             return;
         }
-        // The first sample for a slot makes the projectile. The page decides
+        // The first sample for a slot makes the projectile. The client decides
         // identity: it frees a slot (and sends REMOVE) when an id comes back
         // in another life, so a sample never lands on a stranger's state.
         if !self.net[slot as usize].active {
@@ -1237,7 +1237,7 @@ impl Ordnance {
         // Gone once the clock reaches its terminal, or passes the time its
         // last sample said it would last (plus the playout slack of 18 ticks).
         if tick >= n.end_tick || tick > expires {
-            // The page frees the slot, its mesh and its trail on this call.
+            // The client frees the slot, its mesh and its trail on this call.
             self.out.call(ck::NET_REMOVE, slot as f64);
             self.unlink(slot);
             return;
@@ -1403,7 +1403,7 @@ fn push_sample(n: &mut Net, s: Sample) {
     n.len += 1;
 }
 
-/// network-combat-projectile.js changedFlight: a sharp turn or authoritative
+/// changedFlight: a sharp turn or authoritative
 /// stop can be a bounce or contact, so no correction carries across it.
 fn changed_flight(a: &Vector3, b: &Vector3) -> bool {
     let speed_a = hypot3(a.x, a.y, a.z);

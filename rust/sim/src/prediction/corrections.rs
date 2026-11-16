@@ -320,7 +320,7 @@ impl SoldierState {
         out
     }
 }
-/// Fixed storage for the page's compact checkpoint reader. Restoring a
+/// Fixed storage for the client's compact checkpoint reader. Restoring a
 /// soldier does not need the variable-length vectors of the general adapter.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CompactSoldierState {
@@ -632,7 +632,7 @@ pub fn decode_compact_flight(bytes: Option<&[u8]>, supported: bool, objects: [bo
     decode_compact_flight_into(bytes, supported, objects, history, &mut out)?; Ok(out)
 }
 /// restoreCompactFlight's existing reader, with caller-owned vector capacity.
-/// Page prediction decodes once per frame and never allocates inside replay.
+/// Client prediction decodes once per frame and never allocates inside replay.
 /// An error may overwrite scratch, but callers apply it only after success.
 pub fn decode_compact_flight_into(bytes: Option<&[u8]>, supported: bool, objects: [bool; 9], history: [bool; 4], out: &mut FlightState) -> Result<()> {
     if !supported { return Err("unsupported compact flight correction"); }

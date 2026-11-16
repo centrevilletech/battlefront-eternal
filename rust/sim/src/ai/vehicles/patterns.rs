@@ -1,4 +1,4 @@
-//! Vehicle combat (src/ai/classic/vehicles/patterns.js): the engagement
+//! Vehicle combat: the engagement
 //! dispatch for walker, hover and flyer controls, and the attack patterns
 //! only vehicles run: the hover pass (7), the attack run (13), the dormant
 //! pursuit (14) and straight run (16), and the AT-AT tow orbit (15), with
@@ -16,7 +16,7 @@ use super::service::VehicleStorage;
 use super::world::{kind, Obj, Orbit, Ref, Settings, UnitView, World};
 
 /// The attack patterns' machine as the vehicle hooks read it
-/// (src/ai/classic/combat.js AttackPatterns): its agent, controller and
+/// (AttackPatterns): its agent, controller and
 /// control, and the agent's target tracker and movement helper.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PatternsView {
@@ -35,7 +35,7 @@ pub struct PatternsView {
     pub helper_arrived: bool,
 }
 
-/// stateOf(patterns) (patterns.js:84): `patterns.vehicle`.
+/// stateOf(patterns): `patterns.vehicle`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PatternState {
     pub toggle: bool,
@@ -103,7 +103,7 @@ fn f(x: f64) -> f64 {
     fround(x)
 }
 
-/// isVehicleOrBuilding (patterns.js:32).
+/// isVehicleOrBuilding.
 fn vehicle_or_building(k: f64) -> bool {
     k == 2.0 || k == 4.0 || k == 6.0 || k == 8.0 || k == 9.0
 }
@@ -122,7 +122,7 @@ impl<W: World + ?Sized> DispatchWorld for W {
     }
 }
 
-/// isAtAt(unit) (patterns.js:36): the class labelled "AT-AT" (or named
+/// isAtAt(unit): the class labelled "AT-AT" (or named
 /// imp_walk_atat).
 pub fn is_at_at<W: DispatchWorld + ?Sized>(w: &W, unit: &UnitView) -> bool {
     let (label, name) = match unit.vehicle {
@@ -135,13 +135,13 @@ pub fn is_at_at<W: DispatchWorld + ?Sized>(w: &W, unit: &UnitView) -> bool {
     label.as_deref() == Some("AT-AT") || name.as_deref() == Some("imp_walk_atat") || unit.class_name.as_deref() == Some("imp_walk_atat")
 }
 
-/// forwardSpeed(unit) (weapons-ai.js:199): `f(ForwardSpeed ?? MaxSpeed ?? 0)`.
+/// forwardSpeed(unit): `f(ForwardSpeed ?? MaxSpeed ?? 0)`.
 pub fn forward_speed(unit: &UnitView) -> f64 {
     let c = unit.class.as_ref();
     f(c.and_then(|c| c.forward_speed).or_else(|| c.and_then(|c| c.max_speed)).unwrap_or(0.0))
 }
 
-/// selectOnly (patterns.js:23).
+/// selectOnly.
 fn select_only<W: DispatchWorld + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: Obj, switch_allowed: bool, out: &mut Dispatch) {
     let choice = w.dispatch_choice(controller, unit.obj, target, switch_allowed);
     out.aux = choice.ok;
@@ -150,7 +150,7 @@ fn select_only<W: DispatchWorld + ?Sized>(w: &mut W, controller: Obj, unit: &Uni
     out.weapon = choice.weapon;
 }
 
-/// vehicleDispatch(controller, unit, target, switchAllowed, world, out, options) (patterns.js:50).
+/// vehicleDispatch(controller, unit, target, switchAllowed, world, out, options).
 pub fn vehicle_dispatch<W: DispatchWorld + ?Sized>(w: &mut W, controller: Obj, unit: &UnitView, target: &UnitView, switch_allowed: bool, dense: bool, out: &mut Dispatch) {
     out.pattern = 0.0;
     out.probability = 0.0;
@@ -232,7 +232,7 @@ fn now<W: PatternWorld + ?Sized>(w: &W) -> f64 {
     w.pattern_now()
 }
 
-/// trackerPoint(patterns, out) (patterns.js:100). The tracker's point is a
+/// trackerPoint(patterns, out). The tracker's point is a
 /// Vector3 that is always there, so a tracker's answer is its point; the
 /// target's place is reached only without a tracker, where there is none.
 fn tracker_point<W: PatternWorld + ?Sized>(w: &W, p: &PatternsView) -> Option<Vector3> {
@@ -243,13 +243,13 @@ fn tracker_point<W: PatternWorld + ?Sized>(w: &W, p: &PatternsView) -> Option<Ve
     Some(w.pattern_unit(target).position)
 }
 
-/// The patterns' bodyForward (patterns.js:396): not normalized.
+/// The patterns' bodyForward: not normalized.
 fn body_forward(unit: &UnitView) -> Vector3 {
     let yaw = unit.body_yaw;
     Vector3::new(sin(yaw), 0.0, cos(yaw))
 }
 
-/// normalizeXZ(v) (patterns.js:401).
+/// normalizeXZ(v).
 fn normalize_xz(v: &mut Vector3) {
     v.y = 0.0;
     let l = hypot(v.x, v.z);
@@ -258,14 +258,14 @@ fn normalize_xz(v: &mut Vector3) {
     }
 }
 
-/// horizontalDistanceSq(a, b) (patterns.js:408).
+/// horizontalDistanceSq(a, b).
 fn horizontal_distance_sq(a: &Vector3, b: &Vector3) -> f64 {
     let dx = a.x - b.x;
     let dz = a.z - b.z;
     dx * dx + dz * dz
 }
 
-/// hoverPassPoint(patterns, unit, st, out) (patterns.js:116).
+/// hoverPassPoint(patterns, unit, st, out).
 fn hover_pass_point<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, toggle: bool) -> Vector3 {
     let pos = unit.position;
     let v = unit.class.as_ref().and_then(|c| c.forward_speed).or(unit.soldier_max_speed).unwrap_or(0.0);
@@ -302,7 +302,7 @@ fn hover_pass_point<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit:
     out
 }
 
-/// hoverEnter(patterns) (patterns.js:132).
+/// hoverEnter(patterns).
 fn hover_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     let unit = w.pattern_unit(p.control);
     { let value = true; st.edit(|s| s.toggle = value); }
@@ -311,7 +311,7 @@ fn hover_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (
     hover_leg(w, p, &unit, st);
 }
 
-/// hoverLeg(patterns, unit, st) (patterns.js:141).
+/// hoverLeg(patterns, unit, st).
 fn hover_leg<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitView, st: &mut (impl PatternAccess + ?Sized)) {
     { let value = hover_pass_point(w, p, unit, st.pattern().toggle); st.edit(|s| s.destination = value); }
     if p.helper {
@@ -322,7 +322,7 @@ fn hover_leg<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, unit: &UnitV
     { let value = false; st.edit(|s| s.fallback = value); }
 }
 
-/// hoverTick(patterns) (patterns.js:152).
+/// hoverTick(patterns).
 fn hover_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     let unit = w.pattern_unit(p.control);
     let pp = unit.position;
@@ -351,7 +351,7 @@ fn hover_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (i
     w.pattern_face(p.obj, 0.0);
 }
 
-/// attackRunPath(patterns, unit, maxFly) (patterns.js:188).
+/// attackRunPath(patterns, unit, maxFly).
 fn attack_run_path<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), p: &PatternsView, unit: &UnitView, max_fly: f64) -> Option<[[f64; 3]; 4]> {
     let v = unit.class.as_ref().and_then(|c| c.max_speed).unwrap_or(30.0);
     run.write(|s| { if s.run.a.is_none() {
@@ -373,7 +373,7 @@ fn attack_run_path<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleS
     ])
 }
 
-/// attackRunEnter(patterns, env) (patterns.js:206).
+/// attackRunEnter(patterns, env).
 fn attack_run_enter<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
     w.pattern_set_delay(p.agent, 15.0, now(w));
     let unit = w.pattern_unit(p.control);
@@ -384,7 +384,7 @@ fn attack_run_enter<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl Vehicle
     }
 }
 
-/// attackRunTick(patterns, env) (patterns.js:216).
+/// attackRunTick(patterns, env).
 fn attack_run_tick<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView) {
     let unit = w.pattern_unit(p.control);
     if let Some(target) = p.fresh_target {
@@ -403,7 +403,7 @@ fn attack_run_tick<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleS
     w.pattern_face(p.obj, 0.0);
 }
 
-/// pursuitEnter(patterns) (patterns.js:230), dormant: no stock dispatch
+/// pursuitEnter(patterns), dormant: no stock dispatch
 /// selects pattern 14.
 fn pursuit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     { let value = false; st.edit(|s| s.loop_ = value); }
@@ -411,7 +411,7 @@ fn pursuit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut
     w.pattern_set_delay(p.agent, 10.0, now(w));
 }
 
-/// pursuitTick(patterns, env) (patterns.js:236), dormant.
+/// pursuitTick(patterns, env), dormant.
 fn pursuit_tick<W: PatternWorld + ?Sized>(w: &mut W, settings: &Settings, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     let unit = w.pattern_unit(p.control);
     let target = p.fresh_target.map(|t| w.pattern_unit(t));
@@ -460,7 +460,7 @@ fn pursuit_tick<W: PatternWorld + ?Sized>(w: &mut W, settings: &Settings, p: &Pa
     min_speed(w, p.control, 0.5 * v, t);
 }
 
-/// orbitEnter(patterns) (patterns.js:277): the tow orbit's sides drawn.
+/// orbitEnter(patterns): the tow orbit's sides drawn.
 fn orbit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (impl PatternAccess + ?Sized)) {
     if p.helper {
         w.pattern_helper_stop(p.agent);
@@ -471,7 +471,7 @@ fn orbit_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &mut (
     orbit_request(w, p, st);
 }
 
-/// orbitRequest(patterns, st) (patterns.js:287).
+/// orbitRequest(patterns, st).
 fn orbit_request<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
     let unit = w.pattern_unit(p.control);
     let target = p.target.map(|t| Ref { obj: t, generation: w.pattern_unit(t).generation });
@@ -485,19 +485,19 @@ fn orbit_request<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &(im
     steer_state(w, p.control, |st| st.orbit = Some(Some(orbit)));
 }
 
-/// orbitTick(patterns) (patterns.js:300).
+/// orbitTick(patterns).
 fn orbit_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, st: &(impl PatternAccess + ?Sized)) {
     orbit_request(w, p, st);
     w.pattern_face(p.obj, 0.0);
 }
 
-/// orbitExit(patterns) (patterns.js:305).
+/// orbitExit(patterns).
 fn orbit_exit<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
     w.pattern_edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() { steer.orbit = Some(None); } });
     w.pattern_default_delay(p.agent, now(w));
 }
 
-/// directEnter / directTick (patterns.js:312), dormant pattern 16.
+/// directEnter / directTick, dormant pattern 16.
 fn direct_enter<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
     if p.helper {
         w.pattern_helper_stop(p.agent);
@@ -514,7 +514,7 @@ fn direct_tick<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView) {
     }
 }
 
-/// minSpeed(unit, speed, time) (patterns.js:324).
+/// minSpeed(unit, speed, time).
 fn min_speed<W: PatternWorld + ?Sized>(w: &mut W, control: Obj, speed: f64, time: f64) {
     steer_state(w, control, |steer| {
         steer.min_speed = Some(speed);
@@ -522,7 +522,7 @@ fn min_speed<W: PatternWorld + ?Sized>(w: &mut W, control: Obj, speed: f64, time
     });
 }
 
-/// enterPattern(patterns, state, env) (patterns.js:332).
+/// enterPattern(patterns, state, env).
 pub fn enter_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_enter(w, p, { state.init(); state }),
@@ -534,7 +534,7 @@ pub fn enter_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl Vehicl
     }
 }
 
-/// tickPattern(patterns, state, dt, env) (patterns.js:348).
+/// tickPattern(patterns, state, dt, env).
 pub fn tick_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl VehicleStorage + ?Sized), settings: &Settings, p: &PatternsView, state: &mut (impl PatternAccess + ?Sized), pattern: f64) {
     match pattern {
         x if x == 7.0 => hover_tick(w, p, { state.init(); state }),
@@ -549,7 +549,7 @@ pub fn tick_pattern<W: PatternWorld + ?Sized>(w: &mut W, run: &mut (impl Vehicle
     }
 }
 
-/// exitPattern(patterns, state) (patterns.js:364).
+/// exitPattern(patterns, state).
 pub fn exit_pattern<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, pattern: f64) {
     w.pattern_edit_steer(p.control, |slot| { if let Some(steer) = slot.as_mut() {
         steer.min_speed = Some(0.0);
@@ -564,7 +564,7 @@ pub fn exit_pattern<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, patte
     }
 }
 
-/// sidestep(patterns, perSecond) (patterns.js:378): pattern 2's sidestep
+/// sidestep(patterns, perSecond): pattern 2's sidestep
 /// for a slow hull that can strafe, about once in 13 s.
 pub fn sidestep<W: PatternWorld + ?Sized>(w: &mut W, p: &PatternsView, per_second: f64) -> bool {
     let unit = w.pattern_unit(p.control);

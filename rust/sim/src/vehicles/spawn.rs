@@ -1,6 +1,6 @@
 //! The spawn pads and a hull's spawn (src/vehicles.js Vehicles.updateSpawns
 //! and variant, Vehicle.spawn and vehicleFootprintsOverlap): each pad's
-//! clock, the class its team brings, a pad another hull or the page's
+//! clock, the class its team brings, a pad another hull or the client's
 //! player stands on put off a second, and a hull set down on its pad's
 //! floor with a new life.
 
@@ -12,7 +12,7 @@ use bfe_content::value::Value;
 use three::Vector3;
 use v8math::{abs, max, pow};
 
-/// vehicles.js vehicleFootprintsOverlap(a, matrixA, b, matrixB, .3): two
+/// vehicleFootprintsOverlap(a, matrixA, b, matrixB, .3): two
 /// yawed hull rectangles by separating axes (two narrow fighters fit side
 /// by side on a pad even where their bounding spheres overlap).
 pub fn footprints_overlap(a_center: &Vector3, a_size: &Vector3, ma: &[f64; 16], b_center: &Vector3, b_size: &Vector3, mb: &[f64; 16]) -> bool {
@@ -113,7 +113,7 @@ pub fn variant<P: Pads>(slots: &mut [Slot], slot: usize, name: &str, p: &mut P) 
 
 /// Vehicles.updateSpawns(dt): each pad without a live hull counts down; at
 /// zero (and its last walker gone) the team its post or its own record
-/// names gets its class, unless another hull or the page's player
+/// names gets its class, unless another hull or the client's player
 /// (`occupant`) stands on the pad, which puts it off a second.
 pub fn update_spawns<P: Pads>(slots: &mut [Slot], descs: &[SlotDesc], occupant: Option<&Vector3>, dt: f64, p: &mut P) {
     for i in 0..slots.len() {

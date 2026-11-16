@@ -79,7 +79,7 @@ impl Events {
         self.words[0] = (self.words.len() - 1) as f64;
     }
 
-    /// The events' words, after their total length (what JavaScript drains).
+    /// The events' words, after their total length.
     pub fn ptr(&self) -> *const f64 { self.words.as_ptr() }
 
     pub fn snapshot(&self) -> Vec<f64> { self.words.clone() }
@@ -88,7 +88,7 @@ impl Events {
     pub fn count(&self)->usize {self.count}
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
-    /// Forgets the events (JavaScript has handled them).
+    /// Forgets the events.
     pub fn clear(&mut self) {
         self.count=0;self.words.truncate(1);
         self.words[0] = 0.0;

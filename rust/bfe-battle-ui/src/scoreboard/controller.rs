@@ -1,6 +1,6 @@
 // Complete scoreboard controller combining `ScoreboardModel`, `ScoreboardInput`, and `ClassicScoreboardView`.
 //
-// Ports `createScoreboard` in `src/scoreboard/index.js`.
+// Ports `createScoreboard`.
 //
 // Coordinates the three scoreboard layers:
 // - `ScoreboardModel`: pure state machine (`Closed`, `Peek`, `End`), sorting, selection,
@@ -17,7 +17,7 @@ use super::view::ClassicScoreboardView;
 use crate::shapes::{BattleUiSurface, GameFamily, GameFamilyError};
 
 /// Complete scoreboard controller combining `ScoreboardModel`, `ScoreboardInput`, and `ClassicScoreboardView`
-/// (`createScoreboard` in `src/scoreboard/index.js`).
+/// (`createScoreboard`).
 pub struct ScoreboardController {
     pub family: GameFamily,
     pub model: ScoreboardModel,
@@ -66,7 +66,7 @@ impl ScoreboardController {
         })
     }
 
-    /// Whether `Tab` may open the peek scoreboard right now (`canPeek` in `src/scoreboard/index.js`).
+    /// Whether `Tab` may open the peek scoreboard right now (`canPeek`).
     ///
     /// `Tab` cannot open the peek scoreboard when the scoreboard is already open, once `game_over`
     /// has stopped scores, while the spawn screen is open (`Tab` cycles command posts there),
@@ -75,7 +75,7 @@ impl ScoreboardController {
         !self.model.is_open() && !port.state().game_over && !spawn_open && !menu_open
     }
 
-    /// Opens the scoreboard in `Peek` mode (`peek` in `src/scoreboard/index.js`).
+    /// Opens the scoreboard in `Peek` mode (`peek`).
     ///
     /// Starts the `TabHold` timer at `self.input.time` so releasing `Tab` within `0.5s` pins the
     /// scoreboard open, whereas holding `Tab` past `0.5s` closes it on release.
@@ -95,7 +95,7 @@ impl ScoreboardController {
         true
     }
 
-    /// Closes the peek scoreboard (`close` in `src/scoreboard/index.js`).
+    /// Closes the peek scoreboard (`close`).
     ///
     /// Only `BoardState::Peek` can be closed via `close`; the end-of-match table (`BoardState::End`)
     /// stays up until `quit` (`DONE` or 30s idle).
@@ -106,7 +106,7 @@ impl ScoreboardController {
         }
     }
 
-    /// Executes `DONE` or the 30s end-of-match auto-quit (`quit` in `src/scoreboard/index.js`).
+    /// Executes `DONE` or the 30s end-of-match auto-quit (`quit`).
     ///
     /// Calls `port.restart()` to advance to the next battle in the Instant Action playlist
     /// (`ScriptCB_QuitFromStats` in the 2004 game). Matches the original's audio quirk where
@@ -128,7 +128,7 @@ impl ScoreboardController {
         true
     }
 
-    /// Steps back from `DETAILS`/`AWARDS` to `Table`, or closes `Peek` (`back` in `src/scoreboard/index.js`).
+    /// Steps back from `DETAILS`/`AWARDS` to `Table`, or closes `Peek` (`back`).
     pub fn back(&mut self, port: &dyn ScoreboardPort, height: f64) {
         if self.model.page != BoardPage::Table {
             self.model.back(port);
@@ -138,11 +138,11 @@ impl ScoreboardController {
         self.drain_model_events(port, height);
     }
 
-    /// Executes a scoreboard button action (`act` in `src/scoreboard/index.js`).
+    /// Executes a scoreboard button action (`act`).
     ///
     /// Switching directly between `Details` and `Awards` (e.g. via page tabs) steps through
     /// `model.back(port)` first while clearing the intermediate `Table` transition event
-    /// (`passing = true` in `src/scoreboard/index.js`) so only the target page's enter sound plays.
+    /// (`passing = true`) so only the target page's enter sound plays.
     pub fn act(&mut self, action: ScoreboardAction, port: &mut dyn ScoreboardPort, height: f64) {
         if !self.model.is_open() {
             return;
@@ -173,7 +173,7 @@ impl ScoreboardController {
     }
 
     /// Translates queued `ScoreboardEvent` items emitted by `self.model` into view transitions,
-    /// input cursor resets, and interface sound effects (`model.on(...)` in `src/scoreboard/index.js`).
+    /// input cursor resets, and interface sound effects (`model.on(...)`).
     fn drain_model_events(&mut self, port: &dyn ScoreboardPort, height: f64) {
         let events: Vec<ScoreboardEvent> = std::mem::take(&mut self.model.events);
         for ev in events {
@@ -206,7 +206,7 @@ impl ScoreboardController {
         }
     }
 
-    /// Steps one frame of the scoreboard (`update` in `src/scoreboard/index.js`).
+    /// Steps one frame of the scoreboard (`update`).
     pub fn update(
         &mut self,
         dt: f64,

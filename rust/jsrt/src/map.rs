@@ -357,7 +357,7 @@ impl<K: JsKey, V> JsMap<K, V> {
     /// `cursor` (a slot index, advance it past what is returned),
     /// with the slot index it was found at. This is the iteration
     /// that keeps JavaScript's visiting rules while the loop body
-    /// mutates the map — entries appended after the cursor are
+    /// mutates the map: entries appended after the cursor are
     /// reached, entries deleted before their turn are skipped. A
     /// finished JavaScript iterator stays finished even if entries
     /// are added later; a cursor cannot tell that state, so loops

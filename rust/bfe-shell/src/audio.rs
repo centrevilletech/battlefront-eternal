@@ -1,5 +1,5 @@
 //! Native shell audio engine (`ShellAudio` in `src/shell/audio.js` and
-//! `LoadingSound` in `src/shell/loading-audio.js`).
+//! `LoadingSound`).
 
 use crate::{
     data::{ShellData, ShellSoundDef},
@@ -29,7 +29,7 @@ use std::{
 pub const TARGET_RATE: u32 = 48_000;
 
 /// Interface sounds preloaded by the shell (`core.lvl`, on `shellfx`).
-/// Mirrors `INTERFACE_SOUNDS` in `src/shell/audio.js`.
+/// Mirrors `INTERFACE_SOUNDS`.
 pub const INTERFACE_SOUNDS: [&str; 8] = [
     "shell_select_change",
     "shell_menu_accept",
@@ -65,7 +65,7 @@ impl DecodedSound {
     /// Duration of the sample in seconds (`pcm.len() / rate`).
     /// Duration of the sample in seconds (`pcm.len() / rate`), or `0.0` if
     /// `rate <= 0.0`. Used when computing loop phase offsets for late-joined
-    /// loading pulses (`LoadingSound.play` in `src/shell/loading-audio.js`).
+    /// loading pulses (`LoadingSound.play`).
     pub fn duration(&self) -> f64 {
         if self.rate > 0.0 {
             (self.pcm.len() as f64) / self.rate
@@ -76,7 +76,7 @@ impl DecodedSound {
 }
 
 /// Resolves a sound name or `"0x1234abcd"` hash key to the `0x`-prefixed 8-digit
-/// lowercase hex FNV-1a engine hash (`src/audio/hash.js` `keyOf`).
+/// lowercase hex FNV-1a engine hash (`keyOf`).
 pub fn key_of(name_or_key: &str) -> Option<String> {
     if name_or_key.is_empty() {
         return None;
@@ -94,7 +94,7 @@ pub fn key_of(name_or_key: &str) -> Option<String> {
 }
 
 /// Normalizes signed 16-bit PCM samples into `[-1.0, 1.0)` `f32` samples
-/// (`sample / 32768.0`), matching `pcm16ToFloat32` in `src/audio/pcm.js`.
+/// (`sample / 32768.0`), matching `pcm16ToFloat32`.
 pub fn normalize_pcm16(src: &[i16], dst: &mut [f32]) {
     for (d, &s) in dst.iter_mut().zip(src.iter()) {
         *d = (s as f32) * (1.0 / 32768.0);
@@ -104,7 +104,7 @@ pub fn normalize_pcm16(src: &[i16], dst: &mut [f32]) {
 /// Core sound bank reader (`sound.json` + `bank.bin`), resolving `SoundProperties`
 /// inheritance (`Inherit`) and extracting 16-bit PCM byte ranges on demand.
 ///
-/// Ports `SoundData` (`src/audio/data.js`) and `coreSounds` (`src/shell/audio.js`).
+/// Ports `SoundData` and `coreSounds`.
 pub struct CoreSounds {
     /// Filesystem path to the binary sample bank (`audio/<sublevel>/bank.bin`).
     bank_path: PathBuf,
@@ -124,7 +124,7 @@ impl CoreSounds {
         // Prefer the dedicated front-end sound sub-level (`audio/shell/sound.json`)
         // written by `tools/zero_shell.py`; if absent, fall back to the first battle
         // sub-level listed in `audio/index.json` (`maps` or `missions`), matching
-        // `coreSounds()` in `src/shell/audio.js`.
+        // `coreSounds()`.
         let manifest_bytes = match std::fs::read(&shell_sound_path) {
             Ok(bytes) => bytes,
             Err(_) => {
@@ -134,7 +134,7 @@ impl CoreSounds {
                 let index: Value = serde_json::from_slice(&index_bytes)
                     .map_err(|e| format!("{}: {e}", index_path.display()))?;
                 // Read the first sub-level name from `index.maps` or `index.missions`
-                // (`Object.values(index?.maps || index?.missions || {})[0]` in `src/shell/audio.js`).
+                // (`Object.values(index?.maps || index?.missions || {})[0]`).
                 sublevel = index
                     .get("maps")
                     .or_else(|| index.get("missions"))
@@ -163,7 +163,7 @@ impl CoreSounds {
     /// Opens `audio/shell/sound.json` (or falls back to the first battle in
     /// `audio/index.json`) under `content_dir`.
     ///
-    /// Mirrors `coreSounds()` in `src/shell/audio.js`.
+    /// Mirrors `coreSounds()`.
     pub fn load_from_dir(content_dir: &Path) -> Option<Self> {
         let mut sublevel = "shell".to_string();
         let mut manifest_bytes =
@@ -188,7 +188,7 @@ impl CoreSounds {
     }
 
     /// Parses a `sound.json` manifest and resolves `SoundProperties` inheritance
-    /// in declaration order (`inherit` in `src/audio/data.js`).
+    /// in declaration order (`inherit`).
     pub fn from_manifest(manifest: &Value, bank_path: PathBuf) -> Self {
         let mut properties: BTreeMap<String, Value> = BTreeMap::new();
         let mut own_table: BTreeMap<String, Value> = BTreeMap::new();
@@ -247,7 +247,7 @@ impl CoreSounds {
     /// from `bank.bin` by byte range, normalizing 16-bit PCM to `f32` and
     /// applying the 8kHz minimum rate pitch adjustment (`rate / max(rate, 8000)`).
     ///
-    /// Mirrors `coreSounds().load(name, ctx, into)` in `src/shell/audio.js`.
+    /// Mirrors `coreSounds().load(name, ctx, into)`.
     pub fn load_sound(&self, name: &str) -> Option<DecodedSound> {
         let key = key_of(name)?;
         let sound = self.properties.get(&key)?;
@@ -266,14 +266,14 @@ impl CoreSounds {
         }
         // Read only the `frames * 2` byte slice for this sample from `bank.bin`
         // (matching the HTTP `Range: bytes=offset-(offset + frames * 2 - 1)` fetch
-        // in `coreSounds().load` in `src/shell/audio.js`).
+        // in `coreSounds().load`).
         let mut file = File::open(&self.bank_path).ok()?;
         file.seek(SeekFrom::Start(offset)).ok()?;
         let mut bytes = vec![0u8; frames * 2];
         file.read_exact(&mut bytes).ok()?;
 
         // Decode 16-bit little-endian signed PCM frames and normalize into `[-1.0, 1.0)`
-        // `f32` samples (`sample / 32768.0`), matching `normalizePcm16` in `src/audio/pcm.js`.
+        // `f32` samples (`sample / 32768.0`), matching `normalizePcm16`.
         let pcm_i16: Vec<i16> = bytes
             .as_chunks::<2>().0.iter()
             .map(|c| i16::from_le_bytes([c[0], c[1]]))
@@ -290,7 +290,7 @@ impl CoreSounds {
         let looping = sound.get("Looping").and_then(Value::as_f64).unwrap_or(0.0) != 0.0;
         // Web Audio `AudioContext.createBuffer` enforces an 8 kHz floor; clamping
         // `effective_rate` to `rate.max(8000)` and scaling `pitch` by `rate / effective_rate`
-        // matches `coreSounds().load` in `src/shell/audio.js`.
+        // matches `coreSounds().load`.
         let effective_rate = rate.max(8000) as f64;
         let pitch = base_pitch * ((rate as f32) / (effective_rate as f32));
 
@@ -311,7 +311,7 @@ impl CoreSounds {
 /// `SampleList` / `SegmentList` when declared directly on `own_table[parent_key]`,
 /// while preserving the child's own `type`, `Name`, and `Group`.
 ///
-/// Mirrors `inherit(object, table, ownTable)` in `src/audio/data.js`.
+/// Mirrors `inherit(object, table, ownTable)`.
 fn inherit_sound_properties(
     object: &Value,
     table: &BTreeMap<String, Value>,
@@ -421,7 +421,7 @@ pub fn try_decode_audio_file(path: &Path) -> Result<Vec<f32>, String> {
 /// mono `f32` PCM using `audio_decode::Decoder`, returning `None` if the file
 /// cannot be read, fails to decode, or produces zero output frames.
 ///
-/// Mirrors `loadAudioPcm(bytes, { rate: ctx.sampleRate })` in `src/shell/audio.js`.
+/// Mirrors `loadAudioPcm(bytes, { rate: ctx.sampleRate })`.
 pub fn decode_audio_file(path: &Path) -> Option<Vec<f32>> {
     let bytes = std::fs::read(path).ok()?;
     let mut decoder = Decoder::new(TARGET_RATE, 0.0, false);
@@ -470,7 +470,7 @@ struct ActiveSlot {
 /// Native shell audio mixer driving `audio::frontend::Frontend` at `48 kHz`
 /// stereo (`128`-frame quantums).
 ///
-/// Ports `ShellAudio` (`src/shell/audio.js`) and `FrontendAudio` (`src/audio/frontend.js`).
+/// Ports `ShellAudio` and `FrontendAudio`.
 pub struct ShellAudioMixer {
     /// Low-level 2-bus (`shellfx` = 0, `shellmusic` = 1) DSP voice mixer from the `audio` crate.
     frontend: Frontend,
@@ -510,8 +510,7 @@ impl ShellAudioMixer {
     /// Creates a new `ShellAudioMixer` for `data` and optional `content_dir`.
     pub fn new(data: &ShellData, content_dir: Option<&Path>) -> Self {
         // Initialize the 2-bus `Frontend` DSP mixer at 48 kHz with default unit
-        // volumes (`master = 1.0`, `music = 0.6`, `fx = 0.3`), matching `BUSES`
-        // in `src/shell/audio.js`.
+        // volumes (`master = 1.0`, `music = 0.6`, `fx = 0.3`), matching `BUSES`.
         let mut frontend = Frontend::new(TARGET_RATE as f64);
         let master = 1.0f64;
         let music = buses::SHELL_MUSIC * 1.0;
@@ -570,7 +569,7 @@ impl ShellAudioMixer {
     }
 
     /// Updates master, music, and interface volume settings (`0.0..=1.0`).
-    /// Mirrors `ShellAudio.applyVolumes()` in `src/shell/audio.js`.
+    /// Mirrors `ShellAudio.applyVolumes()`.
     pub fn set_volumes(&mut self, master: f32, music: f32, interface: f32) {
         self.master_volume = master;
         self.music_volume = music;
@@ -585,7 +584,7 @@ impl ShellAudioMixer {
     }
 
     /// Ramps the `shellmusic` bus level to `level` over `seconds`.
-    /// Mirrors `ShellAudio.fadeBus(bus, level, seconds)` in `src/shell/audio.js`.
+    /// Mirrors `ShellAudio.fadeBus(bus, level, seconds)`.
     pub fn fade_bus(&mut self, bus: &str, level: f64, seconds: f64) {
         if bus != "shellmusic" {
             return;
@@ -666,7 +665,7 @@ impl ShellAudioMixer {
 
     /// Preloads a named sound into `self.sounds`, checking `shell.json`'s own
     /// `"sounds"` overrides first and falling back to `core.lvl` (`CoreSounds::load_sound`),
-    /// matching `ShellAudio.sound(name)` in `src/shell/audio.js`.
+    /// matching `ShellAudio.sound(name)`.
     pub fn preload_sound(&mut self, name: &str) {
         if self.sounds.contains_key(name) {
             return;
@@ -690,7 +689,7 @@ impl ShellAudioMixer {
     }
 
     /// Plays a menu or interface sound by name (at most once per `PlayInterval`).
-    /// Mirrors `ShellAudio.play(name)` in `src/shell/audio.js`.
+    /// Mirrors `ShellAudio.play(name)`.
     pub fn play(&mut self, name: &str) -> Option<(usize, u32)> {
         if name.is_empty() {
             return None;
@@ -713,7 +712,7 @@ impl ShellAudioMixer {
     }
 
     /// Plays the next transition whoosh sound in turn (`shell_transition1..10`).
-    /// Mirrors `ShellAudio.whoosh()` in `src/shell/audio.js`.
+    /// Mirrors `ShellAudio.whoosh()`.
     pub fn whoosh(&mut self) -> Option<(usize, u32)> {
         if self.whooshes.is_empty() {
             return None;
@@ -748,7 +747,7 @@ impl ShellAudioMixer {
     /// Applies a [`MusicStep`] returned by [`crate::music::ShellMusic`] (stopping
     /// any previous track via `FRONT_STOP` and starting any newly selected track
     /// on `shellmusic` bus 1, caching decoded `.opus` PCM by track URL).
-    /// Mirrors `startTrack` and `stopTrack` in `src/shell/audio.js`.
+    /// Mirrors `startTrack` and `stopTrack`.
     pub fn apply_music_step(&mut self, step: &MusicStep, data: &ShellData) {
         // Stop the currently active music voice slot if its handle matches `step.stopped`.
         if let Some((stopped_handle, _)) = step.stopped {
@@ -816,8 +815,7 @@ impl ShellAudioMixer {
     /// Schedules a loading screen sound plan (`LoadingTimeline::sounds()`) onto
     /// the `Frontend` DSP clock starting at `start_sec` on the mixer clock.
     ///
-    /// Mirrors `LoadingSound.schedule` and `LoadingSound.apply` in
-    /// `src/shell/loading-audio.js`.
+    /// Mirrors `LoadingSound.schedule` and `LoadingSound.apply`.
     pub fn schedule_loading_plan(&mut self, plan: &[PlannedSound], start_sec: f64) -> usize {
         // Ensure all four loading screen cues (`load_ytracking`, `load_xtracking`,
         // `load_zoom`, `load_transition`) have been resolved from `CoreSounds`
@@ -842,8 +840,7 @@ impl ShellAudioMixer {
             // Looping pulse (`load_ytracking` or `load_xtracking`): if joining
             // late (`now > at`), compute the phase offset within the loop cycle
             // `((begin - at) * pitch) % duration` and schedule a `STOP` (`0.01s`)
-            // fade-out ending at `end`, matching `LoadingSound.play` in
-            // `src/shell/loading-audio.js`.
+            // fade-out ending at `end`, matching `LoadingSound.play`.
             if let Some(end) = until {
                 if end <= now {
                     continue;
@@ -956,7 +953,7 @@ impl ShellAudioMixer {
     /// during [`Self::render_interleaved`] quantums since the last call, preserving
     /// completion order so the caller can notify [`crate::music::ShellMusic::ended`].
     /// Mirrors the `source.onended = () => this.music.ended(handle)` callback in
-    /// `ShellAudio.retry()` (`src/shell/audio.js`).
+    /// `ShellAudio.retry()`.
     pub fn take_ended_music(&mut self) -> Vec<TrackHandle> {
         let out = self.ended_music_handles.clone();
         self.ended_music_handles.clear();
@@ -977,7 +974,7 @@ mod tests {
 
     // Verifies that `key_of` passes through pre-hashed `0x`-prefixed 8-digit
     // lowercase hex keys and hashes ASCII sound names with the 2004 engine's
-    // lowercase FNV-1a (`src/audio/hash.js`).
+    // lowercase FNV-1a.
     #[test]
     fn key_of_hashes_sound_names_with_engine_fnv1a() {
         assert_eq!(key_of(""), None);

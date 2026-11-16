@@ -5,7 +5,7 @@ impl HudModel {
     // The post the soldier stands in, if his team doesn't hold it: the timer
     // fills from the bottom in the capturing team's colour, over grey (or the
     // other team's colour, every other half second, while contested).
-    // Seated he captures nothing (src/game.js updateBattle), and the
+    // Seated he captures nothing (updateBattle), and the
     // original game shows the timer only for what captures.
     pub(super) fn capture(&mut self) {
         let index = self.input[H::CAPTURE_POST] as i32;

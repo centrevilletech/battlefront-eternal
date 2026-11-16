@@ -1,5 +1,5 @@
 //! EntityGame.mount/presentMounts: bounded lean, walk-cycle and seat-aim
-//! history. The page's existing network frame samples every admitted hull.
+//! history. The client's existing network frame samples every admitted hull.
 use crate::network_layout::{
     net_lease_kind as lease, net_limits as lim, net_mount_frame as f, net_mount_input as i, net_mount_output as o, net_record as r,
 };

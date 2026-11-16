@@ -1,7 +1,7 @@
 # Steam and Discord presence
 
-The desktop client (`bfe-client`, through `rust/bfe-desktop/rust/presence/` and
-`rust/bfe-desktop/rust/steam/`) tells the player's friends what they are playing:
+The desktop client (`bfe-client`, through `rust/bfe-desktop/src/presence/` and
+`rust/bfe-desktop/src/steam/`) tells the player's friends what they are playing:
 
 - **Steam** shows friends the player in "Battlefront Eternal" (the friends
   list and the profile; others see "In non-Steam game"), and counts play
@@ -26,14 +26,13 @@ account.
 
 | Module | What it does |
 | --- | --- |
-| `rust/bfe-desktop/rust/presence/discord.rs` | Discord's local IPC protocol: finding the client's socket, the handshake, `SET_ACTIVITY`, reconnecting |
-| `rust/bfe-desktop/rust/presence/activity.rs` | What friends see, from the active screen, map catalog, server and battle state |
-| `rust/bfe-desktop/rust/presence/mod.rs` | Presence controller state, rate limiting, and the detail setting (`off`, `game`, `full`) |
-| `rust/bfe-desktop/rust/steam/vdf.rs` | Steam's binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`, `registry.vdf`) |
-| `rust/bfe-desktop/rust/steam/shortcut.rs` | The library entry: Steam's app id scheme, adding, updating and removing it |
-| `rust/bfe-desktop/rust/steam/client.rs` | Steam's installations, accounts, the running client, the `steam` command |
-| `rust/bfe-desktop/rust/steam/launcher.rs` | What the entry runs on each platform and installation |
-| `rust/bfe-desktop/rust/steam/mod.rs` | Adding and removing with Steam closed, artwork, keeping the entry current, and relaunching through Steam |
+| `rust/bfe-desktop/src/presence/discord.rs` | Discord's local IPC protocol: finding the client's socket, the handshake, `SET_ACTIVITY`, reconnecting |
+| `rust/bfe-desktop/src/presence/activity.rs` | What friends see, from the active screen, map catalog, server and battle state |
+| `rust/bfe-desktop/src/presence/mod.rs` | Presence controller state, rate limiting, and the detail setting (`off`, `game`, `full`) |
+| `rust/bfe-desktop/src/steam/vdf.rs` | Steam's binary KeyValues (`shortcuts.vdf`) and text KeyValues (`loginusers.vdf`, `registry.vdf`) |
+| `rust/bfe-desktop/src/steam/shortcut.rs` | The library entry: Steam's app id scheme, adding, updating and removing it, and what it runs on each platform and installation |
+| `rust/bfe-desktop/src/steam/client.rs` | Steam's installations, accounts, the running client, the `steam` command |
+| `rust/bfe-desktop/src/steam/mod.rs` | Adding and removing with Steam closed, artwork, keeping the entry current, and relaunching through Steam |
 | `rust/bfe-shell` | OPTIONS > STEAM & DISCORD, and the main menu's one-time questions: Discord activity, and adding the game to Steam |
 | `resources/assets/steam/` | The library's artwork (original, no retail art) |
 
@@ -100,7 +99,7 @@ to do instead.
 Steam only knows a game runs when it started it. So when Steam is open and
 signed in to the account whose library has the entry, a start from anywhere
 else (the desktop launcher, the Start menu, `battlefront-eternal` in a
-terminal) goes through Steam (`rust/bfe-desktop/rust/steam/`):
+terminal) goes through Steam (`rust/bfe-desktop/src/steam/`):
 
 1. This copy leaves a request with a token in the update folder's
    `launches/` and asks Steam for `steam://rungameid/<id>`.
@@ -176,7 +175,7 @@ Discord Developer Portal by the project owner:
 3. Under **Rich Presence > Art Assets**, upload `icon.png` with the key `logo`
    (assets take about 10 minutes to appear).
 4. Set `DISCORD_APPLICATION_ID` and `DISCORD_LARGE_IMAGE = "logo"` in
-   `rust/bfe-desktop/rust/presence/`.
+   `rust/bfe-desktop/src/presence/`.
 
 The application id is public (it is sent in the clear to the local Discord
 client) and Rich Presence needs no secret, OAuth or approval. Never put the
@@ -186,7 +185,7 @@ testing.
 
 ### The connection
 
-`rust/bfe-desktop/rust/presence/discord.rs` speaks Discord's local IPC protocol:
+`rust/bfe-desktop/src/presence/discord.rs` speaks Discord's local IPC protocol:
 frames of an opcode and a length (32-bit little-endian) and JSON; a handshake
 (`{v: 1, client_id}`) answered with READY; then `SET_ACTIVITY` with the
 process's pid. It looks for the client:

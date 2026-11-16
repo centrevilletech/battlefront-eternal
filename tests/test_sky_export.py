@@ -37,7 +37,7 @@ class FarSceneFog(unittest.TestCase):
     """LowResTerrain's fog as the original game reads it: FogColor's
     fourth value stretches FogFar by 255 / alpha, except at 0 and 255. The
     range is exported as authored otherwise; whether it fogs at all
-    (0 <= FogNear < FogFar) is the renderer's call (src/materials.js fogs)."""
+    (0 <= FogNear < FogFar) is the renderer's call."""
 
     def fog(self, *entries):
         return low_res_terrain([[name, values, []] for name, values in entries], {})

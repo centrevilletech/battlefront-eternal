@@ -1,4 +1,4 @@
-//! The page's prop frame: doors, triggers, a creature following adopted
+//! The client's prop frame: doors, triggers, a creature following adopted
 //! world state and hanging whom it holds from its node, a log trap, the record counts at and past their limits,
 //! and no allocation once registered.
 use bfe_presentation::{

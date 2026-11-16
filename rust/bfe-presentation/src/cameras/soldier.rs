@@ -1,5 +1,5 @@
 //! SoldierCamera.update and its first-person and responsive chase paths
-//! from src/camera.js. Collision is the host-neutral world's native query.
+//!. Collision is the host-neutral world's native query.
 // Third-person chase camera, following the 2004 engine.
 //
 // The camera looks along the soldier's aim, pitched down by the section's
@@ -258,7 +258,7 @@ pub fn clearance<C: Cast>(
     reach
 }
 pub fn ease_axes<M: Math>(cam: &mut Camera, target: V, rates: [f64; 6], dt: f64) {
-    // easeAxes in flight/camera.js: each signed camera-frame axis follows
+    // easeAxes: each signed camera-frame axis follows
     // at its own authored rate, before being rotated back to world space.
     let mut local = rotate(sub(target, cam.p), inv(cam.q));
     local.x *= 1.0 - M::exp(-rates[if local.x > 0.0 { 0 } else { 1 }] * dt);
@@ -267,7 +267,7 @@ pub fn ease_axes<M: Math>(cam: &mut Camera, target: V, rates: [f64; 6], dt: f64)
     cam.p = add(cam.p, rotate(local, cam.q));
 }
 
-/// PlayerCombat.viewBasis, viewEye and eye from combat.js. A displayed
+/// PlayerCombat.viewBasis, viewEye and eye. A displayed
 /// soldier supplies its own body-position clock independently of the feet
 /// after stair/correction smoothing. Authority supplies its canonical basis.
 // The authority basis can precede a correction to the displayed feet.

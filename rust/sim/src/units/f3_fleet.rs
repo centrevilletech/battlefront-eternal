@@ -34,7 +34,7 @@ pub(crate) fn wire_shot_in(w:&mut crate::world::owner::World, sample: &F3Mounted
     crate::wire::shots::native_observe_in(w,sample.source.id, sample.source.generation, life);
 }
 // Unit.aimPoint observes its lazy sphere. Hull and prop aim points instead
-// follow their current matrix or prepared foreign fact, without a JS rig read.
+// follow their current matrix or prepared foreign fact.
 pub(crate) fn aim_in(world_ctx: &mut crate::world::owner::World, member: Member) -> Vector3 {
     if matches!(member, Member::Unit(_)) { (Sensors { w: world_ctx }).volume(member).center }
     else { vec(f3::target_in(world_ctx, registry::target_id(member)).expect("fleet aim point").aim) }

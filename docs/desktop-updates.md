@@ -63,7 +63,7 @@ stay in the user data folder (`~/.config/Battlefront Eternal`,
 
 The player's settings (profile name, options, bindings) are kept in
 `player-settings.json` and `settings.json` inside the user data folder by
-`rust/bfe-desktop/rust/settings/`.
+`rust/bfe-desktop/src/settings/`.
 
 ### Debian and Ubuntu
 
@@ -96,7 +96,7 @@ settings, saves and prepared game data in `%APPDATA%\Battlefront Eternal`.
 
 ## Trust
 
-Only releases signed with a key listed in `rust/bfe-desktop/rust/update/keys.rs`
+Only releases signed with a key listed in `rust/bfe-desktop/src/update/keys.rs`
 are installed. Choosing another master server or feed grants no code
 execution.
 
@@ -120,7 +120,7 @@ execution.
 
 The private key stays on the release host and is never in this repository.
 Keep a copy offline: without it no installed client accepts another update.
-To rotate, add the new public key to `rust/bfe-desktop/rust/update/keys.rs`,
+To rotate, add the new public key to `rust/bfe-desktop/src/update/keys.rs`,
 ship a release signed with the old key, then switch.
 
 ## Recovery

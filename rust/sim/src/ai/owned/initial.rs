@@ -5,7 +5,7 @@ use crate::{ai::{control::world::TeamTable,phase::RandomState},battle::{names::N
     gen::{AiClassScalar,AiRosterSetup,Building,Character,MobilePost,PostRef,SpawnPost,Store,Unit,Vehicle},store::{Ref,StrId,Strings}};
 use super::population::{Population,Facts};
 
-/// Cold mission parsing is shared with the page's team metadata reader.
+/// Cold mission parsing is shared with the client's team metadata reader.
 /// Mixed argument positions and explicit extraction overrides remain intact.
 pub fn calls(input:&[crate::gen::AiRosterCall],strings:&Strings)->Vec<spawning::Call> {
     let text=|id|String::from_utf16_lossy(strings.units(id));

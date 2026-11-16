@@ -1,4 +1,4 @@
-//! The arc caster's lightning (src/lightning.js, src/arc-lightning.js), in
+//! The arc caster's lightning, in
 //! the look the player's arcCasterEffects setting names. Classic: every live
 //! bolt is redrawn each frame as camera-facing ribbons in one dynamic mesh.
 //! Enhanced: lit, animated arcs that leap from the gun to whoever they
@@ -110,7 +110,7 @@ impl Guns {
             let Some(id) = weapon.registry_id.map(usize::from) else {
                 continue;
             };
-            // src/muzzles.js: the point the mesh gives, else the authored one.
+            // the point the mesh gives, else the authored one.
             let point = match &weapon.muzzle {
                 Some(Muzzle::Found(point)) => Some(*point),
                 Some(Muzzle::Authored(Some(Value::Array(list)))) if list.len() >= 3 => {
@@ -121,7 +121,7 @@ impl Guns {
             if guns.muzzles[id].is_none() {
                 guns.muzzles[id] = point;
             }
-            // combat.js flash: `d.FlashLength || 0.1` seconds in
+            // flash: `d.FlashLength || 0.1` seconds in
             // `d.FlashColor || [255, 255, 255, 255]`, alpha 255 when the
             // colour names none.
             let length = weapon.record.get("FlashLength").and_then(Value::as_f64).filter(|length| *length != 0.).unwrap_or(0.1);
@@ -167,7 +167,7 @@ impl Collision for Casts<'_> {
     }
 }
 
-/// Effects' `lightning` table (src/effects.js): for each effect of the
+/// Effects' `lightning` table: for each effect of the
 /// battle's merged library whose definitions hold a LightningBolt, its name,
 /// its settings and its texture's name. The libraries merge as the battle's
 /// effects do: props, common, the other sides, the played side, vehicles.
@@ -381,7 +381,7 @@ impl Arcs {
             let held = (source.channel.is_some() && source.owner_id != 0).then(|| known(source.owner_id, source.owner_generation)).flatten();
             let shooter = held.map(|_| (source.owner_id, source.owner_generation));
             // Lightning.spawn's arguments, as the owner reads them. The owner
-            // never looks the shooter up (FOLLOW_UNIT -1): this page keeps
+            // never looks the shooter up (FOLLOW_UNIT -1): this client keeps
             // him by the bolt's slot and supplies his gun origin each frame.
             let spawn = &mut self.owner.spawn;
             spawn.fill(0.);

@@ -1,7 +1,7 @@
 //! PredictedShots: cosmetic shots have a private clock and identity bank.
 //! They never enter gameplay projectile storage or spend authoritative ammo.
 //! A frame publishes swept segments, accepts host collision observations, and
-//! finishes all flight records together. Resource objects stay on the page.
+//! finishes all flight records together. Resource objects stay on the client.
 use crate::gen::{ClientShotInput as Input, ClientShotRecord as Record, ClientShotReply as Reply,
     ClientShotContact as Contact, ClientShotOp as Op};
 use three::{Vector3, Quaternion};
@@ -262,7 +262,7 @@ mod tests {
     }
     #[test]
     fn shot_handles_never_resolve_as_network_mailboxes() {
-        // The page and the input owner share a battle but not a resource bank.
+        // The client and the input owner share a battle but not a resource bank.
         // Their first slots must remain distinct even with equal generations.
         let mut strings=crate::store::Strings::default();
         let mut network=crate::input::owner::Owner::new();

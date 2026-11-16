@@ -1,4 +1,4 @@
-//! `Matrix3.js` and `Matrix4.js` (r170). Elements are
+//! and `Matrix4.js` (r170). Elements are
 //! column-major, as three's `elements` array is; `set` takes its
 //! sixteen (or nine) arguments in row-major reading order, as
 //! three's does.

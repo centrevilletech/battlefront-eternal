@@ -1,4 +1,4 @@
-//! riderPoints and riderHitShapes (rider-pose.js) over a retained soldier
+//! riderPoints and riderHitShapes over a retained soldier
 //! skeleton. The unit owns the lazy cache; this sampler only fills it when
 //! Unit::update_spheres asks, including a creature's held animation.
 use crate::gen::HitShape;

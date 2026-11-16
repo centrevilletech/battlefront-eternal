@@ -1,5 +1,5 @@
 //! Each client's entity edge runtime (`WireEntityEdges`,
-//! src/runtime/wire-edges.js over `wire_edges_run`) as `snapshot-host.js`
+//! over `wire_edges_run`) as `snapshot-host.js`
 //! drives it around the step: `advanceEdges()` before it (a reset when the
 //! actor's unit life moved since the runtime last saw it, then
 //! `advance(worldClock.tick + 1)`), `consumedEdges(tick)` after it (op 5,
@@ -49,11 +49,11 @@ fn lanes(context: &Context, player: u32, lane: u32, drain: bool) -> Result<Playe
         .ok_or_else(|| "unknown player".to_string())
 }
 
-/// `p.unit.generation` as the JavaScript reads it live: the unit mirror's
+/// `p.unit.generation` it live: the unit mirror's
 /// life count, from the store's unit export (0 without a body).
 fn unit_generation(context: &Context, unit: Option<u32>) -> Result<f64, String> {
     let Some(slot) = unit else { return Ok(0.0) };
-    // The page exported the units in the mirror's mode here: the rows of the
+    // The client exported the units in the mirror's mode here: the rows of the
     // units retired since the last export came first (and the export took
     // that list), then the store's units in slot order.
     context
@@ -217,7 +217,7 @@ impl Authority {
         Ok(result)
     }
 
-    /// `snapshot-host.js` `add`: the client's runtime generation from its
+    /// `add`: the client's runtime generation from its
     /// `feedback()` (op 8, a read), and his body as his connection's view
     /// names it.
     pub(super) fn add_client(

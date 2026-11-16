@@ -1,4 +1,4 @@
-//! Sphere queries in the collision world (src/collision.js): gather (the
+//! Sphere queries in the collision world: gather (the
 //! polygons whose triangles' bounds meet a sphere's, each with those
 //! triangles), its cached form, overlapsSphere and terrainNear, and the
 //! terrain's height under a point (ground). For the world's JavaScript,
@@ -8,10 +8,10 @@
 use crate::collision::{apply_matrix4, dot, f32_at, grid_raycast, js_max, js_min, sub, triangle_normal, Corner, Corners, Ray, State, Tree, MAX_BODIES};
 use super::CollisionOwner;
 
-/// collision.js BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
+/// BLOCKER_POLYGONS: the vehicle-only barriers' polygon numbers
 /// are their own plus this.
 pub const BLOCKER_POLYGONS: f64 = 1879048192.0;
-/// collision.js GROUP_SCAN: past this many polygons a gather files them in
+/// GROUP_SCAN: past this many polygons a gather files them in
 /// an index instead of searching its list.
 const GROUP_SCAN: usize = 16;
 /// The set of a triangle that belongs to none (a body's).
@@ -161,13 +161,13 @@ impl Gathered {
         }
     }
 
-    /// collision.js polygon(id, moving): the record of polygon `id`, a new
+    /// polygon(id, moving): the record of polygon `id`, a new
     /// one at the end of the list the first time. Ids in a list are unique,
     /// so how it is found does not change which it is.
     fn polygon(&mut self, id: f64, moving: bool) -> &mut Polygon {
         self.polygon_key(id,moving,id.to_bits())
     }
-    // collision.js still groups and visits by the original numeric id.
+    // still groups and visits by the original numeric id.
     // Only reuse of a triangle Vec uses the private retained-geometry key.
     fn polygon_key(&mut self, id: f64, moving: bool, key: u64) -> &mut Polygon {
         let n = self.count;
@@ -203,7 +203,7 @@ impl Gathered {
 }
 
 /// Polygon ids to list places, open addressing emptied by moving to the
-/// next stamp (collision.js PolygonIndex).
+/// next stamp (PolygonIndex).
 struct PolygonIndex {
     bits: u32,
     mask: usize,
@@ -270,7 +270,7 @@ impl PolygonIndex {
 }
 
 /// A caller's cache of the fixed triangles near where it queries
-/// (collision.js gatherCache): one per caller that queries around the same
+/// (gatherCache): one per caller that queries around the same
 /// spot every tick. Gathers through it come out exactly as without it.
 pub struct GatherCache {
     bounds: Bounds,
@@ -444,7 +444,7 @@ pub fn sphere_bounds(center: [f64; 3], radius: f64) -> Bounds {
     [center[0] - radius, center[1] - radius, center[2] - radius, center[0] + radius, center[1] + radius, center[2] + radius]
 }
 
-/// collision.js gatherFrom(bvh, polygonOf, offset) with gatherQuery: each
+/// gatherFrom(bvh, polygonOf, offset) with gatherQuery: each
 /// triangle of the tree whose bounds meet `bounds`, filed under its polygon
 /// (moved by `matrix`, a moving body's, when there is one).
 fn gather_tree(s: &State, tree: usize, polygons: &[u32], offset: f64, matrix: Option<&[f64; 16]>, set: u32, body: Option<usize>, bounds: &Bounds, out: &mut Gathered) {
@@ -474,7 +474,7 @@ fn gather_walk<P: Corner + ?Sized>(t: &Tree, p: &P, polygons: &[u32], offset: f6
     });
 }
 
-/// collision.js fillCache: a cache's list of the set's triangles whose
+/// fillCache: a cache's list of the set's triangles whose
 /// bounds meet `bounds` (the cache's), in the tree's order.
 fn fill_cache(s: &State, set: usize, bounds: &Bounds, list: &mut Vec<u32>) {
     let f = &s.sets[set];
@@ -491,7 +491,7 @@ fn fill_cache(s: &State, set: usize, bounds: &Bounds, list: &mut Vec<u32>) {
     });
 }
 
-/// collision.js gatherSet: the cached triangles of a fixed set whose bounds
+/// gatherSet: the cached triangles of a fixed set whose bounds
 /// meet the query's, filed by polygon as the tree's own query files them.
 fn gather_set(s: &State, set: usize, list: &[u32], bounds: &Bounds, out: &mut Gathered) {
     let f = &s.sets[set];
@@ -515,7 +515,7 @@ fn gather_set_walk<P: Corner + ?Sized>(f: &FixedSet, t: &Tree, p: &P, set: usize
     }
 }
 
-/// collision.js gatherCached: the fixed triangles through the cache,
+/// gatherCached: the fixed triangles through the cache,
 /// refilled when the query's bounds leave it or it was filled for other
 /// barriers.
 fn gather_cached(s: &State, statics: usize, blockers: Option<usize>, cache: &mut GatherCache, bounds: &Bounds, out: &mut Gathered) {
@@ -539,7 +539,7 @@ fn gather_cached(s: &State, statics: usize, blockers: Option<usize>, cache: &mut
     if let Some(b) = blockers { gather_set(s, b, &cache.blockers, bounds, out); }
 }
 
-/// collision.js cachedBodies: the bodies a cached query can meet, as places
+/// cachedBodies: the bodies a cached query can meet, as places
 /// in the world's order: every moving one, and the fixed ones whose bounds
 /// meet the cache's.
 fn cached_bodies<'a>(s: &State, world: usize, cache: &'a mut GatherCache) -> &'a [u32] {
@@ -820,7 +820,7 @@ pub struct Pushed {
     pub undo_turn: bool,
 }
 
-/// vehicles.js pushOut(tri, oldYaw, hull): a probe at `point` out of a wall
+/// pushOut(tri, oldYaw, hull): a probe at `point` out of a wall
 /// triangle (not a floor: suspension handles those), and the hull with it.
 fn push_out(a: [f64; 3], b: [f64; 3], c: [f64; 3], point: &mut [f64; 3], start: &[f64; 3], hull: bool, radius: f64, h: &mut Pushed) {
     let face = triangle_normal(a, b, c);
@@ -845,7 +845,7 @@ fn push_out(a: [f64; 3], b: [f64; 3], c: [f64; 3], point: &mut [f64; 3], start: 
     if depth > 0.15 { h.undo_turn = true; }
 }
 
-/// vehicles.js pushWalls: two passes over the probes, each pushed out of the
+/// pushWalls: two passes over the probes, each pushed out of the
 /// polygons of the buildings, props, barriers (blockers) and other hulls
 /// gathered about it (through its cache), then out of the terrain's
 /// triangles near it. enabled: each body's flag by its place in the world's

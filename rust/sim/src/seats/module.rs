@@ -19,7 +19,7 @@ use three::Vector3;
 
 use crate::gen::{import_seat_cast, import_seat_controllable, import_seat_controller_state, import_seat_overlaps, import_seat_policy};
 
-/// seats.js placeOnFoot keeps its ground query in the owning collision world.
+/// placeOnFoot keeps its ground query in the owning collision world.
 pub(crate) fn stand_up_in(w:&mut crate::world::owner::World,unit:&mut Unit,x:f64,y:f64,z:f64,yaw:f64) {
     match &mut unit.soldier {
         UnitBody::Soldier(s)=>s.spawn(x,y,z,yaw,&mut Ground(Some(w))),

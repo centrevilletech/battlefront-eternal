@@ -50,7 +50,7 @@ pub struct RiderFacts {
     pub no_enter: f64,
 }
 
-/// The battle's hulls as their seats see them (src/vehicles.js Vehicles):
+/// The battle's hulls as their seats see them (Vehicles):
 /// the seconds of vehicle updates and the input batches so far, each hull
 /// (in the battle's order; the methods name a hull by its place here), and
 /// the riders' facts and seat controls the seats read.
@@ -107,13 +107,13 @@ macro_rules! foreign {
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const UNIT_SCALE: Vector3 = Vector3::new(1.0, 1.0, 1.0);
 
-/// Vehicle.holdYaw (vehicles.js:774) with arcYaw folded in: a yaw held
+/// Vehicle.holdYaw with arcYaw folded in: a yaw held
 /// inside a seat's limited arc, measured from the hull's heading.
 fn hold_yaw(hull_yaw: f64, limits: [f64; 2], wrap_yaw: bool, yaw: f64) -> f64 {
     crate::vehicles::hull::hold_yaw(hull_yaw, limits, wrap_yaw, yaw)
 }
 
-/// Vehicle.clampAim (vehicles.js:763): a seat's aim held inside its limits
+/// Vehicle.clampAim: a seat's aim held inside its limits
 /// (its view's: `seatViews`).
 pub fn clamp_aim(v: &mut Vehicle, i: usize) {
     if v.flying && i == 0 {
@@ -134,7 +134,7 @@ pub fn clamp_aim(v: &mut Vehicle, i: usize) {
     }
 }
 
-/// Vehicle.restYaw (vehicles.js:790): the hull's heading, or the middle of
+/// Vehicle.restYaw: the hull's heading, or the middle of
 /// an arc that leaves it out.
 pub fn rest_yaw(v: &Vehicle, i: usize) -> f64 {
     let arc = v.seat_views.get(i).and_then(|s| s.yaw_limits);
@@ -144,7 +144,7 @@ pub fn rest_yaw(v: &Vehicle, i: usize) -> f64 {
     }
 }
 
-/// Vehicle.restAim (vehicles.js:780): a seat's aim as it is taken afresh.
+/// Vehicle.restAim: a seat's aim as it is taken afresh.
 pub fn rest_aim(v: &mut Vehicle, i: usize) {
     let yaw = rest_yaw(v, i);
     let flying = v.flying;
@@ -156,7 +156,7 @@ pub fn rest_aim(v: &mut Vehicle, i: usize) {
     clamp_aim(v, i);
 }
 
-/// Vehicle.seatFrameForward (vehicles.js:824): the frame a seat lets its
+/// Vehicle.seatFrameForward: the frame a seat lets its
 /// occupant out in: a turret seat's own heading, otherwise the hull's.
 fn seat_frame_forward(v: &Vehicle, side: &HullSide, i: usize) -> Vector3 {
     let seat = v.seats.get(i).unwrap_or(&v.seats[0]);
@@ -165,7 +165,7 @@ fn seat_frame_forward(v: &Vehicle, side: &HullSide, i: usize) -> Vector3 {
     Vector3::new(math::sin(yaw), 0.0, math::cos(yaw))
 }
 
-/// Vehicle.sphere(out) (vehicles.js:661): its box's centre in the world.
+/// Vehicle.sphere(out): its box's centre in the world.
 fn sphere_center(v: &Vehicle) -> Vector3 {
     let mut m = Matrix4::default();
     m.from_array(&v.matrix, 0);

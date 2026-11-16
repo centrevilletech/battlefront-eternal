@@ -1,9 +1,9 @@
-//! Option pages, schema, notes, and row builders (`src/menus/options.js`).
+//! Option pages, schema, notes, and row builders.
 
 use crate::settings::{SettingValue, Settings, PERFORMANCE_PRESETS};
 use std::collections::HashMap;
 
-/// Option page descriptor (`PAGES` in `src/menus/options.js`).
+/// Option page descriptor (`PAGES`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageDef {
     /// Internal page identifier (`"game"`, `"video"`, `"audio"`, or `"controls"`).
@@ -14,7 +14,7 @@ pub struct PageDef {
     pub title_key: &'static str,
 }
 
-/// The four option sub-pages (`PAGES` in `src/menus/options.js`).
+/// The four option sub-pages (`PAGES`).
 pub const PAGES: [PageDef; 4] = [
     // Gameplay rules, bot difficulty/mode/size, HUD stats line, and 60 Hz simulation rate.
     PageDef {
@@ -42,7 +42,7 @@ pub const PAGES: [PageDef; 4] = [
     },
 ];
 
-/// Widget control kind for an entry in [`OPTIONS`] (`kind` in `src/menus/options.js`).
+/// Widget control kind for an entry in [`OPTIONS`] (`kind`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OptionKind {
     /// Multi-value selector cycled with Left/Right arrows or mouse clicks (`"choice"`).
@@ -71,7 +71,7 @@ impl OptionKind {
     }
 }
 
-/// When an option change takes effect (`apply` in `src/menus/options.js`).
+/// When an option change takes effect (`apply`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ApplyMode {
     /// Applies immediately (`"live"`).
@@ -128,7 +128,7 @@ impl ChoiceVal {
     }
 }
 
-/// One selectable value in a `Choice` option (`choices` in `src/menus/options.js`).
+/// One selectable value in a `Choice` option (`choices`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChoiceItem {
     /// Stored setting value when this choice is selected.
@@ -168,7 +168,7 @@ impl ChoiceItem {
     }
 }
 
-/// Numeric formatting style for a `Slider` option (`format` in `src/menus/options.js`).
+/// Numeric formatting style for a `Slider` option (`format`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SliderFormat {
     /// `format: percent` -> `"{round(v * 100)}%"`.
@@ -190,7 +190,7 @@ impl SliderFormat {
     }
 }
 
-/// Schema specification for one entry in [`OPTIONS`] (`src/menus/options.js`).
+/// Schema specification for one entry in [`OPTIONS`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OptionSpec {
     /// Setting key in [`crate::settings::DEFAULTS`].
@@ -228,7 +228,7 @@ pub struct OptionSpec {
 /// Empty choice slice used by non-`Choice` option specs.
 const CHOICES_EMPTY: [ChoiceItem; 0] = [];
 
-/// `CLASSIC` (`[["classic", "CLASSIC"], ["enhanced", "ENHANCED"]]` in `src/menus/options.js`).
+/// `CLASSIC` (`[["classic", "CLASSIC"], ["enhanced", "ENHANCED"]]`).
 ///
 /// Used by visual effect options (`environmentEffects`, `oceanEffects`, `rainEffects`,
 /// `boltEffects`, `arcCasterEffects`, `sniperEffects`, `jetpackEffects`, `droidekaEffects`,
@@ -240,7 +240,7 @@ const CHOICES_CLASSIC: [ChoiceItem; 2] = [
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
-/// `ORIGINAL` (`[["original", "CLASSIC"], ["enhanced", "ENHANCED"]]` in `src/menus/options.js`).
+/// `ORIGINAL` (`[["original", "CLASSIC"], ["enhanced", "ENHANCED"]]`).
 ///
 /// Used by `terrainDetail` and `treeDetail`, whose classic setting value is `"original"`.
 const CHOICES_ORIGINAL: [ChoiceItem; 2] = [
@@ -250,7 +250,7 @@ const CHOICES_ORIGINAL: [ChoiceItem; 2] = [
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
-/// Bot difficulty choices (`aiDifficulty` in `src/menus/options.js`).
+/// Bot difficulty choices (`aiDifficulty`).
 const CHOICES_DIFFICULTY: [ChoiceItem; 3] = [
     // Easy difficulty (`ifs.difficulty.easy`).
     ChoiceItem::sk("easy", "EASY", "ifs.difficulty.easy"),
@@ -260,7 +260,7 @@ const CHOICES_DIFFICULTY: [ChoiceItem; 3] = [
     ChoiceItem::s("hard", "ELITE"),
 ];
 
-/// Battle bot mode choices (`aiMode` in `src/menus/options.js`).
+/// Battle bot mode choices (`aiMode`).
 const CHOICES_AI_MODE: [ChoiceItem; 3] = [
     // No autonomous bot combat (`"off"`).
     ChoiceItem::sk("off", "OFF", "common.off"),
@@ -270,7 +270,7 @@ const CHOICES_AI_MODE: [ChoiceItem; 3] = [
     ChoiceItem::s("enhanced", "ENHANCED"),
 ];
 
-/// Single-player team unit count scale choices (`battleSize` in `src/menus/options.js`).
+/// Single-player team unit count scale choices (`battleSize`).
 const CHOICES_BATTLE_SIZE: [ChoiceItem; 3] = [
     // Full 2004 unit count (scale `1.0`, up to 32 per team).
     ChoiceItem::s("full", "FULL"),
@@ -280,7 +280,7 @@ const CHOICES_BATTLE_SIZE: [ChoiceItem; 3] = [
     ChoiceItem::s("small", "SMALL"),
 ];
 
-/// Rendering quality preset choices (`performancePreset` in `src/menus/options.js`).
+/// Rendering quality preset choices (`performancePreset`).
 const CHOICES_PERFORMANCE_PRESET: [ChoiceItem; 5] = [
     // Selected automatically whenever an individual `PRESET_KEYS` setting is customized.
     ChoiceItem::s("custom", "CUSTOM"),
@@ -294,7 +294,7 @@ const CHOICES_PERFORMANCE_PRESET: [ChoiceItem; 5] = [
     ChoiceItem::s("quality", "HIGH QUALITY"),
 ];
 
-/// Frame rate cap choices (`frameLimit` / `FPS("DISPLAY")` in `src/menus/options.js`).
+/// Frame rate cap choices (`frameLimit` / `FPS("DISPLAY")`).
 const CHOICES_FRAME_LIMIT: [ChoiceItem; 6] = [
     // Paced to the display's native refresh rate (`"0"` -> `"DISPLAY"`).
     ChoiceItem::s("0", "DISPLAY"),
@@ -305,7 +305,7 @@ const CHOICES_FRAME_LIMIT: [ChoiceItem; 6] = [
     ChoiceItem::s("240", "240 FPS"),
 ];
 
-/// Adaptive resolution target frame rate choices (`dynamicResolution` / `FPS("OFF")` in `src/menus/options.js`).
+/// Adaptive resolution target frame rate choices (`dynamicResolution` / `FPS("OFF")`).
 const CHOICES_DYNAMIC_RESOLUTION: [ChoiceItem; 6] = [
     // Adaptive resolution disabled (`"0"` -> `"OFF"`).
     ChoiceItem::s("0", "OFF"),
@@ -316,7 +316,7 @@ const CHOICES_DYNAMIC_RESOLUTION: [ChoiceItem; 6] = [
     ChoiceItem::s("240", "240 FPS"),
 ];
 
-/// 3D frame upscaler mode choices (`upscaler` in `src/menus/options.js`).
+/// 3D frame upscaler mode choices (`upscaler`).
 const CHOICES_UPSCALER: [ChoiceItem; 4] = [
     // Browser canvas stretch (`"off"`).
     ChoiceItem::s("off", "OFF"),
@@ -328,7 +328,7 @@ const CHOICES_UPSCALER: [ChoiceItem; 4] = [
     ChoiceItem::s("temporal", "TEMPORAL"),
 ];
 
-/// Edge antialiasing choices (`antialiasing` in `src/menus/options.js`).
+/// Edge antialiasing choices (`antialiasing`).
 const CHOICES_ANTIALIASING: [ChoiceItem; 6] = [
     ChoiceItem::s("off", "OFF"),
     // FXAA 3.11 console path for older GPUs (`"fxaa-fast"`).
@@ -341,7 +341,7 @@ const CHOICES_ANTIALIASING: [ChoiceItem; 6] = [
     ChoiceItem::s("8x", "8X MSAA"),
 ];
 
-/// Cascaded shadow map quality choices (`shadows` in `src/menus/options.js`).
+/// Cascaded shadow map quality choices (`shadows`).
 const CHOICES_SHADOWS: [ChoiceItem; 5] = [
     ChoiceItem::s("off", "OFF"),
     ChoiceItem::s("low", "LOW"),
@@ -350,7 +350,7 @@ const CHOICES_SHADOWS: [ChoiceItem; 5] = [
     ChoiceItem::s("ultra", "ULTRA"),
 ];
 
-/// Texture filtering anisotropy choices (`anisotropy` in `src/menus/options.js`).
+/// Texture filtering anisotropy choices (`anisotropy`).
 const CHOICES_ANISOTROPY: [ChoiceItem; 5] = [
     // Isotropic mipmapped trilinear filtering (`1`).
     ChoiceItem::i(1, "TRILINEAR"),
@@ -360,7 +360,7 @@ const CHOICES_ANISOTROPY: [ChoiceItem; 5] = [
     ChoiceItem::i(16, "16X ANISOTROPIC"),
 ];
 
-/// Water reflection quality choices (`waterQuality` in `src/menus/options.js`).
+/// Water reflection quality choices (`waterQuality`).
 const CHOICES_WATER_QUALITY: [ChoiceItem; 3] = [
     // Original 2004 water without scene reflections (`"low"`).
     ChoiceItem::s("low", "LOW"),
@@ -370,7 +370,7 @@ const CHOICES_WATER_QUALITY: [ChoiceItem; 3] = [
     ChoiceItem::s("ultra", "ULTRA"),
 ];
 
-/// Near-scene full-detail view distance multiplier choices (`viewDistance` in `src/menus/options.js`).
+/// Near-scene full-detail view distance multiplier choices (`viewDistance`).
 const CHOICES_VIEW_DISTANCE: [ChoiceItem; 4] = [
     // The 2004 game's shortest near-scene range (`"short"`): the cheapest.
     ChoiceItem::s("short", "SHORT"),
@@ -382,7 +382,7 @@ const CHOICES_VIEW_DISTANCE: [ChoiceItem; 4] = [
     ChoiceItem::s("max", "MAXIMUM (4X)"),
 ];
 
-/// Far-scene terrain mesh density choices (`farTerrain` in `src/menus/options.js`).
+/// Far-scene terrain mesh density choices (`farTerrain`).
 const CHOICES_FAR_TERRAIN: [ChoiceItem; 2] = [
     // Every distant terrain triangle (`"full"`).
     ChoiceItem::s("full", "FULL"),
@@ -390,7 +390,7 @@ const CHOICES_FAR_TERRAIN: [ChoiceItem; 2] = [
     ChoiceItem::s("reduced", "REDUCED"),
 ];
 
-/// Sound stage engine quality choices (`audioQuality` in `src/menus/options.js`).
+/// Sound stage engine quality choices (`audioQuality`).
 const CHOICES_AUDIO_QUALITY: [ChoiceItem; 2] = [
     // 3D positional sound stage with distance and room acoustics (`"enhanced"`).
     ChoiceItem::s("enhanced", "ENHANCED"),
@@ -398,7 +398,7 @@ const CHOICES_AUDIO_QUALITY: [ChoiceItem; 2] = [
     ChoiceItem::s("original", "CLASSIC"),
 ];
 
-/// Speaker/headphone channel layout choices (`audioOutput` in `src/menus/options.js`).
+/// Speaker/headphone channel layout choices (`audioOutput`).
 const CHOICES_AUDIO_OUTPUT: [ChoiceItem; 6] = [
     // Queries the output device layout automatically (`"auto"`).
     ChoiceItem::s("auto", "AUTOMATIC"),
@@ -412,7 +412,7 @@ const CHOICES_AUDIO_OUTPUT: [ChoiceItem; 6] = [
     ChoiceItem::s("7.1.4", "7.1.4"),
 ];
 
-/// Dynamic range compression profile choices (`audioDynamics` in `src/menus/options.js`).
+/// Dynamic range compression profile choices (`audioDynamics`).
 const CHOICES_AUDIO_DYNAMICS: [ChoiceItem; 3] = [
     // Wide dynamic range for home theater speakers (`"home"`).
     ChoiceItem::s("home", "HOME THEATER"),
@@ -1247,7 +1247,7 @@ pub const OPTIONS: [OptionSpec; 57] = [
     ),
 ];
 
-/// Keys in [`OPTIONS`] (`OPTION_KEYS` in `src/menus/options.js`), in exact table order.
+/// Keys in [`OPTIONS`] (`OPTION_KEYS`), in exact table order.
 pub const OPTION_KEYS: [&str; 57] = [
     // 1..6: Starfighter camera, key binding maps, and flight controls.
     "flightFirstPerson",
@@ -1315,32 +1315,32 @@ pub const OPTION_KEYS: [&str; 57] = [
     "invertMouse",
 ];
 
-/// Settings keys edited by the profile screen (`PROFILE_KEYS` in `src/menus/options.js`).
+/// Settings keys edited by the profile screen (`PROFILE_KEYS`).
 pub const PROFILE_KEYS: [&str; 1] = ["playerName"];
 
-/// Settings keys edited by the menu theme selector (`THEME_KEYS` in `src/menus/options.js`).
+/// Settings keys edited by the menu theme selector (`THEME_KEYS`).
 pub const THEME_KEYS: [&str; 1] = ["menuTheme"];
 
-/// Returns all [`OptionSpec`]s belonging to `page` (`optionsFor(page)` in `src/menus/options.js`).
+/// Returns all [`OptionSpec`]s belonging to `page` (`optionsFor(page)`).
 ///
 /// Preserves the declaration order in [`OPTIONS`] for `"game"`, `"video"`, `"audio"`, and `"controls"`.
 pub fn options_for(page: &str) -> Vec<&'static OptionSpec> {
     OPTIONS.iter().filter(|o| o.page == page).collect()
 }
 
-/// Looks up an [`OptionSpec`] by setting `key` (`optionEntry(key)` in `src/menus/options.js`).
+/// Looks up an [`OptionSpec`] by setting `key` (`optionEntry(key)`).
 #[inline]
 pub fn option_entry(key: &str) -> Option<&'static OptionSpec> {
     OPTIONS.iter().find(|o| o.key == key)
 }
 
-/// Returns when changes to `key` apply (`applies(key)` in `src/menus/options.js`).
+/// Returns when changes to `key` apply (`applies(key)`).
 #[inline]
 pub fn applies(key: &str) -> Option<ApplyMode> {
     option_entry(key).map(|o| o.apply)
 }
 
-/// Resolves a localized string from `strings`, collapsing newlines (`say` in `src/menus/options.js`).
+/// Resolves a localized string from `strings`, collapsing newlines (`say`).
 ///
 /// Falls back to `fallback` when `key` is `None` or absent from `strings`.
 pub fn say(strings: &HashMap<String, String>, key: Option<&str>, fallback: &str) -> String {
@@ -1352,7 +1352,7 @@ pub fn say(strings: &HashMap<String, String>, key: Option<&str>, fallback: &str)
 }
 
 /// Computes the scaled render resolution string (`"WIDTHxHEIGHT"`, e.g. `"1024x768"`)
-/// for `renderScale` (`renderResolution` in `src/menus/options.js`).
+/// for `renderScale` (`renderResolution`).
 ///
 /// Multiplies the viewport dimensions `[vw, vh]` by the current `renderScale` setting,
 /// clamping each dimension to at least `1` pixel.
@@ -1368,7 +1368,7 @@ pub fn render_resolution(settings: &Settings, viewport: Option<[u32; 2]>) -> Opt
     Some(format!("{w}x{h}"))
 }
 
-/// Evaluates the footer note for `key` (`note` and `NOTES` in `src/menus/options.js`).
+/// Evaluates the footer note for `key` (`note` and `NOTES`).
 ///
 /// Checks option-specific dynamic notes first (`renderScale`, `upscaler`, `upscaleSharpness`,
 /// `audioQuality`, `audioOutput`, `audioDynamics`, `audioClarity`) and falls back to the
@@ -1383,7 +1383,7 @@ pub fn option_note(
     let Some(spec) = option_entry(key) else {
         return String::new();
     };
-    // The notes of rows with their own (`note` in `src/menus/options.js`).
+    // The notes of rows with their own (`note`).
     let custom = match key {
         "renderScale" => match (render_resolution(settings, viewport), viewport) {
             (Some(size), Some([vw, vh])) => format!("3D VIEW {}, WINDOW {vw}X{vh}", size.to_uppercase()),
@@ -1402,7 +1402,7 @@ pub fn option_note(
     if !custom.is_empty() {
         return custom;
     }
-    // The timing note of a change that does not take effect at once (`NOTES` in `src/menus/options.js`).
+    // The timing note of a change that does not take effect at once (`NOTES`).
     match spec.apply {
         ApplyMode::Map => "TAKES EFFECT WHEN A MAP NEXT LOADS".to_string(),
         ApplyMode::Battle => if in_battle {
@@ -1415,8 +1415,7 @@ pub fn option_note(
     }
 }
 
-/// Formats the current value of `spec` in `settings` as display text (`valueText` in `optionRow`
-/// in `src/menus/options.js`).
+/// Formats the current value of `spec` in `settings` as display text (`valueText` in `optionRow`).
 pub fn format_option_value(
     spec: &OptionSpec,
     settings: &Settings,
@@ -1459,7 +1458,7 @@ pub fn format_option_value(
     }
 }
 
-/// Steps `spec` in `settings` by `dir` (`-1` or `+1`), matching `optionRow.step` in `src/menus/options.js`.
+/// Steps `spec` in `settings` by `dir` (`-1` or `+1`), matching `optionRow.step`.
 ///
 /// - `Choice`: wraps around `spec.choices` modulo `choices.len()`.
 /// - `Toggle`: negates the current boolean value.
@@ -1501,14 +1500,14 @@ pub fn step_option(spec: &OptionSpec, settings: &mut Settings, dir: i32) -> bool
 }
 
 /// Resets all settings on `page` back to their [`crate::settings::DEFAULTS`] values
-/// (`resetPage(page, settings)` in `src/menus/options.js`).
+/// (`resetPage(page, settings)`).
 pub fn reset_page(page: &str, settings: &mut Settings) {
     let keys: Vec<&'static str> = options_for(page).into_iter().map(|o| o.key).collect();
     settings.reset_keys(keys);
 }
 
 /// Returns true if every preset in `PERFORMANCE_PRESETS` is represented in the
-/// `performancePreset` choice list (`src/menus/options.js` `PRESET_CHOICES`).
+/// `performancePreset` choice list (`PRESET_CHOICES`).
 pub fn all_performance_presets_in_choices() -> bool {
     let Some(spec) = option_entry("performancePreset") else {
         return false;

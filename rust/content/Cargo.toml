@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
 publish = false
-description = "The game's content as the world simulation reads it: its files parsed and the numbers derived from them, to the last bit as the JavaScript loaders make them."
+description = "The game's content as the world simulation reads it: its files parsed and the numbers derived from them, to the last bit."
 
-# A plain library: the simulation module (rust/sim) is to link it natively
-# and as WebAssembly, and hand it the bytes JavaScript fetched.
+# A plain library, linked by the simulation (rust/sim), the client and the
+# server.
 [lib]
 name = "bfe_content"
 crate-type = ["rlib"]

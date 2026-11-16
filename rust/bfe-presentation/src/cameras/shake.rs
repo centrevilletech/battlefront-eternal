@@ -1,8 +1,8 @@
-//! CameraShake from src/camera-shake.js. Four shakes survive between frames;
+//! CameraShake. Four shakes survive between frames;
 //! the PC game's duplicated explosion view remains two admissions in order.
 // Camera shake, as the 2004 game shakes the view (docs/formats.md,
-// "Camera shake"). It is the page's: an explosion shakes the view of the
-// player whose camera follows something near it, where the page shows the
+// "Camera shake"). It is the client's: an explosion shakes the view of the
+// player whose camera follows something near it, where the client shows the
 // explosion. The world keeps none of it.
 //
 // - Explode, after the blast has been dealt:

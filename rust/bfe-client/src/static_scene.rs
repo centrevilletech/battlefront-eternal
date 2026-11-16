@@ -243,7 +243,7 @@ pub fn props(
             g
         };
         // InstancePass reads the existing generated record layout. Matrices
-        // and bones use attached-mode skinning exactly as the browser rigs do,
+        // and bones use attached-mode skinning exactly as the client rigs do,
         // including its recomposed bind inverses and final Float32 bone rows.
         let mut row = [0.; I::REC_STRIDE];
         row[I::REC_BIND..I::REC_BIND + 16].copy_from_slice(&Matrix4::default().elements);
@@ -461,7 +461,7 @@ fn gl_type(t: u32) -> u32 {
 }
 // Where each sky layer stands for a view: on the eye, or (the sky-follow
 // rule) partly following its height. A water mirror stands every layer at
-// its reflected eye instead (`follow` false), the way the page's mirror did.
+// its reflected eye instead (`follow` false), the way the client's mirror did.
 pub fn place_skies(a: &Admission, bridge: &mut Bridge, view: &[f64], follow: bool) {
     let eye = a.eye;
     for s in &a.skies {
@@ -480,7 +480,7 @@ pub fn place_skies(a: &Admission, bridge: &mut Bridge, view: &[f64], follow: boo
     }
 }
 impl Admission {
-    // The browser InstancePass culls before filling its bounded command bank.
+    // The earlier build InstancePass culls before filling its bounded command bank.
     // Retain every cold prop; a camera moving elsewhere must not discover that
     // admission permanently discarded the last objects after a capacity limit.
     // Online actors share the same near bank. Reserving their prefix budget

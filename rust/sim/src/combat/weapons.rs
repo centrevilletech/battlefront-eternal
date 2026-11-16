@@ -3,7 +3,7 @@
 //! and kick, its trigger's timers, salvos, throws and charges, the spread
 //! each round draws, a launcher's lock, and a soldier's two channels. The
 //! same code serves a soldier's weapons, a seat's and a turret's: a weapon
-//! is the store's record (`gen::Weapon`, rust/sim/schema/combat.mjs) held by
+//! is the store's record (`gen::Weapon`, rust/sim/schema/combat.json) held by
 //! value by its owner, named by its place among its owner's weapons.
 
 use super::defs::{WeaponBase, Js, Level, WeaponClass, WeaponDefs, K};
@@ -27,7 +27,7 @@ pub(crate) fn supply(weapon: &mut Weapon, level: &Level, amount: f64, powerup: b
 
 /// Degrees to radians (`Math.PI / 180`).
 pub const DEG: f64 = std::f64::consts::PI / 180.0;
-/// s; a press landing on the end of the lockout counts (weapons.js:70).
+/// s; a press landing on the end of the lockout counts.
 pub const EPSILON: f64 = 1e-6;
 
 /// A trigger as a weapon's update reads it: held, pressed this tick, the
@@ -128,7 +128,7 @@ impl Weapon {
         &class.levels[self.level as usize]
     }
 
-    /// `new Weapon(def, { player })` (weapons.js:120): its generator none
+    /// `new Weapon(def, { player })`: its generator none
     /// (random), which the owner binds.
     pub fn create(def: DefId, defs: &WeaponDefs, player: bool) -> Weapon {
         let d = defs.class(def).base();
@@ -178,7 +178,7 @@ impl Weapon {
         }
     }
 
-    /// prepareMelee (heroes.js:17) on one weapon: a melee weapon's clip is
+    /// prepareMelee on one weapon: a melee weapon's clip is
     /// bottomless and its update is its swing's.
     pub fn prepare_melee(&mut self, class: &WeaponClass) {
         if class.base().kind!=WeaponBase::Melee {
@@ -232,7 +232,7 @@ impl Weapon {
         self.level = 0.0;
     }
 
-    /// deselect() (weapons.js:208).
+    /// deselect().
     pub fn deselect(&mut self) {
         self.clear_lock();
         self.reload_left = 0.0;
@@ -243,7 +243,7 @@ impl Weapon {
         }
     }
 
-    /// clearLock() (weapons.js:216).
+    /// clearLock().
     pub fn clear_lock(&mut self) {
         self.lock_target_id = -1.0;
         self.lock_generation = -1.0;
@@ -251,7 +251,7 @@ impl Weapon {
         self.lock_complete = false;
     }
 
-    /// updateLock(dt, target) (weapons.js:225): launcher state 4. `target`:
+    /// updateLock(dt, target): launcher state 4. `target`:
     /// the picked unit's id, generation and whether it lives, or none.
     pub fn update_lock(&mut self, class: &WeaponClass, dt: f64, target: Option<LockTarget>) {
         let d = self.level(class);
@@ -274,7 +274,7 @@ impl Weapon {
         self.lock_complete = duration > 0.0 && self.lock_elapsed >= duration - EPSILON;
     }
 
-    /// startReload() (weapons.js:241).
+    /// startReload().
     pub fn start_reload(&mut self, class: &WeaponClass) -> bool {
         if self.bottomless || self.clip >= 1.0 || self.reloading() {
             return false;
@@ -289,7 +289,7 @@ impl Weapon {
         true
     }
 
-    /// spread(stick, posture, zoomed) (weapons.js:252): degrees per axis.
+    /// spread(stick, posture, zoomed): degrees per axis.
     pub fn spread(&self, class: &WeaponClass, stick: f64, posture: Option<Posture>, zoomed: bool) -> [f64; 2] {
         let d = self.level(class);
         let (still_k, aim_k, move_k) = match posture {
@@ -318,7 +318,7 @@ impl Weapon {
         [kick + pose + yaw, kick + pose + d.get(K::PitchSpread).or(0.0)]
     }
 
-    /// climb(most) (weapons.js:422): up through the charge levels the held
+    /// climb(most): up through the charge levels the held
     /// time has passed.
     fn climb(&mut self, class: &WeaponClass, most: f64) {
         let mut level = self.level as usize;
@@ -351,7 +351,7 @@ impl Weapon {
         }
     }
 
-    /// shoot(shots, aim) (weapons.js:458): a salvo: the ammo spent, the heat,
+    /// shoot(shots, aim): a salvo: the ammo spent, the heat,
     /// each round's offsets, then the kick.
     fn shoot(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
@@ -417,7 +417,7 @@ impl Weapon {
         self.kick = js_min(self.kick + d.get(K::SpreadPerShot).or(0.0) * self.spread_scale, d.get(K::SpreadLimit).nn(f64::INFINITY));
     }
 
-    /// startBurst(shots, aim, seed) (weapons.js:397).
+    /// startBurst(shots, aim, seed).
     fn start_burst(&mut self, index: u32, class: &WeaponClass, aim: &Aim, seed: Option<f64>, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         self.salvo_seed = seed;
         self.salvo_count = 0.0;
@@ -429,7 +429,7 @@ impl Weapon {
         self.salvo_step(index, class, aim, false, draws, out);
     }
 
-    /// salvoStep(shots, aim, cooldown) (weapons.js:405).
+    /// salvoStep(shots, aim, cooldown).
     fn salvo_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, cooldown: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         while self.salvos_left > 0.0 && self.salvo_wait <= EPSILON {
             if !self.can_shoot() {
@@ -452,7 +452,7 @@ impl Weapon {
         }
     }
 
-    /// startThrow(shots, aim) (weapons.js:430).
+    /// startThrow(shots, aim).
     fn start_throw(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         self.throw_time = 0.0;
@@ -462,7 +462,7 @@ impl Weapon {
         self.throw_step(index, class, aim, draws, out);
     }
 
-    /// throwStep(shots, aim) (weapons.js:438).
+    /// throwStep(shots, aim).
     fn throw_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         let initial = d.get(K::InitialSalvoDelay).num();
@@ -492,9 +492,8 @@ impl Weapon {
         }
     }
 
-    /// update(dt, selected, trigger, reload, aim) (weapons.js:265): one tick;
-    /// the shots fired go to `out`. A melee weapon's update is its swing's
-    /// (heroes.js:39).
+    /// update(dt, selected, trigger, reload, aim): one tick;
+    /// the shots fired go to `out`. A melee weapon's update is its swing's.
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, index: u32, class: &WeaponClass, dt: f64, selected: bool, trigger: &Trigger, reload: bool, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         if self.melee.is_some() {
@@ -661,7 +660,7 @@ impl Weapon {
         class.base().kind==WeaponBase::Repair
     }
 
-    /// MeleeSwing.update(dt, selected, trigger) (heroes.js:39): a press
+    /// MeleeSwing.update(dt, selected, trigger): a press
     /// starts a swing; holding and presses during it do nothing. The entry
     /// update sets the time to zero without advancing it; the hit lands
     /// when old <= hit < old + dt; the swing ends strictly past its length.
@@ -709,7 +708,7 @@ pub struct LockTarget {
     pub alive: bool,
 }
 
-/// seatWeaponPolicy(weapon, human, random) (seats.js:76): a seat's weapon
+/// seatWeaponPolicy(weapon, human, random): a seat's weapon
 /// as its occupant fires it.
 pub fn seat_weapon_policy(w: &mut Weapon, defs: &WeaponDefs, human: bool, random: bool) {
     w.floor = if human { -defs.class(w.def).level_of(w).get(K::SpreadThreshold).or(0.0) } else { 0.0 };
@@ -729,7 +728,7 @@ impl WeaponClass {
     }
 }
 
-/// An arsenal's two channels (src/weapons.js Arsenal): its weapons, in
+/// An arsenal's two channels (Arsenal): its weapons, in
 /// order, and each channel's selection (an index among that channel's).
 pub struct Arsenal<'a> {
     pub weapons: &'a mut [Weapon],
@@ -769,7 +768,7 @@ impl Arsenal<'_> {
         (0..self.weapons.len()).filter(|&i| self.weapons[i].in_channel(defs, c as f64)).collect()
     }
 
-    /// current(channel) (weapons.js:511): the selected weapon's place.
+    /// current(channel): the selected weapon's place.
     pub fn current(&self, defs: &WeaponDefs, c: usize) -> Option<usize> {
         let selected = self.selected[c];
         if !(selected >= 0.0 && selected.fract() == 0.0) { return None; }
@@ -782,7 +781,7 @@ impl Arsenal<'_> {
         None
     }
 
-    /// next(channel, direction) (weapons.js:530).
+    /// next(channel, direction).
     pub fn next(&mut self, defs: &WeaponDefs, c: usize, direction: f64) -> bool {
         let count = self.weapons.iter().filter(|w| w.in_channel(defs, c as f64)).count();
         if count < 2 { return false; }
@@ -795,7 +794,7 @@ impl Arsenal<'_> {
         true
     }
 
-    /// update(dt, input, aim) (weapons.js:542): every weapon's tick, the
+    /// update(dt, input, aim): every weapon's tick, the
     /// selected ones' triggers given (only one channel fires at a time).
     pub fn update(&mut self, defs: &WeaponDefs, dt: f64, input: &ArsenalInput, aim: &Aim, blocked: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let primary = self.current(defs, 0);

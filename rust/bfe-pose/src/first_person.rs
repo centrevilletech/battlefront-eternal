@@ -1,4 +1,4 @@
-//! First-person pose and clip clocks from src/firstperson.js. The tree is
+//! First-person pose and clip clocks. The tree is
 //! camera-relative: the host supplies its current camera in a second batch,
 //! after the body's displayed pose has served the death and vehicle cameras.
 
@@ -133,7 +133,7 @@ impl FirstPerson {
         }
     }
     // FirstPersonView.setFor. Class identity is a numeric weapon handle,
-    // independent of the page's predicted versus authoritative JS object.
+    // independent of the client's predicted versus authoritative JS object.
     fn set_for(&self, weapon: usize, t: &Tables, weapons: &[Weapon]) -> usize {
         t.forced_set.unwrap_or_else(|| {
             if weapon == NONE {

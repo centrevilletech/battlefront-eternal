@@ -1,21 +1,21 @@
 //! The 2004 game's float arithmetic the AI's combat code shares
-//! (src/ai/classic/aim.js:43-155): its interpolating sine/cosine tables,
+//!: its interpolating sine/cosine tables,
 //! the angle thresholds it takes from them, and its float32 vector helpers
 //! in the original's operation order. Every rounding point is the
 //! JavaScript's `Math.fround`; every transcendental is V8's (v8math).
 
 use std::sync::OnceLock;
 
-/// `Math.fround` (aim.js:43 `f`).
+/// `Math.fround` (`f`).
 #[inline]
 pub fn f(x: f64) -> f64 {
     v8math::fround(x)
 }
 
-/// FLT_MAX (perception.js:507, combat.js:51).
+/// FLT_MAX.
 pub const FLT_MAX: f64 = 3.4028234663852886e38;
 
-/// aim.js:50-51: 2pi / 2048 and 2048 / 2pi as float32.
+/// 2pi / 2048 and 2048 / 2pi as float32.
 fn table_step() -> f64 {
     f(0.003067961661145091)
 }
@@ -23,7 +23,7 @@ fn table_scale() -> f64 {
     f(325.9493103027344)
 }
 
-/// aim.js:55 `tables()`: 2048 float32 samples of sin and cos at
+/// `tables()`: 2048 float32 samples of sin and cos at
 /// float32(i * step), computed once (V8's sin and cos, stored into a
 /// Float32Array).
 struct Tables {
@@ -45,8 +45,8 @@ fn tables() -> &'static Tables {
     })
 }
 
-/// aim.js:66 `lookup`: the index truncated toward zero, both neighbours
-/// wrapped with `& 2047` (ToInt32 first, as JavaScript's bitwise and).
+/// `lookup`: the index truncated toward zero, both neighbours
+/// wrapped with `& 2047`.
 fn lookup(table: &[f64; 2048], angle: f64) -> f64 {
     let t = f(f(angle) * table_scale());
     let i = v8math::trunc(t);
@@ -56,17 +56,15 @@ fn lookup(table: &[f64; 2048], angle: f64) -> f64 {
     f(f(f(1.0 - frac) * table[a]) + f(table[b] * frac))
 }
 
-/// aim.js:73.
 pub fn lookup_cos(angle: f64) -> f64 {
     lookup(&tables().cos, angle)
 }
 
-/// aim.js:78.
 pub fn lookup_sin(angle: f64) -> f64 {
     lookup(&tables().sin, angle)
 }
 
-/// aim.js:86 `ANGLE`: the thresholds the original takes from its tables.
+/// `ANGLE`: the thresholds the original takes from its tables.
 pub mod angle {
     use super::f;
     /// 77.5 degrees: the sight cone and the facing cones.
@@ -91,19 +89,19 @@ pub mod angle {
     }
 }
 
-/// aim.js:98 `dot32`: y*y first, then x*x, then z*z, each step float32.
+/// `dot32`: y*y first, then x*x, then z*z, each step float32.
 #[inline]
 pub fn dot32(ax: f64, ay: f64, az: f64, bx: f64, by: f64, bz: f64) -> f64 {
     f(f(f(ay * by) + f(ax * bx)) + f(az * bz))
 }
 
-/// aim.js:103 `lengthSq32`: (x*x + y*y) + z*z.
+/// `lengthSq32`: (x*x + y*y) + z*z.
 #[inline]
 pub fn length_sq32(x: f64, y: f64, z: f64) -> f64 {
     f(f(f(x * x) + f(y * y)) + f(z * z))
 }
 
-/// aim.js:108 `lengthSqXZ32`.
+/// `lengthSqXZ32`.
 #[inline]
 pub fn length_sq_xz32(x: f64, z: f64) -> f64 {
     f(f(x * x) + f(z * z))
@@ -123,7 +121,7 @@ impl P3 {
     }
 }
 
-/// aim.js:117 `normalizeD3DX`: below 2^-46 squared length the result is
+/// `normalizeD3DX`: below 2^-46 squared length the result is
 /// zero; otherwise one Newton step on float32(1 / float32(sqrt s)).
 pub fn normalize_d3dx(x: f64, y: f64, z: f64) -> P3 {
     let s = length_sq32(x, y, z);
@@ -136,7 +134,7 @@ pub fn normalize_d3dx(x: f64, y: f64, z: f64) -> P3 {
     P3::new(f(x * r), f(y * r), f(z * r))
 }
 
-/// aim.js:135 `normalizeOrX`: exactly zero (either sign) becomes (1, 0, 0).
+/// `normalizeOrX`: exactly zero (either sign) becomes (1, 0, 0).
 pub fn normalize_or_x(x: f64, y: f64, z: f64) -> P3 {
     if x == 0.0 && y == 0.0 && z == 0.0 {
         return P3::new(1.0, 0.0, 0.0);
@@ -144,7 +142,7 @@ pub fn normalize_or_x(x: f64, y: f64, z: f64) -> P3 {
     normalize_d3dx(x, y, z)
 }
 
-/// aim.js:147 `normalizeXZ`: the horizontal direction (y = 0); a zero
+/// `normalizeXZ`: the horizontal direction (y = 0); a zero
 /// horizontal vector becomes (1, 0, 0).
 pub fn normalize_xz(x: f64, z: f64) -> P3 {
     if x == 0.0 && z == 0.0 {

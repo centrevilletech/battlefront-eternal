@@ -1,4 +1,4 @@
-//! createServiceCandidates (src/ai/services.js). Repair scans include wrecked
+//! createServiceCandidates. Repair scans include wrecked
 //! buildings that the living registry omits. Candidate order is body registry,
 //! fleet, then authored buildings; lazy spheres are read only in the filter.
 use super::{

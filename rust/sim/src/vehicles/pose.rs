@@ -237,7 +237,7 @@ impl Hull {
 
     /// `held(i)`: someone holds seat i (a lease, or the player).
 
-    /// vehicles.js aimTick: the tick's part of the pose (a ground hull's).
+    /// aimTick: the tick's part of the pose (a ground hull's).
     pub fn aim_tick<W: VehicleWorld>(&mut self, w: &mut W, alpha: f64, dt: f64) {
         if !self.alive || self.rests(dt) {
             return;
@@ -269,7 +269,7 @@ impl Hull {
         p.rig.tree.update_matrix_world(root, true);
     }
 
-    /// vehicles.js render: the drawn pose. ticked: aimTick has just posed
+    /// render: the drawn pose. ticked: aimTick has just posed
     /// the hull at this alpha (Vehicles.update; a spawn's render is not),
     /// and then a craft whose flight this world steps (no walk pose, no
     /// legs, its own gear) is drawn as aimTick posed it, only its barrels'
@@ -329,7 +329,7 @@ impl Hull {
         p.rig.tree.update_matrix_world(root, true);
     }
 
-    /// vehicles.js placeRoot: the hull between its last two substeps, with
+    /// placeRoot: the hull between its last two substeps, with
     /// the repulsor's bob, every bone back at its bind turn, and its wheels.
     fn place_root(&mut self, alpha: f64) {
         let hover = self.repulsor && !self.flying;
@@ -378,14 +378,14 @@ impl Hull {
         }
     }
 
-    /// vehicles.js seatFrame (at the tick): the frame a seat's camera and
+    /// seatFrame (at the tick): the frame a seat's camera and
     /// aim hang from: a flyer's own frame, a ground hull's heading.
     pub(crate) fn seat_frame(&self, i: usize) -> Matrix4 {
         let aim=if i==0 {None}else{let seat=&self.seats[i];Some((seat.aim_yaw,seat.pitch,&self.pose.as_ref().unwrap().seats[i]))};
         seat_frame_values(&self.position,&self.quaternion,self.flying,self.yaw,aim)
     }
 
-    /// vehicles.js seatEye: a seat's eye in the world.
+    /// seatEye: a seat's eye in the world.
     pub(crate) fn seat_eye(&self, i: usize) -> Vector3 {
         let frame = self.seat_frame(i);
         let mut out = self.pose.as_ref().unwrap().seats[i].eye;
@@ -393,7 +393,7 @@ impl Hull {
         out
     }
 
-    /// vehicles.js seatForward: a seat's aim direction (a flyer's pilot's
+    /// seatForward: a seat's aim direction (a flyer's pilot's
     /// along its nose).
     pub(crate) fn seat_forward(&self, i: usize) -> Vector3 {
         if self.flying && i == 0 {
@@ -405,7 +405,7 @@ impl Hull {
         aim_vector(seat.aim_yaw, seat.pitch)
     }
 
-    /// vehicles.js aimSeats: the point each manned seat's guns turn to, and
+    /// aimSeats: the point each manned seat's guns turn to, and
     /// how fast each seat's aim turns.
     fn aim_seats<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
         for i in 0..self.seats.len() {
@@ -439,7 +439,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js poseSeat: a seat's turret node swung to its aim, and its
+    /// poseSeat: a seat's turret node swung to its aim, and its
     /// aimers turned toward its target (a turn only with time, dt > 0).
     fn pose_seat(&mut self, i: usize, dt: f64) {
         let (aim_yaw, pitch) = (self.seats[i].aim_yaw, self.seats[i].pitch);
@@ -531,7 +531,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js recoilBarrels: each barrel back along its z by its kick.
+    /// recoilBarrels: each barrel back along its z by its kick.
     fn recoil_barrels<W: VehicleWorld>(&mut self, w: &mut W) {
         let now = w.clock();
         self.recoil_barrels_at(now);
@@ -562,7 +562,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js walk: the walk cycle advanced by a tick.
+    /// walk: the walk cycle advanced by a tick.
     pub fn walk(&mut self, dt: f64) {
         let speed = hypot(self.velocity.x, self.velocity.z);
         let (vx, vz, yaw, creature) = (self.velocity.x, self.velocity.z, self.yaw, self.creature);
@@ -583,7 +583,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js applyPose: the bones from the walk cycle (the idle clip
+    /// applyPose: the bones from the walk cycle (the idle clip
     /// at the hull's age under the walk clips at its phase, by its blend),
     /// then the legs lifted toward the higher ground.
     fn apply_pose(&mut self) {
@@ -609,7 +609,7 @@ impl Hull {
         self.lift_legs();
     }
 
-    /// vehicles.js liftLegs: each leg pair's legs drawn toward the pose with
+    /// liftLegs: each leg pair's legs drawn toward the pose with
     /// the foot on the higher ground lifted, by how much higher it is.
     fn lift_legs(&mut self) {
         let Some(sides) = self.leg_side.as_ref() else { return };
@@ -656,7 +656,7 @@ impl Hull {
         p.work.lift = Some(lp);
     }
 
-    /// vehicles.js feelLegs: each leg pair's ground under its feet as drawn
+    /// feelLegs: each leg pair's ground under its feet as drawn
     /// (legSide, from the placed root), the hull's own body out of the casts.
     fn feel_legs<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) {
         let p = self.pose.as_mut().unwrap();
@@ -761,7 +761,7 @@ pub fn leg_pairs(def: &bfe_content::value::Value) -> Option<LegPairs> {
     Some(out)
 }
 
-/// vehicles.js ninePose(view, yaw, pitch, yawRate): where a 9-pose rider's
+/// ninePose(view, yaw, pitch, yawRate): where a 9-pose rider's
 /// clip is sampled, (pitch, turn) each in -1..1: the seat's pitch across
 /// its limits; its yaw across a limited arc (from the hull's heading, a
 /// wrapped arc's back half past 2pi), else how fast it turns against the

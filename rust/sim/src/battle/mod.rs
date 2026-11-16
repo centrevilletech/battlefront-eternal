@@ -5,7 +5,7 @@
 //!
 //! Each module transliterates its JavaScript file (cited by line): the same
 //! operations in the same order, the quirks kept. Battle and spawn state
-//! use the store (rust/sim/schema/battle.mjs, `crate::gen`); what the rules
+//! use the store (rust/sim/schema/battle.json, `crate::gen`); what the rules
 //! ask of the rest of the world goes through [`world::BattleWorld`]. The
 //! trap state machine has its own [`traps::World`] for hulls and effects.
 

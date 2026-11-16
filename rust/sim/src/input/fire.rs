@@ -1,4 +1,4 @@
-//! Reliable trigger edges (runtime/fire-commands.js). Each button consumes
+//! Reliable trigger edges. Each button consumes
 //! at most one edge per tick, preserving short clicks and future ordering.
 use super::actions::safe_integer;
 use crate::gen::{IaOperation, IaOutcome, IfEdge, IfInput, IfMovement, IfResult, IfState};

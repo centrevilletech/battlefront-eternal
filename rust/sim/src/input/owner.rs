@@ -3,7 +3,7 @@
 //! consumed held/view values rather than serializing every actor each time.
 use crate::{gen::*,store::{handles::Pool,StrId,Strings}};
 // WiView keeps protocol presence independent of numeric values and truthiness.
-/// The view record's presence bits (src/runtime/input-view.js VIEW).
+/// The view record's presence bits (VIEW).
 pub mod view_flags {
     pub const INVERT_MOUSE:u16=1;pub const FIRST_PERSON:u16=2;pub const FLIGHT:u16=4;pub const FLIGHT_INVERT:u16=8;
     pub const GAMEPAD:u16=16;pub const MOUSE_SCALE:u16=32;pub const ASPECT:u16=64;pub const VIEW_TICK:u16=128;

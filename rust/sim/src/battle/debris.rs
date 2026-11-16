@@ -1,5 +1,5 @@
 //! Classic debris launch, flight, bounce, settling, and lifetime
-//! (src/debris.js). Model creation, named-bone lookup, bounds queries,
+//!. Model creation, named-bone lookup, bounds queries,
 //! scene membership, and particle effects remain world callbacks.
 //! Class numbers and effect-name handles are cooked by the content host.
 

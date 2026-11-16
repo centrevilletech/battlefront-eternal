@@ -1,4 +1,4 @@
-//! src/flight/model.js: a craft's flight, one 1/60 s step (`stepFlight`):
+//! a craft's flight, one 1/60 s step (`stepFlight`):
 //! its clocks and the landing site under it, the takeoff key, then by its
 //! flight state the takeoff's lift, the landing's descent, or flight (the
 //! stick's rates, boost, the tricks, the roll, boundary recovery, the move

@@ -18,10 +18,10 @@ use v8math::{abs, sign};
 pub(crate) const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 pub(crate) const DOWN: Vector3 = Vector3::new(0.0, -1.0, 0.0);
 const UNIT_SCALE: Vector3 = Vector3::new(1.0, 1.0, 1.0);
-/// src/vehicle-hover.js HOVER_REST: a hull at rest on its springs keeps a
+/// HOVER_REST: a hull at rest on its springs keeps a
 /// tick's gravity in its velocity, and sleeps below this speed (m/s).
 const HOVER_REST: f64 = 0.15;
-/// src/vehicle-water.js UPDATES_PER_SECOND.
+/// UPDATES_PER_SECOND.
 const UPDATES_PER_SECOND: f64 = 60.0;
 
 /// `const angle = (v) => Math.atan2(Math.sin(v), Math.cos(v))` (vehicles.js 35).
@@ -54,7 +54,7 @@ pub fn or_zero(x: f64) -> f64 {
     }
 }
 
-/// A seat's lease as the hull's tick reads it (src/seats.js SeatLease): a
+/// A seat's lease as the hull's tick reads it (SeatLease): a
 /// person's (the player's own, `human`) or a unit's, a network player's
 /// (`network_human`) or a bot's, and its frozen input's analogs.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -98,7 +98,7 @@ pub struct Wheel {
     pub tick_from: Option<f64>,
 }
 
-/// A walker's water damage (src/vehicle-water.js waterDamageRule).
+/// A walker's water damage (waterDamageRule).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WaterRule {
     pub interval: f64,
@@ -115,7 +115,7 @@ pub struct Spring {
     pub factors: [f64; 6],
 }
 
-/// A hover class's keys (src/vehicle-hover.js hoverClass).
+/// A hover class's keys (hoverClass).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HoverClass {
     pub altitude: f64,
@@ -232,7 +232,7 @@ pub struct Hull {
     pub leg_side_scratch: Vec<f64>,
 
     pub seat_index: usize,
-    /// Whether the page's player drives it (VehicleDriver; never in a world).
+    /// Whether the client's player drives it (VehicleDriver; never in a world).
     pub driver: bool,
     pub wheels: Vec<Wheel>,
     pub seats: Vec<Seat>,
@@ -283,7 +283,7 @@ impl Hull {
         out.set_from_euler(&Euler::new(-self.tilt, self.yaw, self.roll, EulerOrder::YXZ));
     }
 
-    /// vehicles.js 970: one substep. A flyer's tick is the flight
+    /// 970: one substep. A flyer's tick is the flight
     /// package's (crate::flight::fly, `flyer_tick`), taken at 1/60 s.
     pub fn tick<W: VehicleWorld>(&mut self, w: &mut W, dt: f64, input: &Input) {
         self.previous = self.position;
@@ -332,7 +332,7 @@ impl Hull {
         if w.in_death_region(&self.position) || self.position.y < -300.0 {
             self.damage(w, f64::INFINITY, OrdnanceOwner::Null);
         }
-        // Deep water wears a walker down (src/vehicle-water.js).
+        // Deep water wears a walker down.
         if self.walking && self.alive {
             let hurt = self.water_damage_step(w, dt);
             if hurt > 0.0 {
@@ -348,7 +348,7 @@ impl Hull {
         );
     }
 
-    /// src/vehicle-water.js waterDamageStep, for this hull's clock.
+    /// waterDamageStep, for this hull's clock.
     fn water_damage_step<W: VehicleWorld>(&mut self, w: &mut W, dt: f64) -> f64 {
         let Some(rule) = self.water_rule else { return 0.0 };
         if !w.has_water() || !(dt > 0.0) {
@@ -367,7 +367,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js aimCrew: bot seats turn their aim by their analogs.
+    /// aimCrew: bot seats turn their aim by their analogs.
     pub(crate) fn aim_crew(&mut self, dt: f64) {
         for i in 0..self.seats.len() {
             let seat = &mut self.seats[i];
@@ -386,7 +386,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js aimPlayerSeat: the player's look is his seat's aim.
+    /// aimPlayerSeat: the player's look is his seat's aim.
     pub(crate) fn aim_player_seat(&mut self) {
         let i = self.seat_index;
         if let Some(look_yaw) = self.seats[i].look_yaw {
@@ -401,7 +401,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js steer: the hull follows its pilot's aim.
+    /// steer: the hull follows its pilot's aim.
     fn steer(&mut self, dt: f64, input: &Input, keyboard_steers: bool) {
         self.aim_player_seat();
         let bot = self.crewed(0);
@@ -430,7 +430,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js clampAim: a seat's aim held inside its limits.
+    /// clampAim: a seat's aim held inside its limits.
     pub fn clamp_aim(&mut self, i: usize) {
         if self.flying && i == 0 {
             return;
@@ -449,7 +449,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js pushWalls: the hull's wall probes, through the world.
+    /// pushWalls: the hull's wall probes, through the world.
     pub(crate) fn push_walls<W: VehicleWorld>(&mut self, w: &mut W, old_yaw: f64, q: &Quaternion, terrain: bool) {
         let own = if self.walking {
             let mut own = Quaternion::default();
@@ -464,7 +464,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js syncBody: the collision body and the matrix gameplay
+    /// syncBody: the collision body and the matrix gameplay
     /// reads, with the hull's pitch and roll; its quaternion stays its
     /// heading alone.
     pub fn sync_body<W: VehicleWorld>(&mut self, w: &mut W) {
@@ -484,7 +484,7 @@ impl Hull {
         self.item_center.copy(&self.center).apply_matrix4(&self.matrix);
     }
 
-    /// vehicles.js alignGround: tilt and roll toward a ground normal.
+    /// alignGround: tilt and roll toward a ground normal.
     pub fn align_ground(&mut self, normal: &Vector3, blend: f64) {
         let sin = math::sin(self.yaw);
         let cos = math::cos(self.yaw);
@@ -494,7 +494,7 @@ impl Hull {
         self.roll += (-math::atan2(x, v8math::hypot(normal.y, z)) - self.roll) * blend;
     }
 
-    /// vehicles.js damage: `attacker` (Null: nobody) is credited.
+    /// damage: `attacker` (Null: nobody) is credited.
     pub fn damage<W: HullDamageWorld>(&mut self, w: &mut W, amount: f64, attacker: OrdnanceOwner) {
         if !w.accepts_damage() { return; }
         if !self.alive || !(amount > 0.0) {
@@ -509,7 +509,7 @@ impl Hull {
         self.set_health(w, self.health - amount);
     }
 
-    /// vehicles.js captureTick: the pose at the start of a world tick, for
+    /// captureTick: the pose at the start of a world tick, for
     /// drawing between ticks (a flyer's quaternion is the flight package's).
     pub fn capture_tick(&mut self) {
         self.tick_from = Some(self.position);
@@ -521,7 +521,7 @@ impl Hull {
         }
     }
 
-    /// vehicles.js dyingTick: a destroyed walker's death animation plays
+    /// dyingTick: a destroyed walker's death animation plays
     /// out; once it has, its final blast goes off and it is gone.
     pub fn dying_tick<W: HullDamageWorld>(&mut self, w: &mut W, dt: f64) {
         if !(self.dying > 0.0) {
@@ -544,7 +544,7 @@ impl Hull {
         w.resume_hull(self);
     }
 
-    /// vehicles.js setHealth: down to 0, the hull is destroyed.
+    /// setHealth: down to 0, the hull is destroyed.
     pub fn set_health<W: HullDamageWorld>(&mut self, w: &mut W, value: f64) {
         if !self.alive {
             return;
@@ -600,7 +600,7 @@ impl Hull {
     }
 }
 
-/// vehicles.js holdYaw: a yaw held inside a seat's limited arc, measured
+/// holdYaw: a yaw held inside a seat's limited arc, measured
 /// from the hull's heading (`arcYaw` folded in).
 pub fn hold_yaw(hull_yaw: f64, limits: [f64; 2], wrap_yaw: bool, yaw: f64) -> f64 {
     let a = angle(yaw - hull_yaw);

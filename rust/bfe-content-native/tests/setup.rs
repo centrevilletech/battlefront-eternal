@@ -54,7 +54,7 @@ fn water_setup_row_reads_presence_height_and_bobbing_as_the_page_does() {
     assert_eq!(theed, WorldTickSetup { water: true, water_time: 0.0, water_height: -54.0, water_bob: true });
     let flat = tick_setup(&world(r#"{"water":{"height":-10.5,"look":{"OscillationEnable":[0]}}}"#));
     assert_eq!(flat, WorldTickSetup { water: true, water_time: 0.0, water_height: -10.5, water_bob: false });
-    // No flag or a null one keeps the default; a numeric string counts as JavaScript's comparison does.
+    // No flag or a null one keeps the default; a numeric string counts.
     assert!(tick_setup(&world(r#"{"water":{"height":1,"look":{}}}"#)).water_bob);
     assert!(tick_setup(&world(r#"{"water":{"height":1,"look":{"OscillationEnable":[null]}}}"#)).water_bob);
     assert!(tick_setup(&world(r#"{"water":{"height":1,"look":{"OscillationEnable":["1"]}}}"#)).water_bob);

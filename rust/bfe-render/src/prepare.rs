@@ -1,5 +1,5 @@
 //! Loading policy from Graphics.warmupPaced and actorKeys/effectProgramKeys.
-//! The browser supplies settings and pacing; Rust selects and links the catalog.
+//! The earlier build supplies settings and pacing; Rust selects and links the catalog.
 #[path="program_warmup.rs"] mod catalog;
 pub struct WarmSpec { pub key:&'static str, pub family:u32, pub cascades:i32, pub lamps:i32,
     pub dynamic:bool, pub derived:bool, pub shadow:i32, pub csm:i32 }
@@ -41,7 +41,7 @@ pub fn program_warmup_keys(family:u32,cascades:u32,lamps:bool,shadows:bool)->Str
     Prepare::keys(family,cascades,lamps,shadows)
 }
 // WorldPass.prepareNative can lose its context after the recipe is journaled
-// but before its id reaches the browser. Replay resolves that exact cold call;
+// but before its id reaches the client. Replay resolves that exact cold call;
 // resuming it must consume the replayed id instead of allocating another draw.
 pub struct PendingWorld {
     source:u32, far:bool, scale:u64, samplers:Vec<i32>, features:Vec<u32>, order:u32, slot:u32, object:u32,

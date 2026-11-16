@@ -1,5 +1,5 @@
 //! The game's random generators, transliterated from
-//! `src/ai/random.js` and `src/weapons.js`. Draw order is behaviour:
+//! and `src/weapons.js`. Draw order is behaviour:
 //! the shared AI generator means every draw anywhere moves every
 //! later result, so ported code draws through these types, in the
 //! order the JavaScript draws, and the replay harness logs draws per
@@ -20,7 +20,7 @@ pub trait DrawSink {
     fn draw(&mut self, stream: &str, value: f64);
 }
 
-/// `ClassicRandom` (`src/ai/random.js:22-68`): the 2004 game's
+/// `ClassicRandom`: the 2004 game's
 /// generator. One 32-bit state; each draw steps it twice through
 /// x' = x * 1664525 + 1013904223 (mod 2^32) and returns the high
 /// half of the second step over the high half of the first; the
@@ -77,7 +77,7 @@ impl ClassicRandom {
         self.next_u32() as f64
     }
 
-    /// `uniform()`: [0, 1) in float32 steps of 2^-23 — the draw's
+    /// `uniform()`: [0, 1) in float32 steps of 2^-23: the draw's
     /// top 23 bits over 8388608, exact in a double.
     pub fn uniform(&mut self) -> f64 {
         (self.next_u32() >> 9) as f64 / 8388608.0
@@ -101,7 +101,7 @@ impl ClassicRandom {
         fround(fround(lo) + fround(u * fround(hi - lo)))
     }
 
-    /// `mod(n)`: `n > 0 ? this.next() % n : 0` — the `%` is on
+    /// `mod(n)`: `n > 0 ? this.next() % n : 0`: the `%` is on
     /// doubles, so a fractional `n` behaves as it does there.
     pub fn modulo(&mut self, n: f64) -> f64 {
         if n > 0.0 {
@@ -112,7 +112,7 @@ impl ClassicRandom {
     }
 }
 
-/// `RandomStreams` (`src/ai/random.js:74-93`): named independent
+/// `RandomStreams`: named independent
 /// streams, each a `ClassicRandom` seeded from the match seed and
 /// the name by [`fnv1a_mix`], created on first ask. The map is a
 /// `JsMap`, so its iteration order (first-ask order) is the
@@ -182,8 +182,8 @@ impl RandomStreams {
     }
 }
 
-/// `spreadSeed(unit, channel, press)` (`src/weapons.js:71-78`): a
-/// press's spread seed — FNV-1a's fold over the soldier's id, his
+/// `spreadSeed(unit, channel, press)`: a
+/// press's spread seed: FNV-1a's fold over the soldier's id, his
 /// generation, the channel and the press's id, each `>>> 0` first,
 /// with a `h ^= h >>> 15` stir after every multiply. Missing id or
 /// generation (`unit?.id ?? 0`) pass 0.
@@ -201,7 +201,7 @@ pub fn spread_seed_f64(id: f64, generation: f64, channel: f64, press: f64) -> f6
     spread_seed(id, generation, channel, press) as f64
 }
 
-/// The generator `seededRandom(seed)` makes (`src/weapons.js:82-90`):
+/// The generator `seededRandom(seed)` makes:
 /// mulberry32. State `a` is held as a signed 32-bit value, exactly
 /// as the JavaScript's `| 0` keeps it; each call returns a double
 /// in [0, 1).
@@ -239,7 +239,7 @@ mod tests {
     use super::*;
 
     // Values the JavaScript produces (checked against
-    // src/ai/random.js and src/weapons.js under Node by the
+    // and src/weapons.js under Node by the
     // differential harness; these pin the shapes in unit tests).
     #[test]
     fn classic_random_first_draws() {

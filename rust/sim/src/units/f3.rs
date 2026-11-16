@@ -525,7 +525,7 @@ pub(crate) fn foreign_header_bank_in(w: &crate::world::owner::World) -> Option<&
 pub(crate) fn bounds_cache_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.bounds_cache[..]) }
 pub(crate) fn acknowledgement_bank_in(w: &crate::world::owner::World) -> Option<&[f64]> { w.units.state.as_ref().map(|s| &s.acknowledgement[..]) }
 // The banks a host writes before a step or a command, for a host without
-// the module's memory: the same rows the page writes at the descriptor's
+// the module's memory: the same rows the client writes at the descriptor's
 // addresses, taken by name.
 pub(crate) fn input_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.input[..]) }
 pub(crate) fn separation_bank_mut_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { w.units.state.as_mut().map(|s| &mut s.separation[..]) }
@@ -789,7 +789,7 @@ fn step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, leve
     if let Some(ai)=recon.as_ref().and_then(|services|services.ai.as_ref()) {crate::vehicles::module::f2::firing::freeze_ai_targets_in(world_ctx, &**ai);}
     // Foreign requests are indexed before any callbacks can reuse input memory.
     // Omitted native bots resolve current Core ownership before any body
-    // advances, never the page's hint alone. Empty standalone phases
+    // advances, never the client's hint alone. Empty standalone phases
     // retain the existing no-new-request behavior for unowned bodies.
     for i in 0..world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots.len() {
         let slot=world_ctx.units.state.as_mut().expect("prepared unit service").phase_input_slots[i];world_ctx.units.state.as_mut().expect("prepared unit service").phase_inputs[slot]=None;
@@ -1260,7 +1260,7 @@ pub(crate) fn bind_ai_stream_in(units: &mut super::owner::Units, id:u32,stream:c
     units.state.as_mut().expect("prepared unit service").shared_random[id as usize]=Some(stream);
 }
 /// The entries `bind_ai_stream_in` bound, in binding order (a host observing
-/// the page's random state digest reads their seeds).
+/// the client's random state digest reads their seeds).
 pub(crate) fn shared_bindings_in(units: &super::owner::Units) -> &[u32] { &units.state.as_ref().expect("prepared unit service").shared_bindings }
 /// useClassicRandom changes the arsenal's spread generators only. Combat's
 /// chunks roll retains its gameplay stream, independently of bot attachment.
@@ -1280,7 +1280,7 @@ pub(crate) fn weapon_random_binding_in(units: &super::owner::Units, slot: u32) -
     units.state.as_ref()?.random_bindings.get(slot as usize)?.iter().skip(1).copied().find(|id| *id != NO_STREAM)
 }
 
-/// ClassicRandom.uniform (ai/random.js). The numeric binding keeps the shared
+/// ClassicRandom.uniform. The numeric binding keeps the shared
 /// AI stream's draw order without an import for every spread or chunks draw.
 pub(crate) fn random_draw_in(units: &mut super::owner::Units, unit: Ref<Unit>, weapon: Option<u32>) -> f64 { units.state.as_mut().expect("prepared unit service").random_draw(unit, weapon) }
 pub(crate) fn empty_text_in(units: &super::owner::Units) -> crate::store::StrId { units.state.as_ref().expect("prepared unit service").empty_text }
@@ -1819,7 +1819,7 @@ pub(crate) fn relation_in(units: &super::owner::Units, a:f64,b:f64) -> f64 {
 // boundary, after ordnance and items. Capturing never imports body rows.
 
 /// The hit history's capture at the start of a match's tick
-/// (multiplayer-world.js hitHistory.capture): the host's `units` intent
+/// (hitHistory.capture): the host's `units` intent
 /// rows and its network tail precede the foreign facts it wrote.
 pub(crate) fn f3_history_capture_at_in(world_ctx: &mut crate::world::owner::World, tick: u32, units: u32) {
     // F4 may have advanced foreign building life after the unit span. Those
@@ -2043,7 +2043,7 @@ let count=count.max(s.categories.len());
     s.foreign.resize_with(count.max(s.foreign.len()),F3PropFact::default);
     s.items.reserve_unit(count);s.pushers.reserve(count);
     super::f3_hulls::reserve_members_in(&mut world_ctx.units, count);
-    // Prepared future births may become flight targets without a JS registry add.
+    // Prepared future births may become flight targets.
     crate::vehicles::module::f2::reserve_registry_in(world_ctx, count);
     prepare_bounds_in(world_ctx, count);
 }

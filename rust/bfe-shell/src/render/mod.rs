@@ -13,27 +13,27 @@ mod screens;
 pub use self::screens::draw_loading;
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
-/// Mirrors `WHITE` in `src/menus/themes/classic/draw.js`.
+/// Mirrors `WHITE`.
 pub const WHITE: Color = [1.0, 1.0, 1.0, 1.0];
 
 /// Black RGBA (`[0.0, 0.0, 0.0, 1.0]`).
-/// Mirrors `BLACK` in `src/menus/themes/classic/draw.js`.
+/// Mirrors `BLACK`.
 pub const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 
 /// Disabled grey RGBA (`[128/255, 128/255, 128/255, 1.0]`).
-/// Mirrors `GREY` in `src/menus/themes/classic/draw.js`.
+/// Mirrors `GREY`.
 pub const GREY: Color = [128.0 / 255.0, 128.0 / 255.0, 128.0 / 255.0, 1.0];
 
 /// Dimming factor (`150 / 255`) for an unfocused menu row bar.
-/// Mirrors `DIMMED` in `src/menus/themes/classic/draw.js`.
+/// Mirrors `DIMMED`.
 pub const DIMMED: f64 = 150.0 / 255.0;
 
 /// Tracking crosshair line fallback colour (`rgba(40, 190, 255, 0.95)`).
-/// Mirrors `LINE` in `src/shell/loading.js`.
+/// Mirrors `LINE`.
 pub const TRACK_LINE_COLOR: Color = [40.0 / 255.0, 190.0 / 255.0, 1.0, 0.95];
 
 /// Horizontal offset of a menu row's bar relative to the row origin (`-4.7` units).
-/// Calibrated on the retail pause menu (`BAR_X` in `src/menus/themes/classic/index.js`).
+/// Calibrated on the retail pause menu (`BAR_X`).
 const BAR_X: f64 = -4.7;
 
 /// Bitmap font set used by the shell (`gamefont_large`, `gamefont_medium`,
@@ -150,7 +150,7 @@ pub fn rows_shift(width: f64, pitch: f64, count: usize) -> f64 {
 /// shrinks by `pitch` per row below `n / 2`, flipping the right triangle cap
 /// vertically once `i > n / 2` (`ShowHideVerticalButtons`).
 ///
-/// Mirrors `rowBars(width, pitch, n)` in `src/menus/themes/classic/index.js`.
+/// Mirrors `rowBars(width, pitch, n)`.
 pub fn row_bar_at(width: f64, pitch: f64, n: usize, k: usize) -> (f64, bool) {
     let half = n / 2;
     let mut w = width;
@@ -170,7 +170,7 @@ pub fn row_bar_at(width: f64, pitch: f64, n: usize, k: usize) -> (f64, bool) {
 
 /// Focused text colour without a bar: yellow with green channel following `a`.
 ///
-/// Mirrors `selectedColor(a)` in `src/menus/themes/classic/draw.js`:
+/// Mirrors `selectedColor(a)`:
 /// `(255, clamp(1.2 * a * 255 + 50, 100, 255), 100, a)`.
 pub fn selected_color(a: f64) -> Color {
     let g = (1.2 * a * 255.0 + 50.0).clamp(100.0, 255.0);
@@ -184,7 +184,7 @@ pub fn menu_pulse(elapsed: f64) -> f64 {
 }
 
 /// Listbox selection frame pulse (`1.0 -> 0.5 -> 1.0`, one cycle per second).
-/// Mirrors `cursorPulse(time)` in `src/menus/themes/classic/index.js`.
+/// Mirrors `cursorPulse(time)`.
 pub fn cursor_pulse(time: f64) -> f64 {
     let u = (time.rem_euclid(1.0)) * 2.0;
     if u < 1.0 {
@@ -206,7 +206,7 @@ pub fn rotate_x(a: Matrix, angle: f64) -> Matrix {
 /// Builds a 4x4 Euler rotation matrix in degrees.
 /// Uses `"XYZ"` order when `xyz_order` is `true` (`MAIN MENU` in
 /// `src/shell/screens.js`), or the default `"YXZ"` order from
-/// `rotation(layout)` in `src/menus/themes/classic/index.js`.
+/// `rotation(layout)`.
 fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order: bool) -> Matrix {
     let rx = rot_x_deg.to_radians();
     let ry = rot_y_deg.to_radians();
@@ -216,13 +216,13 @@ fn rotation_euler(rot_x_deg: f64, rot_y_deg: f64, rot_z_deg: f64, xyz_order: boo
     if xyz_order {
         rotate_z(rotate_y(rotate_x(IDENTITY, rx), ry), rz)
     } else {
-        // Default "YXZ" Euler order in `src/menus/themes/classic/index.js`.
+        // Default "YXZ" Euler order.
         rotate_z(rotate_x(rotate_y(IDENTITY, ry), rx), rz)
     }
 }
 
 /// Multiplies `c`'s alpha channel by `a`.
-/// Mirrors `tint(color, a)` in `src/menus/themes/classic/draw.js`.
+/// Mirrors `tint(color, a)`.
 pub(super) fn tint_color(c: Color, a: f64) -> Color {
     [c[0], c[1], c[2], c[3] * a]
 }
@@ -265,8 +265,7 @@ pub(super) fn draw_str(
 
 
 
-/// Layout parameters for [`draw_rows`], mirroring the `Rows` widget layout in
-/// `src/menus/themes/classic/index.js` and `src/shell/screens.js`.
+/// Layout parameters for [`draw_rows`], mirroring the `Rows` widget layout.
 #[derive(Clone, Copy)]
 struct RowsLayout<'a> {
     /// Safe-area anchor `[ax, ay]` (default `[0.5, 0.5]`).
@@ -293,7 +292,7 @@ struct RowsLayout<'a> {
 }
 
 impl<'a> Default for RowsLayout<'a> {
-    /// Returns the default `rowScreen` layout from `src/shell/screens.js`:
+    /// Returns the default `rowScreen` layout:
     /// `at: [0.5, 0.5]`, `y: 20`, `width: 350`, `rotY: 35`, `"gamefont_medium"`.
     fn default() -> Self {
         Self {

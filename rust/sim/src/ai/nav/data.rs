@@ -1,7 +1,7 @@
-//! Loading `ai-nav.json` (+ `ai-nav.bin`), schema 1 (nav/data.js), over
+//! Loading `ai-nav.json` (+ `ai-nav.bin`), schema 1, over
 //! the content crate's JSON values. Bad input is an Err with the
 //! JavaScript's message. The routing words are the content crate's
-//! (`bfe_content::content::route_words`, its port of data.js:13).
+//! (`bfe_content::content::route_words`, its port).
 
 use super::barriers::{barrier_from_record, BarrierRecord, BarrierSet};
 use super::boundary::Boundary;
@@ -10,7 +10,6 @@ use super::hints::{build_hints, HintPosts, HintRecord, HintSet, POOL_CAPACITY};
 use super::math::Vec3;
 use bfe_content::Value;
 
-/// data.js:10.
 pub const SCHEMA: f64 = 1.0;
 
 /// A number as an error message's `${}` writes it (ECMAScript
@@ -19,7 +18,7 @@ pub fn num_text(x: f64) -> String {
     bfe_content::js::number_to_string(x)
 }
 
-/// An authored path (data.js:38): its info words and points as loaded
+/// An authored path: its info words and points as loaded
 /// number arrays.
 #[derive(Clone, Debug)]
 pub struct NavPathData {
@@ -29,7 +28,7 @@ pub struct NavPathData {
     pub points: Vec<Vec<f64>>,
 }
 
-/// What loadNav returns (data.js:47), without the planner (the service
+/// What loadNav returns, without the planner (the service
 /// builds that over the barriers). `map`, `source`, `regions` and
 /// `warnings` pass through as loaded values.
 pub struct NavData {
@@ -44,7 +43,7 @@ pub struct NavData {
     pub regions: Value,
     pub warnings: Vec<Value>,
     // Load-time issue records from the JavaScript's default `report`
-    // (data.js:31) are the graph's own reports, on the graph.
+    // are the graph's own reports, on the graph.
 }
 
 fn num(v: Option<&Value>) -> f64 {

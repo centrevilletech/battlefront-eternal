@@ -359,7 +359,7 @@ impl Lightning{
  pub fn clear(&mut self){self.used.fill(0);self.enhanced=false;self.counts[h::ENHANCED_ACTIVE]=0;self.joints.fill(0.);for id in 0..lim::UNITS{let mut shock=self.shocks[id];if shock.on{self.end_shock(id,&mut shock);}self.shocks[id]=shock;self.shields[id].on=false;self.charges[id].on=false;}for b in &mut self.bolts{b.active=false;}self.order.clear();self.sparks.clear();self.counts[h::CAPSULES]=0;self.counts[h::VIEW_CAPSULES]=0;self.counts[h::BOLTS]=0;self.counts[h::SPARKS]=0;self.counts[h::LIGHTS]=0;self.counts[h::VERTICES]=0;self.counts[h::INDICES]=0;}
 }
 
-// Native recordings supply the same collision answers as the browser host.
+// Native recordings supply the same collision answers as the client host.
 // A missing answer means no hit; playback never allocates a frame tape.
 pub struct RecordedCollision<'a>{pub values:&'a [f64],pub cursor:usize}
 impl Collision for RecordedCollision<'_>{fn cast(&mut self,_:V,_:V,_:f64)->Option<(f64,V)>{let at=self.cursor;self.cursor=self.cursor.saturating_add(4);let a=self.values.get(at..at+4)?;if a[0]<0.{None}else{Some((a[0],V::new(a[1],a[2],a[3])))}}}

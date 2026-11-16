@@ -17,25 +17,25 @@
 
 use crate::shapes::{GameFamily, GameFamilyError, SAFE, SAFE_SCALE, W};
 
-/// Row height and vertical pitch in interface units (`PITCH` in `src/scoreboard/classic/layout.js`).
+/// Row height and vertical pitch in interface units (`PITCH`).
 pub const PITCH: f64 = 27.0;
 
-/// Side length of a column sort icon or scroll arrow (`ICON` in `src/scoreboard/classic/layout.js`).
+/// Side length of a column sort icon or scroll arrow (`ICON`).
 pub const ICON: f64 = 30.0;
 
-/// Share of the row inner width occupied by each numeric column (`COLUMN = 0.133` in `src/scoreboard/classic/layout.js`).
+/// Share of the row inner width occupied by each numeric column (`COLUMN = 0.133`).
 pub const COLUMN: f64 = 0.133;
 
-/// Fractional horizontal offsets for the three column header icons (`HEADER` in `src/scoreboard/classic/layout.js`).
+/// Fractional horizontal offsets for the three column header icons (`HEADER`).
 ///
 /// Positions the centers of `stats_kills` (`0.2`), `stats_deaths` (`0.32`), and `stats_cpp` (`0.44`)
 /// across each team's half of the safe area.
 pub const HEADER: [f64; 3] = [0.2, 0.32, 0.44];
 
-/// Extra label width padding (5 units) shifting `AWARDS` left of `awards_right` (`STRING_PAD` in `src/scoreboard/classic/layout.js`).
+/// Extra label width padding (5 units) shifting `AWARDS` left of `awards_right` (`STRING_PAD`).
 pub const STRING_PAD: f64 = 5.0;
 
-/// Extra display box padding (8 units) centering `DETAILS` on its bottom tab (`DISPLAY_PAD` in `src/scoreboard/classic/layout.js`).
+/// Extra display box padding (8 units) centering `DETAILS` on its bottom tab (`DISPLAY_PAD`).
 pub const DISPLAY_PAD: f64 = 8.0;
 
 /// Rectangular box `{ x, y, w, h }` in interface coordinates.
@@ -47,7 +47,7 @@ pub struct ScoreRect {
     pub h: f64,
 }
 
-/// Layout geometry for one team side (`sides[1]` or `sides[2]` in `src/scoreboard/classic/layout.js`).
+/// Layout geometry for one team side (`sides[1]` or `sides[2]`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TeamSideLayout {
     /// Horizontal center of this team's list column.
@@ -74,7 +74,7 @@ pub struct TeamSideLayout {
     pub logo: [f64; 2],
 }
 
-/// Complete Classic team stats table layout (`teamStatsLayout` in `src/scoreboard/classic/layout.js`).
+/// Complete Classic team stats table layout (`teamStatsLayout`).
 ///
 /// Includes the 90% safe area (`safe`), nine-sliced `window`, per-team list geometries (`sides`),
 /// `ListManager` selection cursor metrics (`cursor_w`, `cursor_h = PITCH + 10`, `cursor_dy = 4`),
@@ -124,7 +124,7 @@ pub fn team_stats_layout_for_family(
     Ok(team_stats_layout(h))
 }
 
-/// Computes the Classic scoreboard table layout for interface height `h` (`teamStatsLayout` in `src/scoreboard/classic/layout.js`).
+/// Computes the Classic scoreboard table layout for interface height `h` (`teamStatsLayout`).
 pub fn team_stats_layout(h: f64) -> TeamStatsLayout {
     let sw = SAFE_SCALE * W;
     let sh = SAFE_SCALE * h;
@@ -226,7 +226,7 @@ pub fn team_stats_layout(h: f64) -> TeamStatsLayout {
 }
 
 /// Returns the visible row index (`0..layout.shown`) under interface point `(x, y)` on `side` (`1` or `2`),
-/// or `None` if outside (`rowAt` in `src/scoreboard/classic/layout.js`).
+/// or `None` if outside (`rowAt`).
 pub fn row_at(layout: &TeamStatsLayout, side: usize, x: f64, y: f64) -> Option<usize> {
     let list = layout.side(side);
     if x < list.left || x > list.right {
@@ -240,7 +240,7 @@ pub fn row_at(layout: &TeamStatsLayout, side: usize, x: f64, y: f64) -> Option<u
     }
 }
 
-/// Row configuration for `DETAILS` or `AWARDS` (`DETAILS_ROWS`, `AWARDS_ROWS` in `src/scoreboard/classic/layout.js`).
+/// Row configuration for `DETAILS` or `AWARDS` (`DETAILS_ROWS`, `AWARDS_ROWS`).
 ///
 /// Both sub-pages render a two-column key/value list inside the main scoreboard window:
 /// labels end right-aligned at `win.x - gap`, values start left-aligned at `win.x + gap`,
@@ -254,7 +254,7 @@ pub struct StatsPageRowsConfig {
     pub font: &'static str,
 }
 
-/// Row metrics for `DETAILS` (`ifs_personalstats` in `src/scoreboard/classic/layout.js`).
+/// Row metrics for `DETAILS` (`ifs_personalstats`).
 ///
 /// Uses `gamefont_small` with 3 blank rows at the top so both the `"PERSONAL STATS"` title
 /// and the inspected player's uppercase name fit above the 9 stat rows (+ optional `CONNECTION`).
@@ -266,7 +266,7 @@ pub const DETAILS_ROWS: StatsPageRowsConfig = StatsPageRowsConfig {
     font: "gamefont_small",
 };
 
-/// Row metrics for `AWARDS` (`ifs_awardstats` in `src/scoreboard/classic/layout.js`).
+/// Row metrics for `AWARDS` (`ifs_awardstats`).
 ///
 /// Uses `gamefont_medium` with 2 blank rows under `"PLAYER AWARDS"` and a wider `25.0`-unit
 /// center gap (`50.0` units total between label and value) so the 8 mini team-logo holograms
@@ -279,7 +279,7 @@ pub const AWARDS_ROWS: StatsPageRowsConfig = StatsPageRowsConfig {
     font: "gamefont_medium",
 };
 
-/// Layout geometry for `DETAILS` and `AWARDS` sub-pages (`statsPageLayout` in `src/scoreboard/classic/layout.js`).
+/// Layout geometry for `DETAILS` and `AWARDS` sub-pages (`statsPageLayout`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StatsPageLayout {
     pub table: TeamStatsLayout,
@@ -294,7 +294,7 @@ pub struct StatsPageLayout {
 }
 
 impl StatsPageLayout {
-    /// Target corner position where the inspected team's logo flies on `DETAILS` (`corner` in `src/scoreboard/classic/layout.js`).
+    /// Target corner position where the inspected team's logo flies on `DETAILS` (`corner`).
     ///
     /// Team 1's logo flies to the top-left corner (`W/2 - 0.4 * safe.w`) and Team 2's to the
     /// top-right corner (`W/2 + 0.4 * safe.w`) at `H/2 - 0.3 * safe.h` and half size.
@@ -320,7 +320,7 @@ pub fn stats_page_layout_for_family(
     Ok(stats_page_layout(h, rows))
 }
 
-/// Computes the `DETAILS` or `AWARDS` page layout (`statsPageLayout` in `src/scoreboard/classic/layout.js`).
+/// Computes the `DETAILS` or `AWARDS` page layout (`statsPageLayout`).
 ///
 /// Replicates the original `ifs_awardstats` Lua formula for the 8 centered award icon positions
 /// (`icons[0..8]`), including the `+10.0` vertical offset applied specifically at `h == 768.0`.

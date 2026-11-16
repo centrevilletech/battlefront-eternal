@@ -1,4 +1,4 @@
-//! What a Classic bot notices (src/ai/classic/perception.js): the sight
+//! What a Classic bot notices: the sight
 //! scan and its 112-entry heap, the global deferred line-of-sight queue (two
 //! 200-entry heaps), each agent's target tracker, hearing, grenade danger,
 //! and the alerts shots and damage raise, with the interrupt helper's
@@ -21,9 +21,9 @@ pub const GLOBAL_SENTINEL: f64 = 200.0;
 pub const SCAN_CAPACITY: usize = 175;
 
 // ---------------------------------------------------------------------------
-// Heaps (perception.js:66).
+// Heaps.
 
-/// perception.js:66 `PriorityHeap`: a one-based max-heap over priorities
+/// `PriorityHeap`: a one-based max-heap over priorities
 /// kept in an Int32Array (each stored as ToInt32), with a sentinel at 0.
 /// A newcomer's priority is compared as given (before its ToInt32), as the
 /// JavaScript compares its argument with the stored ones.
@@ -56,7 +56,7 @@ impl<T: Clone> PriorityHeap<T> {
         self.count
     }
 
-    /// perception.js:80 `clear()`.
+    /// `clear()`.
     pub fn clear(&mut self) {
         for i in 1..=self.count {
             self.items[i] = None;
@@ -64,7 +64,7 @@ impl<T: Clone> PriorityHeap<T> {
         self.count = 0;
     }
 
-    /// perception.js:86 `place(k, priority, item)`: bubble up past
+    /// `place(k, priority, item)`: bubble up past
     /// strictly lower parents.
     pub fn place(&mut self, mut k: usize, priority: f64, item: Option<T>) {
         let mut parent = k >> 1;
@@ -78,7 +78,7 @@ impl<T: Clone> PriorityHeap<T> {
         self.items[k] = item;
     }
 
-    /// perception.js:100 `minIndex()`: zero-based, scanning floor(n/2)..n,
+    /// `minIndex()`: zero-based, scanning floor(n/2)..n,
     /// the earlier on ties.
     pub fn min_index(&self) -> isize {
         let mut best = self.count >> 1;
@@ -90,7 +90,7 @@ impl<T: Clone> PriorityHeap<T> {
         best as isize - 1
     }
 
-    /// perception.js:108 `insert(priority, item)`.
+    /// `insert(priority, item)`.
     pub fn insert(&mut self, priority: f64, item: Option<T>) -> Inserted<T> {
         if self.count < self.capacity {
             self.count += 1;
@@ -107,7 +107,7 @@ impl<T: Clone> PriorityHeap<T> {
         Inserted::Dropped
     }
 
-    /// perception.js:128 `peekPriority()`.
+    /// `peekPriority()`.
     pub fn peek_priority(&self) -> f64 {
         if self.count > 0 {
             self.priority[1] as f64
@@ -116,7 +116,7 @@ impl<T: Clone> PriorityHeap<T> {
         }
     }
 
-    /// perception.js:132 `pop()`.
+    /// `pop()`.
     pub fn pop(&mut self) -> Option<Option<T>> {
         if self.count == 0 {
             return None;
@@ -153,13 +153,13 @@ impl<T: Clone> PriorityHeap<T> {
 }
 
 // ---------------------------------------------------------------------------
-// Matchup priority and the target cost (perception.js:170).
+// Matchup priority and the target cost.
 
 const PRIORITY_INFANTRY: [f64; 11] = [10.0, 5.0, 20.0, 10.0, 5.0, 3.0, 15.0, 0.0, 20.0, 1.0, 0.0];
 const PRIORITY_GROUND: [f64; 11] = [5.0, 1.0, 20.0, 5.0, 1.0, 10.0, 10.0, 0.0, 10.0, 1.0, 0.0];
 const PRIORITY_FLYER: [f64; 11] = [5.0, 1.0, 20.0, 5.0, 10.0, 20.0, 10.0, 0.0, 20.0, 10.0, 0.0];
 
-/// perception.js:174 `matchupPriority(source, target)`.
+/// `matchupPriority(source, target)`.
 pub fn matchup_priority(source: f64, target: f64) -> f64 {
     let row = if source == 0.0 || source == 1.0 || source == 3.0 {
         &PRIORITY_INFANTRY
@@ -177,7 +177,7 @@ pub fn matchup_priority(source: f64, target: f64) -> f64 {
 pub const OBJECTIVE_PRIORITY: f64 = 20.0;
 pub const TOWED_PRIORITY: f64 = 21.0;
 
-/// perception.js:201 `targetPriority(unit, target, controller)`.
+/// `targetPriority(unit, target, controller)`.
 pub fn target_priority<W: World + ?Sized>(w: &W, unit: Obj, target: Obj, controller: Option<Obj>) -> f64 {
     let t = w.unit_priority(target);
     if let Some(post) = t.building_post {
@@ -196,7 +196,7 @@ pub fn target_priority<W: World + ?Sized>(w: &W, unit: Obj, target: Obj, control
     matchup_priority(u.kind, t.kind)
 }
 
-/// perception.js:210 `rawCost(unit, target, controller)`.
+/// `rawCost(unit, target, controller)`.
 pub fn raw_cost<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj, controller: Option<Obj>) -> f64 {
     let eye = w.origin(unit);
     let at = w.aim_point(target);
@@ -209,9 +209,9 @@ pub fn raw_cost_points(eye: &Vector3, at: &Vector3, priority: f64) -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Sight geometry (perception.js:220).
+// Sight geometry.
 
-/// perception.js:225 `coneDistanceSq(unit, target)`: the squared distance
+/// `coneDistanceSq(unit, target)`: the squared distance
 /// to the target's aim point inside the 77.5-degree cone, else -2.
 pub fn cone_distance_sq<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> f64 {
     let eye = w.origin(unit);
@@ -235,7 +235,7 @@ pub fn cone_distance_points(eye: &Vector3, look: &Vector3, at: &Vector3) -> f64 
     l2
 }
 
-/// perception.js:243 `POSTURE_RADIUS`.
+/// `POSTURE_RADIUS`.
 pub fn posture_radius(posture: &str) -> f64 {
     let w = [f(0.7200000286), f(0.4499999881), f(0.8000000119)];
     let h = [f(1.8999999762), f(1.6000000238), f(0.5500000119)];
@@ -250,7 +250,7 @@ pub fn posture_radius(posture: &str) -> f64 {
     }
 }
 
-/// perception.js:251 `boundRadius(unit)`.
+/// `boundRadius(unit)`.
 pub fn bound_radius<W: World + ?Sized>(w: &mut W, unit: Obj) -> f64 {
     if let Some(posture)=w.unit_bound_posture(unit) {
         return posture_radius(match posture {super::world::BoundPosture::Stand=>"stand",super::world::BoundPosture::Crouch=>"crouch",super::world::BoundPosture::Prone=>"prone"});
@@ -258,13 +258,13 @@ pub fn bound_radius<W: World + ?Sized>(w: &mut W, unit: Obj) -> f64 {
     f(w.sphere(unit).radius)
 }
 
-/// perception.js:260 `sightRange(owner, target)`.
+/// `sightRange(owner, target)`.
 pub fn sight_range<W: World + ?Sized>(w: &mut W, owner: Obj, target: Obj) -> f64 {
     let m = if w.unit_scalars(owner).kind == 5.0 { 2.0 } else { 1.0 };
     f(f(f(f(bound_radius(w, target) * 20.0) + 30.0)) * m)
 }
 
-/// perception.js:266 `validTarget(world, unit, target)`.
+/// `validTarget(world, unit, target)`.
 pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> bool {
     let t = w.unit_target_status(target);
     if !t.alive || target == unit {
@@ -290,7 +290,7 @@ pub fn valid_target<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> boo
     w.relation(a, b) < 0.0
 }
 
-/// perception.js:279 `losPoint(target, out)`: midway between the target's
+/// `losPoint(target, out)`: midway between the target's
 /// eye and its aim point (its aim point without an eye).
 pub fn los_point<W: World + ?Sized>(w: &mut W, target: Obj) -> Vector3 {
     let mut out = w.aim_point(target);
@@ -301,16 +301,16 @@ pub fn los_point<W: World + ?Sized>(w: &mut W, target: Obj) -> Vector3 {
     out
 }
 
-/// perception.js:290 `clearShot(world, unit, point, target)`.
+/// `clearShot(world, unit, point, target)`.
 pub fn clear_shot<W: World + ?Sized>(w: &mut W, unit: Obj, point: &Vector3, target: Option<Obj>) -> bool {
     let eye = w.origin(unit);
     w.los(&eye, point, Some(unit), target)
 }
 
 // ---------------------------------------------------------------------------
-// Per-controller perception (perception.js:299).
+// Per-controller perception.
 
-/// perception.js:299 `Perception`.
+/// `Perception`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Perception {
     pub heap: PriorityHeap<Ref>,
@@ -319,7 +319,7 @@ pub struct Perception {
     pub aimer: Aimer,
     pub fire: FireControl,
     pub last_scan_count: f64,
-    /// The Enhanced aimer (src/ai/enhanced/aim.js aimerOf), when made.
+    /// The Enhanced aimer (aimerOf), when made.
     pub enhanced: Option<super::enhanced::EnhancedAimer>,
 }
 
@@ -347,7 +347,7 @@ impl Perception {
         self.fire=FireControl::default();self.last_scan_count=0.;self.enhanced=None;
         self.reset();
     }
-    /// perception.js:310 `reset()`.
+    /// `reset()`.
     pub fn reset(&mut self) {
         self.heap.clear();
         self.candidate = None;
@@ -361,9 +361,9 @@ fn ref_of<W: World + ?Sized>(w: &W, u: Option<Obj>) -> Option<Ref> {
 }
 
 // ---------------------------------------------------------------------------
-// The scan (perception.js:334).
+// The scan.
 
-/// perception.js:334 `scan(controller, world, dispatch)`.
+/// `scan(controller, world, dispatch)`.
 pub fn scan<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj) -> f64 {
     let unit = w.ctl(controller).unit;
     let Some(unit) = unit else { return 0.0 };
@@ -420,9 +420,9 @@ pub fn scan<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj) ->
 }
 
 // ---------------------------------------------------------------------------
-// The global deferred-LOS queue (perception.js:377).
+// The global deferred-LOS queue.
 
-/// A sight request (perception.js:388): the controller, the target's
+/// A sight request: the controller, the target's
 /// reference, the controller's life when it asked.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LosRequest {
@@ -431,7 +431,7 @@ pub struct LosRequest {
     pub generation: f64,
 }
 
-/// perception.js:377 `DeferredLos`.
+/// `DeferredLos`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DeferredLos {
     pub active: PriorityHeap<LosRequest>,
@@ -457,7 +457,7 @@ fn candidate_of<W: World + ?Sized>(w: &W, controller: Obj) -> Option<Obj> {
     resolve(w, c)
 }
 
-/// perception.js:431 `requestLive(req)`.
+/// `requestLive(req)`.
 fn request_live<W: World + ?Sized>(w: &W, req: &LosRequest) -> bool {
     let c = w.ctl(req.controller);
     let unit_alive = c.unit.is_some_and(|u| w.unit_scalars(u).alive);
@@ -465,7 +465,7 @@ fn request_live<W: World + ?Sized>(w: &W, req: &LosRequest) -> bool {
 }
 
 impl DeferredLos {
-    /// perception.js:387 `submit(controller, target, priority)`.
+    /// `submit(controller, target, priority)`.
     pub fn submit(&mut self, controller: Obj, generation: f64, target: Option<Ref>, priority: f64) {
         let req = LosRequest { controller, target, generation };
         if let Inserted::Dropped = self.active.insert(priority, Some(req)) {
@@ -473,7 +473,7 @@ impl DeferredLos {
         }
     }
 
-    /// perception.js:394 `drain(controller)`.
+    /// `drain(controller)`.
     pub fn drain<W: World + ?Sized>(&mut self, w: &W, controller: Obj) {
         self.scratch.clear();
         while self.active.size() > 0 {
@@ -487,7 +487,7 @@ impl DeferredLos {
         std::mem::swap(&mut self.active, &mut self.scratch);
     }
 
-    /// perception.js:409 `service(world, budget)`: whether any test ran.
+    /// `service(world, budget)`: whether any test ran.
     pub fn service<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut Shared, budget: f64) -> bool {
         let mut tests = 0.0;
         let mut any = false;
@@ -514,7 +514,7 @@ impl DeferredLos {
     }
 }
 
-/// perception.js:441 `thin(controller, world, retainedRef, queue)`.
+/// `thin(controller, world, retainedRef, queue)`.
 pub fn thin<W: World + ?Sized>(w: &mut W, los: &mut DeferredLos, controller: Obj, retained: Option<Ref>) -> f64 {
     if w.ctl(controller).perception.is_none() {
         return 0.0;
@@ -582,7 +582,7 @@ pub fn thin_candidates(q: &mut impl ThinQueue, retained: Option<Obj>) -> f64 {
     submitted
 }
 
-/// perception.js:477 `recordTarget(controller, target, point, world)`: the
+/// `recordTarget(controller, target, point, world)`: the
 /// controller's candidate, and a soldier target's cluster check.
 pub fn record_target<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: Obj, target: Obj, point: &Vector3) {
     let r = ref_of(w, Some(target));
@@ -620,7 +620,7 @@ pub fn record_target<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
     }
 }
 
-/// perception.js:499 `clearCandidate(controller)`.
+/// `clearCandidate(controller)`.
 pub fn clear_candidate<W: World + ?Sized>(w: &mut W, controller: Obj) {
     if let Some(p) = w.ctl_mut(controller).perception.as_mut() {
         p.candidate = None;
@@ -628,11 +628,11 @@ pub fn clear_candidate<W: World + ?Sized>(w: &mut W, controller: Obj) {
 }
 
 // ---------------------------------------------------------------------------
-// The target tracker (perception.js:509).
+// The target tracker.
 
 const DEFAULT_DELAY: f64 = 3.0;
 
-/// perception.js:509 `TargetTracker`: each agent has one.
+/// `TargetTracker`: each agent has one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TargetTracker {
     pub controller: Obj,
@@ -663,12 +663,12 @@ impl TargetTracker {
         }
     }
 
-    /// perception.js:523 `get target`.
+    /// `get target`.
     pub fn target<W: World + ?Sized>(&self, w: &W) -> Option<Obj> {
         resolve(w, self.target)
     }
 
-    /// perception.js:528 `get freshTarget`.
+    /// `get freshTarget`.
     pub fn fresh_target<W: World + ?Sized>(&self, w: &W) -> Option<Obj> {
         if self.fresh {
             self.target(w)
@@ -677,7 +677,7 @@ impl TargetTracker {
         }
     }
 
-    /// perception.js:533 `reset(target)` (and `assign`).
+    /// `reset(target)` (and `assign`).
     pub fn reset<W: World + ?Sized>(&mut self, w: &W, target: Option<Obj>) {
         self.target = ref_of(w, target);
         self.fresh = false;
@@ -686,7 +686,7 @@ impl TargetTracker {
         self.counting = false;
     }
 
-    /// perception.js:547 `refresh(target, point, now)`.
+    /// `refresh(target, point, now)`.
     fn refresh<W: World + ?Sized>(&mut self, w: &mut W, target: Option<Obj>, point: &Vector3, now: f64) {
         self.fresh = true;
         self.point = *point;
@@ -699,13 +699,13 @@ impl TargetTracker {
         self.counting = false;
     }
 
-    /// perception.js:557 `startCountdown(now)`.
+    /// `startCountdown(now)`.
     pub fn start_countdown(&mut self, now: f64) {
         self.counting = true;
         self.deadline = if self.frozen { FLT_MAX } else { f(f(now) + f(self.delay)) };
     }
 
-    /// perception.js:564 `setDelay(seconds, now)`.
+    /// `setDelay(seconds, now)`.
     pub fn set_delay(&mut self, seconds: f64, now: f64) {
         self.delay = f(seconds);
         if self.counting {
@@ -713,12 +713,12 @@ impl TargetTracker {
         }
     }
 
-    /// perception.js:569 `defaultDelay(now)`.
+    /// `defaultDelay(now)`.
     pub fn default_delay(&mut self, now: f64) {
         self.set_delay(DEFAULT_DELAY, now);
     }
 
-    /// perception.js:574 `freeze(on, now)`.
+    /// `freeze(on, now)`.
     pub fn freeze(&mut self, on: bool, now: f64) {
         self.frozen = on;
         if self.counting {
@@ -726,7 +726,7 @@ impl TargetTracker {
         }
     }
 
-    /// perception.js:581 `select(world)`: follow the controller's
+    /// `select(world)`: follow the controller's
     /// candidate; whether the target changed.
     pub fn select<W: World + ?Sized>(&mut self, w: &mut W) -> bool {
         let controller = self.controller;
@@ -769,7 +769,7 @@ impl TargetTracker {
         before != self.target(w)
     }
 
-    /// perception.js:615 `assignWeaponTarget(world)`: the remembered point
+    /// `assignWeaponTarget(world)`: the remembered point
     /// when the target is not fresh.
     pub fn assign_weapon_target<W: World + ?Sized>(&self, w: &mut W, table: &super::weapons_ai::WeaponAiTable) -> Option<Vector3> {
         let controller = self.controller;
@@ -783,14 +783,14 @@ impl TargetTracker {
         None
     }
 
-    /// perception.js:628 `pointNearTarget()`.
+    /// `pointNearTarget()`.
     pub fn point_near_target<W: World + ?Sized>(&self, w: &mut W) -> bool {
         let Some(target) = self.target(w) else { return false };
         let at = los_point(w, target);
         length_sq32(f(self.point.x - at.x), f(self.point.y - at.y), f(self.point.z - at.z)) < 9.0
     }
 
-    /// perception.js:636 `fireControls(world)`: the controller's two fire
+    /// `fireControls(world)`: the controller's two fire
     /// requests.
     pub fn fire_controls<W: World + ?Sized>(&self, w: &mut W, table: &super::weapons_ai::WeaponAiTable) {
         let controller = self.controller;
@@ -821,7 +821,7 @@ impl TargetTracker {
     }
 }
 
-/// perception.js:659 `update(world, dispatch)` on the agent's tracker:
+/// `update(world, dispatch)` on the agent's tracker:
 /// selection, weapon choice, the weapon's target, the fire requests.
 pub fn tracker_update<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, agent: Obj) {
     let mut t = *w.tracker(agent).expect("the agent's tracker");
@@ -841,11 +841,11 @@ pub fn tracker_update<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, agent: Ob
 }
 
 // ---------------------------------------------------------------------------
-// Acoustic awareness (perception.js:678).
+// Acoustic awareness.
 
 const DEFAULT_MUTE: f64 = 400.0;
 
-/// perception.js:680 `weaponNoise(weapon, sounds)` (no sound table bound).
+/// `weaponNoise(weapon, sounds)` (no sound table bound).
 fn weapon_noise(wv: Option<&super::world::WeaponView>) -> f64 {
     let Some(wv) = wv else { return 0.0 };
     let active = wv.charging || wv.busy || wv.wait > 1e-6;
@@ -866,7 +866,7 @@ fn clamp50(x: f64) -> f64 {
     }
 }
 
-/// perception.js:699 `noiseRadius(unit, sounds)`.
+/// `noiseRadius(unit, sounds)`.
 pub fn noise_radius<W: World + ?Sized>(w: &W, unit: Obj) -> f64 {
     let u = w.unit_sensor(unit);
     let speed = match u.velocity {
@@ -894,7 +894,7 @@ pub fn noise_radius<W: World + ?Sized>(w: &W, unit: Obj) -> f64 {
     }
 }
 
-/// perception.js:721 `broadcastAcoustic(source, world, sounds)`: how many
+/// `broadcastAcoustic(source, world, sounds)`: how many
 /// bots were told.
 pub fn broadcast_acoustic<W: World + ?Sized>(w: &mut W, source: Obj) -> f64 {
     broadcast_acoustic_with(w,source,&mut |_,_,_|{})
@@ -936,9 +936,9 @@ pub fn broadcast_acoustic_with<W:World+?Sized>(w:&mut W,source:Obj,notify:&mut i
 }
 
 // ---------------------------------------------------------------------------
-// Grenade and sticky danger (perception.js:745).
+// Grenade and sticky danger.
 
-/// A live grenade's danger state (`round.aiDanger`, perception.js:745).
+/// A live grenade's danger state (`round.aiDanger`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DangerState {
     pub first_contact: f64,
@@ -951,7 +951,7 @@ impl Default for DangerState {
     }
 }
 
-/// perception.js:753 `dangerDelayRange(enemySkill)`.
+/// `dangerDelayRange(enemySkill)`.
 pub fn danger_delay_range(enemy_skill: f64) -> (f64, f64) {
     if enemy_skill < 17.0 {
         return if enemy_skill < 14.0 { (f(1.1), f(2.1)) } else { (f(0.6), f(1.3)) };
@@ -959,7 +959,7 @@ pub fn danger_delay_range(enemy_skill: f64) -> (f64, f64) {
     (0.0, f(0.8))
 }
 
-/// perception.js:758 `notifyDanger(world, state, position, owner,
+/// `notifyDanger(world, state, position, owner,
 /// enemySkill, onWarn)`: `warn` names the first soldier warned (the
 /// caller's shout).
 pub fn notify_danger<W: World + ?Sized>(w: &mut W, state: &mut DangerState, position: &Vector3, owner: Option<Obj>, enemy_skill: f64, warn: &mut dyn FnMut(&mut W, Obj)) -> f64 {
@@ -1000,9 +1000,9 @@ pub fn notify_danger_with<W:World+?Sized>(w:&mut W,state:&mut DangerState,positi
 }
 
 // ---------------------------------------------------------------------------
-// Targeted-fire and damage alerts (perception.js:787).
+// Targeted-fire and damage alerts.
 
-/// perception.js:812 `alertControllers(target, out)`.
+/// `alertControllers(target, out)`.
 pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> crate::ai::owned::scratch::List<Obj> {
     let mut out = w.object_buffer();
     let mut add = |c: Option<Obj>| {
@@ -1030,7 +1030,7 @@ pub fn alert_controllers<W: World + ?Sized>(w: &W, target: Obj) -> crate::ai::ow
     out
 }
 
-/// perception.js:789 `notifyTargetedShot(world, shooter, target,
+/// `notifyTargetedShot(world, shooter, target,
 /// shooterPosition)`: the shooter's Character is the source.
 pub fn notify_targeted_shot<W: World + ?Sized>(w: &mut W, shooter: Obj, target: Obj, shooter_position: &Vector3) -> bool {
     if !w.unit_scalars(target).alive {
@@ -1052,7 +1052,7 @@ pub fn notify_targeted_shot<W: World + ?Sized>(w: &mut W, shooter: Obj, target: 
     notified
 }
 
-/// A damage packet (perception.js:832).
+/// A damage packet.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Packet {
     pub amount: Option<f64>,
@@ -1071,7 +1071,7 @@ pub struct Attacker {
     pub character_team: Option<f64>,
 }
 
-/// perception.js:836 `notifyDamage(world, victim, attacker, packet, known,
+/// `notifyDamage(world, victim, attacker, packet, known,
 /// point)`.
 pub fn notify_damage<W: World + ?Sized>(w: &mut W, victim: Obj, attacker: Attacker, packet: Packet, known: bool, point: Option<Vector3>) -> bool {
     if !w.unit_scalars(victim).alive {
@@ -1099,9 +1099,9 @@ pub fn notify_damage<W: World + ?Sized>(w: &mut W, victim: Obj, attacker: Attack
 }
 
 // ---------------------------------------------------------------------------
-// The interrupt helper's responses (perception.js:858).
+// The interrupt helper's responses.
 
-/// A response (perception.js:858): a combat goal (`kind` 2) in `mode` at
+/// A response: a combat goal (`kind` 2) in `mode` at
 /// `point`, whether the mount is to be left, whether the bot shouts.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Response {
@@ -1111,7 +1111,7 @@ pub struct Response {
     pub alert: bool,
 }
 
-/// perception.js:861 `weaponGate(controller)`.
+/// `weaponGate(controller)`.
 fn weapon_gate<W: World + ?Sized>(w: &W, controller: Obj) -> bool {
     match w.ctl(controller).unit {
         Some(u) => selected_weapon(w, u, Some(controller)).is_some(),
@@ -1119,7 +1119,7 @@ fn weapon_gate<W: World + ?Sized>(w: &W, controller: Obj) -> bool {
     }
 }
 
-/// perception.js:868 `sourceUnit(controller, source)`: the alert source's
+/// `sourceUnit(controller, source)`: the alert source's
 /// current controllable, while it lives.
 fn source_unit<W: World + ?Sized>(w: &mut W, source: Option<Obj>) -> Option<Obj> {
     let source = source?;
@@ -1136,7 +1136,7 @@ fn source_unit<W: World + ?Sized>(w: &mut W, source: Option<Obj>) -> Option<Obj>
     }
 }
 
-/// perception.js:903 `engageable(controller, unit, target, world, dispatch)`.
+/// `engageable(controller, unit, target, world, dispatch)`.
 fn engageable<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, unit: Obj, target: Obj) -> bool {
     if w.weapon_count(unit)==0 {
         return false;
@@ -1145,7 +1145,7 @@ fn engageable<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, 
     e.pattern != 0.0 && !e.pattern.is_nan()
 }
 
-/// perception.js:913 `mountedExit(controller, world, point)`.
+/// `mountedExit(controller, world, point)`.
 fn mounted_exit<W: World + ?Sized>(w: &mut W, controller: Obj, point: &Vector3) -> bool {
     let Some(unit) = w.ctl(controller).unit else { return false };
     if forward_speed(&w.unit(unit)) != 0.0 {
@@ -1161,7 +1161,7 @@ fn mounted_exit<W: World + ?Sized>(w: &mut W, controller: Obj, point: &Vector3) 
     }
 }
 
-/// perception.js:881 `alertResponse(controller, world, agent, dispatch)`.
+/// `alertResponse(controller, world, agent, dispatch)`.
 pub fn alert_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, agent: Option<Obj>) -> Option<Response> {
     let shot = w.ctl(controller).shot;
     if !shot.pending {
@@ -1195,7 +1195,7 @@ pub fn alert_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controlle
     Some(Response { mode: 2.0, point: Vector3 { x: f(p.x + x), y: f(p.y + y), z: f(p.z + z) }, exit: false, alert: false })
 }
 
-/// perception.js:924 `hazardResponse(controller, world, agent)`.
+/// `hazardResponse(controller, world, agent)`.
 pub fn hazard_response<W: World + ?Sized>(w: &mut W, controller: Obj, agent: Option<Obj>) -> Option<Response> {
     let danger = w.ctl(controller).danger;
     if !danger.pending {
@@ -1219,7 +1219,7 @@ pub fn hazard_response<W: World + ?Sized>(w: &mut W, controller: Obj, agent: Opt
     Some(Response { mode: 2.0, point: danger.point, exit: false, alert: false })
 }
 
-/// perception.js:937 `acousticResponse(controller, world, agent)`.
+/// `acousticResponse(controller, world, agent)`.
 pub fn acoustic_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, controller: Obj, agent: Option<Obj>) -> Option<Response> {
     let unit = w.ctl(controller).unit?;
     if w.ctl(controller).acoustic.is_empty() {

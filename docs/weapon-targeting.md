@@ -76,7 +76,7 @@ in the cone, so a pooled body's stale bot target can never lock for him.
 
 ## Port changes
 
-`rust/sim` (`weapon-targeting`) separates missile-launcher capability from the
+`rust/sim` (`combat`) separates missile-launcher capability from the
 ordinary reticle's target-colour selection. Infantry, vehicle seats and
 manned turrets feed eligible targets into the native acquisition phase. AI weapons
 use their controller's masked target instead of acquiring through a human
@@ -135,13 +135,11 @@ Aircraft retain their existing flight targeting system.
 `cargo test --locked --workspace` checks projectile guidance and all four
 infantry launcher schedules when local extracts exist. The synthetic frozen
 weapon corpus checks 3,880 native timer, charge, lock-reset, salvo, spread and
-shot checkpoints against the removed JavaScript controller.
+shot checkpoints against recorded results.
 Native acquisition and crew-team changes are exercised by
-`cargo test --locked --workspace` and `cargo test --locked --workspace`; page scope alignment
-uses the published basis in `cargo test --locked --workspace`.
-`cargo test --locked --workspace` runs with the world in its
-worker and 144 Hz presentation: the displayed aim stays aligned in both views
-while authoritative packets are pending.
+`cargo test --locked --workspace`; the client's scope alignment uses the
+published basis, and the displayed aim stays aligned in both views while
+authoritative packets are pending.
 
 Vehicle targeting still uses the port's existing collision-bounds aim
 point. The original game's per-vehicle subtarget selection is not yet

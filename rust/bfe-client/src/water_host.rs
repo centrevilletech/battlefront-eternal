@@ -1,11 +1,11 @@
 //! The terrain water's host (Water, src/water.js, and the mirror part of
-//! BattleFrame, src/rust-render/frame.js, in the page this client replaces).
+//! BattleFrame, src/rust-render/frame.js, in the client this client replaces).
 //!
 //! The renderer already owns the water passes: the tint pass over a copy of
 //! the opaque scene, the reflection pass and the low textured pass, each for
 //! the near scene and for the far scene (`effect_water`), the reflected far
 //! scene (the frame plan's mirror views) and the scene copy the passes read.
-//! What stays here is what the page owned: which settings pick which passes,
+//! What stays here is what the client owned: which settings pick which passes,
 //! the per-frame facts every pass reads (camera, clocks, sampler identities),
 //! the mirrored camera, and the retained rows that publish them.
 use crate::{render_bridge::Bridge, resources::Resources};
@@ -30,14 +30,14 @@ use bfe_render::{
 use serde_json::{json, Value};
 use three::{Matrix4, Quaternion};
 
-/// The page's WATER QUALITY and OCEAN AND SKY choices.
+/// The client's WATER QUALITY and OCEAN AND SKY choices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub quality: String,
     pub ocean: String,
 }
 impl Default for Settings {
-    // The page's defaults (DEFAULTS in src/settings.js).
+    // The client's defaults (DEFAULTS).
     fn default() -> Self {
         Self { quality: "high".into(), ocean: "enhanced".into() }
     }
@@ -192,7 +192,7 @@ pub(crate) fn scene_copy_resize(resources: &mut Resources, bridge: &mut Bridge, 
     Ok(())
 }
 
-// The neutral normal and the black specular mask the page kept as
+// The neutral normal and the black specular mask the client kept as
 // DataTextures: one texel, nearest, clamped.
 fn fallback(resources: &mut Resources, bridge: &mut Bridge, pixels: [u8; 4]) -> Result<u32, String> {
     let source = resources.source(&json!({"width":1,"height":1,"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false}).to_string())?;
@@ -981,7 +981,7 @@ impl WaterHost {
     }
 
     /// The one step of an underwater screen pass, written into the screen
-    /// input as the page's ScreenPass wrote it (post.rs): the Low tint's
+    /// input as the client's ScreenPass wrote it (post.rs): the Low tint's
     /// blended colour, or the Enhanced fog's reads of the scene copy.
     pub fn screen(&self, bridge: &mut Bridge, fog: bool, time: f64) {
         use bfe_render::post as post;

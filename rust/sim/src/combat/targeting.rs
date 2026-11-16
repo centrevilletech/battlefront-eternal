@@ -1,5 +1,5 @@
-//! Launcher sensors (weapon-targeting.js) and the capped melee acquisition
-//! (heroes.js). Targets remain in registry order and their shapes stay lazy.
+//! Launcher sensors and the capped melee acquisition
+//!. Targets remain in registry order and their shapes stay lazy.
 use three::{Matrix4, Vector3};
 
 #[derive(Clone, Copy, Debug)]
@@ -72,7 +72,7 @@ fn corner(index: usize, bounds: &BoxVolume) -> Vector3 {
     )
 }
 
-/// nearestCosine (hud-units.js): the closest direction on a box edge can be
+/// nearestCosine: the closest direction on a box edge can be
 /// at either endpoint or at the stationary point between them. Keep the
 /// original arithmetic order rather than projecting to the nearest point.
 fn edge_cosine(a: Vector3, e: Vector3, d: &Vector3) -> f64 {
@@ -93,7 +93,7 @@ fn edge_cosine(a: Vector3, e: Vector3, d: &Vector3) -> f64 {
     best
 }
 
-/// lockSpan (hud-units.js): hulls use their oriented collision box, not a
+/// lockSpan: hulls use their oriented collision box, not a
 /// bounding sphere that can admit a tank well outside the crosshair's cone.
 /// Soldiers and props keep the sphere-based angular widening.
 // lockSpan tests an oriented hull box before its angular edge search.
@@ -185,7 +185,7 @@ fn allowed(rule: &Lock, facts: &Facts, relation: f64) -> bool {
     rule.relation_mask & relation_bit != 0 && rule.category_mask & 1u32.wrapping_shl(facts.category) != 0
 }
 
-/// findLockTarget (weapon-targeting.js): angle wins first, distance second.
+/// findLockTarget: angle wins first, distance second.
 /// An exact tie retains the earlier registry member. Test masks before asking
 /// for its volume, preserving which lazy shapes the original loop observed.
 // lockPick scans targets in mixed-registry insertion order.
@@ -256,7 +256,7 @@ fn find<W: Targets>(
     best
 }
 
-/// lockPick (weapon-targeting.js): a provided bot target bypasses view/LOS
+/// lockPick: a provided bot target bypasses view/LOS
 /// acquisition but still passes life and masks. Otherwise retain a completed
 /// lock in its off-cone before trying the ordinary acquisition cone.
 #[allow(clippy::too_many_arguments)]
@@ -333,7 +333,7 @@ pub trait MeleeTargets: Targets {
     fn strike(&mut self, target: Self::Key, at: &Vector3, aim: &Vector3);
 }
 
-/// meleeStrike (heroes.js). There is deliberately no team filter or world LOS
+/// meleeStrike. There is deliberately no team filter or world LOS
 /// test between candidate acquisition and its own body ray. The hit effect
 /// precedes deflection, and blocked swings do not increment the hit count.
 // MeleeSwing.acquire retains at most the first ten eligible candidates.

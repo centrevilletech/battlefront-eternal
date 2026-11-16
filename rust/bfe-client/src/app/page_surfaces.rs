@@ -1,4 +1,4 @@
-//! Cold rasterization of the page button surfaces from electron/ui/looks.css.
+//! Cold rasterization of the page button surfaces.
 //! Each viewport admits its own geometry, so CSS pixel corner cuts stay sharp.
 pub fn button(w: usize, h: usize, look: usize, selected: bool) -> Vec<u8> {
     type Stop = (f64, [f64; 4]);
@@ -132,7 +132,7 @@ pub fn button(w: usize, h: usize, look: usize, selected: bool) -> Vec<u8> {
     out
 }
 
-/// The look's scanlines/blueprint grid with the page's elliptical mask.
+/// The look's scanlines/blueprint grid with the screen's elliptical mask.
 pub fn pattern(w: usize, h: usize, look: usize) -> Vec<u8> {
     pattern_masked(w, h, look, PAGE_MASK)
 }
@@ -146,14 +146,14 @@ pub struct PatternMask {
     pub radius_y: f64,
 }
 
-/// The front end's own mask (page/style.js).
+/// The front end's own mask.
 const PAGE_MASK: PatternMask = PatternMask {
     centre_y: 0.5,
     radius_x: 0.30,
     radius_y: 0.62,
 };
 
-/// The setup page's mask (prepare.css `.pattern`: ellipse 60% 72% at 50% 46%).
+/// The setup screen's mask (an ellipse 60% x 72% at 50%, 46%).
 pub const SETUP_MASK: PatternMask = PatternMask {
     centre_y: 0.46,
     radius_x: 0.60,

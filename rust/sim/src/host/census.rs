@@ -1,5 +1,5 @@
 //! A once-in-a-while account of the battle's bots, for comparing hosts with
-//! each other and with the browser build (BFE_AI_TRACE). Every ten seconds a
+//! each other and with the client build (BFE_AI_TRACE). Every ten seconds a
 //! line: per team the bots alive, those that moved more than a metre in the
 //! last second and those seated, the team's kills and deaths, its
 //! reinforcements and posts, and the shots and damage heard since. Every
@@ -74,7 +74,7 @@ struct Classes {
 /// distance to the target (all target ticks and validated-fire ticks, by
 /// 10/20/40/80 m), the requested stance, and the current goal's kind. A bot
 /// in a seat drives through another controller and is not counted here.
-/// The browser build's decisions.mjs counts the same fields.
+/// The earlier build's decisions.mjs counts the same fields.
 #[derive(Default)]
 struct Decisions {
     teams: BTreeMap<u32, TeamDecisions>,
@@ -517,7 +517,7 @@ impl Census {
                             }
                         }
                     }
-                    // Hits on hulls and props count as hits too, as the page's
+                    // Hits on hulls and props count as hits too, as the client's
                     // journal names every one of them a `damage` record.
                     Event::HullDamage { attacker, amount, .. } if !human(attacker) => {
                         if amount.is_finite() { hull.0 += *amount; hull.1 += 1; } else { hull.2 += 1; }

@@ -1,7 +1,7 @@
 //! The Classic AI's control core (src/ai/classic/: index.js's entry
 //! point, controller.js's controllers, scheduler.js, interrupts.js,
 //! agents.js, patrol.js, squads.js, goals.js's objectives,
-//! classes.js's behavior helpers, difficulty.js, and the Enhanced
+//! behavior helpers, difficulty.js, and the Enhanced
 //! objective agents and objectives). Everything outside it crosses
 //! `world::AiWorld`. The JavaScript's classes
 //! become index-driven dispatch here: every state machine's state is
@@ -30,7 +30,7 @@ use vec as v;
 use world::{AiWorld, Bind, Draws, EntRef, ForeignKind, HelperKind, Policy, TeamTable, UKey};
 use super::nav::math::Vec3;
 
-/// Options of createClassicAI (classic/index.js:222) that reach the
+/// Options of createClassicAI that reach the
 /// arithmetic: the bind, the fallback sensor range, the mission
 /// controls (absent means controls() is null), the formation option
 /// and the hard-tier override.
@@ -59,7 +59,7 @@ impl Default for Options {
     }
 }
 
-/// The Classic AI (classic/index.js ClassicAI). Characters are the
+/// The Classic AI (ClassicAI). Characters are the
 /// roster (index order); controllers are kept in attach order, the
 /// live ones also in spawn order. The caller keeps each character's
 /// `unit` current (a spawn or death is then noticed by sync(), or
@@ -147,7 +147,7 @@ impl Core {
         self.difficulty.hard()
     }
 
-    /// schedulerNumbers (classic/index.js:332).
+    /// schedulerNumbers.
     pub fn scheduler_numbers(&self) -> (f64, f64) {
         if self.options.hard.is_none() {
             return (self.difficulty.cycle(), self.difficulty.los_budget());
@@ -269,7 +269,7 @@ impl Core {
             return Some(ci);
         }
         if self.controllers[ci].unit.is_some() {
-            // spawned rebinds without unbinding (index.js spawned):
+            // spawned rebinds without unbinding (spawned):
             // bind itself disposes the old agent.
             self.remove_live(ci);
         }
@@ -331,8 +331,8 @@ impl Core {
         }
     }
 
-    /// UnitController.bind (controller.js:444), with the vehicle
-    /// adapter's policy bind (vehicles/index.js adaptController).
+    /// UnitController.bind, with the vehicle
+    /// adapter's policy bind (adaptController).
     fn bind<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize, unit: UKey) {
         if self.controllers[ci].agent.is_some() {
             self.dispose_agent(w, ci);
@@ -430,7 +430,7 @@ impl Core {
         self.objectives_request(w, d, character, exclude_previous, previous)
     }
 
-    /// requestExit (controller.js:664).
+    /// requestExit.
     pub fn request_exit<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize) {
         self.controllers[ci].exit_request = true;
         if self.options.bind.vehicles {
@@ -456,7 +456,7 @@ impl Core {
 }
 
 // --------------------------------------------------------------------------
-// The generic state-machine drive (controller.js Fsm), dispatched over
+// The generic state-machine drive (Fsm), dispatched over
 // every owner: a controller, its agent, and an objective agent's three
 // embedded helpers.
 
@@ -522,7 +522,7 @@ impl Core {
 
     /// requestState. A controller's goes through the mounted policy's
     /// translation when the vehicle adapter adapted it
-    /// (vehicles/index.js adaptController).
+    /// (adaptController).
     pub fn request_state(&mut self, owner: Owner, state: f64) {
         let state = match owner {
             Owner::Controller(ci) => {
@@ -543,7 +543,7 @@ impl Core {
         self.fsm_set(owner, f);
     }
 
-    /// Fsm.update (controller.js:293).
+    /// Fsm.update.
     pub fn fsm_update<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, owner: Owner, dt: f64, alternate: bool) {
         if alternate {
             if self.fsm_of(owner).state != 0.0 {
@@ -584,7 +584,7 @@ impl Core {
         }
     }
 
-    /// Fsm.flush (controller.js:317).
+    /// Fsm.flush.
     pub fn fsm_flush<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, owner: Owner) {
         let mut rounds = 0u32;
         while self.fsm_of(owner).pending != 0.0 {
@@ -605,7 +605,7 @@ impl Core {
         }
     }
 
-    /// Fsm.terminate (controller.js:329).
+    /// Fsm.terminate.
     pub fn fsm_terminate<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, owner: Owner) {
         self.on_exit(w, d, owner);
         let mut f = self.fsm_of(owner);
@@ -614,7 +614,7 @@ impl Core {
         if let Owner::Controller(ci)=owner {w.controller_state_changed(ci,f.state);}
     }
 
-    // -- the controller's own update (controller.js:518) -------------------
+    // -- the controller's own update -------------------
 
     pub fn controller_update<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize, dt: f64, phase: f64) {
         self.controllers[ci].phase = phase;
@@ -673,7 +673,7 @@ impl Core {
 
     // -- agents: creation, exit, disposal ------------------------------------
 
-    /// createHelper (classic/index.js:447).
+    /// createHelper.
     pub(crate) fn create_helper<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize) -> Helper {
         if self.options.bind.vehicles || self.options.bind.nav {
             let (kind, obs, control) = w.helper_create(ci);
@@ -687,7 +687,7 @@ impl Core {
 
     /// A navigation control appearing adopts the controller's request
     /// when it is already a MovementRequest, else replaces it
-    /// (nav/control.js:67): the controller's first request is a plain
+    ///: the controller's first request is a plain
     /// object, so the first control always replaces it.
     fn adopt_control(&mut self, ci: usize, control: world::ControlObs) {
         let c = &mut self.controllers[ci];
@@ -765,8 +765,8 @@ impl Core {
     fn make_agent<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize) {
         let state = self.controllers[ci].fsm.state;
         let goal = self.controllers[ci].commands.current;
-        // agentFor (classic/index.js:404), with the mounted policy's
-        // first refusal (vehicles/index.js agentFor).
+        // agentFor, with the mounted policy's
+        // first refusal (agentFor).
         let policy = self.controllers[ci].policy;
         if self.options.bind.vehicle_adapter && self.options.bind.vehicles && policy != Policy::None {
             if w.vehicles_policy_agent(policy, state) {
@@ -914,7 +914,7 @@ impl Core {
         }
     }
 
-    /// Agent.exit + disposeAgent (agents.js:334, controller.js:593).
+    /// Agent.exit + disposeAgent.
     fn exit_agent<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize) {
         let Some(agent) = &self.controllers[ci].agent else { return };
         let foreign = matches!(agent.kind, AgentKind::Foreign(_));
@@ -1035,7 +1035,7 @@ impl Core {
         self.controllers[ci].request_jet(vector);
         if self.controllers[ci].nav_control.is_some() {w.nav_jet_requested(ci,vector);}
     }
-    /// Agent.aim (agents.js:352), with the Enhanced facing override.
+    /// Agent.aim, with the Enhanced facing override.
     pub(crate) fn aim<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize, stance: f64, look: Option<Vec3>) {
         let mut look = look;
         let enhanced = matches!(&self.controllers[ci].agent.as_ref().map(|a| &a.kind), Some(AgentKind::Objective(o)) if o.enhanced);
@@ -1144,7 +1144,7 @@ impl Core {
                 self.controllers[ci].commands.current_done = done;
             }
             Owner::Agent(ci) => {
-                // Agent.onTick (agents.js:322).
+                // Agent.onTick.
                 if self.controllers[ci].phase != 0.0 {
                     if self.options.bind.combat {
                         self.combat_call(w, ci, |w| w.combat_rank_targets(ci));
@@ -1159,7 +1159,7 @@ impl Core {
         }
     }
 
-    // -- agent entries, exits, behaviors (agents.js) ---------------------------
+    // -- agent entries, exits, behaviors ---------------------------
 
     fn agent_state(&self, ci: usize) -> f64 {
         self.fsm_of(Owner::Agent(ci)).state
@@ -2235,7 +2235,7 @@ impl Core {
         job.is_some()
     }
 
-    // -- patrol machine (patrol.js PatrolHelper) --------------------------------
+    // -- patrol machine (PatrolHelper) --------------------------------
 
     fn patrol_friendly_post<W:AiWorld+?Sized>(&self, w: &W, ci: usize) -> bool {
         let (Some(unit), Some(o)) = (self.agent_unit(ci), self.objective(ci)) else { return false };
@@ -2504,7 +2504,7 @@ impl Core {
     }
 
     fn hint_available_at<W:AiWorld+?Sized>(&self, w: &W, hint: usize) -> bool {
-        // classes.js available(): the raw reservedAt rule, not the
+        // available(): the raw reservedAt rule, not the
         // bag's hintAvailable.
         !(w.time() < w.nav_hint(hint).reserved_at.unwrap_or(-10.0) + 4.0)
     }
@@ -2514,7 +2514,7 @@ impl Core {
         (team == 1.0 || team == 2.0) && count.map(|c| c <= 25.0).unwrap_or(false)
     }
 
-    /// classes.js query(): candidates within range (+ radius),
+    /// query(): candidates within range (+ radius),
     /// predicate applied, capped. `include_dead` uses the service
     /// candidates (buildings included).
     fn classes_query<W:AiWorld+?Sized>(&mut self, w: &mut W, center: Vec3, range: f64, cap: usize, include_dead: bool, pred: &dyn Fn(&Core, &W, UKey) -> bool) -> crate::ai::owned::scratch::List<UKey> {
@@ -2522,7 +2522,7 @@ impl Core {
             w.service_candidates(center, range)
         } else {
             // The predicate runs inside the registry query too; the
-            // outer filter re-applies it (classes.js:26). Snapshot the
+            // outer filter re-applies it. Snapshot the
             // pure answers so the query can borrow the world mutably.
             let mut accepted=w.predicate_buffer();
             for index in 0..w.units_len() {let key=w.unit_key(index);accepted.push((key,pred(self,&*w,key)));}
@@ -2601,7 +2601,7 @@ impl Core {
         })
     }
 
-    /// selectSnipe (classes.js:74). Returns true and sets the hint.
+    /// selectSnipe. Returns true and sets the hint.
     fn select_snipe_inner<W:AiWorld+?Sized>(&mut self, w: &mut W, _d: &mut dyn Draws, ci: usize) -> bool {
         let Some(unit) = self.agent_unit(ci) else { return false };
         if !self.options.bind.nav {
@@ -2659,7 +2659,7 @@ impl Core {
     }
 
     /// SnipeHelper.select: the base delegates; classes' gates on the
-    /// retry time and marks a found hint (classes.js:99).
+    /// retry time and marks a found hint.
     fn snipe_select<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize) -> bool {
         if !self.options.bind.classes {
             return false;
@@ -2791,7 +2791,7 @@ impl Core {
 }
 
 impl Core {
-    // -- mine machine and repair services (classes.js) ---------------------
+    // -- mine machine and repair services ---------------------
 
     fn mine_weapon<W:AiWorld+?Sized>(&self, w: &mut W, ci: usize) -> Option<usize> {
         w.classes_mine_weapon(self.agent_unit(ci)?)
@@ -2856,7 +2856,7 @@ impl Core {
         if !self.options.bind.classes {
             return false;
         }
-        // selectMine (classes.js:184) runs for both helper flavors
+        // selectMine runs for both helper flavors
         // (the base delegates to it).
         let now = self.now(w);
         let retry_at = self.objective(ci).and_then(|o| o.mine.retry_at).unwrap_or(-1.0);
@@ -3245,7 +3245,7 @@ impl Core {
             })
     }
 
-    /// repairService (classes.js:355): (target, near) or None.
+    /// repairService: (target, near) or None.
     fn repair_service<W:AiWorld+?Sized>(&mut self, w: &mut W, _d: &mut dyn Draws, ci: usize, _dt: f64) -> Option<(UKey, bool)> {
         let job = self.objective(ci).and_then(|o| o.job)?;
         let target = self.resolve_job(&*w, Some(job))?;
@@ -3386,7 +3386,7 @@ impl Core {
 
 impl Core {
     // -- alert policies (agents.js virtuals, patrol/snipe/mine policies,
-    // enhanced/agents.js focused) -----------------------------------------
+    // focused) -----------------------------------------
 
     fn active_helper(&self, ci: usize) -> u8 {
         // 1 patrol, 2 snipe, 3 mine, 0 none.
@@ -3475,7 +3475,7 @@ impl Core {
         }
     }
 
-    // -- the interrupt pass (interrupts.js) --------------------------------------
+    // -- the interrupt pass --------------------------------------
 
     fn alerts_open<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize) -> bool {
         if self.options.bind.vehicles && w.vehicles_alerts_blocked(ci) {
@@ -3505,7 +3505,7 @@ impl Core {
 
     fn turret_cannot_reach<W:AiWorld+?Sized>(&mut self, w: &mut W, ci: usize, point: Vec3) -> bool {
         let Some(unit) = self.controllers[ci].unit else { return false };
-        // interrupts.js nominalSpeed: soldier?.maxSpeed ?? MaxSpeed (no
+        // nominalSpeed: soldier?.maxSpeed ?? MaxSpeed (no
         // ForwardSpeed fallback there).
         let u = w.unit(unit);
         let speed = u.soldier.and_then(|s| s.max_speed).or_else(|| u.class_def.as_ref().and_then(|c| c.max_speed)).unwrap_or(0.0);
@@ -3566,7 +3566,7 @@ impl Core {
         if let Some(a) = &mut self.controllers[ci].agent {
             a.interrupts.last = priority;
         }
-        // push (interrupts.js:103).
+        // push.
         if self.saves_on_interrupt(ci, goal.kind) {
             let saved = self.controllers[ci].commands.current_copy();
             self.controllers[ci].commands.prepend_two(saved, goal);
@@ -3611,7 +3611,7 @@ impl Core {
             state.apply(&mut self.controllers[ci]);
             return self.adopt_response(w, ci, result);
         }
-        // The local shotResponse (interrupts.js:187).
+        // The local shotResponse.
         let (pending, source_ch, known) = {
             let c = &self.controllers[ci];
             (c.shot_pending, c.shot_source, c.shot_known)
@@ -3848,7 +3848,7 @@ impl Core {
         Some(SourceGoal::new(goal::RECOVERY))
     }
 
-    /// The charge test (interrupts.js:379).
+    /// The charge test.
     pub fn interrupts_charging<W:AiWorld+?Sized>(&mut self,w:&mut W,ci:usize)->bool {
         let input=policy::Input::read(&self.controllers[ci]);let mut state=world::ResponseState::read(&self.controllers[ci]);
         let result=policy::charging(input,&mut state.interrupts,&mut PolicyScene {core:self,world:w,controller:ci});state.apply(&mut self.controllers[ci]);result
@@ -3867,7 +3867,7 @@ impl Core {
 }
 
 impl Core {
-    // -- squads (squads.js) -----------------------------------------------------
+    // -- squads -----------------------------------------------------
 
     pub fn current_controllable<W:AiWorld+?Sized>(&mut self, w: &mut W, character: usize) -> Option<UKey> {
         if character >= self.character_count {
@@ -3913,7 +3913,7 @@ impl Core {
         w.emit_vo(sender, entry.suffix, &entry.property, command.kind, Some(context), Some(!human), Some(human));
     }
 
-    /// sendCommand (squads.js:132).
+    /// sendCommand.
     pub fn send_command<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, mut command: controller::SquadCommand, probability: f64) -> bool {
         if command.kind == squads::command::FOLLOW && self.options.bind.vehicles {
             if let Some(source) = command.source {
@@ -3931,7 +3931,7 @@ impl Core {
         false
     }
 
-    /// distributeCommand (squads.js:151). Returns delivered controller
+    /// distributeCommand. Returns delivered controller
     /// indices.
     pub fn distribute_command<W:AiWorld+?Sized>(&mut self, w: &mut W, command: controller::SquadCommand) -> crate::ai::owned::scratch::List<usize> {
         if w.paused() {
@@ -3955,7 +3955,7 @@ impl Core {
             context = if self.options.bind.vehicles && w.vehicles_is_mounted_turret(sender) { 3.0 } else { 1.0 };
         }
         self.command_vo(w, command, context);
-        // secondaryNetworkWorld() is false (classic/index.js:381).
+        // secondaryNetworkWorld() is false.
         let human = w.character(source).human;
         if !human && (command.kind < squads::command::BOARD || command.kind > squads::command::UNBOARD) {
             return w.index_buffer();
@@ -4018,7 +4018,7 @@ impl Core {
         delivered
     }
 
-    /// playerCommand (squads.js:208).
+    /// playerCommand.
     pub fn player_command<W:AiWorld+?Sized>(&mut self, w: &mut W, character: usize, kind: f64) -> crate::ai::owned::scratch::List<usize> {
         if character >= self.character_count {
             return w.index_buffer();
@@ -4034,7 +4034,7 @@ impl Core {
         self.distribute_command(w, command)
     }
 
-    // -- the scheduler (scheduler.js) --------------------------------------------
+    // -- the scheduler --------------------------------------------
 
     pub fn update<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, dt: f64) {
         self.decide(w, d, dt);
@@ -4357,7 +4357,7 @@ impl Core {
 }
 
 impl Core {
-    // -- objectives (goals.js ClassicObjectives, enhanced/objectives.js) -------
+    // -- objectives (ClassicObjectives) -------
 
     /// Return effects from a foreign service at its call site. Preconditions
     /// fail closed so a returned write cannot conceal a native state error.
@@ -4775,7 +4775,7 @@ impl Core {
     }
 }
 
-/// pickStance (nav/hints.js:179): at most 64 draws, then stand.
+/// pickStance: at most 64 draws, then stand.
 pub fn pick_stance(mask: f64, d: &mut dyn Draws) -> f64 {
     let mask = v8math::to_int32(mask);
     if mask & 7 == 0 {

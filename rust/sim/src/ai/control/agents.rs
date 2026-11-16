@@ -1,4 +1,4 @@
-//! The Classic agents' data (agents.js): the table sine/cosine, the
+//! The Classic agents' data: the table sine/cosine, the
 //! degraded direct helper, and each agent's state. Behavior is the
 //! core's dispatch (mod.rs), where the whole roster is in reach.
 
@@ -18,7 +18,7 @@ pub struct Snipe {
     pub stance: f64,
     pub look: bool,
     pub look_point: Vec3,
-    /// classes.js's behavior helper rather than the agents.js base.
+    /// behavior helper rather than the agents.js base.
     pub full: bool,
     pub retry_at: Option<f64>,
     pub revalidate_at: f64,
@@ -59,7 +59,7 @@ impl Mine {
     }
 }
 
-/// agent.service (classes.js startRepairService).
+/// agent.service (startRepairService).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ServiceState {
     pub approach_at: f64,
@@ -127,7 +127,7 @@ impl ObjectiveAgent {
     }
 }
 
-/// InterruptHelper (interrupts.js:62).
+/// InterruptHelper.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Interrupts {
     pub checked_at: f64,
@@ -135,7 +135,7 @@ pub struct Interrupts {
     pub last: f64,
 }
 
-/// DirectHelper (agents.js:98), the degraded straight-line helper.
+/// DirectHelper, the degraded straight-line helper.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Direct {
     pub target: Vec3,
@@ -195,7 +195,7 @@ pub enum AgentKind {
     MissingCombat,
 }
 
-/// The agent base (agents.js:295 Agent). `tracker` is the combat
+/// The agent base (Agent). `tracker` is the combat
 /// package's (written by initAgent); the core never reads it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Agent {
@@ -258,7 +258,7 @@ fn tables() -> &'static Tables {
     })
 }
 
-/// tableSinCos (agents.js:41).
+/// tableSinCos.
 pub fn table_sin_cos(angle: f64) -> (f64, f64) {
     let t = tables();
     let scale = v8math::fround(2048.0 / (2.0 * std::f64::consts::PI));
@@ -274,13 +274,13 @@ pub fn table_sin_cos(angle: f64) -> (f64, f64) {
     (sin, cos)
 }
 
-/// rotateY (agents.js:56).
+/// rotateY.
 pub fn rotate_y(v: Vec3, angle: f64) -> Vec3 {
     let (sin, cos) = table_sin_cos(angle);
     Vec3::new(v.x * cos - v.z * sin, v.y, v.z * cos + v.x * sin)
 }
 
-/// randomCube (agents.js:65): z, y, x draws.
+/// randomCube: z, y, x draws.
 pub fn random_cube(draw: &mut dyn FnMut() -> f64) -> Vec3 {
     let z = v8math::fround(draw() - 0.5);
     let y = v8math::fround(draw() - 0.5);
@@ -294,7 +294,7 @@ pub fn horizontal_distance_sq(a: Vec3, b: Vec3) -> f64 {
     dx * dx + dz * dz
 }
 
-/// nominalSpeed (agents.js:87).
+/// nominalSpeed.
 pub fn nominal_speed(unit: Option<&super::world::AiUnit>) -> f64 {
     let Some(unit) = unit else { return 0.0 };
     if let Some(s) = &unit.soldier {

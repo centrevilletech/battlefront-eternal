@@ -1157,7 +1157,7 @@ fn lod(frame: &[f64], input: &[f64], position: Vector3) -> u32 {
     }
 }
 
-/// vehicles.js riderSample/ninePose and props.js Turret.riderSample. Clip
+/// riderSample/ninePose and props.js Turret.riderSample. Clip
 /// aliases have already resolved at resource registration, including missing
 /// clips and the held-frame stand-ins. A timed clip retains JS loop behavior.
 fn rider_sample(a: &mut Actor, input: &[f64], state: &mut SoldierState, out: &mut [f64], clips: usize) {
@@ -1212,7 +1212,7 @@ fn rider_sample(a: &mut Actor, input: &[f64], state: &mut SoldierState, out: &mu
     }));
 }
 
-/// seatRider from src/vehicles.js. The current hull's rider matrix is an
+/// seatRider. The current hull's rider matrix is an
 /// input; body and pelvis matrices are resolved here after animation.
 fn place_rider(a: &mut Actor, input: &[f64], dt: f64) {
     let seat = matrix(input, i::RIDER_MATRIX);

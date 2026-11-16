@@ -6,7 +6,7 @@ use crate::layout::limits as lim;
 
 // QUIC selects width from the value, then stores that width in the high
 // two bits. Refuse values beyond JS safe integers on both hosts.
-// codec.js varintSize rejects values outside the wire integer domain.
+// varintSize rejects values outside the wire integer domain.
 // Validation happens before a writer can publish any part of that integer.
 pub fn varint_size(value:u64)->Result<usize>{
     if value<64{Ok(1)}else if value<16384{Ok(2)}else if value<1073741824{Ok(4)}

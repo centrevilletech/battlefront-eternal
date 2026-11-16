@@ -120,7 +120,7 @@ const EXTRAS: &[(&str, &str, usize, &str)] = &[
     ("scroll", "vec2", 0, "xy"),
     ("heat", "float", 1, "x"), ("heatBase", "float", 1, "y"), ("heatScale", "float", 1, "z"), ("soot", "float", 1, "w"),
     ("heatTear", "vec4", 2, ""), ("dissolve", "float", 3, "x"),
-    // The arc caster's shock overlay on a struck body (arc-lightning.js), in
+    // The arc caster's shock overlay on a struck body, in
     // the texels a heated body's values use: an overlay is never heated.
     ("shockTime", "float", 1, "x"), ("intensity", "float", 1, "y"), ("seed", "float", 1, "z"), ("inflate", "float", 1, "w"),
     ("color", "vec3", 2, "xyz"),
@@ -162,7 +162,7 @@ pub fn receives_shadows(source: &str) -> bool {
 }
 
 // Lamp lighting (materials.js DYNAMIC, while lamps are on): the up to four
-// lamps a draw's object has (local-lights.js select) come from the lamp
+// lamps a draw's object has (select) come from the lamp
 // table, a texture of every lamp source of the map (two RGBA32F texels a
 // source, rows of LAMP_TABLE_WIDTH texels: position and radius, colour),
 // by their index there (-1: none) and a count, in place of the uniforms
@@ -432,7 +432,7 @@ const MOTION_PER_INSTANCE: &[&str] = &["modelMatrix", "modelViewMatrix", "normal
 // Kind::Motion's vertex stage: the row's inputs (MOTION_VERTEX) where
 // three's prefix declares its first uniform, the declarations they replace
 // dropped, three's bone read (getBoneMatrix) and the proxy's read of last
-// frame's bones (motion-vectors.js previousBone) offset by the row's bases,
+// frame's bones (previousBone) offset by the row's bases,
 // and the row loaded first in main. The rest is three's as it compiled it:
 // its projection and the frame's other values stay uniforms.
 fn motion(source: &str) -> Result<String, String> {
@@ -630,7 +630,7 @@ mod tests {
     #[test]
     fn a_motion_proxy_reads_its_placement_and_both_frames_bones_from_its_row() {
         // three's prefix, its skinning chunk and the proxy's own declarations
-        // (motion-vectors.js), as three compiles a skinned proxy.
+        //, as three compiles a skinned proxy.
         let vs = "#version 300 es\n#define USE_SKINNING\nuniform mat4 modelMatrix;\nuniform mat4 modelViewMatrix;\nuniform mat4 projectionMatrix;\nuniform mat4 viewMatrix;\nuniform mat3 normalMatrix;\n\
             uniform mat4 bindMatrix;\nuniform mat4 bindMatrixInverse;\nuniform highp sampler2D boneTexture;\nmat4 getBoneMatrix( const in float i ) {\n  int j = int( i ) * 4;\n  return mat4(float(j));\n}\n\
             uniform mat4 currentViewProjection;\nuniform mat4 previousModel;\nuniform mat4 previousBindInverse;\nuniform highp sampler2D previousBones;\n\
