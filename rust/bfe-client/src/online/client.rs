@@ -182,9 +182,7 @@ impl World for Client {
     fn present(&mut self, alpha: f64) -> &View {
         self.frames += 1;
         self.sender.preview(&self.receiver);
-        if let Err(error) = self.replay.frame(&self.receiver, &self.sender) {
-            self.receiver.fault = Some(error);
-        }
+        self.replay.frame(&self.receiver, &self.sender);
         self.replay.present(alpha, self.dt);
         crate::app::trace_own_aim(&self.receiver, &self.sender, &self.replay);
         let mut own = self.receiver.own;

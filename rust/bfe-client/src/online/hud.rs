@@ -1345,8 +1345,9 @@ impl Hud {
         // The viewer identity remains the soldier even while driving.
         x[H::HAS_VIEWER] = receiver.own.alive as u8 as f64;
         x[H::HAS_CONTROL] = receiver.own.alive as u8 as f64;
-        let controlled = mount.or_else(|| receiver.active().find(|row| row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation));
-        x[H::CONTROLLABLE] = controlled.and_then(|row| receiver.active_slots().find(|(_, candidate)| candidate[r::ID] == row[r::ID] && candidate[r::GENERATION] == row[r::GENERATION])).map_or(0., |(slot, _)| (slot + 1) as f64);
+        let controlled = mount.or_else(|| receiver.active().find(|row| row[r::ID] == receiver.own.id && row[r::GENERATION] == receiver.own.generation
+            && matches!(row[r::KIND] as u32, k::SOLDIER | k::DROIDEKA)));
+        x[H::CONTROLLABLE] = controlled.and_then(|row| receiver.active_slots().find(|(_, candidate)| candidate[r::KIND] == row[r::KIND] && candidate[r::ID] == row[r::ID] && candidate[r::GENERATION] == row[r::GENERATION])).map_or(0., |(slot, _)| (slot + 1) as f64);
         x[H::CONTROL_X..H::CONTROL_Z + 1].copy_from_slice(&position);
         x[H::CONTROL_SCAN] = controlled.and_then(|row| self.unit_defs.get(row[r::CLASS_ID] as usize)).map_or(0., |row| row[U::SCAN]);
         if let Some(map)=self.map{x[H::MAP]=1.;x[H::MAP_X..H::MAP_X+5].copy_from_slice(&map);}
