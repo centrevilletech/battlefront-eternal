@@ -40,8 +40,8 @@ the map's scripts load. It writes only `public/maps/<map>/ai-mission.json`.
   generator: "zero_ai_mission.py 1",
   map: "nab2", world: "naboo2",          // world name from the wrld chunk
   mission: "nab2c",                      // the regular script for --side (rep); the
-                                         //   runtime sets it to the battle the URL
-                                         //   plays (rust/sim (mission) selectAIMission)
+                                         //   runtime sets it to the battle being
+                                         //   played (rust/content (mission))
   variants: ["nab2c_h"],                 // the mission's other scripts (historical)
   sources: { "mission.lvl": sha256, "NAB/nab2.lvl": sha256, ... },
   factions: { 0: "none", 1: "alliance", 2: "empire", 3: "republic", 4: "cis", 5: "locals" },

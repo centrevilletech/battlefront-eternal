@@ -171,7 +171,7 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 }
 ```
 
-- `id`: what `?map=` takes, the map archive's name (`public/maps/<id>/`).
+- `id`: the map's id, its archive's name (`public/maps/<id>/`).
 - `name`: the list's text (`planets.<planet>.mapname1` or `2`). An
   add-on's entry names it as written ("TATOOINE: JABBA"), which the shell
   shows as is when localization has nothing for it.
@@ -219,10 +219,10 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 | yav2 | YAVIN 4: ARENA | yav2r | yav2i | yav2i_h |
 | tat3 | TATOOINE: JABBA (add-on, `AddOn/Tat3`) | tat3c | tat3a | |
 
-**Eras and `?map=`.** A map's extraction holds every battle fought in its
-world (map.json's `missions`, by mission name), so each era of every map is
-`extracted` once the map is. `?map=<id>&era=<era>` plays that era's battle;
-`?map=<id>` alone plays its Clone Wars battle, or the one it has
+**Eras.** A map's extraction holds every battle fought in its world
+(map.json's `missions`, by mission name), so each era of every map is
+`extracted` once the map is. A battle request with a map and an era plays
+that era's battle; a map alone plays its Clone Wars battle, or the one it has
 (`rust/content` (`mission`)). The historical versions are imported and marked
 (`historical`) for a campaign mode to come; Instant Action and servers never
 pick them. The campaign's Naboo battles are fought in worlds of their own
