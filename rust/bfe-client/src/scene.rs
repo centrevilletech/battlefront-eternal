@@ -1278,9 +1278,7 @@ impl Scene {
         } else {
             None
         };
-        // The near world's solid geometry lays its depth first at every preset: drawn in authored order the
-        // low presets shaded each visible pixel 1.6-1.75 times on the busy maps.
-        bridge.r.world.depth_prepass(&mut bridge.r.core, live)?;
+        bridge.r.world.depth_prepass(&mut bridge.r.core, live && shadow_count > 0)?;
         while !bridge.r.frame_reserve_role() {
             crate::loading_work::frame().await;
         }
@@ -1462,6 +1460,7 @@ impl Scene {
 
     pub fn set_shadows(&mut self,choice:&str)->Result<(),String>{
         let(count,size)=crate::shadows::quality(choice);
+        self.bridge.r.world.depth_prepass(&mut self.bridge.r.core, count > 0)?;
         if self.features[L::FEATURES_SHADOWS] as usize==count&&self.shadow_size==size{return Ok(());}
         if let Some(shadows)=self.shadows.take(){shadows.dispose(&mut self.bridge,&mut self.resources)?;}
         self.features[L::FEATURES_SHADOWS]=count as u32;self.features[L::FEATURES_CSM]=(count>0) as u32;self.shadow_size=size;self.shadows_enabled=count>0;
