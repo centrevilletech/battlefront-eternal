@@ -134,6 +134,10 @@ struct Net {
 // lifetime and particle sampling. Resource handles remain numeric after load.
 // Retiring a visual returns only its host slot, not a gameplay entity lease.
 pub struct Combat {
+    // Where the frame's drawn, living, unmounted soldiers within shadow range stand, and the sun's direction
+    // toward the scene: their drop shadows (Replicas fills both before drawing).
+    pub drop_feet: Vec<[f64; 3]>,
+    pub drop_sun: [f64; 3],
     pub ordnance: Ordnance,
     pub particles: Particles,
     pub debris: super::debris::Debris,
@@ -455,6 +459,8 @@ impl Combat {
         let mut scratch = bfe_sim::wire::cosmetics::Compact::default();
         scratch.offset.reserve(3);
         Ok(Self {
+            drop_feet: Vec::with_capacity(256),
+            drop_sun: [0., -1., 0.],
             ordnance,
             particles,
             debris,
@@ -1406,6 +1412,7 @@ impl Combat {
             }
         }
         self.particles.effects(bridge, &self.effects.owner, &self.gpu_indices);
+        self.particles.drop_shadows(bridge, &self.drop_feet, self.drop_sun);
         self.particles.finish(bridge);
         // BlasterBatch.load: the owner's capsules, plane after plane, then
         // the batch's value, which `project` fills once the lens is known.

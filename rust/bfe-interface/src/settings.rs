@@ -240,7 +240,9 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         dynamic_resolution: "30",
         antialiasing: "off",
         shadows: "off",
-        anisotropy: 1,
+        // 4x anisotropic filtering keeps floors and roads sharp into the distance; on an Intel HD 2000 it
+        // costs about 1.4 ms a frame at 960x540, and 2x costs nearly as much for less.
+        anisotropy: 4,
         bump_mapping: false,
         soft_focus: false,
         bloom: false,
@@ -269,7 +271,7 @@ pub const PERFORMANCE_PRESETS: [PerformancePreset; 4] = [
         dynamic_resolution: "30",
         antialiasing: "fxaa-fast",
         shadows: "off",
-        anisotropy: 2,
+        anisotropy: 4,
         bump_mapping: false,
         soft_focus: false,
         bloom: false,
