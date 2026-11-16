@@ -485,6 +485,13 @@ fn post_image(size:[i32;2],slot:usize)->String{
     if matches!(slot,R::HISTORY0|R::HISTORY1|R::MOTION|R::VELOCITY){serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1016,"srgb":false,"renderTarget":true}).to_string()}else{frame_image(size)}
 }
 // A frame-sized colour image a target draws into.
+// The far scene's image (sky, horizon and far terrain) at the reduced far terrain setting is drawn at half
+// the scene's size and stretched when read: it is distant, fogged scenery behind the near scene, and at
+// 1920x1080 on an Intel HD 2000 the full-size far pass cost 7.4 ms of a 20 ms frame. The near scene reads it
+// by its own pixel position over `resolution`, so any size of the far image lines up.
+fn far_extent(size: [i32; 2], reduced: bool) -> [i32; 2] {
+    if reduced { size.map(|v| ((v + 1) / 2).max(1)) } else { size }
+}
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
 }
@@ -1459,8 +1466,15 @@ impl Scene {
             canopies.configure(&mut self.bridge,enhanced,self.tree_sun)?;
         }Ok(())
     }
-    pub fn set_far_terrain(&mut self, reduced: bool) {
+    pub fn set_far_terrain(&mut self, reduced: bool) -> Result<(), String> {
+        if self.reduced_far_terrain == reduced { return Ok(()); }
         self.reduced_far_terrain = reduced;
+        let far = far_extent(self.render_size, reduced);
+        self.bridge.r.core.state.reset();
+        self.resources.source_desc(self.far_source, &frame_image(far))?;
+        self.resources.resize_target(self.far_target, &frame_target(far, self.far_sample, false, self.frame.as_ref().map_or(0, |f| f.far_samples)))?;
+        self.bridge.r.core.state.reset();
+        Ok(())
     }
 
     pub fn set_shadows(&mut self,choice:&str)->Result<(),String>{
@@ -1581,8 +1595,9 @@ impl Scene {
         let size=render_extent(self.size,self.render_scale,self.adaptive_scale);
         if size == self.render_size { return Ok(()); }
         self.bridge.r.core.state.reset();
-        self.resources.source_desc(self.far_source, &frame_image(size))?;
-        self.resources.resize_target(self.far_target, &frame_target(size, self.far_sample, false, self.frame.as_ref().map_or(0, |f| f.far_samples)))?;
+        let far = far_extent(size, self.reduced_far_terrain);
+        self.resources.source_desc(self.far_source, &frame_image(far))?;
+        self.resources.resize_target(self.far_target, &frame_target(far, self.far_sample, false, self.frame.as_ref().map_or(0, |f| f.far_samples)))?;
         if let Some(frame) = &self.frame {
             self.resources.source_desc(frame.source, &frame_image(size))?;
             self.resources.resize_target(frame.target, &frame_target(size, frame.sample, true, frame.samples))?;
@@ -1644,7 +1659,7 @@ impl Scene {
         }
         if far_samples != frame.far_samples {
             frame.far_samples = far_samples;
-            self.resources.resize_target(self.far_target, &frame_target(self.render_size, self.far_sample, false, far_samples))?;
+            self.resources.resize_target(self.far_target, &frame_target(far_extent(self.render_size, self.reduced_far_terrain), self.far_sample, false, far_samples))?;
         }
         self.bridge.r.core.state.reset();
         self.configure_post()
@@ -1856,7 +1871,7 @@ impl Scene {
                 (_, Some(frame)) => frame.target as f64,
             };
             row[b::SAMPLE] = -1.;
-            let size = if role == r::HUD0 { self.size } else { self.render_size };
+            let size = match role { r::HUD0 => self.size, r::FAR => far_extent(self.render_size, self.reduced_far_terrain), _ => self.render_size };
             row[b::WIDTH] = size[0] as f64;
             row[b::HEIGHT] = size[1] as f64;
             row[b::SCISSOR + 2] = size[0] as f64;
@@ -2543,6 +2558,13 @@ mod camera_tests {
         // Under the line, or no split measured: the controller decides as before.
         assert!(resolution_can_help(10.,2.,1.,floor,b));
         assert!(resolution_can_help(20.,f64::NAN,1.,floor,b));
+    }
+    #[test]
+    fn the_reduced_far_image_is_half_the_scene_and_never_empty(){
+        assert_eq!(far_extent([1920,1080],true),[960,540]);
+        assert_eq!(far_extent([1281,721],true),[641,361]);
+        assert_eq!(far_extent([1,1],true),[1,1]);
+        assert_eq!(far_extent([1920,1080],false),[1920,1080]);
     }
 
 }
