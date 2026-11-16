@@ -16,10 +16,10 @@ is refreshed only when a release changes what preparation produces.
    version starts with the same arguments and this one exits once its window
    is up. The installed package stays as it is (the Debian package, the
    AppImage or the Windows installation) and serves as the fallback.
-2. **Check** (under the loader). The client asks the release feed of its
-   channel (`downloads/updates/development-preview.json`) for the newest
-   release. Offline, or with the feed unreachable, it starts as it is after at
-   most 5 seconds (a refused connection fails at once).
+2. **Check** (in the background, a few seconds after start). The client asks
+   the release feed of its channel
+   (`downloads/updates/development-preview.json`) for the newest release.
+   Offline, or with the feed unreachable, nothing changes.
 3. **Install.** Files of the new release that any build on this computer
    already has are reused by SHA-256 from `resources/bfe-tree.json` (hard
    links on Linux, copies on Windows); the rest are downloaded from the
@@ -27,13 +27,11 @@ is refreshed only when a release changes what preparation produces.
    decompressed with Zstandard and checked against their SHA-256 and size. On
    a native build where the Python and FFmpeg toolchain has not changed, an
    update downloads only the changed `bfe-client` and `bfeserver` binaries and
-   manifest metadata rather than a full installer. The loader shows the
-   progress and a SKIP FOR NOW button. Retried downloads failing three times
-   show TRY AGAIN and PLAY WITHOUT UPDATING.
-4. **Restart.** The new version starts and the old one exits once the new
-   window is up. About 15 seconds later the new version counts as healthy.
-   Linux launchers are pointed at it, and versions nothing needs are
-   deleted.
+   manifest metadata rather than a full installer. The game keeps running;
+   the new version is taken at the next start (step 1).
+4. **Healthy.** About 10 seconds after its window is up a version counts as
+   healthy. Linux launchers are pointed at it (`current`), and versions
+   nothing needs are deleted.
 5. **Refresh game data.** Before opening the menu, check imported and local
    prepared data against the new client's content generations. Stale data is
    rebuilt automatically from the installed original game. Verified imported
@@ -61,6 +59,16 @@ Settings, identities, prepared game data and the hosted server's state
 stay in the user data folder (`~/.config/Battlefront Eternal`,
 `%APPDATA%\Battlefront Eternal`), which no version owns.
 
+Coming from the Electron builds (preview 331 and earlier), whose updater
+installs the first native release and hands off to it like any other: the
+native client reads their `player-settings.json` and `desktop-settings.json`
+as they are, and on its first start copies their player identity
+(`network-identity.json`) and online notice consent (`online-consent.json`)
+from the user data folder to its own files (`identity.key` and
+`online-consent.json` in `${XDG_DATA_HOME:-~/.local/share}/battlefront-eternal`,
+`%APPDATA%\battlefront-eternal`), once, leaving the old files in place. The
+player keeps the same player ID and is not asked to accept the notice again.
+
 The player's settings (profile name, options, bindings) are kept in
 `player-settings.json` and `settings.json` inside the user data folder by
 `rust/bfe-desktop/src/settings/`.
@@ -73,6 +81,10 @@ in `/usr/bin/battlefront-eternal`, `/usr/bin/bfe-client` and
 `battlefront-eternal -> bfe-client` symlink inside the version folder so
 existing launchers and `.desktop` entries continue to resolve across updates.
 `apt upgrade` still works: a newer package simply becomes the newest version.
+The Electron packages (preview 331 and earlier) registered
+`/usr/bin/battlefront-eternal` with update-alternatives, and their removal
+script deletes it while the native package is upgraded over them; the native
+package's `postinst` puts the link back.
 
 ### AppImage
 
