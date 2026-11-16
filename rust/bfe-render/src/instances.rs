@@ -141,6 +141,8 @@ impl<C: HasContext> InstancePass<C> {
         let (input, bones) = (&core.input, &core.bones);
         let view = &camera.view;
         let frustum = &camera.frustum;
+        // Past the fade end the actor shaders paint the far scene's image instead of the surface (world.rs).
+        let fade_end = crate::world::fade_end(input);
         let light_count = camera.light_count;
         let lights = &input[FRAME_LIGHTS..FRAME_LIGHTS + 8 * MAX_LIGHTS];
         self.draws.clear();
@@ -153,7 +155,7 @@ impl<C: HasContext> InstancePass<C> {
             let mut world = [0.0; 16];
             world.copy_from_slice(&rec[REC_WORLD..REC_WORLD + 16]);
             let (center, radius) = math::sphere_to_world(&world, &[rec[REC_SPHERE], rec[REC_SPHERE + 1], rec[REC_SPHERE + 2]], rec[REC_SPHERE + 3]);
-            if !frustum.sphere(&center, radius) {
+            if !frustum.sphere(&center, radius) || crate::world::sphere_beyond(view, &center, radius, fade_end) {
                 continue;
             }
             let blended = rec[REC_KIND] == KIND_BLENDED || rec[REC_KIND] == KIND_BLENDED_RIGID;

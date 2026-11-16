@@ -129,6 +129,18 @@ pub(crate) fn actor_key(material: &bfe_content_native::loader::Material, cascade
         .map(str::to_owned)
         .ok_or_else(|| format!("unowned static prop material {wanted}"))
 }
+// A part's vertex streams, hashed: two parts with one key share geometry only when what they upload is the same.
+fn contents(part: &bfe_content_native::placed::Part) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for stream in [&part.positions, &part.normals, &part.uv, &part.weights] {
+        stream.len().hash(&mut h);
+        for v in stream.iter() { v.to_bits().hash(&mut h); }
+    }
+    part.index.hash(&mut h);
+    part.joints.hash(&mut h);
+    h.finish()
+}
 pub fn props(
     bridge: &mut Bridge,
     content: &BattleContent,
@@ -146,10 +158,9 @@ pub fn props(
         eye: frame("cameraPosition").unwrap().0,
         selected: Vec::with_capacity(I::MAX_RECORDS),
     };
-    // Copies of one model share GPU geometry. Their skeletons and placements
-    // remain independent, so moving or replacing a later host-owned look
+    // Copies of one model share GPU geometry, across calls too (every building, door and trap is admitted on its
+    // own). Their skeletons and placements remain independent, so moving or replacing a later host-owned look
     // cannot mutate another instance through a shared scene object.
-    let mut geometries = std::collections::BTreeMap::new();
     for part in placed.parts {
         if a.records.len() >= 65536 || part.bones.len() > I::BONES_LEN {
             return Err("placed prop admission capacity".into());
@@ -165,8 +176,8 @@ pub fn props(
         // The batch builder's representative source part fixes its material.
         // Texture names alone are not enough to share batches: flags, scroll
         // values and bind-frame transforms can differ on a single model.
-        let resource = part.geometry_key.clone();
-        let g = if let Some(g) = geometries.get(&resource) {
+        let resource = (part.geometry_key.clone(), key.clone(), contents(&part));
+        let g = if let Some(g) = bridge.prop_geometries.get(&resource) {
             *g
         } else {
             let mut geometry = geometry(&part.positions, &part.normals, &part.uv, &part.index);
@@ -200,7 +211,7 @@ pub fn props(
                 });
             }
             let g = geometry.register(&mut bridge.r, &key)?;
-            geometries.insert(resource, g);
+            bridge.prop_geometries.insert(resource, g);
             g
         };
         // InstancePass reads the existing generated record layout. Matrices
