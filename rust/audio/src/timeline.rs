@@ -79,6 +79,13 @@ impl Timeline {
         if first.target { first.time <= end } else { first.time >= frame as f64 / rate }
     }
 
+    /// Whether the parameter rests at `value` from the block at `frame` on:
+    /// its last value worked out is `value` and no event still to come
+    /// moves it (a setTargetAtTime to it has converged).
+    pub fn holds(&self, value: f32, frame: u64, rate: f64) -> bool {
+        self.intrinsic == value && (self.n == 0 || (self.ev[self.n - 1].value == value && self.ev[self.n - 1].time * rate <= frame as f64))
+    }
+
     /// AudioParam.value set: the intrinsic value at once (the setter then
     /// schedules a setValueAtTime of it, a separate insert).
     pub fn set_value(&mut self, value: f32) {

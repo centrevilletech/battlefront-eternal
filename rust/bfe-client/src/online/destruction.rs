@@ -677,23 +677,26 @@ impl Destructions {
     /// and, each frame, whether each is wrecked and how far repaired. A new
     /// set (a new battle) is watched afresh.
     pub fn stations(&mut self, frames: impl Iterator<Item = super::buildings::StationFrame>) {
-        let frames: Vec<_> = frames.take(dst::STATIONS).collect();
-        let fresh = frames.len() != self.stations.len() || frames.iter().zip(&self.stations).any(|(f, id)| f.id != *id);
-        for (i, f) in frames.iter().enumerate() {
+        // One pass, nothing kept: a station's bounds are its own, so writing
+        // them again for the same set changes nothing.
+        let mut ids = [0usize; dst::STATIONS];
+        let mut count = 0;
+        for (i, f) in frames.take(dst::STATIONS).enumerate() {
             let s = &mut self.phase.station_state[i * station_state::STRIDE..(i + 1) * station_state::STRIDE];
             s[station_state::DESTROYED] = f.destroyed as u8 as f64;
             s[station_state::HEALTH] = f.health;
             s[station_state::MAX_HEALTH] = f.max_health;
-            if fresh {
-                let c = &mut self.phase.station_config[i * station::STRIDE..(i + 1) * station::STRIDE];
-                c[station::MIN..station::MIN + 3].copy_from_slice(&f.bounds[0]);
-                c[station::MAX..station::MAX + 3].copy_from_slice(&f.bounds[1]);
-                c[station::CENTER..station::CENTER + 3].copy_from_slice(&f.center);
-            }
+            let c = &mut self.phase.station_config[i * station::STRIDE..(i + 1) * station::STRIDE];
+            c[station::MIN..station::MIN + 3].copy_from_slice(&f.bounds[0]);
+            c[station::MAX..station::MAX + 3].copy_from_slice(&f.bounds[1]);
+            c[station::CENTER..station::CENTER + 3].copy_from_slice(&f.center);
+            ids[i] = f.id;
+            count = i + 1;
         }
-        if fresh {
-            self.stations = frames.iter().map(|f| f.id).collect();
-            self.phase.watch(frames.len());
+        if self.stations[..] != ids[..count] {
+            self.stations.clear();
+            self.stations.extend_from_slice(&ids[..count]);
+            self.phase.watch(count);
         }
     }
 

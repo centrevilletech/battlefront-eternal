@@ -70,7 +70,7 @@ impl Resampler {
     }
     // Retain only the decoded window not yet consumed by the filter. PCM
     // arrives planar and every lane shares one phase and source-frame count.
-    pub fn push(&mut self, pcm: Pcm) {
+    pub fn push(&mut self, pcm: &Pcm) {
         debug_assert_eq!(pcm.channels, self.channels);
         for c in 0..self.channels {
             self.input[c].extend_from_slice(&pcm.data[c * pcm.frames..(c + 1) * pcm.frames]);
@@ -187,6 +187,24 @@ impl Resampler {
     }
 }
 impl Resampler {
+    /// A unity-rate converter (codec PCM at the rate it delivers) moves on to
+    /// source frame `frame` with nothing buffered: the next PCM pushed is that
+    /// frame's. False at any other ratio (a filter needs its history).
+    pub fn jump(&mut self, frame: u64) -> bool {
+        if self.ratio != 1.0 || frame < self.produced {
+            return false;
+        }
+        for data in &mut self.input {
+            data.clear();
+        }
+        self.at = 0;
+        self.first = frame;
+        self.received = frame;
+        self.produced = frame;
+        self.block = frame - frame % BLOCK as u64;
+        self.position = (frame % BLOCK as u64) as f64;
+        true
+    }
     // A compressed-tail probe supplies an output-rate count, already converted
     // by Decoder. Do not apply the source/target ratio a second time here.
     pub fn set_total(&mut self, total: u64) {

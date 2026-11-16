@@ -201,7 +201,59 @@ fn source_block(v: &mut Voice, data: &[f32], step: f64, frame: f64, src: &mut [f
     true
 }
 
+// What source_block does to the read position over the block, without
+// reading a sample: the frames between the source's start and stop move it
+// a step each, then it wraps (a loop) or ends.
+fn skip_source(v: &mut Voice, len: usize, step: f64, frame: f64) {
+    let end = len as f64;
+    if v.ended || v.start >= frame + FRAMES as f64 || v.stop <= frame || step.abs() > end {
+        return;
+    }
+    if !v.begun {
+        v.begun = true;
+        if v.start_offset < 0.0 && step != 0.0 {
+            v.pos += (v.start_offset * step).abs();
+        }
+    }
+    let frames = (v.stop.min(frame + FRAMES as f64) - v.start.max(frame)).max(0.0);
+    v.pos += step * frames;
+    if v.pos >= end {
+        if v.looping {
+            v.pos = (v.pos - end) % end;
+        } else {
+            v.ended = true;
+            v.pos = end;
+        }
+    }
+}
+
 impl Engine {
+    /// One block that nobody hears (the output's volume rests at 0): each
+    /// voice's read position and parameters move on as `render` would move
+    /// them, block by block, so a voice is where it should be when the sound
+    /// comes back; nothing is read, filtered or summed.
+    pub fn skip(&mut self) {
+        let rate = self.rate;
+        let frame = self.frame;
+        self.frame += FRAMES as f64;
+        let block = frame as u64;
+        for v in self.voices.iter_mut() {
+            if !v.on {
+                continue;
+            }
+            let Some(Some(sample)) = self.samples.get(v.sample).filter(|s| s.as_ref().is_some_and(|s| s.ring.is_none())) else {
+                v.on = false;
+                continue;
+            };
+            let step = (sample.rate / rate * v.rate.k_rate(block, rate) as f64).clamp(0.0, 1024.0);
+            let [left, right] = &mut v.sides;
+            for timeline in [&mut v.gain, &mut v.send, &mut v.cutoff, left, right] {
+                timeline.k_rate(block, rate);
+            }
+            skip_source(v, sample.frames, step, frame);
+        }
+    }
+
     /// An engine for `slots` voices at the context's `rate`; `q_db` is the
     /// lowpass's Q in dB. Its resonance is 10^(Q / 20) as the browser works
     /// it out: fdlibm's expf, which is fdlibm's exp of the argument rounded
@@ -492,6 +544,33 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_skipped_block_moves_a_voice_on_as_a_rendered_one() {
+        let make = || {
+            let mut e = Engine::new(48000.0, 4, -3.0103, true);
+            for (i, x) in e.sample_storage(0, 1000, 24000.0).iter_mut().enumerate() {
+                *x = (i as f32) / 1000.0;
+            }
+            let c = e.command_storage(8 + 4);
+            c[..8].copy_from_slice(&[START as f64, 2.0, 0.0, 0.0, 1.0, 1.0, 24000.0, 0.0]);
+            c[8..12].copy_from_slice(&[GAIN_SET as f64, 2.0, 1.0, 0.0]);
+            e.apply_commands(12);
+            e
+        };
+        let (mut heard, mut skipped) = (make(), make());
+        let (mut a, mut b) = (vec![0.0f32; 4 * FRAMES], vec![0.0f32; 4 * FRAMES]);
+        let (mut pa, mut pb) = (vec![0u8; 4], vec![0u8; 4]);
+        // Past the loop's end (2000 frames at half a sample a frame), then both play.
+        for _ in 0..20 {
+            heard.render(&mut a, &mut pa);
+            skipped.skip();
+        }
+        heard.render(&mut a, &mut pa);
+        skipped.render(&mut b, &mut pb);
+        assert_eq!(a, b);
+        assert!(a[2 * FRAMES..3 * FRAMES].iter().any(|&x| x != 0.0));
+    }
 
     #[test]
     fn a_voice_plays_its_sample_at_its_rate() {
