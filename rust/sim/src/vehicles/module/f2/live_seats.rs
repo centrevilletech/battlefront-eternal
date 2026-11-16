@@ -1,6 +1,6 @@
-//! Live Vehicles seat ownership. Foreign unit facts enter once before latching;
-//! leases and hull links are never imported from JavaScript. Command-local Store
-//! shells transfer ownership across hooks, so no canonical borrow survives JS.
+//! Live Vehicles seat ownership. Unit facts enter once before latching; leases
+//! and hull links are the world's own. Command-local Store shells transfer
+//! ownership across hooks, so no canonical borrow survives a hook.
 //!
 //! Vehicles.board/vacate and TurretSeats.man/leave share the same lease slab.
 //! Both slab generation and soldier life matter: a respawn can reuse a unit

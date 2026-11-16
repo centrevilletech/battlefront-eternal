@@ -1,6 +1,5 @@
-//! The entity store: the simulation's state, held in Rust for the kinds of
-//! entity Rust owns and copied in for the kinds JavaScript still owns that a
-//! Rust phase reads (docs/sim-store.md).
+//! The entity store: the simulation's state, by kind of entity
+//! (docs/sim-store.md).
 
 pub mod block;
 pub mod handles;

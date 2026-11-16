@@ -1,12 +1,7 @@
-//! The store's exports: what JavaScript calls to move state in and out of
-//! the instance (`SimBridge`), and the memory policy.
-//! Plain `extern "C"` functions taking and returning numbers and pointers
-//! into the module's memory, like the collision's.
-//!
-//! JavaScript writes what it hands over (a string's UTF-16 units) into the
-//! scratch buffer (`sim_scratch`) and reads a kind's rows from its block.
-//! Any call here can grow the memory, so JavaScript makes its views after
-//! the call.
+//! The store's calling interface (`Sim`) and its memory policy: commands and
+//! their arguments cross through `calls`, a string's UTF-16 units through the
+//! scratch buffer, and a kind's rows through its block. The native hosts drive
+//! the world through `context` in the same process.
 
 pub mod context;
 pub mod context_step;
@@ -16,8 +11,7 @@ use crate::store::block::Block;
 use crate::store::calls::{Calls, Events};
 use crate::store::{KindCode, StrId, Strings};
 
-/// The version of these exports and of the block format (src/sim/runtime.js
-/// checks it).
+/// The version of this interface and of the block format.
 pub const ABI: u32 = 1;
 
 /// A native tick must resolve every gameplay service from its owners.
@@ -32,7 +26,7 @@ pub struct Sim {
     pub blocks: Vec<Block>,
     /// Where a command's arguments and result (and an import's) cross.
     pub calls: Calls,
-    /// The phase's events, drained by JavaScript at its end.
+    /// The phase's events, drained by the host at its end.
     pub events: Events,
     scratch: Vec<u8>,
 }
