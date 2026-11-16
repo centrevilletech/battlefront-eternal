@@ -811,7 +811,7 @@ impl Phase {
         // The selected horizontal lens has already become vertical degrees.
         // Half-angle tangent is evaluated before the viewport-width multiply.
         // Keep left/right and top/bottom construction, including zero signs.
-        // Native makePerspective uses the WebGL depth convention of the client.
+        // makePerspective with OpenGL's -1..1 depth convention.
         // Projection inverse follows that exact matrix, without host inversion.
         // Temporal jitter and renderer-specific derived views remain consumers.
         let top = cam.near * T::tan(DEG * 0.5 * cam.fov);

@@ -805,7 +805,7 @@ impl From<BTreeMap<String, Vec<String>>> for SettingValue {
 /// GPU classification result (`oldGpu` / `gpuState`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GpuInfo {
-    /// Trimmed WebGL/graphics renderer string.
+    /// Trimmed GL renderer string.
     pub renderer: String,
     /// Trimmed GPU vendor string.
     pub vendor: String,

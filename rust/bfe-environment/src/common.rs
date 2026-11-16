@@ -34,7 +34,7 @@ impl EngineRandom {
     }
 }
 
-/// THREE.Frustum, r170 (WebGL clip space): six planes from a projection
+/// THREE.Frustum, r170 (OpenGL clip space, depth -1..1): six planes from a projection
 /// times view matrix.
 #[derive(Clone, Copy, Default)]
 // A view frustum as three.js makes it from a projection and a view (the

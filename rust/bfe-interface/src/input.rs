@@ -39,7 +39,7 @@ pub enum MenuInputEvent {
 /// and `ScreenStack` pointer/key handlers).
 #[derive(Clone, Debug, Default)]
 pub struct MenuInput {
-    /// Last pointer position in WebGL normalized device coordinates `(-1..1, -1..1)`.
+    /// Last pointer position in OpenGL normalized device coordinates `(-1..1, -1..1)`.
     pub pointer_ndc: [f64; 2],
     /// Active slider drag state `(option_key, [track_x0, track_x1], widget_matrix)` while the left
     /// mouse button is held down (`ScreenStack.dragging`).
@@ -52,12 +52,12 @@ impl MenuInput {
         Self::default()
     }
 
-    /// Converts pixel coordinates `(px, py)` inside a `(vw, vh)` viewport to WebGL NDC `(-1..1, -1..1)`,
+    /// Converts pixel coordinates `(px, py)` inside a `(vw, vh)` viewport to OpenGL NDC `(-1..1, -1..1)`,
     /// flipping the Y axis so `+1` is the top edge of the viewport and `-1` is the bottom edge.
     #[inline]
     pub fn pixel_to_ndc(px: f64, py: f64, vw: f64, vh: f64) -> [f64; 2] {
         // Guard against zero-sized viewports, then map `[0..vw, 0..vh]` (Y down) into
-        // WebGL clip space `[-1..1, -1..1]` (Y up) for `space::local_point` ray casting.
+        // OpenGL clip space `[-1..1, -1..1]` (Y up) for `space::local_point` ray casting.
         let w = vw.max(1.0);
         let h = vh.max(1.0);
         [(px / w) * 2.0 - 1.0, 1.0 - (py / h) * 2.0]

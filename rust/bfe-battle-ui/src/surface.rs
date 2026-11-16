@@ -2,7 +2,7 @@
 //! font slot constants, and `BattleUiAssets`.
 //!
 //! Decouples all in-battle interface views (Classic spawn screen, Classic scoreboard,
-//! and pause menu) from a concrete WebGL/OpenGL renderer. Every screen queries
+//! and pause menu) from a concrete OpenGL renderer. Every screen queries
 //! viewport geometry (`height`, `aspect`), bitmap font metrics (`font_height`,
 //! `font_width`, `glyph_height`, `caps_middle`), localized strings, and named
 //! texture handles through [`BattleUiSurface`], while emitting 2D/3D-projected
