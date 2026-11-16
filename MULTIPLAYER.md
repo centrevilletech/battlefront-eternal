@@ -2,8 +2,7 @@
 
 Multiplayer works today in the native desktop client (`bfe-client`) on Windows
 and Linux: LAN games, an online server browser with measured ping, direct
-connect by address, hosting from the app, NAT punching and TURN relays, IPv4
-and IPv6, locally generated player identities, kick and ban, and an optional
+connect by address, hosting from the app, IPv4 and IPv6, locally generated player identities, kick and ban, and an optional
 shared ban list. A battle holds up to 64 players (32 a side), and bots fill the
 empty slots: the Enhanced AI by default on a new server and in a new player's
 Instant Action, Classic or none when the host or player chooses. The transport is the engine's encrypted native UDP (BFE-UDP/1,
