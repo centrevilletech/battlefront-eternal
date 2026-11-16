@@ -347,3 +347,17 @@ fn on_foot_only_the_primary_reticle_draws_and_takes_the_target_colour() {
     assert_eq!(h.batch.count, 2, "a vehicle seat shows both channels' reticles");
     assert_eq!(h.batch.tint[16..19], [RETICLE[0] as f32, RETICLE[1] as f32, RETICLE[2] as f32]);
 }
+#[test]
+fn the_stats_line_draws_with_the_hud_and_not_under_a_covering_overlay() {
+    let mut h = model();
+    h.fonts[0].glyphs.insert(b'6' as u16, Glyph { page: 1, advance: 8., bounds: [0., 0., 7., 12.], uv: [0., 0., 1., 1.] });
+    h.build(0);
+    let without = h.batch.count;
+    let _ = write!(h.stats_line, "66");
+    h.build(0);
+    // Two glyphs, each with its shadow.
+    assert_eq!(h.batch.count, without + 4);
+    h.input[H::COVERED] = 1.;
+    h.build(0);
+    assert_eq!(h.batch.count, 0);
+}
