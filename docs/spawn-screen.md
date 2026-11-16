@@ -34,7 +34,7 @@ screenshots of the 2004 game: Geonosis (Republic), Kamino (CIS) and Hoth
 | `rust/bfe-battle-ui` (`spawn_screen`) | The picked class's body, standing and lit |
 | `rust/bfe-battle-ui` (`spawn_screen`) | The screen on demand over the running game |
 | `rust/bfe-battle-ui` (`spawn_screen`) | The world side's: whether the screen runs (see human-spawn.md) |
-| `rust/sim` (`hud`) | The layer hook, `drawBattlefield()` and the spawn map; `toInterface()` from the interface kit (`rust/bfe-interface`) |
+| `rust/bfe-render` (`hud_model`) | The layer hook, `drawBattlefield()` and the spawn map; `toInterface()` from the interface kit (`rust/bfe-interface`) |
 | `rust/bfe-battle-ui` (`pause`) | RESPAWN in the pause menu (`enableRespawn()`) |
 | `rust/audio-control` | The `interface` sound event |
 

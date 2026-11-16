@@ -221,7 +221,7 @@ Every map Instant Action lists, in its order (BES1 to YAV2).
 world (map.json's `missions`, by mission name), so each era of every map is
 `extracted` once the map is. `?map=<id>&era=<era>` plays that era's battle;
 `?map=<id>` alone plays its Clone Wars battle, or the one it has
-(`rust/sim` (`mission`)). The historical versions are imported and marked
+(`rust/content` (`mission`)). The historical versions are imported and marked
 (`historical`) for a campaign mode to come; Instant Action and servers never
 pick them. The campaign's Naboo battles are fought in worlds of their own
 (`NAB/nab1_h.lvl` and `nab2_h.lvl`, which no map extracts yet): those two are

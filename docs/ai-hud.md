@@ -1,8 +1,8 @@
 # Classic AI HUD
 
 `bfe-render::hud_model` owns radar visibility, HUD relationship colours, hit
-feedback, messages, stats and geometry. `rust/sim` (`hud`) publishes page game facts
-and semantic commands. `rust/sim` (`targeting-facts`) retains gameplay target queries
+feedback, messages, stats and geometry. `rust/bfe-render` (`hud_model`) publishes page game facts
+and semantic commands. `rust/bfe-presentation` (`ordnance::network`) retains gameplay target queries
 used by the page and headless game. [Battle HUD](hud.md) describes the generated
 boundary and native/shared interface modules.
 

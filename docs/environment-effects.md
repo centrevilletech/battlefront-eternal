@@ -15,26 +15,26 @@ understood the world's rain, so four things the 2004 engine draws on many
 maps never reached the port. They now do, at the Classic look (the formats
 and the engine's rules are in docs/formats.md, "Sky and effects config"):
 
-- **FogCloud** (`rust/sim` (`atmosphere`)): the band of big soft squares 90 to
+- **FogCloud** (`rust/bfe-environment` (`atmosphere`)): the band of big soft squares 90 to
   120 m out, 16 m over the ground, drifting with the wind and slowly turning.
   Geonosis (brownmist), Endor, Rhen Var Citadel and both Yavins. The same
   random pattern repeats every 256 m and scrolls; each frame the points
   inside the view's slab are stood on the terrain (a cache of terrain
   heights on an 8 m grid) and drawn, faded at both ends of the range.
-- **Dust and mist** (`rust/sim` (`atmosphere`)): the `dusteffect` objects placed in
+- **Dust and mist** (`rust/bfe-environment` (`atmosphere`)): the `dusteffect` objects placed in
   the world. Geonosis's 23 copies of brown dust blowing across the plain,
   Hoth's blowing snow dust and mist, Kamino's and Yavin's mist, the Dune Sea's
   dust and the Citadel's clouds rolling below the walls. Each class's few
   dozen particles run once a frame and every copy in view draws them,
   flattened by the class's height scale, faded by distance as the engine
   fades them.
-- **Snow** (`rust/sim` (`snow`)): Hoth's `Precipitation` is `Type("Quads")`; the
+- **Snow** (`rust/bfe-environment` (`snow`)): Hoth's `Precipitation` is `Type("Quads")`; the
   port drew it as rain streaks (and, Enhanced, as rain sheets and splashes).
   It now falls as the engine's flakes: 100 spinning `fx_snow` squares 3 cm
   across in a 5 m box, the box repeated over the world grid through the
   view to 15 m, blown by the gusting wind. Roofs stop it, as they stop the
   rain. Rain is unchanged.
-- **Placed effects** (`tools/zero_environment.py`, `rust/sim` (`environment-effects`)):
+- **Placed effects** (`tools/zero_environment.py`, `rust/bfe-environment` (`environment`)):
   every effect a placed object's ODF attaches, on every map, not only
   Theed's fountains and Cloud City's steam. Geonosis's smoking Techno Union
   wreck, Endor's 95 Ewok fires, Kashyyyk's bonfire and torches, the Dune
@@ -128,7 +128,7 @@ The Rust sky phase (`rust/bfe-environment`, `sky.rs`) flies them page-side, in
 every host (the page, under a world worker and online): launches, flight,
 fades, placement, the Enhanced far-plane reach and haze, and the far-to-near
 order of each class's draws, as instance records the page reads in place.
-`rust/sim` (`sky-flyers`) keeps the meshes, the materials and the sky probe. It
+`rust/bfe-environment` (`sky`) keeps the meshes, the materials and the sky probe. It
 stops with the rest of the presentation while the game is paused. Each page flies its own ships (`?seed=` repeats them).
 Cost: one instanced draw per model part of each class the battle draws
 (Geonosis 6, the others 1 or 2), at most about 5,000 triangles (Geonosis:
@@ -278,7 +278,7 @@ Classic's. The design below is the third.
 The jet leaves at 12.5 m/s (stock: 11.6-13) under ordinary gravity, so the
 water rises 8 m and opens into an umbrella. It falls back into the inner tier,
 which Enhanced fills to its lip, and the tier overflows into the outer pool
-(`rust/sim` (`fountain-jets`); the pools are in `rust/sim` (`fountain-water`)).
+(`rust/bfe-client` (`online::fountains`); the pools are in `rust/bfe-client` (`online::fountains`)).
 
 - **Ropes.** Per fountain, 170 ropes and 160 fine strands fall into the tier,
   and 28 long arcs clear its lip and land in the outer pool. Each is one
@@ -344,7 +344,7 @@ which Enhanced fills to its lip, and the tier overflows into the outer pool
   block of instances per fountain in view and picks its fountain from the
   instance number, so fountains out of view cost nothing. (Before this, the
   four unseen fountains' vertices dominated the software-rendered frame.)
-- **Pools** (`rust/sim` (`fountain-water`)). The tier's pool churns where the
+- **Pools** (`rust/bfe-client` (`online::fountains`)). The tier's pool churns where the
   umbrella lands and at the jet's foot, with chop, drop rings and a swell,
   and foam carried out to the lip. The outer pool shows white water along
   the overflow's foot, ripples running out from it, and the arcs' landings.

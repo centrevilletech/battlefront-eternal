@@ -2,18 +2,18 @@
 
 `Destruction effects` in the graphics menu selects **Classic** or **Enhanced**
 (the default; the Performance preset picks Classic). Classic is the 2004
-behaviour, unchanged: the class's explosion sprites and `rust/sim` (`debris`)
+behaviour, unchanged: the class's explosion sprites and `rust/sim` (`battle::debris`)
 pieces. Enhanced is decided by the Rust destruction phase
 (`rust/bfe-environment`, `destruction.rs`, `solver.rs` and `fx.rs`): every
 blast, droid short-out, flying piece (a rigid body: bounces, rolls, rests,
 tips over, crumbles) and wreck's smoulder, in a fixed order from one seeded
-random stream. The page's `rust/sim` (`destruction`) tells it what happened as
+random stream. The page's `rust/bfe-environment` (`destruction`) tells it what happened as
 commands (a droid blown apart, a droid died, a droideka's blast, a blast, a
 clear) with the numbers only the page has (a body's bones, where its chunks
 were, how a wreck's box sits), and applies what the phase answers: lights,
-sounds, bodies to hide, wrecks to glow. `rust/sim` (`destruction-debris`) keeps the
+sounds, bodies to hide, wrecks to glow. `rust/bfe-environment` (`solver`) keeps the
 pieces' models (heated copies of the game's materials) and
-`rust/sim` (`destruction-fx`) the meshes the particles and arcs are drawn from;
+`rust/bfe-environment` (`fx`) the meshes the particles and arcs are drawn from;
 their records live in the phase's memory and are read in place.
 
 ### How the boundary is bounded

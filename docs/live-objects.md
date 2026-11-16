@@ -1,7 +1,7 @@
 # Live objects: service droids and the repair tool
 
-How the power-up droids (`rust/sim` (`props`) PowerupStation) and the fusion
-cutter (`rust/sim` (`combat`), `rust/sim` (`weapons`)) show their work in a battle that a
+How the power-up droids (`rust/sim` (`battle::live`) PowerupStation) and the fusion
+cutter (`rust/sim` (`combat`), `rust/sim` (`combat::weapons`)) show their work in a battle that a
 world host (the local server worker, or a server) runs and the page shows.
 
 ## What travels, what is derived
@@ -43,7 +43,7 @@ itself. So:
 
 ## Turrets: damage effects, pieces and sounds
 
-A placed turret (`rust/sim` (`props`) Turret) shows and sounds as a hull's turret
+A placed turret (`rust/sim` (`battle::live`) Turret) shows and sounds as a hull's turret
 does, on the page in every mode, from what every host gives it: its state
 (built, destroyed, unbuilt), its health, its lease and its drum's angles.
 
@@ -60,7 +60,7 @@ does, on the page in every mode, from what every host gives it: its state
   the effects they play in `props.json`'s `effects` (a fallback library the
   page merges under the shared ones) and the pieces' models in the model's
   space in `props_extras.bin` (`props.json`'s `extras`).
-- `rust/sim` (`vehicle-effects`) `updateBuildings` runs each turret through the
+- `rust/bfe-presentation` (`vehicle_effects`) `updateBuildings` runs each turret through the
   hulls' rules: each damage record burns at its node of the built model
   (the model's root where it lacks the node: the AAA, Hoth and gun turrets
   have no `hp_smoke_1`, so theirs rise from the base) while built and its
@@ -92,7 +92,7 @@ seat's (docs/vehicles.md "Riders in the open", docs/formats.md "Riders"): the
 armed building's update poses its pilot through the vehicles' pilot section, so
 he shows only where the class names a pilot animation, and rounds, melee swings
 and blasts meet him only where he shows. The rules are the same for every
-gunner: the player at his `Gunner` (`rust/sim` (`gunner`)), bots and network humans
+gunner: the player at his `Gunner` (`rust/sim` (`seats::turrets`)), bots and network humans
 at `TurretSeats` (`rust/sim` (`seats`)).
 
 - Shown (`Turret.rider`): at `PilotPosition`, in `human_` and his
@@ -133,7 +133,7 @@ at `TurretSeats` (`rust/sim` (`seats`)).
   takes a blast's damage at the gun without being moved. One the blast kills
   has left the gun by the time it pushes (his death in the seat runs the seat
   exit), and his body is thrown as any other.
-- Killed at the gun (`rust/sim` (`boarding`) `leaveKilled`: `TurretSeats.vacate`
+- Killed at the gun (`rust/sim` (`seats::boarding`) `leaveKilled`: `TurretSeats.vacate`
   with reason `killed` for a bot or a network human, `Gunner.exit` with
   `killed` for the player), or with the turret destroyed under him, he
   leaves it at once and no spot beside it is sought: his body falls from
@@ -174,7 +174,7 @@ makes: the building's class parser hands every key after `BuildingSection` to
 the seat's parser, which reads the camera keys through the camera section
 parser and the fields of view through the control section's. Its camera is the
 seat's and its aim the seat's update, so a placed turret looks and aims by
-docs/formats.md "Vehicle seats" (`rust/sim` (`props`) Turret, `rust/sim` (`gunner`) Gunner
+docs/formats.md "Vehicle seats" (`rust/sim` (`battle::live`) Turret, `rust/sim` (`seats::turrets`) Gunner
 and TurretCamera, `rust/sim` (`seats`) TurretSeats).
 
 - **The aim frame** hangs at the drum's pivot (`TurretNodeName`, its place in
@@ -301,7 +301,7 @@ is gone 30 s into the battle.
 An animated prop (`animatedprop`: Tatooine: Dune Sea's sarlacc tentacles,
 Jabba's Palace's Jabba, rancor, torture droid and trapdoor, Cloud City's
 carbon-freeze forklift) runs as the original's animated prop does, in
-`rust/sim` (`props`) `AnimatedProp`. Doors (`door`, the palace cell doors) keep their
+`rust/sim` (`battle::live`) `AnimatedProp`. Doors (`door`, the palace cell doors) keep their
 own rule: open while anyone is in reach, the Open clip run both ways.
 
 What its class gives (`tools/extract.py` `animated_prop_animation`):
@@ -378,7 +378,7 @@ Dune Sea also names the pit's region `Sarlac01` with `AddDeathRegion`: a
 cylinder of 8.43 m radius reaching 6 m up and down from the pit's centre kills
 whoever walks or falls in, no one credited. Its `SIZE` is 2.14 x 6.06 x 8.16;
 building the region sets a cylinder's radius to the length of its x and z, and
-the region test reads that (docs/formats.md "Regions", `rust/sim` (`regions`)).
+the region test reads that (docs/formats.md "Regions", `rust/sim` (`battle::regions`)).
 
 The tentacle's mesh is one soft-skinned segment of 308 vertices over nine
 bones (docs/formats.md "Models"), each vertex blending three. The port
@@ -420,7 +420,7 @@ camera, the swallow and the region.
 
 Endor's two log traps (`end_weap_treesmash`, ODF base `trap`, placed with
 Team 0 on the west side between the Camp and the Village) run as the
-original's trap does, in `rust/sim` (`traps`) `Trap`. Two logs hang from ropes
+original's trap does, in `rust/sim` (`battle::traps`) `Trap`. Two logs hang from ropes
 either side of a clearing (`bone_r_tree`, `bone_l_tree`, a soft-skinned rope
 mesh); cocked they are hauled up 23 m out and 11 m high, and the swing brings
 them together over the trap's origin.
@@ -501,7 +501,7 @@ How the port runs it:
   keys above, the pad and its hologram mount); `tools/extract.py` makes
   `trap` a live base, so the traps are not baked into the world, and exports
   both clips and the DeathEffect.
-- `rust/sim` (`traps`) `Trap` (a `Building` from `rust/sim` (`props`)) keeps the
+- `rust/sim` (`battle::traps`) `Trap` (a `Building` from `rust/sim` (`battle::live`)) keeps the
   original's order per world tick (`LiveObjects.update`): its phase
   (`down`, `reset`, `armed`, `swing`), the tick it began, seconds into it.
   Vehicles are `live.vehicleTargets`; a vehicle's sphere is its

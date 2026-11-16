@@ -9,7 +9,7 @@ snake_case; object-shaped examples document the behavioral contract.
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
 
 - **Seats** (gameplay, `rust/sim/src/seats/` with the page's `rust/sim` (`seats`),
-  `rust/sim` (`vehicles`), `rust/sim` (`gunner`), turret parts of `rust/sim` (`props`)): who sits in which vehicle seat or turret,
+  `rust/sim` (`vehicles`), `rust/sim` (`seats::turrets`), turret parts of `rust/sim` (`battle::live`)): who sits in which vehicle seat or turret,
   the player and bots alike; how a seated bot's intent drives its seat; exits;
   destruction; the vehicles and turrets as perception targets.
 - **Classic vehicle AI** (`rust/sim/src/ai/vehicles/`): boarding and leaving,
@@ -204,7 +204,7 @@ and kill credit. Taking and leaving the human turret also updates
 body, and rebuilding increments the registry target's generation so old
 target references cannot resolve to the new turret life.
 
-#### Showing the player's turret (`rust/sim` (`gunner`))
+#### Showing the player's turret (`rust/sim` (`seats::turrets`))
 
 The world owns the drum's `yaw`, `pitch`, `yawVel`, `pitchVel` and the gun's
 `gunYaw`/`gunPitch` (the turret's `steer` and `pose`,

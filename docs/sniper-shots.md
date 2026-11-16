@@ -17,7 +17,7 @@ plasma bolt instead, faded the same way.
 
 ## Enhanced
 
-`rust/sim` (`sniper-trace`), a batch of the ordnance's particle renderer. Each round
+`rust/bfe-client` (`online::combat`), a batch of the ordnance's particle renderer. Each round
 `draw_bolt` draws is handed over with the gun as drawn, the round's own origin
 and line, and whether its flight has ended; the trace keeps its own record of
 the shot, so the smoke and sparks outlive the bolt. Each army keeps its round's

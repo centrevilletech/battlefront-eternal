@@ -8,7 +8,7 @@ force powers are added.
 
 ## Gameplay
 
-`rust/sim` (`heroes`) supplies the shared combat implementation with:
+`rust/sim` (`combat`) supplies the shared combat implementation with:
 
 - `regenerate(combat, dt)`: living actors recover authored `AddHealth` per
   second, clamped to `MaxHealth`. Stock heroes have both values set to

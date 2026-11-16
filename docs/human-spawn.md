@@ -18,15 +18,15 @@ spawn screen").
 
 | File | What it does |
 | --- | --- |
-| `rust/sim` (`mission`) | Pure: which of the map's battles the URL plays; its mission is the one the policy and the screen read |
+| `rust/content` (`mission`) | Pure: which of the map's battles the URL plays; its mission is the one the policy and the screen read |
 | `rust/bfe-battle-ui` (`spawn_screen`) | Pure: from the URL, whether the screen runs and which side and class are played first |
 | `rust/sim/src/battle/human.rs`, `human_world.rs` | The player's phases, his queued choices and how they apply; the spawn-post rules; the team switch |
-| `rust/sim` (`human-spawn`) | The page's publication facade and event queue over the native state |
+| `rust/sim` (`battle::human`) | The page's publication facade and event queue over the native state |
 | `rust/sim` (`player-body`) | One body per class the player takes, built on first use and kept |
 | `rust/sim` (`units`) | `buildBody()`, shared by the bots' factory and the player's bodies; `Unit.setBody()` |
 | `rust/sim` (`game`) | `adopt()`, the commands' place in the tick, and `spawnPort` (`setHumanTeam` is in `human_world.rs`) |
 | `rust/sim` (`wire`), `transport.js`, `headless-ports.js`, `rust/sim` (`input`) | `command.human`: building, validating and forwarding the choices |
-| `rust/sim` (`mobile-posts`) | Command vehicles (the AT-AT, the AT-TE) as posts while they live |
+| `rust/sim` (`battle::mobile`) | Command vehicles (the AT-AT, the AT-TE) as posts while they live |
 
 ## When the screen runs
 

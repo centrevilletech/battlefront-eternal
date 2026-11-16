@@ -6,11 +6,11 @@ one in the game). `Bolt Caster` on the Video options page selects **Classic**
 or **Enhanced** (the default; the Minimum and Performance presets pick
 Classic). The setting is `arcCasterEffects` and applies live.
 
-**Classic** is the 2004 renderer's look, unchanged (`rust/sim` (`lightning`)):
+**Classic** is the 2004 renderer's look, unchanged (`rust/bfe-client` (`online::lightning`)):
 textured ribbons, two random shapes blended, branches and children, faded
 over `FadeTime`.
 
-**Enhanced** is drawn by `rust/sim` (`arc-lightning`). It changes only how the
+**Enhanced** is drawn by `rust/bfe-client` (`online::lightning`). It changes only how the
 bolts look. The world still decides everything about a shot (combat.js
 `arc()`): who is linked, in what order, the damage, the heat.
 The bolts it draws are the ones `Lightning.spawn` receives, from this page's

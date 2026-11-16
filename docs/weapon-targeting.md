@@ -76,7 +76,7 @@ in the cone, so a pooled body's stale bot target can never lock for him.
 
 ## Port changes
 
-`rust/sim` (`weapon-targeting`) separates missile-launcher capability from the
+`rust/sim` (`combat`) separates missile-launcher capability from the
 ordinary reticle's target-colour selection. Infantry, vehicle seats and
 manned turrets feed eligible targets into the native acquisition phase. AI weapons
 use their controller's masked target instead of acquiring through a human

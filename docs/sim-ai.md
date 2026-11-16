@@ -145,7 +145,7 @@ them are the Rust names where the port keeps one (usually the JavaScript
 name in snake_case); where a game class name such as `UnitFlyAgent` appears,
 it names the original game's behavior, not a runtime import path. Page weapon prediction still
 uses `rust/sim (ai/random)`. Player, mounted and HUD weapon readers receive
-cold cooked policies from the Rust content owner through `rust/sim` (`weapon-policy`).
+cold cooked policies from the Rust content owner through `rust/sim` (`combat::weapons`).
 The presentation page cooks its resource policies through the same Rust
 content parser without constructing an AI world. Charge levels share their
 definition's published policy; separate battles never share a class-name cache. These helpers never schedule bots.

@@ -37,8 +37,8 @@ The port: `tools/extract.py` treats such a class as a live object
 its collision; `write_props` writes its building (`base: "commandpost"`,
 `post: <instance name>`, its wreck, explosion, damage effects and chunks,
 and `objective_post`'s animation and `fx.dying`), and `command_posts` gives
-its post `maxHealth` and `killRegion`. `rust/sim` (`props`) `ObjectivePost` is
-the building, `rust/sim` (`commandposts`) the post (`attachBuildings` pairs them
+its post `maxHealth` and `killRegion`. `rust/sim` (`battle::live`) `ObjectivePost` is
+the building, `rust/sim` (`battle::posts`) the post (`attachBuildings` pairs them
 by name).
 
 ## Damage
@@ -47,7 +47,7 @@ by name).
   fire factor, a neutral post fully. Capture and ownership don't gate it. It
   takes damage as a building (the weapons' building scales).
 - Its damage stages burn between their start and stop shares of MaxHealth,
-  as a hull's do (`rust/sim` (`vehicle-effects`)): the shield generator sparks
+  as a hull's do (`rust/bfe-presentation` (`vehicle_effects`)): the shield generator sparks
   below 85 %, smokes below 70 % and burns below 55 %.
 - It never comes back by itself. The building's rebuild would reactivate the
   post, but nothing in the stock game calls it, so the port lets no repair
@@ -67,7 +67,7 @@ by name).
    left in its place for good and the rest flying. The port draws the
    dying from the moment a host sees the building destroyed
    (`ObjectivePost.show`, `present`; the walker dying rules in
-   `rust/sim` (`vehicle-effects`)), so the state that travels stays the plain
+   `rust/bfe-presentation` (`vehicle_effects`)), so the state that travels stays the plain
    building state and a late joiner sees the wreck.
 2. The post goes: out of the post update, so no capture logic and
    no more Info line; the bots sent there choose again; "<team>

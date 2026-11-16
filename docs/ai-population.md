@@ -314,7 +314,7 @@ in a world worker, on a server and on a hosting desktop:
   friendly with exactly one army and that army's reinforcements are down to
   its living soldiers: then it has none left.
 - **Posts:** a local's soldier in a capture region counts for its team's
-  capture team (`rust/sim` (`commandposts`)): the Jawas, friends of both armies,
+  capture team (`rust/sim` (`battle::posts`)): the Jawas, friends of both armies,
   for nobody; the Gungans, Ewoks, Wookiees and Geonosians for the army they
   fight beside; the Tusken Raiders and Gamorreans for themselves. Posts
   without a capture region never change hands; posts whose class has no
@@ -402,7 +402,7 @@ not by the `des_` prefix.
   post's plus the authored one (the class parser makes it a turn about the up
   axis, composed with the entity's transform), so the AT-AT's points (5 and
   355 degrees, 8 m out either side) face outward. Command vehicles are such
-  posts while they live (`rust/sim` (`mobile-posts`), `CommandPosts.all()`, which
+  posts while they live (`rust/sim` (`battle::mobile`), `CommandPosts.all()`, which
   the spawn manager walks; formats.md "Spawning and the spawn screen").
 - The human's post: kept while eligible; else the eligible post nearest the
   old one; with none, the eligible post nearest any enemy-held post.
@@ -430,7 +430,7 @@ not by the `des_` prefix.
   collision radius and speed, which the extractor doesn't provide for the
   placed posts yet (default 0). A command vehicle's post gives its hull's
   nominal speed and, for the radius, the sphere round its collision bounds
-  (`rust/sim` (`mobile-posts`)), not the original game's own broadphase sphere.
+  (`rust/sim` (`battle::mobile`)), not the original game's own broadphase sphere.
 - `battle/spawning.rs`: the network, secondary-world and network-occupancy branches
   (fifty peer slots, the 16 living-bot cap, team switching over capacity)
   are not modeled beyond the offline rules; attract mode's clocks are.

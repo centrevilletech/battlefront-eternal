@@ -8,8 +8,8 @@ popup in play. It has two sides here:
 - **The board** (`rust/bfe-battle-ui` (`scoreboard`)): what is drawn and how input moves it.
   It reads the world only through the scoreboard port.
 - **The world side** (`rust/sim/src/battle/rules.rs` and `stats.rs`, with
-  the page's facades `rust/sim` (`battle`), `rust/sim` (`battle-stats`) and
-  `rust/sim` (`bot-names`)): who is credited with what, when the scores stop,
+  the page's facades `rust/sim` (`battle`), `rust/sim` (`battle::stats`) and
+  `rust/sim` (`battle::names`)): who is credited with what, when the scores stop,
   the bots' names. The world keeps all of it, so a worker or a replay
   keeps the same numbers (`worldState().scores`).
 
@@ -73,11 +73,11 @@ mission's armies, and the roster drops them
 | `rust/bfe-battle-ui` (`scoreboard`) | The board on demand over the running game |
 | `rust/sim/src/battle/rules.rs` | The scores and when they stop: `credit()`, `point()`, `postDestroyed()`, `headshot()`, `vehicleDestroyed()`, `finished` |
 | `rust/sim` (`battle`) | The page's scoreboard objects over the native battle: `gameOver`, `nameBots()` |
-| `rust/sim/src/battle/stats.rs`, `rust/sim` (`battle-stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
-| `rust/sim` (`bot-names`) | Bot names, each team from its own generator |
+| `rust/sim/src/battle/stats.rs`, `rust/sim` (`battle::stats`) | Each Character's record for DETAILS and AWARDS (tallied natively), and the page's formatting of the reports |
+| `rust/sim` (`battle::names`) | Bot names, each team from its own generator |
 | `rust/sim` (`wire`), `rust/sim` (`wire`) | The scores and records on their way to the page, a world worker's or a server's (see [The page's numbers](#the-pages-numbers)) |
-| `rust/sim` (`hud`), `rust/bfe-render/src/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
-| `rust/sim` (`hud`), `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
+| `rust/bfe-render` (`hud_model`), `rust/bfe-render/src/hud_model/panels.rs` | The stat popup (`drawStats`, drawn by the Rust HUD model), the dead player's HUD, `watch()`, a layer's `teams: false` |
+| `rust/bfe-render` (`hud_model`), `rust/bfe-render/src/hud_model/` | The message feed names the player by his Character's name, "Player 1" |
 | `rust/audio-control` | The `busFade` event; `interface` plays a sound by its own name too |
 
 ## Tab
@@ -136,7 +136,7 @@ As the original's mission loop runs it:
    over it, whose QUIT goes to the front end, and the idle clock waits
    while it is up.) As in the original, that **goes on to the next map** of the
    Instant Action playlist, which wraps round for ever (`nextUrl()` in
-   `rust/sim` (`launch`); [shell.md](shell.md#after-a-battle)). A battle opened
+   `rust/bfe-shell` (`launch`); [shell.md](shell.md#after-a-battle)). A battle opened
    without a playlist starts again: the page reloads with the same URL.
 
 ## The table
@@ -153,7 +153,7 @@ As the original's mission loop runs it:
 
 - The player is "Player 1" (the original's fallback when the profile has
   no name), here and in the message feed ("GAMMA 935 KILLED PLAYER 1"). It
-  is made in one place (`humanName()`, `rust/sim` (`bot-names`)); his Character
+  is made in one place (`humanName()`, `rust/sim` (`battle::names`)); his Character
   carries it, and both read it from there.
 - A bot is named once, when its team's Characters are made (see
   [Bot names](#bot-names)).
@@ -474,8 +474,8 @@ over.
 | A command post destroyed | A CP point for its last damager, unless he is its owner's friend |
 
 `postDestroyed()` is called for the destructible posts
-(`ObjectivePost` in `rust/sim` (`props`), [objectives.md](objectives.md)) and for
-the command vehicles' posts (`rust/sim` (`mobile-posts`)).
+(`ObjectivePost` in `rust/sim` (`battle::live`), [objectives.md](objectives.md)) and for
+the command vehicles' posts (`rust/sim` (`battle::mobile`)).
 
 **The record** (`rust/sim/src/battle/stats.rs`) keeps, per Character and per team
 slot, what DETAILS and AWARDS need:

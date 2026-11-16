@@ -38,7 +38,7 @@ The page's flight modules are under `rust/sim` (`flight`); a craft's tick runs i
 
 `Vehicles` owns the fixed-step model and weapon/seat integration. `game.js`
 connects input, profile settings, debug and transport spawn selection. The
-battle HUD (`rust/sim` (`hud`)) draws a craft's seat as it draws any vehicle's; see
+battle HUD (`rust/bfe-render` (`hud_model`)) draws a craft's seat as it draws any vehicle's; see
 [The HUD aboard a craft](#the-hud-aboard-a-craft).
 `ordnance.js` advances flight missiles. The entity protocol carries the flight
 state and quaternion (`rust/sim` (`wire`)); presentation
@@ -142,7 +142,7 @@ This is the port's own counterplay tuning.
 ## Movement
 
 Every vehicle's speeds come from its class's ODF, read the way the 2004 game
-reads them (`rust/sim` (`vehicle-motion`)). The page, the world worker, the dedicated
+reads them (`rust/sim` (`vehicles::build`)). The page, the world worker, the dedicated
 server and desktop host, and a client's prediction copies all build hulls
 through it, so a vehicle is as fast online as offline, for the player and for
 the AI. A key the ODF leaves unset takes the original's class default, and a
@@ -298,7 +298,7 @@ marks where the nose points, above the middle of the screen by TiltValue.
 
 ## The HUD aboard a craft
 
-A craft's seats show the battle HUD (`rust/sim` (`hud`)) as any vehicle's do, as the
+A craft's seats show the battle HUD (`rust/bfe-render` (`hud_model`)) as any vehicle's do, as the
 original has it (docs/formats.md, "Seated"): nothing in its HUD checks for a
 flyer or for first person. `combat.updateHud` reads the seat the page knows he
 holds afresh every frame (`driver.vehicle`, set from the entity records' seat
@@ -355,7 +355,7 @@ flight bails out (below).
 
 ## Boarding, leaving and seat controls
 
-`rust/sim` (`boarding`) holds the rules for everyone who sits in a vehicle: the
+`rust/sim` (`seats::boarding`) holds the rules for everyone who sits in a vehicle: the
 player (`VehicleDriver`), a network human (`rust/sim` (`wire`),
 through `Vehicles.board` and his seat lease) and the bots (the Classic AI's
 `canEnter` and `boardNow`, through `Vehicles.eligibleSeat` and
@@ -749,7 +749,7 @@ prompts, names, colours, map range, death and layer display ordering.
 ## Effects and sounds
 
 What a hull shows and plays beyond its model, at Classic:
-`rust/sim` (`vehicle-effects`) (effects), `rust/audio-control (vehicles.rs)` (sounds) and
+`rust/bfe-presentation` (`vehicle_effects`) (effects), `rust/audio-control (vehicles.rs)` (sounds) and
 `rust/bfe-presentation (feet.rs)` (a walker's footfalls, for both). They run on the page
 only and read nothing but what every host gives a hull: whether it is alive,
 its health, flight state and velocity, who holds which seat, and the pose
@@ -892,7 +892,7 @@ In the port the simulation keeps the clock: `Vehicle.dying`, the seconds of
 the clip left (a plain field), counted down by `Vehicle.dyingTick` in
 `Vehicles.update` on every host, which sets off the final blast. Whoever
 draws the hull poses it from that clock (`Vehicle.present`, on the page,
-whichever host runs the world); `rust/sim` (`vehicle-effects`) times its
+whichever host runs the world); `rust/bfe-presentation` (`vehicle_effects`) times its
 dying explosions and dust from it too, so a slow page or a client shows
 the same count. Online the vehicle record says `Dying` and carries the
 milliseconds left in its `power`; the client draws the dead hull until its
@@ -997,7 +997,7 @@ Walkers and the droideka are the only classes with water damage keys
 (`WaterDamageInterval`, `WaterDamageAmount`; the droideka also
 `UprightWaterDamageHeight` and `BallWaterDamageHeight`). Every stock walker
 sets 1 s and 10: the AT-AT, AT-TE, spider walker and the three AT-STs.
-Hovers and flyers have none. `rust/sim` (`vehicle-water`) follows the original:
+Hovers and flyers have none. `rust/sim` (`vehicles::hull`) follows the original:
 
 - **Wading:** a walker's leg rays meet terrain and buildings, not the water, so
   it walks in on the ground under the surface. The foot update counts a foot

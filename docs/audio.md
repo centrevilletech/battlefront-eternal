@@ -67,7 +67,7 @@ own header), falling back to plain loops without it.
 ## Settings, the panel, and debugging
 
 Settings → Audio (`rust/audio-control`; the defaults are in
-`rust/sim` (`settings`)):
+`rust/bfe-interface` (`settings`)):
 
 - **Sound**: Enhanced (2026 sound stage) or Original (2004), shown as
   ENHANCED and CLASSIC. A first session on a low-end CPU starts on Classic
@@ -264,7 +264,7 @@ so nothing switches to the light mix.
 
 A first session (no settings stored) on a low-end CPU starts on Classic:
 four threads or fewer and, as Chromium reports it, 4 GB of memory or less
-(`rust/sim` (`cpu-info`) `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
+(`rust/bfe-interface` (`settings`) `lowEndCpu`, `Settings.adoptHardwareDefaults`), which is
 the A8 laptop above and a 2011 quad-core with 4 GB; current PCs keep
 Enhanced. A choice the player makes stays theirs, and settings already
 stored aren't changed.

@@ -37,7 +37,7 @@ All of it is additions. No existing key changes.
   existing ones.
 - `holograms.shell_cube` is the room, in the same form as the `com_icon_*`
   logos. So `modelPack(common.holograms, holograms.bin, holograms_index.bin)`
-  (`rust/sim` (`models`)) serves it by name, and `partMaterial()` makes its
+  (`rust/content` (`models`)) serves it by name, and `partMaterial()` makes its
   material:
 
   ```json
@@ -68,7 +68,7 @@ All of it is additions. No existing key changes.
 The atlases land in `public/common/raster-hud/` as
 `<name>-<first 12 hex digits of the PNG's sha256>-4x.webp`. `manifest.json`
 keys them by the PNG's path in `textures` (`textures/border_3_pieces.png`).
-`RasterHudAssets.upgrade()` (`rust/sim` (`raster-hud`)) finds them for any texture
+`RasterHudAssets.upgrade()` (`rust/bfe-client` (`online::hud`)) finds them for any texture
 the HUD loads by its `/common/textures/<name>.png` URL, which is what
 `hud.texture(name)` does.
 
@@ -108,7 +108,7 @@ geo1's `missions.geo1r`, abridged:
 
 Each battle the map holds has its own (`missions[<mission>].spawnScreen`; a
 battle fought in a world of its own has none). The battle a URL plays puts
-its own in `world.spawnScreen` (`rust/sim` (`mission`)), where the screen reads it.
+its own in `world.spawnScreen` (`rust/content` (`mission`)), where the screen reads it.
 
 #### `cameraShots`
 
@@ -124,7 +124,7 @@ its own in `world.spawnScreen` (`rust/sim` (`mission`)), where the screen reads 
   shot goes straight onto the camera:
   `camera.position.fromArray(shot.position); camera.quaternion.fromArray(shot.quaternion)`.
   Soldiers face +z instead, which is why the player camera adds π of yaw
-  (`rust/sim` (`camera`)). A shot needs no such turn.
+  (`rust/bfe-presentation` (`cameras`)). A shot needs no such turn.
 - Checked by placing the game's camera at all 18 shots of the six extracted
   maps (headless SwiftShader). Every one frames a deliberate view: the Theed
   plaza, Echo Base's hangar, the Geonosis war room. Turning by π, or

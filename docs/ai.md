@@ -30,15 +30,15 @@ documents describe the data each operation reads and writes.
 
 | Area | Document | Code |
 | --- | --- | --- |
-| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `rust/sim` (`units`), `rust/sim` (`registry`), `rust/sim` (`battle`), `rust/sim` (`sim-events`), `rust/sim`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
+| Multi-actor foundation: units, registry, battle, simulation events, the AI entry point, the shared random numbers | this file | `rust/sim` (`units`), `rust/sim` (`units::registry`), `rust/sim` (`battle`), `rust/sim` (`host::journal`), `rust/sim`, `rust/sim/src/ai/owned/`, `rust/sim/src/ai/random.rs` |
 | Navigation data and runtime | [ai-nav.md](ai-nav.md) | `rust/sim/src/ai/nav/`, `tools/zero_ai.py` |
 | Perception, aim, firing, attack patterns, weapon AI, class and weapon AI extraction | [ai-combat.md](ai-combat.md) | `rust/sim/src/ai/combat/` (`perception.rs`, `aim.rs`, `agent.rs`, `weapons_ai.rs`), `tools/zero_ai_classes.py` |
 | Difficulty, spawning, class choice, objectives (command post selection), mission and command post extraction | [ai-population.md](ai-population.md) | `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/battle/spawning.rs`, `rust/sim/src/ai/control/goals.rs`, `tools/zero_ai_mission.py` |
-| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `rust/sim/src/ai/vehicles/`, `rust/sim` (`vehicles`), `rust/sim` (`gunner`), `rust/sim` (`seats`) |
+| Vehicles and turrets: seats, boarding, vehicles as targets, Classic vehicle AI | [ai-vehicles.md](ai-vehicles.md) | `rust/sim/src/ai/vehicles/`, `rust/sim` (`vehicles`), `rust/sim` (`seats::turrets`), `rust/sim` (`seats`) |
 | Class jobs: sniping, mines, pilot repair and resupply, scouts, jet hints | [ai-classes.md](ai-classes.md) | `rust/sim/src/ai/control/classes.rs`, `rust/sim/src/ai/nav/jet_hints.rs` |
-| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `rust/sim` (`hud`) |
+| HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `rust/bfe-render` (`hud_model`) |
 | Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `rust/sim/src/ai/control/` (`mod.rs`, `controller.rs`, `scheduler.rs`, `policy.rs`, `agents.rs`, `patrol.rs`, `squads.rs`) |
-| Heroes and melee | [ai-heroes.md](ai-heroes.md) | `rust/sim` (`heroes`) |
+| Heroes and melee | [ai-heroes.md](ai-heroes.md) | `rust/sim` (`combat`) |
 | Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `rust/sim/src/ai/combat/enhanced.rs`, `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/ai/control/goals.rs` |
 
 ## Runtime model
@@ -99,7 +99,7 @@ extractor writes positions unchanged). Yaw is about +Y with forward
 
 ### Registry and relations
 
-`world.units` (`rust/sim` (`registry`)):
+`world.units` (`rust/sim` (`units::registry`)):
 
 ```js
 units.all()                         // every pooled unit (alive or not)
@@ -172,7 +172,7 @@ world.classesFor(team)    // the team's [[className, count], ...] that a loaded 
 ```
 
 `createNativeAI(mode, world, options)` (`rust/sim`) loads
-`ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`rust/sim` (`ai-data`)
+`ai-nav.json`, `ai-mission.json` and each side's `ai.json` (`rust/sim` (`world::admit::rows::weapon_policies`)
 `loadAIData`), hands that cold content and the mission calls to the native
 owner (`rust/sim`, `rust/sim/src/ai/owned/entry.rs` and `load.rs`),
 builds the initial roster, and returns an object whose `prepare(dt, tick)`
@@ -189,13 +189,13 @@ difficulty and heroes are Options settings; URL parameters override them:
 Character fields in use: `index, team, human, className, unit, controller,
 objective, kills, deaths, diedAt`. At death the Character drops its unit at
 once (`character.unit = null`); the corpse lingers `CORPSE_LINGER` (4 s,
-`rust/sim` (`human-spawn`)) and goes back to the factory's pool. The human's
+`rust/sim` (`battle::human`)) and goes back to the factory's pool. The human's
 Character keeps the player's unit (`game.playerUnit`) and `rust/sim` (`game`)
 respawns him as before.
 
 ### Simulation events
 
-`rust/sim` (`sim-events`) is a bounded journal with independent subscriber cursors.
+`rust/sim` (`host::journal`) is a bounded journal with independent subscriber cursors.
 Gameplay emits once; AI and any other consumer read it. Audio keeps its own
 `emitSound` hook; AI never replaces that listener. Records are immutable value
 snapshots (positions copied):

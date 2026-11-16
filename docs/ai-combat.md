@@ -22,7 +22,7 @@ under "Further behavior details".
 | `rust/sim/src/ai/combat/weapons_ai.rs` | weapon AI data (`weapon_ai`, ai.json registration), ranges, utility, weapon choice, `FireControl`, the run-length buttons and the fire-request consumer, fire validation, friendly-human protection, sniper yaw, the shared RNG for bot spread |
 | `rust/sim/src/ai/combat/perception.rs` | heaps, the sight scan, the deferred line-of-sight queue, thinning, the target tracker, hearing, grenade danger, targeted-shot and damage alerts, the interrupt responses |
 | `rust/sim/src/ai/combat/agent.rs`, `binding.rs` | the engagement dispatcher, `CombatAgent`, `Patterns`, `Cover`, the combat services the control core calls (`CombatAi`) |
-| `rust/sim` (`weapons`) | additive AI options on `Weapon`/`Arsenal` (below) |
+| `rust/sim` (`combat::weapons`) | additive AI options on `Weapon`/`Arsenal` (below) |
 | `tools/zero_ai_classes.py` | `public/sides/<side>/ai.json` |
 | `rust/sim/tests/ai_combat_control.rs` | tests |
 
@@ -248,7 +248,7 @@ What the host provides:
   FleeSound, e.g. the stock `*_inf_com_chatter_flee`) at the record's
   position.
 
-## Weapon options (`rust/sim` (`weapons`))
+## Weapon options (`rust/sim` (`combat::weapons`))
 
 All additive; a player's weapons behave as before.
 
