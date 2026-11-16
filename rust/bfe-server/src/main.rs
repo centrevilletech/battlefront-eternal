@@ -668,6 +668,10 @@ fn main() {
             println!("bfeserver 0.1.0 (pre-release)");
             return;
         }
+        Command::Contract => {
+            println!("{}", NetworkContract::current().to_json());
+            return;
+        }
         _ => {}
     }
 

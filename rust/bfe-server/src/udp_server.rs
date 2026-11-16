@@ -159,6 +159,39 @@ struct PollSink<'a, F: FnMut(&str) -> bool> {
     closed: Vec<u32>,
 }
 
+/// The refusal a player sees when their game and this server differ: which side is out of date and
+/// what to do. A client of the same version whose game data differs is told so.
+pub fn version_refusal(protocol: usize, profile: &str, simulation: &str) -> String {
+    let number = |sim: &str| sim.strip_prefix("bfe-sim-").and_then(|n| n.parse::<u64>().ok());
+    let ours = number(network_contract::SIMULATION).unwrap_or(0);
+    let theirs = number(simulation);
+    let older = if protocol != network_contract::PROTOCOL {
+        Some(protocol < network_contract::PROTOCOL)
+    } else if simulation != network_contract::SIMULATION {
+        theirs.map(|n| n < ours)
+    } else if profile != network_contract::PROFILE {
+        None
+    } else {
+        return "Your game data differs from this server's. Update the game; if it is up to date, \
+                prepare its game data again."
+            .to_string();
+    };
+    let versions = match theirs {
+        Some(n) if n != ours => format!(" (your game: simulation {n}, this server: {ours})"),
+        _ => String::new(),
+    };
+    match older {
+        Some(true) => format!(
+            "Your game is older than this server{versions}. Update Battlefront Eternal to join."
+        ),
+        Some(false) => format!(
+            "This server runs an older version of Battlefront Eternal{versions}. \
+             It can be joined once the server updates."
+        ),
+        None => format!("Your game and this server are different versions{versions}."),
+    }
+}
+
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
         crate::sockets::send_to(self.socket, bytes, to);
@@ -204,10 +237,9 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
             || hello_sim != network_contract::SIMULATION
             || (hello_content != self.fingerprint && hello_content != self.content)
         {
-            return AdmitDecision::reject(
-                close_code::VERSION as u64,
-                "Incompatible game or content version.",
-            );
+            // Earlier games show this text as it is, so it says which side is out of date.
+            let reason = version_refusal(hello_protocol, hello_profile, hello_sim);
+            return AdmitDecision::reject(close_code::VERSION as u64, &reason);
         }
         // Reject locally or globally banned Ed25519 player identities (`isBanned(client.id)` in `src/udp-server.js`).
         if (self.is_banned)(&client.id_hex) {
@@ -1000,4 +1032,24 @@ fn bind_dual_stack_udp(
     let sock4 = crate::sockets::udp(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), false)
         .map_err(|e| format!("failed to bind UDP port {port}: {e}"))?;
     Ok((sock4, "IPv4"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_refusal_says_which_side_is_out_of_date() {
+        let ours: u64 = network_contract::SIMULATION.trim_start_matches("bfe-sim-").parse().unwrap();
+        let p = network_contract::PROTOCOL;
+        let older = version_refusal(p, network_contract::PROFILE, &format!("bfe-sim-{}", ours - 1));
+        assert!(older.starts_with("Your game is older than this server"), "{older}");
+        assert!(older.contains(&format!("simulation {}, this server: {ours}", ours - 1)), "{older}");
+        let newer = version_refusal(p, network_contract::PROFILE, &format!("bfe-sim-{}", ours + 1));
+        assert!(newer.starts_with("This server runs an older version"), "{newer}");
+        assert!(version_refusal(p - 1, "old", "").starts_with("Your game is older"));
+        let data = version_refusal(p, network_contract::PROFILE, network_contract::SIMULATION);
+        assert!(data.starts_with("Your game data differs"), "{data}");
+        assert!(older.len() < 200 && newer.len() < 200);
+    }
 }
