@@ -38,6 +38,8 @@ pub struct Ogg {
     scratch: Vec<f32>,
     rebuilt: Vec<u8>,
     pub info: Option<Metadata>,
+    /// A packet's PCM buffer handed back after use, decoded into again.
+    pub spare: Vec<f32>,
 }
 impl Ogg {
     pub fn new() -> Self {
@@ -58,6 +60,7 @@ impl Ogg {
             scratch: vec![0.0; MAX_FRAMES * 2],
             rebuilt: Vec::new(),
             info: None,
+            spare: Vec::new(),
         }
     }
     // Do not advance Input until the complete header, lacing table and body
@@ -261,7 +264,9 @@ impl Ogg {
             // Zero initialization supplies silent mapped lanes. Scatter each decoder's
             // interleaved output straight into planar lanes, with a fixed temporary stride
             // until pre-skip and end trimming establish this packet's final frame count.
-            let mut data = vec![0.0; MAX_FRAMES * channels];
+            let mut data = std::mem::take(&mut self.spare);
+            data.clear();
+            data.resize(MAX_FRAMES * channels, 0.0);
             for s in 0..self.decoders.len() {
                 let last = s + 1 == self.decoders.len();
                 // All but the last elementary stream use self-delimited framing. Rebuild

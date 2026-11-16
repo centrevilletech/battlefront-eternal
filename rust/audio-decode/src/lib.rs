@@ -178,7 +178,11 @@ impl Decoder {
                 self.resampler
                     .as_mut()
                     .ok_or("audio frame precedes metadata")?
-                    .push(pcm);
+                    .push(&pcm);
+                // The packet's buffer goes back to the parser for the next one.
+                if let Format::Ogg(ogg) = &mut self.format {
+                    ogg.spare = pcm.data;
+                }
             }
             // Signal EOF to the sinc window only after the parser is complete. Its
             // trailing half-kernel may then read zeros up to the exact output length.

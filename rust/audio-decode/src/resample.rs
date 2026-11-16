@@ -70,7 +70,7 @@ impl Resampler {
     }
     // Retain only the decoded window not yet consumed by the filter. PCM
     // arrives planar and every lane shares one phase and source-frame count.
-    pub fn push(&mut self, pcm: Pcm) {
+    pub fn push(&mut self, pcm: &Pcm) {
         debug_assert_eq!(pcm.channels, self.channels);
         for c in 0..self.channels {
             self.input[c].extend_from_slice(&pcm.data[c * pcm.frames..(c + 1) * pcm.frames]);
