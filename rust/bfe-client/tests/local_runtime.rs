@@ -273,7 +273,7 @@ fn local_publication_selects_its_client_and_joins_reliable_fields_once() {
 #[test]
 /// Verifies `Publication::new` and `Publication::deliver` bounds checking and fault reporting:
 /// - Rejects blocks with invalid row counts, strides, heap bounds, or byte lengths.
-/// - Surfaces world-wide (`client == 0`) and client-specific fault strings up to 240 chars.
+/// - Surfaces world-wide (`client == 0`) faults as errors up to 240 chars; a fault for one client is returned, not an error.
 fn native_publication_rejects_bad_spans_and_preserves_world_fault_text() {
     use bfe_sim::gen::*;
     let mut receiver = bfe_client::online::receiver::Receiver::new(serde_json::json!({}));
@@ -297,6 +297,23 @@ fn native_publication_rejects_bad_spans_and_preserves_world_fault_text() {
             .unwrap_err(),
         "stop"
     );
+    // A fault for this player alone leaves the world running: delivery goes
+    // on and the runtime's Faults decide whether the battle can continue.
+    let own = published(&WirePublicationOutput {
+        byte_length: 4,
+        faults: vec![WirePublishedFault {
+            client: 7,
+            message: WireSpan {
+                offset: 0,
+                length: 4,
+            },
+        }],
+        ..Default::default()
+    });
+    let own = publication::Publication::new(&own, b"stop").unwrap();
+    assert_eq!(own.fault(7).unwrap().as_deref(), Some("stop"));
+    assert_eq!(own.fault(8).unwrap(), None);
+    assert!(own.deliver(7, &mut receiver, 0.).is_ok());
     let mut invalid = published(&WirePublicationOutput::default());
     invalid.words[BlockHeader::WORDS + WirePublicationOutput::OWN] = f64::NAN;
     assert!(publication::Publication::new(&invalid, &[])
