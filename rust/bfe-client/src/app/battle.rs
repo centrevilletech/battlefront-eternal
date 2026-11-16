@@ -914,6 +914,8 @@ pub struct BattleController {
     pub elapsed_s: f64,
     /// When the last `prediction:` line was written (battle seconds).
     prediction_logged: f64,
+    /// Escape on an online battle's end table: leave for the Multiplayer screen.
+    leave_requested: bool,
     /// Whether the local player was alive on the previous frame (used to detect death -> spawn screen).
     pub was_alive: bool,
     /// The player died and the spawn screen has not reopened for it yet.
@@ -1445,6 +1447,7 @@ impl BattleController {
             steady_frames_measured: 0,
             elapsed_s: 0.0,
             prediction_logged: 0.0,
+            leave_requested: false,
             was_alive: false,
             death_screen_pending: false,
             death_classic: false,
@@ -1788,6 +1791,9 @@ impl BattleController {
         self.pause_page.save(settings);
         self.elapsed_s += elapsed_dt;
 
+        if std::mem::take(&mut self.leave_requested) {
+            return Ok(Some(BattleTransition::LeaveOnline { reason: None }));
+        }
         if let BattleAuthority::Online { client, .. } = &mut self.authority {
             client.poll_rotation();
             self.scoreboard_port.next_ready = client.rotation_ready;
@@ -2831,6 +2837,17 @@ impl BattleController {
         // Scoreboard bindDom owns Escape while its table or a detail page is
         // visible. Back closes a peek table or returns from details; the same
         // press must not open the pause menu behind it.
+        // An online battle's end table always has a way out, whatever the network does: Escape
+        // leaves for the Multiplayer screen (BACK still turns its pages).
+        if code == "Escape"
+            && down
+            && !repeat
+            && self.scoreboard_ctrl.model.state == BoardState::End
+            && matches!(self.authority, BattleAuthority::Online { .. })
+        {
+            self.leave_requested = true;
+            return;
+        }
         if !self.pause_menu.is_open && self.scoreboard_ctrl.model.is_open() && code == "Escape" {
             if down && !repeat {
                 self.scoreboard_ctrl

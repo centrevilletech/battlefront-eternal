@@ -10,6 +10,19 @@ use crate::{
 use bfe_presentation::{aim::View as AimView, cameras::math::V8};
 use bfe_transport::{connection::Lane, endpoint::Endpoint, layout::close_code};
 use std::time::Duration;
+/// How long after the next battle was due the client waits for it before giving up.
+const NEXT_BATTLE_PATIENCE_MS: f64 = 60_000.;
+/// Whether the announced next battle (due at `ready_at`) is so late that the server is gone.
+fn next_battle_overdue(now: f64, ready_at: f64) -> bool {
+    now > ready_at + NEXT_BATTLE_PATIENCE_MS
+}
+#[cfg(test)]
+#[test]
+fn an_end_table_waits_a_minute_for_the_next_battle_then_gives_up() {
+    assert!(!next_battle_overdue(10_000., 10_000.));
+    assert!(!next_battle_overdue(70_000., 10_000.));
+    assert!(next_battle_overdue(70_001., 10_000.));
+}
 pub struct Client {
     pub receiver: Box<Receiver>,
     pub sender: Box<Sender>,
@@ -90,6 +103,13 @@ impl Client {
         }
 
         if self.rotation_ready { return Ok(()); }
+        // After a battle the old connection may close: the next battle is awaited instead. Not
+        // for ever: when it has not answered a minute after it was due, the server is gone.
+        if let Some(next) = &self.receiver.next_match {
+            if next_battle_overdue(self.endpoint.now(), next.ready_at) {
+                return Err("battle connection timed out: the server did not start the next battle".into());
+            }
+        }
         if self.receiver.next_match.is_none() { receipt?; }
         let receiver = &mut *self.receiver;
         if !self.authenticated && self.endpoint.ready() {
