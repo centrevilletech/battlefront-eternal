@@ -49,7 +49,11 @@ fn held(step:Option<(f64,[f64;3],f64)>,to:f64,tick:f64)->Option<[f64;3]> {
 // Stable entity slots make a sparse history lookup constant time. A packet
 // can arrive in any order without making sampling quadratic in population.
 struct Snapshot { tick: f64, records: Vec<f64> }
-struct Entity { id: f64, generation: f64, fire_tick: f64, raw: f64, total: f64 }
+struct Entity { id: f64, generation: f64, fire_tick: f64, raw: f64, total: f64,
+    // The newest pose as it arrived (its life, tick, place and squared speed)
+    // and the tick of the newest step from one pose to the next that may be
+    // beyond the unit's speed: only then are older poses read for a slide.
+    life: f64, seen: f64, at: [f64; 3], speed: f64, odd: f64 }
 pub struct Timeline {
     pub input: Vec<f64>,
     pub output: Vec<f64>,
@@ -144,6 +148,7 @@ impl Timeline {
             self.order.insert(at,slot);slot
         };
         let count=(self.input[f::COUNT] as usize).min(lim::ENTITIES);
+        let hz=if self.input[f::HZ]>0.0 {self.input[f::HZ]} else {60.0};
         for row in 0..count {
             let at=f::STRIDE+row*r::STRIDE;
             self.input[at+r::SLOT] = -1.0;
@@ -154,7 +159,7 @@ impl Timeline {
             // packet order changes when entities enter or leave interest.
             let bucket=self.bucket(id);
             let entity=if self.buckets[bucket]!=usize::MAX {self.buckets[bucket]} else {
-                let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0};
+                let fresh=Entity{id,generation:-1.0,fire_tick:f64::NEG_INFINITY,raw:0.0,total:0.0,life:-1.0,seen:f64::NEG_INFINITY,at:[0.0;3],speed:0.0,odd:f64::NEG_INFINITY};
                 let index=if let Some(index)=self.free.pop(){self.entities[index]=fresh;self.rest[index*r::STRIDE+r::VALID]=0.0;index}else{
                     if self.entities.len()==lim::ENTITIES {self.refused+=1;continue;}
                     self.entities.push(fresh);self.entities.len()-1
@@ -168,6 +173,21 @@ impl Timeline {
             let target=entity;
             let out=&mut snapshot.records[target*r::STRIDE..][..r::STRIDE];
             out.copy_from_slice(&self.input[at..at+r::STRIDE]);out[r::VALID]=1.0;out[r::SLOT]=entity as f64;
+            // Never misses a step `unexplained` would find: a unit at rest may
+            // have stood until one tick before this pose.
+            if out[r::KIND]!=1.0 {
+                let place=[out[r::POSITION],out[r::POSITION+1],out[r::POSITION+2]];
+                let speed=out[r::VELOCITY]*out[r::VELOCITY]+out[r::VELOCITY+1]*out[r::VELOCITY+1]+out[r::VELOCITY+2]*out[r::VELOCITY+2];
+                if e.life!=generation {e.life=generation;e.seen=f64::NEG_INFINITY;e.odd=f64::NEG_INFINITY;}
+                if tick>e.seen && e.seen.is_finite() {
+                    let far=(0..3).map(|k|(place[k]-e.at[k])*(place[k]-e.at[k])).sum::<f64>();
+                    if far>SLIDE_OVER*SLIDE_OVER {
+                        let reach=e.speed.max(speed).sqrt()*(if e.speed<1e-4 {1.0} else {tick-e.seen})/hz+SLIDE_OVER;
+                        if far>reach*reach {e.odd=e.odd.max(tick);}
+                    }
+                } else if tick<e.seen {e.odd=e.odd.max(e.seen);}
+                if tick>=e.seen {e.seen=tick;e.at=place;e.speed=speed;}
+            }
             self.input[at+r::SLOT]=entity as f64;
             // Fire counters unwrap per life in arrival order. Stale snapshot
             // parts retain their own raw value, matching the original ring.
@@ -210,7 +230,7 @@ impl Timeline {
             let mut gap=None;let mut offset=[0.0;3];let mut searching=true;
             // The slide of the pair newer than the one in hand, and whether the
             // unit rested before it: kept unless the older step is unexplained too.
-            let mut slide:Option<[f64;3]>=None;let mut alone=false;
+            let mut slide:Option<[f64;3]>=None;let mut alone=false;let watch=tick-e.odd<SLIDE_TICKS;
             let cuts=|older:&[f64],newer:Option<(&[f64],f64)>|newer.is_some_and(|(pose,at)|at>tick && pose[r::DISC]!=0.0 && (0..3).any(|k|older[r::POSITION+k]!=pose[r::POSITION+k]));
             for &slot in self.order.iter().rev() {
                 let snapshot=&self.snapshots[slot];
@@ -219,7 +239,7 @@ impl Timeline {
                 let key=(pose[r::GENERATION],pose[r::KIND]);
                 if *life.get_or_insert(key)!=key {searching=false;break;}
                 if cut.is_none() && cuts(pose,newer) {cut=newer;}
-                if let Some((next,at))=newer {
+                if let Some((next,at))=newer.filter(|_|watch) {
                     let step=held(unexplained(pose,snapshot.tick,gap,next,at,hz),at,tick);
                     if let Some(part)=slide.filter(|_|alone || step.is_none()) {for k in 0..3 {offset[k]+=part[k];}}
                     slide=step;alone=gap.is_some();
@@ -230,12 +250,12 @@ impl Timeline {
                 if snapshot.tick>tick {b=Some(pose);btick=snapshot.tick;gap=None;continue;}
                 if a.is_none() {a=Some(pose);atick=snapshot.tick;hole=gap;}
                 gap=None;
-                if snapshot.tick+SLIDE_TICKS<=tick {searching=false;break;}
+                if !watch || snapshot.tick+SLIDE_TICKS<=tick {searching=false;break;}
             }
             if searching {
                 let kept=&self.rest[entity*r::STRIDE..][..r::STRIDE];
                 if kept[r::VALID]!=0.0 && kept[r::ID]==e.id && life.is_none_or(|key|key==(kept[r::GENERATION],kept[r::KIND])) {
-                    if let Some((next,at))=newer {
+                    if let Some((next,at))=newer.filter(|_|watch) {
                         let step=held(unexplained(kept,self.rest_tick[entity],gap,next,at,hz),at,tick);
                         if let Some(part)=slide.filter(|_|alone || step.is_none()) {for k in 0..3 {offset[k]+=part[k];}}
                         slide=step;
