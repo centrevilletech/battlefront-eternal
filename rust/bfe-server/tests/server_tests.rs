@@ -1326,6 +1326,68 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// Messages that replace their predecessor (input acknowledgements, edge results) are not
+/// repeated and are held back while a player's reliable lane is backed up, so a slow or lossy
+/// link degrades instead of growing a queue until the player is dropped.
+#[test]
+fn superseding_events_are_not_repeated_or_queued_behind_a_backlog() {
+    let dir = temp_dir("superseding");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let mut server = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {})
+        .expect("start local server");
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port).to_string();
+    let hello = serde_json::to_vec(&json!({
+        "name": "Slow",
+        "protocol": layout_contract::PROTOCOL,
+        "profile": layout_contract::PROFILE,
+        "simulation": layout_contract::SIMULATION,
+        "content": server.fingerprint,
+    }))
+    .unwrap();
+    let mut client = Endpoint::connect(&address, Identity::generate().unwrap(), srv_id.inner.id, &hello)
+        .expect("connect");
+    client.establish(Duration::from_secs(3), &mut |_, _, _, _| {}).expect("establish");
+    let joined = Instant::now();
+    let id = loop {
+        if let Some(id) = server.udp.lock().unwrap().players().pop() {
+            break id;
+        }
+        assert!(joined.elapsed() < Duration::from_secs(3), "player admitted");
+        let _ = client.pump(&mut |_, _, _, _| {});
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    let edges = json!({"type": "entity-edge-results", "epoch": 1, "generation": 1, "received": [7], "results": []});
+    let mut udp = server.udp.lock().unwrap();
+    assert!(udp.send_superseding(&id, &edges));
+    assert!(!udp.send_superseding(&id, &edges), "the same edge results again at once");
+    // The client stops acknowledging: 120 KB of reliable events go out unanswered.
+    let filler = json!({"type": "chat", "text": "x".repeat(1000)});
+    for _ in 0..120 {
+        udp.send_events(&id, &filler);
+    }
+    udp.flush();
+    drop(udp);
+    // Nothing is acknowledged: the server declares those packets lost and owes them again.
+    std::thread::sleep(Duration::from_millis(2500));
+    let mut udp = server.udp.lock().unwrap();
+    let ack = json!({"type": "input-ack", "epoch": 1, "serverTick": 9, "generation": 1, "ack": 3, "ackTick": 8});
+    let held = !udp.send_superseding(&id, &ack);
+    let stats = udp.stats();
+    drop(udp);
+    assert!(held, "held back behind the backlog: {}", stats[0]["net"]["backlogBytes"]);
+    assert_eq!(stats[0]["supersededEvents"], 2);
+    server.close();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// A client that vanishes without a close (killed, crashed, network gone) is retired once the
 /// transport's idle time passes: the player count, the roster and the listing must not keep it.
 #[test]

@@ -430,7 +430,10 @@ impl LocalDedicatedServer {
                     };
                     if let Some(pub_out) = publication {
                         for ev in pub_out.events {
-                            u.send_events(&ev.peer_id, &ev.message);
+                            match ev.message.get("type").and_then(serde_json::Value::as_str) {
+                                Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),
+                                _ => u.send_events(&ev.peer_id, &ev.message),
+                            };
                         }
                         // Shared baseline parts are sent before per-client own packets
                         // (`sendSnapshot` in `src/game-session.js`).

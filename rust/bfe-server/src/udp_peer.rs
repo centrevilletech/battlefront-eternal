@@ -307,6 +307,8 @@ impl UdpPeerState {
             }),
         );
         obj.insert("stateCongested".to_string(), Value::Bool(self.state_congested));
+        // Reliable bytes written but not yet sent or acknowledged (lost and owed again).
+        obj.insert("backlogBytes".to_string(), json!(conn.backlog()));
         obj.insert("stateStaleDrops".to_string(), json!(self.state_stale_drops));
         obj.insert(
             "stateBudgetDrops".to_string(),
