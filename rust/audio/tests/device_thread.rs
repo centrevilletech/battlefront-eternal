@@ -87,3 +87,17 @@ fn handing_a_sample_over_frees_nothing_on_the_device_thread() {
     assert_eq!(n, 0, "releasing a sample freed {n} times");
     drop(old);
 }
+
+#[test]
+fn a_silent_output_skipping_its_blocks_neither_allocates_nor_frees() {
+    let mut out = audio::output::Output::new(48000., 2, true, false, false, false, false);
+    out.voices.sample_channels(1, 48000, 1, 48000.).fill(0.1);
+    out.commands = vec![audio::commands::BIND as f64, 0., 1., audio::commands::START as f64, 0., 1., 0., 1., 1., 20000., 0.];
+    let len = out.commands.len();
+    out.apply(len);
+    out.volume(0., 0., 0., true);
+    out.process();
+    let (_, n) = counted(|| for _ in 0..400 { out.process(); });
+    assert_eq!(n, 0, "skipping allocated or freed {n} times");
+    assert!(out.output.iter().all(|&x| x == 0.));
+}
