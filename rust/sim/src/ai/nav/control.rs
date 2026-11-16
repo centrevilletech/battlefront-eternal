@@ -1,4 +1,4 @@
-//! The movement request and one unit's navigation state (nav/control.js).
+//! The movement request and one unit's navigation state.
 //! The state's operations (attach, publish, consume, install, the trail,
 //! the per-tick update) are the Nav service's methods in nav/mod.rs,
 //! because they reach the planner and the path store the service owns;
@@ -8,7 +8,7 @@ use super::executor::PathExecutor;
 use super::math::Vec3;
 use super::units::UnitRef;
 
-/// MovementRequest (control.js:9): what an executor (or a stop) writes
+/// MovementRequest: what an executor (or a stop) writes
 /// for the unit's input step.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovementRequest {
@@ -36,7 +36,6 @@ impl Default for MovementRequest {
 }
 
 impl MovementRequest {
-    /// control.js:20.
     pub fn write(&mut self, target: Vec3, waypoint: Vec3, direction: Vec3, mode: f64, lower: f64, upper: f64) {
         self.valid = true;
         self.steering_target = target;
@@ -47,20 +46,19 @@ impl MovementRequest {
         self.upper = upper;
     }
 
-    /// control.js:31.
     pub fn clear(&mut self) {
         self.valid = false;
     }
 }
 
-/// A pending jet request (control.js:81).
+/// A pending jet request.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct JetRequest {
     pub pending: bool,
     pub vector: Vec3,
 }
 
-/// NavControl's fields (control.js:63). `unit` is the identity token of
+/// NavControl's fields. `unit` is the identity token of
 /// units.rs for the unit object it is attached to, with the generation
 /// it attached at (`unit?.generation ?? -1`). `published` is a path in
 /// the service's store. `leader` is follow's unit reference.
@@ -90,7 +88,7 @@ pub struct NavControl {
 }
 
 impl NavControl {
-    /// control.js:64's field initializers. (When a controller already
+    /// field initializers. (When a controller already
     /// holds a MovementRequest the JavaScript shares it; the service's
     /// control is the one request, so there is nothing to share.)
     pub fn new() -> Self {

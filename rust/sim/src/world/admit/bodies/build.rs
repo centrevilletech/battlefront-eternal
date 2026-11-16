@@ -164,7 +164,7 @@ pub(super) fn number(def: &Value, key: &str, fallback: f64) -> f64 {
 pub(super) fn truthy_number(def: &Value, key: &str, fallback: f64) -> f64 {
     def.get(key).filter(|v| v.truthy()).map_or(fallback, |v| bfe_content::js::to_number(Some(v)))
 }
-// vehicle-water.js reads the first array entry before Number and keeps only
+// reads the first array entry before Number and keeps only
 // finite numbers. Ball depth's absent default is 0, unlike upright's 1.5.
 fn water(def: &Value) -> Option<DroidekaWater> {
     let num = |key, fallback| {

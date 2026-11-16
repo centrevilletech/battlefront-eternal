@@ -1,5 +1,4 @@
-//! Spawn screen state machine, world commands, and port contract
-//! (`src/spawn-screen/model.js`, `src/runtime/commands.js`).
+//! Spawn screen state machine, world commands, and port contract.
 //!
 //! `SpawnModel` owns the player's pending choice while the spawn screen is up:
 //! - State (`Closed`, `Choosing`, `Committed`)
@@ -9,15 +8,14 @@
 //! - Front-line command post fallback when a post is lost to the enemy while choosing
 
 /// Maximum number of human commands accepted in a single tick packet
-/// (`src/runtime/commands.js` `HUMAN_COMMAND_LIMIT = 16`).
+/// (`HUMAN_COMMAND_LIMIT = 16`).
 pub const HUMAN_COMMAND_LIMIT: usize = 16;
 
 /// Maximum UTF-16 code units in a class or command post identifier
-/// (`src/runtime/commands.js` `NAME_LIMIT = 64`).
+/// (`NAME_LIMIT = 64`).
 pub const NAME_LIMIT: usize = 64;
 
-/// World commands emitted by the spawn screen and pause menu (`command.human` in
-/// `src/runtime/commands.js`).
+/// World commands emitted by the spawn screen and pause menu (`command.human`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum HumanCommand {
     /// Switch to team `1..=7` while unspawned or awaiting spawn.
@@ -47,7 +45,7 @@ impl HumanCommand {
     }
 }
 
-/// Validates and normalizes a [`HumanCommand`] (`src/runtime/commands.js` `humanEntry`).
+/// Validates and normalizes a [`HumanCommand`] (`humanEntry`).
 ///
 /// Team numbers must be in `1..=7`, and class/post names must be non-empty and
 /// at most 64 UTF-16 code units long.
@@ -280,8 +278,7 @@ pub trait SpawnPort {
     fn set_view_shot(&mut self, shot: Option<CameraShot>);
 }
 
-/// Default front-line post selection algorithm (`FakeSpawnPort.choosePost` and
-/// `game.js`):
+/// Default front-line post selection algorithm (`FakeSpawnPort.choosePost`):
 /// 1. Keep `previous` if it is still eligible for `team`.
 /// 2. If `previous` exists in the post list (lost to the enemy), pick the
 ///    eligible post nearest `previous` in world space.
@@ -302,7 +299,7 @@ pub fn choose_frontline_post(
         let dx = a[0] - b[0];
         let dy = a[1] - b[1];
         let dz = a[2] - b[2];
-        // goals.js rounds distanceSq through f32 before strict comparisons.
+        // rounds distanceSq through f32 before strict comparisons.
         // Preserve the first post when two long distances round to a tie.
         (dx * dx + dy * dy + dz * dz) as f32 as f64
     };
@@ -346,7 +343,7 @@ pub fn choose_frontline_post(
     best.map(|(p, _)| p.name.clone())
 }
 
-/// The spawn screen's pure state machine (`src/spawn-screen/model.js` `SpawnModel`).
+/// The spawn screen's pure state machine (`SpawnModel`).
 pub struct SpawnModel {
     /// Current lifecycle state (`Closed`, `Choosing`, or `Committed`).
     pub state: SpawnState,

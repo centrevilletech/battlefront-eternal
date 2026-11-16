@@ -1,7 +1,7 @@
 //! `Object3D`'s transform semantics (r170 `src/core/Object3D.js`),
 //! as a tree of nodes by index: the rigs, hulls, seats and bones
 //! the sim poses are Object3D hierarchies, and their world matrices
-//! are behaviour. Only the transform half of Object3D is here —
+//! are behaviour. Only the transform half of Object3D is here:
 //! no events, layers, visibility or rendering state.
 
 use crate::euler::{Euler, EulerOrder};
@@ -26,7 +26,7 @@ pub struct TransformNode {
     /// from, not yet worked out.
     euler_from: Option<Quaternion>,
     /// Whether a quaternion write syncs the Euler (three's default).
-    /// Actor bones run with it off (`src/actor.js` NO_EULER).
+    /// Actor bones run with it off (NO_EULER).
     pub euler_sync: bool,
     pub matrix: Matrix4,
     pub matrix_world: Matrix4,

@@ -1,4 +1,4 @@
-//! Building lifecycle and supply pulses (src/props.js). Constructor data
+//! Building lifecycle and supply pulses. Constructor data
 //! is cooked once by the loader. Collision visibility, crew deaths,
 //! explosions and notifications cross World in their original order.
 

@@ -63,7 +63,7 @@ pub fn write(w: &mut World, players: &mut Players) {
     if dropped > 0 { players.faults = players.faults.wrapping_add(1); }
 }
 
-/// vehicle-phase-data.js flightKeys of `{}`: every key undefined.
+/// flightKeys of `{}`: every key undefined.
 fn no_keys() -> FlightInput {
     let nan = f64::NAN;
     FlightInput { forward: nan, right: nan, turn: nan, pitch: nan, up: nan, down: nan, takeoff: nan, stick_x: None, stick_y: None,

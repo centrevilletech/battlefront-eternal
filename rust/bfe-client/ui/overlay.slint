@@ -351,7 +351,7 @@ export component GameUi inherits Window {
             cancelled => { root.popup-button-activated(root.popup-middle-label != "" ? 2 : 1); }
         }
 
-        // The browser keeps the THEME picker above every dialog's blur and dim (it sits at z-index 10, over the
+        // The earlier build keeps the THEME picker above every dialog's blur and dim (it sits at z-index 10, over the
         // popup layer), so while a dialog is open the picker is drawn here, sharp, instead of in the blurred
         // base layer. It shares its state with the base copy.
         if root.shell-visible && !root.gameplay: ThemePicker {

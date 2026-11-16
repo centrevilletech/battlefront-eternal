@@ -15,7 +15,7 @@ use crate::voices::Engine;
 use crate::{host, BlockMut, FRAMES};
 use std::f64::consts::PI;
 
-// The page's Renderer owns slot assignment; this module owns slot DSP.
+// The client's Renderer owns slot assignment; this module owns slot DSP.
 // A stream reserves twelve virtual mono feeds so each recorded bed lane can
 // be placed separately without borrowing a live effect voice's history.
 pub const VOICES: usize = 64;
@@ -357,7 +357,7 @@ impl Output {
                 }
             }
             self.bed_gains[slot][c] = [gains[0] as f32, gains[1] as f32];
-            // Placed stream directions arrive in the page parameter batch.
+            // Placed stream directions arrive in the client parameter batch.
             if !self.streams[slot].spatial {
                 self.mixer
                     .take(&[id as f32, x as f32, 0.0, z as f32, if self.binaural { 0.2 } else { 0.0 }, 0.0], true);
@@ -1050,7 +1050,7 @@ impl Output {
     }
 }
 
-// VoiceOut.update's position targets advance at audio rate, but the browser
+// VoiceOut.update's position targets advance at audio rate, but Chromium
 // HRTFPanner chooses one direction per quantum from the first sample. Advance
 // all three timelines fully before selecting that direction; later automation
 // must not stall just because spatial selection is block based.

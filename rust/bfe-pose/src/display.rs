@@ -1,4 +1,4 @@
-//! Display animation from src/animator.js. Clip names and weapon banks are
+//! Display animation. Clip names and weapon banks are
 //! resolved at load; a frame only reads numeric handles and reuses its poses.
 //! The same sampler and transform tree serve the world's rider and gun rigs.
 

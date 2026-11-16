@@ -75,7 +75,7 @@ def safe_relative(value):
 # The dedicated server archive (build/native/server-archive.py,
 # docs/server-updates.md): its root entries, and files every archive holds for
 # the native bfeserver binary.
-SERVER_ENTRIES = {'bfe-tree.json', 'bfeserver', 'legal', 'toolchain', 'tools'}
+SERVER_ENTRIES = {'bfe-tree.json', 'bfeserver', 'install-server.sh', 'legal', 'toolchain', 'tools'}
 NATIVE_SERVER_FILES = ('bfeserver', 'tools/prepare.py', 'tools/content-version.json', 'toolchain/python/bin/python3', 'legal/LICENSE', 'bfe-tree.json')
 
 def archive_relative(name):

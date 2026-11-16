@@ -1,4 +1,4 @@
-//! What the page did after the world's step: `worldTick.finish()` drained
+//! What the client did after the world's step: `worldTick.finish()` drained
 //! the unit phase's notices into the game's handlers (drain.rs) and
 //! acknowledged the publication it read, `F3Items.flush` bound the new
 //! lives' dispensers, `ordnance.sim.refresh` took the rounds' retired lists;
@@ -24,7 +24,7 @@ impl Authority {
         players_events: usize,
     ) -> Result<(), String> {
         // F2Sim.bodiesOut: the hulls' toggled bodies since the last read
-        // (reading takes them) set the page's enabled flags.
+        // (reading takes them) set the client's enabled flags.
         let mut changes = Vec::new();
         context
             .read_bank(bank::F2_DELTA, &mut changes)
@@ -74,7 +74,7 @@ impl Authority {
                     .iter()
                     .filter_map(|c| c.unit.map(|unit| (unit, c.presses))),
             );
-            // The page drained these while its clock still read the tick
+            // The client drained these while its clock still read the tick
             // before (worldTick.complete() follows the step): the capture's
             // records carry that tick.
             let mut drained = Drain {
@@ -113,7 +113,7 @@ impl Authority {
                 &put::<{ F3Acknowledgement::WORDS }>(|row, heap| ack.put(row, heap)),
             )?;
         }
-        // The page re-read the rounds' kinds in the mirror's mode, which
+        // The client re-read the rounds' kinds in the mirror's mode, which
         // took their retired lists; nothing else of that read was used.
         context
             .with_store(|s| {
@@ -125,7 +125,7 @@ impl Authority {
             .map_err(|e| e.message().to_string())
     }
 
-    /// `F3Items.flush` (src/sim/wasm/f3-items.js): a unit whose life changed
+    /// `F3Items.flush`: a unit whose life changed
     /// gets a dispenser binding for every weapon level that dispenses an
     /// item, keyed `NAME:body:SLOT:GENERATION:LIFE` where NAME is the
     /// level's class; the native dispenser later asks for that key. The
@@ -218,7 +218,7 @@ impl Authority {
         Ok(())
     }
 
-    /// `mirrorShots()` (src/runtime/multiplayer-world.js): the presses of
+    /// `mirrorShots()`: the presses of
     /// each player the players' phase listed this tick (`players_shots`),
     /// by button, onto his body (`u.networkShots`); a player it did not
     /// list, or one without a body, keeps what his body had.

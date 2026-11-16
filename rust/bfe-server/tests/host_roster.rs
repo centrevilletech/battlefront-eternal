@@ -1,4 +1,4 @@
-//! The browser host dialog promises that human players replace bots.
+//! The earlier build host dialog promises that human players replace bots.
 use bfe_server::world_worker::NativeWorldHost;
 use bfe_sim::{
     gen::{BlockHeader, F4RosterCommand, F4RosterResult, RoOperation},

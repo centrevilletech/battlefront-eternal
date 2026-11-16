@@ -1,5 +1,4 @@
-//! Classic spawn screen view (`src/spawn-screen/classic/view.js`,
-//! `src/spawn-screen/classic/preview.js`).
+//! Classic spawn screen view.
 
 use std::f64::consts::PI;
 
@@ -29,7 +28,7 @@ const BLACK: Color = [0.0, 0.0, 0.0, 1.0];
 pub const LOGO_GREEN: [f64; 3] = [32.0 / 255.0, 223.0 / 255.0, 32.0 / 255.0];
 /// Hologram RGB color `[223/255, 32/255, 32/255]` for the opposing team's logo (`RED`).
 pub const LOGO_RED: [f64; 3] = [223.0 / 255.0, 32.0 / 255.0, 32.0 / 255.0];
-/// Alpha multiplier (`128 / 255`) for unpicked soldier class windows (`UNPICKED` in `view.js`).
+/// Alpha multiplier (`128 / 255`) for unpicked soldier class windows (`UNPICKED`).
 const UNPICKED_ALPHA: f64 = 128.0 / 255.0;
 /// Stagger delay (`0.05s`) between consecutive soldier class window `TitleIntro` animations.
 const SLOT_DELAY: f64 = 0.05;
@@ -69,7 +68,7 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 }
 
 /// Returns the fallback hologram model name for a faction side
-/// (`src/spawn-screen/classic/view.js` `FALLBACK`).
+/// (`FALLBACK`).
 ///
 /// Maps `"cis"` and `"geo"` to `"com_icon_cis"`, `"imp"` to `"com_icon_imperial"`,
 /// `"all"` to `"com_icon_alliance"`, and Republic/native allies (`"rep"`, `"gar"`,
@@ -96,7 +95,7 @@ pub struct SpawnMapPlacement {
 }
 
 /// Computes the center `(x, y)` and side length `size` (`419.84` units) of the tactical
-/// minimap square on the spawn screen (`src/hud.js` `spawnMapPlace`).
+/// minimap square on the spawn screen (`spawnMapPlace`).
 ///
 /// Sits inside the right edge of the 90% safe area (`0.95 * 1024 - 128 * (1024 / 800)`)
 /// and vertically centered at `height * 0.5` between the objectives and post windows.
@@ -175,8 +174,7 @@ pub struct SpawnLogoPlacement {
 }
 
 /// 3D placement of the `shell_cube` room, team logos, and standing soldier
-/// preview body for the current frame (`renderRoom` and `renderModels` in
-/// `src/spawn-screen/classic/view.js`).
+/// preview body for the current frame (`renderRoom` and `renderModels`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn3dPlacement {
     /// World-space center of the `shell_cube` background grid room.
@@ -195,7 +193,7 @@ pub struct Spawn3dPlacement {
     pub preview_scale: f64,
 }
 
-/// Sound effects emitted by the spawn screen (`src/spawn-screen/index.js`).
+/// Sound effects emitted by the spawn screen.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SpawnSound {
     /// `"SpawnDisplaySpawnPointChange"` when the post or class selection changes.
@@ -204,7 +202,7 @@ pub enum SpawnSound {
     SpawnPointAccept,
 }
 
-/// Classic spawn screen view (`src/spawn-screen/classic/view.js` `ClassicView`).
+/// Classic spawn screen view (`ClassicView`).
 ///
 /// Owns all visual animation clocks (`slots`, `objectives_title`, `post_title`,
 /// logo `swap`/`spin`, reinforcement `flip`, and command post highlight `rings`)
@@ -429,7 +427,7 @@ impl ClassicSpawnView {
 
     /// Computes the 3D placements for the `shell_cube` room, the two spinning
     /// faction logos, and the standing soldier preview (`renderRoom` and
-    /// `renderModels` in `src/spawn-screen/classic/view.js`).
+    /// `renderModels`).
     pub fn compute_3d_placement(
         &mut self,
         model: &SpawnModel,

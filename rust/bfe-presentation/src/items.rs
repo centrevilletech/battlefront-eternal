@@ -1,18 +1,18 @@
-//! Item flight, contact and placement for a page online.
+//! Item flight, contact and placement for a client online.
 //!
 //! Ports `EntityItemPresentation` (receive, present, show, seed, step,
 //! reconcile, adopt, draw) and the `Items` helpers it flew with (fly,
-//! contact, settle, place, presentLight). A page online copies the world's
+//! contact, settle, place, presentLight). A client online copies the world's
 //! items from their records: each is flown here by the world's own rules one
 //! 60 Hz tick at a time as the playout clock crosses ticks, and drawn between
 //! the last two at the clock's fraction. Nothing here calls the host, so the
-//! two queries `fly` makes of the page (the ray against its collision, the
+//! two queries `fly` makes of the client (the ray against its collision, the
 //! water crossing) leave as request rows. A slot's work is a resumable
-//! state machine: the page answers the round's requests, calls `resume`, and
+//! state machine: the client answers the round's requests, calls `resume`, and
 //! repeats until none remain. A round limit degrades by leaving the items
 //! where they are; a full store refuses the record. Neither throws.
 //!
-//! The page owns the models: it registers each definition's numbers once
+//! The client owns the models: it registers each definition's numbers once
 //! (`define`), makes and removes meshes from the view serials the kernel
 //! publishes, and copies the placed position and orientation onto them.
 use crate::items_layout::{
@@ -29,7 +29,7 @@ const DEFINITIONS: usize = lim::DEFINITIONS;
 const BATCH: usize = lim::BATCH;
 const ROUNDS: usize = lim::ROUNDS;
 
-// network-entity-items.js constants.
+// constants.
 const STEP: f64 = 1.0 / 60.0;
 const SMOOTH: f64 = 0.08;
 const TOLERANCE: f64 = 0.05;
@@ -39,7 +39,7 @@ const MAX_OFFSET: f64 = 2.0;
 const JUMP: f64 = 12.0;
 const MAX_STEPS: f64 = 60.0;
 const PROBE_LIMIT: f64 = 600.0;
-// items.js constants.
+// constants.
 const GRAVITY: f64 = 9.8;
 const HARD: f64 = 1.0;
 const MINE_SINK: f64 = 0.2;
@@ -48,7 +48,7 @@ const MINE_SINK: f64 = 0.2;
 /// and surface normal.
 const REC: usize = 11;
 
-// The wire's record, decoded by the page to doubles. EntityItemPresentation
+// The wire's record, decoded by the client to doubles. EntityItemPresentation
 // kept these as objects in `life.records` (at most MAX_RECORDS of them); here
 // they are copied into a fixed ring per life.
 #[derive(Clone, Copy, Default)]
@@ -61,7 +61,7 @@ struct Rec {
 }
 
 /// What a definition gives the kernel (items.js itemState and the item
-/// class's Gravity, Rebound and Friction, already defaulted by the page).
+/// class's Gravity, Rebound and Friction, already defaulted by the client).
 #[derive(Clone, Copy, Default)]
 struct Def {
     gravity: f64,
@@ -72,13 +72,13 @@ struct Def {
     radius: f64,
     /// Above zero the item asks for a light every time it is drawn.
     light_radius: f64,
-    /// Whether the page has a model to orient; without one no turn is made.
+    /// Whether the client has a model to orient; without one no turn is made.
     mesh: bool,
-    /// Registered by the page; a record naming an unset one is refused.
+    /// Registered by the client; a record naming an unset one is refused.
     set: bool,
 }
 
-/// items.js itemState: the part of an item `fly` reads and writes.
+/// itemState: the part of an item `fly` reads and writes.
 #[derive(Clone, Copy, Default)]
 struct Body {
     position: Vector3,
@@ -96,7 +96,7 @@ struct Body {
     def: usize,
 }
 
-/// What one `fly` step asks of the page.
+/// What one `fly` step asks of the client.
 #[derive(Clone, Copy, Default)]
 struct Pending {
     /// Ask whether the move went down into the water between from and to.
@@ -110,7 +110,7 @@ struct Pending {
     far: f64,
 }
 
-// The page's reply to a `Pending`: whether the ray hit and where, and where a
+// The client's reply to a `Pending`: whether the ray hit and where, and where a
 // mine crossed the water. It is written into a typed block, one row per request.
 #[derive(Clone, Copy, Default)]
 struct Answer {
@@ -122,7 +122,7 @@ struct Answer {
 }
 
 /// Where a slot is in `show`. Each stage ends by naming the next, so a slot
-/// that waits on the page resumes in the same place.
+/// that waits on the client resumes in the same place.
 #[derive(Clone, Copy, PartialEq)]
 enum Stage {
     /// Finished for this frame (or nothing to show).
@@ -149,7 +149,7 @@ enum Which {
 
 /// Where `show` is for a slot's front life, between suspensions.
 #[derive(Clone, Copy)]
-// The state of one slot's present while it waits for the page's answers: the
+// The state of one slot's present while it waits for the client's answers: the
 // kernel cannot call the ray kernel, so a flight is a state machine that
 // stops at each cast and resumes from the same place. (Task fields are the
 // locals of the JavaScript's loops: how many ticks to fly, the record being
@@ -197,7 +197,7 @@ struct Life {
     len: usize,
     /// The newest record already reconciled.
     checked: f64,
-    /// The page's view of this life (0: none yet).
+    /// The client's view of this life (0: none yet).
     serial: u32,
     has_sim: bool,
     /// The tick the copy has been flown to.
@@ -240,7 +240,7 @@ impl Life {
 // can be reused inside the playout delay, so the old item is drawn while the
 // next waits for its first record).
 struct Slot {
-    /// Seen since the last reset (the page's `slots` Map had the id).
+    /// Seen since the last reset (the client's `slots` Map had the id).
     known: bool,
     /// The newest record taken for this id: records older than it by
     /// generation or tick are ignored.
@@ -252,13 +252,13 @@ struct Slot {
     len: usize,
     lives: [Life; LIVES],
     task: Task,
-    /// Drawn this frame, and the row the page will read.
+    /// Drawn this frame, and the row the client will read.
     drawn: bool,
     row: [f64; vw::STRIDE],
 }
 
 pub struct Items {
-    // The page's blocks; layouts come from rust/sim/schema/items-layout.json.
+    // The client's blocks; layouts come from rust/sim/schema/items-layout.json.
     pub frame: Vec<f64>,
     pub records: Vec<f64>,
     pub definitions: Vec<f64>,
@@ -275,16 +275,16 @@ pub struct Items {
     order: Vec<u16>,
     /// Every life's records: SLOTS x LIVES x RECORDS rows of REC numbers.
     rec: Vec<f64>,
-    /// Slots whose flight waits on the page this round, and last round's.
+    /// Slots whose flight waits on the client this round, and last round's.
     waiting: Vec<u16>,
     previous: Vec<u16>,
     epoch: f64,
     has_epoch: bool,
-    /// Views are numbered so the page can tell a new one from the old.
+    /// Views are numbered so the client can tell a new one from the old.
     serial: u32,
     tick: f64,
     water: bool,
-    /// How far a record can round a position (see the page's ROUNDING).
+    /// How far a record can round a position (see the client's ROUNDING).
     rounding: [f64; 3],
     /// Set when the round limit is reached: flights stop, items stay put.
     no_fly: bool,
@@ -333,7 +333,7 @@ fn put3(a: &mut [f64], at: usize, v: &Vector3) {
     a[at + 2] = v.z;
 }
 
-/// network-entity-items.js follow: the world's state from a record. At rest
+/// follow: the world's state from a record. At rest
 /// is landed; a mine going straight down at its sinking speed (within the
 /// record's rounding) is sinking.
 fn follow(b: &mut Body, r: &Rec) {
@@ -348,11 +348,11 @@ fn follow(b: &mut Body, r: &Rec) {
     b.sinking = b.mine && !b.landed && v.x == 0.0 && v.z == 0.0 && (v.y + MINE_SINK).abs() < 0.15;
 }
 
-/// items.js fly up to the queries: gravity in two half steps around the move,
-/// then what the move needs asked of the page (the mine's water crossing,
+/// fly up to the queries: gravity in two half steps around the move,
+/// then what the move needs asked of the client (the mine's water crossing,
 /// contact's ray). Returns whether anything was asked.
 fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
-    // Gravity is the class's Gravity times 9.8 (the page registers the nullish default of 1
+    // Gravity is the class's Gravity times 9.8 (the client registers the nullish default of 1
     // once). A sinking mine falls at a fixed speed and takes no gravity.
     let g = -GRAVITY * d.gravity;
     if b.sinking {
@@ -367,14 +367,14 @@ fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
     if !b.sinking {
         b.velocity.y += g * 0.5 * STEP;
     }
-    // Only a mine not yet sinking asks about the water, and only on a page that has water; the
+    // Only a mine not yet sinking asks about the water, and only in a client that has water; the
     // answer cannot change the ray below, so both go out together.
     p.water = b.mine && !b.sinking && water_on;
     if p.water {
         p.from = b.previous;
         p.to = b.position;
     }
-    // items.js contact: what the item meets between where it was and where
+    // contact: what the item meets between where it was and where
     // it is, a ray a little behind the start.
     // The ray starts 5 cm behind the old position so a copy resting on a surface still meets
     // it; a move shorter than a micrometre casts nothing.
@@ -394,11 +394,11 @@ fn fly_begin(b: &mut Body, d: &Def, water_on: bool, p: &mut Pending) -> bool {
     p.water || p.cast
 }
 
-/// items.js fly from the answers: the water, then contact's bounce or settle.
+/// fly from the answers: the water, then contact's bounce or settle.
 /// Returns where a mine went into the water (the ripple).
 fn fly_end(b: &mut Body, d: &Def, p: &Pending, a: &Answer) -> Option<Vector3> {
     let mut ripple = None;
-    // Water comes first, as in the original: a mine meeting the surface sinks and the page
+    // Water comes first, as in the original: a mine meeting the surface sinks and the client
     // ripples it, and the contact below then sees the sinking velocity.
     if p.water && a.wet {
         b.sinking = true;
@@ -412,7 +412,7 @@ fn fly_end(b: &mut Body, d: &Def, p: &Pending, a: &Answer) -> Option<Vector3> {
     ripple
 }
 
-/// items.js contact, from the hit.
+/// contact, from the hit.
 fn contact(b: &mut Body, d: &Def, hit: &Answer) {
     let n = hit.normal;
     // Speed into the surface; a copy moving off it meets nothing.
@@ -447,7 +447,7 @@ fn contact(b: &mut Body, d: &Def, hit: &Answer) {
     b.velocity.add_scaled_vector(&n, rebound * -dd);
 }
 
-/// items.js settle.
+/// settle.
 fn settle(b: &mut Body, normal: &Vector3) {
     b.landed = true;
     b.sinking = false;
@@ -455,7 +455,7 @@ fn settle(b: &mut Body, normal: &Vector3) {
     b.up.copy(normal);
 }
 
-/// items.js place: the model upright on its surface, facing its way.
+/// place: the model upright on its surface, facing its way.
 fn place(up: &Vector3, yaw: f64) -> Quaternion {
     // The facing is the yaw's heading made level with the surface: the part along the normal
     // is taken out, and a heading straight up the normal falls back to +z.
@@ -471,7 +471,7 @@ fn place(up: &Vector3, yaw: f64) -> Quaternion {
     right.cross_vectors(up, &forward);
     right.normalize();
     let mut basis = Matrix4::default();
-    // The model's frame is (right, up, forward); three turns it into the orientation the page
+    // The model's frame is (right, up, forward); three turns it into the orientation the client
     // copies onto the mesh.
     basis.make_basis(&right, up, &forward);
     let mut turn = Quaternion::default();
@@ -532,7 +532,7 @@ impl Items {
     }
 
     /// Registers definition `index` from its row of the definition block. A
-    /// definition is a number of the page's own registry, once.
+    /// definition is a number of the client's own registry, once.
     pub fn define(&mut self, index: usize) {
         if index >= DEFINITIONS {
             return;
@@ -551,7 +551,7 @@ impl Items {
     }
 
 /// The counts a call reports (releases, ripples, requests, views) belong to that call alone;
-/// the page drains them after each one.
+/// the client drains them after each one.
     fn begin_call(&mut self) {
         self.releases_count = 0;
         self.ripples_count = 0;
@@ -559,7 +559,7 @@ impl Items {
         self.header[hd::VIEWS] = 0.0;
     }
 
-/// The running totals (records refused, frames abandoned) are reported by the page once,
+/// The running totals (records refused, frames abandoned) are reported by the client once,
 /// whenever either is above zero.
     fn end_call(&mut self) {
         self.header[hd::RELEASES] = self.releases_count as f64;
@@ -587,7 +587,7 @@ impl Items {
         self.slots[s].head % LIVES
     }
 
-    /// EntityItemPresentation.hide: the page takes the view down.
+    /// EntityItemPresentation.hide: the client takes the view down.
     fn hide_front(&mut self, s: usize) {
         let slot = &mut self.slots[s];
         let phys = slot.head % LIVES;
@@ -631,7 +631,7 @@ impl Items {
         self.end_call();
     }
 
-    /// EntityItemPresentation.reset(epoch), asked by the page when its
+    /// EntityItemPresentation.reset(epoch), asked by the client when its
     /// connection starts a new epoch: records of an older one are dropped
     /// from then on.
     pub fn reset_epoch(&mut self, epoch: f64) {
@@ -645,7 +645,7 @@ impl Items {
     // its first record, and keeps the newest MAX_RECORDS for the clock to reach.
     fn receive(&mut self, r: &[f64; rc::STRIDE]) {
         let epoch = r[rc::EPOCH];
-        // A record of an older epoch than the page has seen is dropped; a newer one forgets
+        // A record of an older epoch than the client has seen is dropped; a newer one forgets
         // every item first, as the original reset did.
         if self.has_epoch && epoch < self.epoch {
             return;
@@ -745,7 +745,7 @@ impl Items {
     }
 
     /// EntityItemPresentation.present for the frame's clock: every slot runs
-    /// until it finishes or needs the page. `requests` in the header says how
+    /// until it finishes or needs the client. `requests` in the header says how
     /// many rows await answers; zero means the frame is done and the views
     /// are published.
     pub fn present(&mut self) {
@@ -770,8 +770,8 @@ impl Items {
         self.finish_round();
     }
 
-    /// The page has written an answer row for every request. Continues the
-    /// waiting slots; `abandon` (the page's round limit) answers the rest of
+    /// The client has written an answer row for every request. Continues the
+    /// waiting slots; `abandon` (the client's round limit) answers the rest of
     /// the frame with nothing, so every item stays where it is.
     pub fn resume(&mut self, abandon: bool) {
         self.begin_call();
@@ -797,7 +797,7 @@ impl Items {
 /// Ends a round: writes the waiting slots' queries as request rows, or, with none waiting,
 /// publishes the frame's views.
     fn finish_round(&mut self) {
-        // Requests are written once a round has run every slot as far as it can, so the page
+        // Requests are written once a round has run every slot as far as it can, so the client
         // reads one tight block and slots never see each other's rows.
         let n = self.waiting.len();
         for i in 0..n {
@@ -820,7 +820,7 @@ impl Items {
         self.header[hd::REQUESTS] = n as f64;
         if n == 0 {
             // With nothing left to answer the frame is done.
-            // The frame's draws, in the order the page visited the slots.
+            // The frame's draws, in the order the client visited the slots.
             let mut views = 0;
             for i in 0..self.order.len() {
                 let slot = &self.slots[self.order[i] as usize];
@@ -835,7 +835,7 @@ impl Items {
         self.end_call();
     }
 
-/// Runs a slot's state machine until it is done or waits on the page. Every loop it contains
+/// Runs a slot's state machine until it is done or waits on the client. Every loop it contains
 /// is bounded (records, MAX_STEPS, PROBE_LIMIT), so it always returns.
     fn run(&mut self, s: usize) {
         loop {
@@ -1002,7 +1002,7 @@ impl Items {
         slot.task.stage = Stage::Step;
     }
 
-    /// Asks `fly` of the body; whether it needs the page.
+    /// Asks `fly` of the body; whether it needs the client.
     fn start_fly(&mut self, s: usize, which: Which) -> bool {
         if self.no_fly {
             return false;
@@ -1023,7 +1023,7 @@ impl Items {
         if !fly_begin(body, &d, water, &mut slot.task.pending) {
             return false;
         }
-        // The query waits for the page: this slot's request is the next row.
+        // The query waits for the client: this slot's request is the next row.
         slot.task.req = self.waiting.len();
         slot.task.which = which;
         slot.task.waiting = true;
@@ -1058,7 +1058,7 @@ impl Items {
             Which::Sim => &mut slot.lives[phys].sim,
             Which::Probe => &mut slot.task.probe,
         };
-        // A ripple is a side effect on the page's water; it leaves as a row.
+        // A ripple is a side effect on the client's water; it leaves as a row.
         let ripple = fly_end(body, &d, &task.pending, &answer);
         if let Some(p) = ripple {
             // A full ripple block drops the ripple, never the frame.
@@ -1070,7 +1070,7 @@ impl Items {
     }
 
     /// EntityItemPresentation.step: fly the copy on, keeping where it was a
-    /// tick before for drawing. True when it waits on the page.
+    /// tick before for drawing. True when it waits on the client.
     fn step(&mut self, s: usize) -> bool {
         let phys = self.front(s);
         if self.slots[s].task.waiting {
@@ -1119,7 +1119,7 @@ impl Items {
             self.complete_fly(s);
             self.slots[s].task.pt += 1.0;
         }
-        // The page's copy never runs further behind a record than a ten
+        // The client's copy never runs further behind a record than a ten
         // second stall; a record older than that is compared where it is.
         while self.slots[s].task.pt < self.slots[s].lives[phys].tick
             && self.slots[s].task.pt - self.slots[s].task.cur_tick < PROBE_LIMIT
@@ -1215,7 +1215,7 @@ impl Items {
         row[vw::SERIAL] = life.serial as f64;
         row[vw::GENERATION] = life.generation;
         row[vw::DEFINITION] = life.def as f64;
-        // presentLight: the page adds the light at the drawn position when the definition has
+        // presentLight: the client adds the light at the drawn position when the definition has
         // a light radius.
         row[vw::LIGHT] = if d.light_radius > 0.0 { 1.0 } else { 0.0 };
         put3(row, vw::POSITION, &position);

@@ -655,7 +655,7 @@ export component BattlePauseScreen inherits Rectangle {
         }
 
         // Under the confirmation popup the picker is drawn sharp on the modal layer instead (BattleModalScreen),
-        // as the browser keeps it above the blurred page.
+        // it above the blurred page.
         if BattleModel.pause-subscreen != "confirm" : ThemePicker {
             x: parent.width - Theme.bfe-edge - self.width;
             y: 18px;

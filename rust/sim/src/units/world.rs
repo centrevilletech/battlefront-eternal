@@ -19,7 +19,7 @@ pub struct CastHit {
 
 /// The units' boundary.
 pub trait UnitsWorld {
-    // ---- The collision world (src/collision.js).
+    // ---- The collision world.
 
     /// cast(origin, direction, far, hit): the first hit within `far`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit>;
@@ -31,7 +31,7 @@ pub trait UnitsWorld {
 
     // ---- Hit shapes on a seat or in a creature's hold.
 
-    /// unit.seat.exposed (SeatLease, src/seats.js): whether rounds meet him
+    /// unit.seat.exposed (SeatLease): whether rounds meet him
     /// on his seat.
     fn seat_exposed(&mut self, id: u32, unit: &Unit) -> bool;
     /// unit.seat.riderShapes(unit, shapes): his body as the seat poses it;
@@ -51,7 +51,7 @@ pub trait UnitsWorld {
     /// `sphere`: its hull's, turret's or building's bounding sphere now.
     fn target_sphere(&mut self, id: u32) -> Bounds;
 
-    // ---- Across a unit's tick (src/units.js Unit.tick).
+    // ---- Across a unit's tick (Unit.tick).
 
     /// soldier.tick(input, h): a soldier's movement (src/soldier.js, the
     /// module's `movement`), from the unit's `input`.
@@ -74,7 +74,7 @@ pub trait UnitsWorld {
     /// combat.clearCharge() (undraw).
     fn clear_charge(&mut self, id: u32, unit: &mut Unit);
     /// s.sampleMuzzles(h) for a droideka whose gun rig the battle holds
-    /// (its tick had no DroidekaParts: the battle's JavaScript poses it).
+    ///.
     fn sample_muzzles(&mut self, _id: u32, _unit: &mut Unit, _h: f64) {}
     /// A droideka's blast during its death clip (onDeathBlast: the game's
     /// deathBlast hook).
@@ -86,6 +86,6 @@ pub trait UnitsWorld {
     /// the Character he played (the battle's).
     fn let_go_of_character(&mut self, id: u32, unit: &mut Unit);
     /// remove()'s onRemoved: the factory takes the body back into its
-    /// class's pool (src/units.js UnitFactory.release).
+    /// class's pool (UnitFactory.release).
     fn release(&mut self, id: u32, unit: &Unit);
 }

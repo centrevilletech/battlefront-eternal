@@ -1,5 +1,5 @@
 //! The unit phase's notifications (the `EVENTS` bank, `sim.events`) and
-//! what the page did with each (`F3Sim.notifications()` in
+//! what the client did with each (`F3Sim.notifications()` in
 //! src/sim/wasm/f3-sim.js, the owners' handlers, and the game's emitters in
 //! src/game.js): the records they wrote into the SimEvents journal, the
 //! wire observers they fed (the shot counters, the presentation capture)
@@ -23,7 +23,7 @@ use super::capture::{Capture, Token};
 use super::journal::{Event, Journal, Life, Presentation, Presented, SQUAD_LABELS};
 
 /// One tick's drain: the world's clock for the records, the observers'
-/// handles, and the units' rows (`store.unit`) for the facts the page read
+/// handles, and the units' rows (`store.unit`) for the facts the client read
 /// from its unit objects.
 pub struct Drain<'a> {
     pub recon_definitions: &'a super::recon::Definitions, // matrix-b
@@ -40,7 +40,7 @@ pub struct Drain<'a> {
     pub units: &'a super::UnitTable,
     /// The seat leases (`KIND_SEAT_LEASE`), by slot.
     pub leases: &'a [(u32, gen::SeatLease)],
-    /// The body flags the page toggled this tick (kernel slot, enabled),
+    /// The body flags the client toggled this tick (kernel slot, enabled),
     /// and each building's bodies (built, destroyed, unbuilt) as kernel slots.
     pub toggles: &'a mut Vec<(usize, u8)>,
     pub prop_bodies: &'a [(usize, [Option<u32>; 3])],
@@ -283,8 +283,8 @@ impl Drain<'_> {
             let length = words[at + 1] as usize;
             let record = &words[at + 2..(at + 2 + length).min(end)];
             self.journal.time = time(at - 1);
-            // The page's capture observers ran inside try/catch (`observe`
-            // in network-entity-combat.js, `guard` in entity-presentation-
+            // The client's capture observers ran inside try/catch (`observe`
+            //, `guard` in entity-presentation-
             // events.js): a throw became a capture fault and the battle went
             // on. Without a capture nothing here can throw that way.
             if let Err(message) = self.handle(context, code, record) {
@@ -326,7 +326,7 @@ impl Drain<'_> {
         } // matrix-b
 
         match code {
-            // applyNetworkControls (src/runtime/multiplayer-world.js): a
+            // applyNetworkControls: a
             // squad order the player gave is a `presentation` record of his
             // unit life, which his own page's HUD shows.
             gen::EVENT_PLAYER_SQUAD if record.len() >= PlayerSquad::WORDS => {
@@ -337,7 +337,7 @@ impl Drain<'_> {
                 };
                 self.present(context, Presentation::Squad { label: e.label, owner })?;
             }
-            // F4Tail.onSpawn (src/game.js): simEvents.emit("spawn", {target:
+            // F4Tail.onSpawn: simEvents.emit("spawn", {target:
             // units.ref(event.unit), team, position, className, post}).
             gen::EVENT_F4_SPAWN if record.len() >= F4SpawnNotice::WORDS => {
                 let e = F4SpawnNotice::take(
@@ -355,7 +355,7 @@ impl Drain<'_> {
                     post: e.post,
                 });
             }
-            // AiNotices.voice (src/sim/wasm/ai-world-notices.js): the prepared
+            // AiNotices.voice: the prepared
             // field shape for the notice's optional keys, `time` the notice's;
             // then the presentation capture's "vo" record.
             gen::EVENT_AI_VOICE if record.len() >= AiVoiceNotice::WORDS => {
@@ -416,7 +416,7 @@ impl Drain<'_> {
                     )?;
                 }
             }
-            // unit.combat.onFired (src/game.js instrument): simEvents.emit("shot",
+            // unit.combat.onFired (instrument): simEvents.emit("shot",
             // {source, team, position, direction, weapon, repair, melee, swing});
             // the shot counters observe it, the presentation capture records it.
             gen::EVENT_F3_SHOT if record.len() >= F3ShotNotice::WORDS => {
@@ -466,7 +466,7 @@ impl Drain<'_> {
                     swing: e.shot.swing,
                 });
                 // The shot counters count canonically once attached
-                // (`bindCanonical` detached the page's listener): no observe.
+                // (`bindCanonical` detached the client's listener): no observe.
                 // attachPresentationCapture.describe -> events.capture "shot":
                 // the weapon row is the first arsenal row of that name, its
                 // channel the trigger's; a network human's press id comes
@@ -509,7 +509,7 @@ impl Drain<'_> {
             // F3Sim's f2Shot handler: `fleet.f2.firing.presentShot(event)`
             // (a sound, a muzzle effect and a light: no record) and
             // `fleet.world.fired(...)` -> `mountedShot(object, seat, shot,
-            // owner, origin, direction, sample)` (src/game.js): a `shot` record
+            // owner, origin, direction, sample)`: a `shot` record
             // with the hull's registry target as its mount, then the
             // presentation capture's "shot" record. `firing.shot(a)` sets the
             // weapon and aim only: repair, melee and swing are the row's
@@ -556,7 +556,7 @@ impl Drain<'_> {
                 // first), its channel the weapon state's; the press id is the
                 // source body's, as for an infantry shot.
                 if let Some(capture) = self.capture {
-                    // seatArsenal (src/seats.js) gave a seat weapon without
+                    // seatArsenal gave a seat weapon without
                     // a channel its index in the seat when the seat's
                     // first SeatUnit was made; a fired seat has one.
                     let channel = if level.named_channel {
@@ -600,7 +600,7 @@ impl Drain<'_> {
                 }
             }
             // F2Seats.notice -> vehicles/turretSeats.onBoard/onUnboard
-            // (src/game.js): simEvents.emit("board" | "unboard", {source,
+            //: simEvents.emit("board" | "unboard", {source,
             // team, position, target, seat}); the target is the holder's
             // registry target (a vehicle's or a turret's).
             gen::EVENT_F3_SEAT if record.len() >= F3SeatNotice::WORDS => {
@@ -629,7 +629,7 @@ impl Drain<'_> {
                 });
             }
             // F3Sim's f3Ordnance handler -> ordnance.onLaunch / onImpact ->
-            // CombatCapture.launch / impact (src/runtime/network-entity-combat.js):
+            // CombatCapture.launch / impact:
             // a bolt record (schema 1) at the launch, a terminal record
             // (schema 2) at the impact, both through the wire's combat encoder.
             gen::EVENT_F3_ORDNANCE if record.len() >= F3OrdnanceNotice::WORDS => {
@@ -682,7 +682,7 @@ impl Drain<'_> {
                         self.dynamics.retain(|(k, _)| *k != key);
                         self.dynamics.push((key, fact));
                     }
-                    // ordnance.onGrenadeContact (src/game.js): the `grenade`
+                    // ordnance.onGrenadeContact: the `grenade`
                     // record of a grenade's first touch, for the bots' danger
                     // warnings; `def` is the round's class or null.
                     F3OrdnanceEvent::GrenadeContact => {
@@ -855,7 +855,7 @@ impl Drain<'_> {
             }
             // F3Sim's f3Blast handler, one notice a stage: "present" draws it
             // (`presentExplosion`, `blastPresent`: no record but a remote
-            // droid's blast); "event" is `blastNotice` (src/game.js), the
+            // droid's blast); "event" is `blastNotice`, the
             // `explosion` record; "finished" is `ordnance.onExplosion`, whose
             // combat capture writes the explosion record (schema 5,
             // `CombatCapture.explosion`) with the definition's registry id.
@@ -939,7 +939,7 @@ impl Drain<'_> {
                 }
             }
             // F3Sim's f3Damage handler -> unit.combat.onDamaged(amount,
-            // attacker, info, sample) (src/game.js instrument): the `damage`
+            // attacker, info, sample) (instrument): the `damage`
             // record, which the AI hears and the combat capture turns into a
             // feedback record (schema 3, `CombatCapture.event`).
             gen::EVENT_F3_DAMAGE if record.len() >= F3DamageNotice::WORDS => {
@@ -993,7 +993,7 @@ impl Drain<'_> {
                 }
             }
             // F3Sim's f3Presentation handler -> unit.combat.onPresentation
-            // (event, event) (src/game.js instrument): the snapshot of the
+            // (event, event) (instrument): the snapshot of the
             // notice as a `presentation` record, owned by the notice's unit
             // life, which the presentation capture sends as is.
             gen::EVENT_F3_PRESENTATION if record.len() >= F3Presentation::WORDS => {
@@ -1028,7 +1028,7 @@ impl Drain<'_> {
                 };
                 self.present(context, presentation)?;
             }
-            // F3Sim's f3Death handler -> deathNotice (src/game.js): the
+            // F3Sim's f3Death handler -> deathNotice: the
             // `death` record, which the combat capture turns into a feedback
             // record (schema 4); `hooks.presented('died')` writes nothing.
             gen::EVENT_F3_DEATH if record.len() >= F3DeathNotice::WORDS => {
@@ -1066,7 +1066,7 @@ impl Drain<'_> {
                 }
             }
             // F3Sim's f3Body handler: a death blast and a body blown apart
-            // are `hooks.presented` (src/game.js) presentation records owned
+            // are `hooks.presented` presentation records owned
             // by the notice's unit life; a respawn's onRespawn does nothing.
             gen::EVENT_F3_BODY if record.len() >= F3BodyNotice::WORDS => {
                 let e = F3BodyNotice::take(
@@ -1121,8 +1121,8 @@ impl Drain<'_> {
                     },
                 )?;
             }
-            // F3Sim's f3Hull handler -> F3Hulls.notice (src/sim/wasm/f3-hulls.js):
-            // a hull's damage is vehicles.onDamaged (src/game.js), a `damage`
+            // F3Sim's f3Hull handler -> F3Hulls.notice:
+            // a hull's damage is vehicles.onDamaged, a `damage`
             // record with the hull's registry target and no hit source,
             // which the AI hears and the combat capture turns into a
             // feedback record; its explosion effect is presentEffect's
@@ -1268,7 +1268,7 @@ impl Drain<'_> {
                 }
             }
             // F3Sim's f3PropDamage handler -> F3Props.damaged -> the turret's
-            // onDamaged (src/game.js): a `damage` record naming the turret's
+            // onDamaged: a `damage` record naming the turret's
             // registry target at the notice's life, team and position, its
             // known point 30 units back along the hit's flat direction, the
             // attacker as refOf and teamOf read it then; the AI hears it and

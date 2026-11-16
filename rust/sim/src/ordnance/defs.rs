@@ -9,7 +9,7 @@ use crate::store::DefId;
 
 pub use bfe_content::js::string_to_number;
 
-/// A definition's field as JavaScript reads it.
+/// A definition's field it.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Field {
     Undefined,
@@ -157,7 +157,7 @@ impl OrdnanceDef {
         }
     }
 
-    /// ordnance.js glowLength: reading LaserLength sets GlowLength to three
+    /// glowLength: reading LaserLength sets GlowLength to three
     /// times it, and a GlowLength named after replaces that.
     pub fn glow(&self) -> f64 {
         if !self.glow_length.is_nullish() {
@@ -181,7 +181,7 @@ pub struct ExplosionDef {
     pub scales: [Field; 5],
 }
 
-/// ordnance.js HEALTH_SCALES's keys, in the order of `ExplosionDef::scales`.
+/// HEALTH_SCALES's keys, in the order of `ExplosionDef::scales`.
 pub const HEALTH_TYPES: [&str; 5] = ["person", "animal", "droid", "vehicle", "building"];
 pub const SCALE_FIELDS: [&str; 5] = ["PersonScale", "AnimalScale", "DroidScale", "VehicleScale", "BuildingScale"];
 
@@ -195,7 +195,7 @@ impl ExplosionDef {
         }
     }
 
-    /// ordnance.js healthScale(def, healthType): the scale its health type
+    /// healthScale(def, healthType): the scale its health type
     /// names (`String(healthType).toLowerCase()`; person when it names
     /// none), 1 when the explosion gives none.
     pub fn health_scale(&self, health_type: &Field) -> f64 {
@@ -210,19 +210,19 @@ impl ExplosionDef {
         self.scales[at].or_nullish(1.0)
     }
 
-    /// ordnance.js blastDamage: Damage, by the falloff over the distance
+    /// blastDamage: Damage, by the falloff over the distance
     /// and the scale for the health type.
     pub fn damage_at(&self, distance: f64, health_type: &Field) -> f64 {
         self.damage.or(0.0) * self.share(distance) * self.health_scale(health_type)
     }
 
-    /// ordnance.js blastShare.
+    /// blastShare.
     pub fn share(&self, distance: f64) -> f64 {
         falloff(distance, self.damage_radius_inner.or(0.0), self.damage_radius_outer.or(0.0))
     }
 }
 
-/// ordnance.js falloff: full inside the inner radius, down to nothing at the
+/// falloff: full inside the inner radius, down to nothing at the
 /// outer.
 pub fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
     if distance < inner {

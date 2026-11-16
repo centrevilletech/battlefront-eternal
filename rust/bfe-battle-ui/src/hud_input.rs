@@ -8,7 +8,7 @@ pub use crate::chat::*;
 pub const WORDS: usize = INPUT_LEN;
 
 /// Converts a relation value (`1` friendly, `-1` enemy, `0` neutral) or label into the HUD relation code
-/// (`relationCode` in `src/hud-input.js`).
+/// (`relationCode`).
 ///
 /// Encodes `4.0` for `None`/null, `3.0` for indigenous locals (`team > 2`), `1.0` for friendly
 /// (`relation > 0`), `2.0` for enemy (`relation < 0`), and `0.0` for neutral.

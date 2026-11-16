@@ -1,5 +1,5 @@
 //! The map's water as the world's simulation sees it
-//! (src/runtime/water-state.js WaterState): its surface height bobbing on
+//! (WaterState): its surface height bobbing on
 //! the tick clock, which cells of its grid are water, where a segment goes
 //! down through it, and what it does to a soldier each tick (his wakes and
 //! the splash of a fall into it, his gun under the surface, drowning).
@@ -19,7 +19,7 @@ const DROWN_AFTER: f64 = 3.0; // s
 const DROWN_DAMAGE: f64 = 30.0; // per second
 
 /// What a soldier's tick in the water asks for besides damage: a wake's
-/// ripple (the page's) and the splash of a fall into it (the game's
+/// ripple (the client's) and the splash of a fall into it (the game's
 /// watersplash_md effect), where.
 pub trait WaterEffects {
     fn ripple(&mut self, at: &Vector3, life: f64, radius: f64, velocity: &Vector3);

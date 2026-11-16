@@ -1,4 +1,4 @@
-//! The authority's battle-tail slot (src/game.js updateBattle). Battlefield
+//! The authority's battle-tail slot (updateBattle). Battlefield
 //! deaths precede post capture and rules; local spawn realization and corpse
 //! removal follow the native character-spawn pass. HUD work stays outside this span.
 use super::{battlefield::{Battlefield, BattlefieldWorld}, human::Command,

@@ -1,5 +1,5 @@
 """What the tools write must come out the same on every platform: the
-content fingerprint (src/runtime/content-hash.js) compares a player's
+content fingerprint compares a player's
 preparation with the server's to the last bit. tools/portable_math.py
 gives sin, cos and atan2 exactly (where glibc and the Windows runtime each
 miss the last bit now and then), the tools that write fingerprinted data

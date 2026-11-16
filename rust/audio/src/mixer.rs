@@ -15,7 +15,7 @@ pub const ALSOFT: u32 = 2;
 pub const AMBI3: u32 = 3;
 
 /// One speaker of a layout: azimuth and elevation in degrees, or none
-/// (the LFE). Azimuth is positive to the left, as in src/audio/layouts.js.
+/// (the LFE). Azimuth is positive to the left,.
 pub type Speaker = Option<(f64, f64)>;
 
 /// OpenAL Soft's decoder for the "alsoft" law: the front widening and one

@@ -1,4 +1,4 @@
-//! `MathUtils.js` (r170), function by function. The UUID table and
+//! (r170), function by function. The UUID table and
 //! the `Math.random` helpers take their draws from the caller (see
 //! the crate notes).
 
@@ -141,12 +141,12 @@ pub fn rand_float_spread(random: &mut impl FnMut() -> f64, range: f64) -> f64 {
     range * (0.5 - random())
 }
 
-/// three's `seededRandom` (MathUtils.js): a mulberry32 over a
+/// three's `seededRandom`: a mulberry32 over a
 /// module-level `_seed` that starts at 1234567. The seed is a
 /// JavaScript number and the `+= 0x6D2B79F5` is double arithmetic,
 /// so past 2^53 of accumulated seed the low bits wash out exactly
 /// as they do there; this keeps the state as an f64 to reproduce
-/// that. (Not the game's `seededRandom` in weapons.js: that one
+/// that. (Not the game's `seededRandom`: that one
 /// keeps its state in 32 bits. This is three's.)
 #[derive(Clone, Copy, Debug)]
 pub struct ThreeSeededRandom {
@@ -196,8 +196,8 @@ pub fn rad_to_deg(radians: f64) -> f64 {
 }
 
 /// `isPowerOfTwo(value)`: `(value & (value - 1)) === 0 && value !== 0`
-/// — the `&` is ToInt32 on both sides, in JavaScript's arithmetic
-/// (`value - 1` in doubles first).
+/// The `&` converts both sides to 32-bit integers after `value - 1` is
+/// computed in doubles.
 pub fn is_power_of_two(value: f64) -> bool {
     (to_int32(value) & to_int32(value - 1.0)) == 0 && value != 0.0
 }

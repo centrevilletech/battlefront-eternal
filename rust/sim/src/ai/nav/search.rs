@@ -1,4 +1,4 @@
-//! The local barrier search (nav/search.js): a bounded best-first search
+//! The local barrier search: a bounded best-first search
 //! over barrier corners. Search nodes are indices into the search's
 //! arena where the JavaScript holds node objects; parent links and the
 //! heap's back-index (`node.heap`) are kept as written.
@@ -28,7 +28,7 @@ pub struct SearchNode {
     pub heap: usize,
 }
 
-/// The one-based max-heap (search.js:31). Scores are Float32Array
+/// The one-based max-heap. Scores are Float32Array
 /// entries: storing rounds to f32, reading widens, as `Vec<f32>` does.
 #[derive(Clone, Debug)]
 pub struct OpenHeap {
@@ -53,7 +53,7 @@ impl OpenHeap {
         self.node[1]
     }
 
-    /// Entry i, zero based, in array order (search.js:49).
+    /// Entry i, zero based, in array order.
     pub fn at(&self, i: usize) -> Option<usize> {
         self.node[i + 1]
     }
@@ -71,7 +71,7 @@ impl OpenHeap {
         true
     }
 
-    /// A raised score for the node at zero-based index i (search.js:64).
+    /// A raised score for the node at zero-based index i.
     pub fn raise(&mut self, nodes: &mut [SearchNode], i: usize, score: f64) {
         self.score[i + 1] = score as f32;
         self.up(nodes, i + 1);
@@ -138,7 +138,7 @@ impl OpenHeap {
     }
 }
 
-/// BarrierSearch (search.js:120). The barrier set and the path pools are
+/// BarrierSearch. The barrier set and the path pools are
 /// the planner's, passed to the calls that use them.
 #[derive(Clone, Debug)]
 pub struct BarrierSearch {
@@ -163,7 +163,7 @@ pub struct BarrierSearch {
 }
 
 impl BarrierSearch {
-    /// search.js:121 with its defaults (1024 nodes, a 512-entry heap);
+    /// with its defaults (1024 nodes, a 512-entry heap);
     /// `nodes` and `heap` are the JavaScript's options of the same names.
     pub fn new(nodes: Option<f64>, heap: Option<f64>) -> Self {
         BarrierSearch {
@@ -198,7 +198,7 @@ impl BarrierSearch {
         self.nodes.len() - 1
     }
 
-    /// Start a search (search.js:159).
+    /// Start a search.
     pub fn begin(&mut self, barriers: &mut BarrierSet, store: &PathStore, start: Vec3, goal: Vec3, radius: f64, mask: u32) -> bool {
         if !barriers.point_clear(goal, radius, mask).0 {
             self.finished = true;
@@ -258,7 +258,7 @@ impl BarrierSearch {
         }
     }
 
-    /// Search until finished or the work budget runs out (search.js:204).
+    /// Search until finished or the work budget runs out.
     pub fn step(&mut self, barriers: &mut BarrierSet, work: &mut Work) {
         while !self.heap.empty() && work.count < work.cap {
             self.scratch.clear();
@@ -285,7 +285,7 @@ impl BarrierSearch {
         }
     }
 
-    /// Candidates from parent toward (x, y, z) (search.js:223).
+    /// Candidates from parent toward (x, y, z).
     fn expand(&mut self, barriers: &mut BarrierSet, work: &mut Work, parent: usize, x: f64, y: f64, z: f64, depth: f64) {
         if depth >= DEPTH {
             return;
@@ -357,7 +357,7 @@ impl BarrierSearch {
         self.insert(n);
     }
 
-    /// The path to the goal, start first, or None (search.js:266). The
+    /// The path to the goal, start first, or None. The
     /// path is made in the store, as the planner's makePath makes it.
     pub fn reconstruct(&mut self, store: &mut PathStore) -> Option<usize> {
         if !self.success {
@@ -381,14 +381,14 @@ impl BarrierSearch {
         Some(path)
     }
 
-    /// Abandon the current search (search.js:283).
+    /// Abandon the current search.
     pub fn abort(&mut self) {
         self.finished = true;
     }
 }
 
 fn relink(n: &mut SearchNode, x: f64, y: f64, z: f64, step: f64, parent_g: f64, parent: usize) {
-    // search.js:288: g is f32(parent.g + step) at relink time.
+    // g is f32(parent.g + step) at relink time.
     n.x = x;
     n.y = y;
     n.z = z;
@@ -396,7 +396,7 @@ fn relink(n: &mut SearchNode, x: f64, y: f64, z: f64, step: f64, parent_g: f64, 
     n.g = f32(parent_g + step);
 }
 
-/// Horizontal goal equality (search.js:301).
+/// Horizontal goal equality.
 fn same_xz(ax: f64, az: f64, bx: f64, bz: f64) -> bool {
     let dx = f32(ax - bx);
     let dz = f32(az - bz);

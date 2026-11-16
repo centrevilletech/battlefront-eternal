@@ -70,7 +70,7 @@ impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
         let defs = content.defs()?;
         let mut cameras = Content::default();
-        // game.js constructs SoldierCamera with common.cameraMotions. These
+        // constructs SoldierCamera with common.cameraMotions. These
         // curves belong to visual motion, never authority or prediction replay.
         for name in ["RollLeft", "RollRight", "StandToProne", "CrouchToProne", "ProneToStand", "CrouchToStand", "Land"] {
             let keys = content.content.battle.common.get("cameraMotions").and_then(|tables| tables.get(name));
@@ -188,7 +188,7 @@ impl Cameras {
             self.killer = None;
             self.killer_tick = f64::NEG_INFINITY;
         }
-        // game.js noteAttacker tracks the last attacker from damage (schema 3)
+        // noteAttacker tracks the last attacker from damage (schema 3)
         // and death (schema 4) feedback so the death camera can frame the killer.
         for field in receiver.publications.iter() {
             if field.row[r::KIND] == k::COMBAT as f64
@@ -266,7 +266,7 @@ impl Cameras {
         } else {
             x[f::EYE_KIND] = eyes::INFANTRY as f64;
         }
-        // game.js startDeathCamera: while the dead soldier's corpse remains in
+        // startDeathCamera: while the dead soldier's corpse remains in
         // the world (4 s linger, non-walker), DeathShot frames the body and killer.
         let dead_active = (receiver.own.dead || drawn.held_camera == Some(true))
             && !receiver.own.removed && !receiver.own.walker;
@@ -275,11 +275,11 @@ impl Cameras {
             // startDeathCamera measures the world's camera (simulationCamera),
             // not the drawn one. Only the drawn camera takes the class lens, so
             // the world's is still at its 60 degree default when he dies and
-            // the shot settles wider than the chase view. Kept as the page has it.
+            // the shot settles wider than the chase view. Kept it.
             let across = 2. * ((60_f64.to_radians() * 0.5).tan() * camera.aspect().max(1e-6)).atan();
             let first = self.first_fovs.get(def_idx).copied().unwrap_or(70_f64.to_radians());
             let base = if receiver.own.zoom > 1. { first } else { across };
-            // deadFov (camera.js): one world step of 1/60 s toward DEAD_FOV at FOV_RATE.
+            // deadFov: one world step of 1/60 s toward DEAD_FOV at FOV_RATE.
             self.death_hfov = 0.837758 + (base - 0.837758) * (-25_f64 / 60.).exp();
         }
         self.was_dead = dead_active;
@@ -296,7 +296,7 @@ impl Cameras {
                 if let Some(row) = receiver.active().find(|row| {
                     row[r::ID] == kid as f64 && row[r::GENERATION] == kgen as f64
                 }) {
-                    // drawnKiller (death-shot.js), for a killer on foot: his
+                    // drawnKiller, for a killer on foot: his
                     // eyes standing, crouched or prone, a walker's, or the
                     // middle of a corpse, above the feet as drawn. A killer in
                     // a seat is framed at his own row, not at the seat's eye.

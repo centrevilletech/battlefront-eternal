@@ -546,7 +546,7 @@ impl Navigation {
         }
         let kind=binding.kind(nav_store_mut!(w,store))?;
         if matches!(command,Command::Attach) {
-            // control.js attach reads only object identity and generation.
+            // attach reads only object identity and generation.
             // In particular it must not pose a mounted gun before steering.
             let mut unit=NavUnit::new(actor.0,kind,Vec3::default());
             unit.generation=Some(binding.life());unit.control_identity=binding.identity;
@@ -687,7 +687,7 @@ impl Navigation {
     /// navigationInput also owns avoidance. Its actual body edit needs the
     /// ordinary publication; unchanged avoidance leaves only intent to emit.
     pub fn input_body_changed(&self)->bool {self.input_body_changed}
-    /// nav/analogs.js plain conversion does not step a control, consume a
+    /// plain conversion does not step a control, consume a
     /// jet or toggle posture. The scheduler owns those edges in this path.
     pub fn analogs(&mut self, w:&mut crate::world::owner::World,env:&mut dyn Environment,actor:Actor,aim:Option<Vec3>,dt:f64,facing:bool)->Option<[f64;4]> {
         let binding=self.actors.get(actor.reference())?;

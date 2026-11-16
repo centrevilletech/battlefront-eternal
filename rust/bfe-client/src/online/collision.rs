@@ -36,7 +36,7 @@ impl Bodies {
         let flags = vec![0.; collision.state.worlds[world as usize].order.len()];
         Self { rows, bound: Index::new(128), flags, refused: 0 }
     }
-    /// A hull this page has a body for: the body's slot in the collision
+    /// A hull this client has a body for: the body's slot in the collision
     /// world and the class's collision box in the hull's own frame.
     pub fn hull(&self, key: (u32, u32)) -> Option<(u32, [f64; 6])> {
         let row = &self.rows[*self.bound.get(&key)?];

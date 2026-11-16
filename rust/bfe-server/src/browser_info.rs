@@ -1,4 +1,4 @@
-//! Server browser metadata validation and sanitization (`src/browser-info.js`).
+//! Server browser metadata validation and sanitization.
 
 use crate::config::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-/// Sanitized operator sponsor block (`sponsorOf(value)` in `src/browser-info.js`).
+/// Sanitized operator sponsor block (`sponsorOf(value)`).
 ///
 /// A sponsor entry requires a non-empty `name` (clipped to 60 characters); `url` and `logo`
 /// are validated by [`https_url`] so a player's browser only ever opens or fetches credential-free
@@ -19,7 +19,7 @@ pub struct SponsorInfo {
     pub logo: Option<String>,
 }
 
-/// Active battle summary inside `BrowserInfo` (`battle` object in `browserInfo` in `src/browser-info.js`).
+/// Active battle summary inside `BrowserInfo` (`battle` object in `browserInfo`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BattleInfo {
@@ -30,7 +30,7 @@ pub struct BattleInfo {
     pub mode: String,
 }
 
-/// Complete server browser metadata payload (`browserInfo` in `src/browser-info.js`).
+/// Complete server browser metadata payload (`browserInfo`).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserInfo {
@@ -54,7 +54,7 @@ pub struct BrowserInfo {
     pub uptime: Option<u64>,
 }
 
-/// Sanitizes and clips an optional string (`const clip = (value, length) => ...` in `src/browser-info.js`).
+/// Sanitizes and clips an optional string (`const clip = (value, length) => ...`).
 ///
 /// Control characters (`\x00-\x1f` and `\x7f`) are replaced with spaces before trimming and
 /// slicing to `length` characters; empty or whitespace-only strings return `None`.
@@ -80,7 +80,7 @@ pub fn clip_text(value: Option<&str>, length: usize) -> Option<String> {
     }
 }
 
-/// Validates an `https:` URL with no username or password (`export function httpsUrl(value)` in `src/browser-info.js`).
+/// Validates an `https:` URL with no username or password (`export function httpsUrl(value)`).
 ///
 /// Rejects strings longer than 512 bytes, non-HTTPS schemes, and URLs containing `@` in the
 /// authority (`!url.username && !url.password`), because the client UI fetches sponsor logos and
@@ -102,7 +102,7 @@ pub fn https_url(value: Option<&str>) -> Option<String> {
     }
 }
 
-/// Parses and sanitizes `config.sponsor` (`export function sponsorOf(value)` in `src/browser-info.js`).
+/// Parses and sanitizes `config.sponsor` (`export function sponsorOf(value)`).
 ///
 /// Requires a non-empty sponsor `name` (clipped to 60 characters); `url` and `logo` are optional
 /// and filtered through [`https_url`].
@@ -124,7 +124,7 @@ pub fn sponsor_of(value: Option<&Value>) -> Option<SponsorInfo> {
 }
 
 /// Loads map IDs to display names (e.g. `"BESPIN: CLOUD CITY"`) from `common/shell/shell.json`
-/// in the prepared game data (`export function mapNames(data)` in `src/browser-info.js`).
+/// in the prepared game data (`export function mapNames(data)`).
 pub fn map_names(data_dir: &str) -> HashMap<String, String> {
     if data_dir.trim().is_empty() {
         return HashMap::new();
@@ -154,7 +154,7 @@ pub fn map_names(data_dir: &str) -> HashMap<String, String> {
     HashMap::new()
 }
 
-/// Builds the full server browser metadata (`export function browserInfo` in `src/browser-info.js`).
+/// Builds the full server browser metadata (`export function browserInfo`).
 pub fn browser_info(
     config: &ServerConfig,
     query: &str,
@@ -203,10 +203,10 @@ pub fn browser_info(
 
 /// Sanitizes operator-provided `description`, `sponsor`, and `location` fields from `config.json`.
 /// Sanitizes untrusted server-browser metadata received from LAN discovery or the master directory,
-/// porting `cleanBrowserInfo(raw)` from `packages/bfe-server/src/browser-info.js`.
+/// porting `cleanBrowserInfo(raw)`.
 ///
 /// Enforces character-length caps (`clip_text`) and `https://`-only URL validation (`https_url`) so
-/// malicious server listings cannot inject `javascript:` or `http://` tracking URLs into the browser UI.
+/// malicious server listings cannot inject `javascript:` or `http://` tracking URLs into the client UI.
 pub fn clean_browser_info(
     description: Option<&str>,
     sponsor: Option<&Value>,
@@ -231,7 +231,7 @@ impl BrowserInfo {
     }
 
     /// Strips `description` and `sponsor` for single-datagram LAN discovery responses
-    /// (`getInfo` in `startLocalServer` in `src/local-server.js`).
+    /// (`getInfo` in `startLocalServer`).
     pub fn insert_lan_into(&self, map: &mut Map<String, Value>) {
         map.remove("description");
         map.remove("sponsor");

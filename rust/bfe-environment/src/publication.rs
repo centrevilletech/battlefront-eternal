@@ -1,4 +1,4 @@
-//! Numeric draw publication formerly assembled by the page's effect classes.
+//! Numeric draw publication formerly assembled by the client's effect classes.
 //! Values are retained at admission and borrowed directly by upload glue.
 //! The native phase selects modes, visibility, texture-frame slots and counts;
 //! browser identity caches never decide those presentation rules.
@@ -171,7 +171,7 @@ impl Publication {
         v[snow_row::COVER_CELL] = cell;
     }
     // These are the same axes used by the native repeated-box placement.
-    // Deriving another camera basis on the page would separate the two draws.
+    // Deriving another camera basis on the client would separate the two draws.
     pub fn snow_frame(&mut self, r: &[f64]) {
         self.snow[snow_row::CAMERA_RIGHT..snow_row::CAMERA_RIGHT + 3]
             .copy_from_slice(&r[sr::CAMERA_RIGHT..sr::CAMERA_RIGHT + 3]);
@@ -273,7 +273,7 @@ impl Publication {
     }
     // Wakes have already advanced in EnvironmentPhase. Fountain shaders read
     // that same timestamp and the same point/velocity arrays as nearby steam.
-    // The page therefore owns neither a second clock nor a wake afterstate.
+    // The client therefore owns neither a second clock nor a wake afterstate.
     pub fn fountain_frame(&mut self, p: &crate::EnvironmentPhase) {
         let v = &mut self.fountain;
         v[fountain::WATER_TIME] = p.result[er::TIME];

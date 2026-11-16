@@ -1,4 +1,4 @@
-//! Private infantry and mounted weapon replay. The page supplies commands
+//! Private infantry and mounted weapon replay. The client supplies commands
 //! and mirrors; this owner retains weapons, selections and barrel counters.
 //! No gameplay or presentation callback runs inside a command.
 
@@ -401,7 +401,7 @@ impl Session {
             self.output.resize(at + Weapon::WORDS, 0.0);
             weapon.put(&mut self.output[at..], &mut Vec::new());
         }
-        // client-prediction.js reads the same generated selection/zoom tail.
+        // reads the same generated selection/zoom tail.
         // Preserve the old Session.write word order for frozen checkpoints.
         let tail = ClientArsenalTail { primary: self.selected[0], secondary: self.selected[1],
             zoom_step: self.zoom, barrels_count: self.barrels.len() as u32 };

@@ -152,7 +152,7 @@ pub fn hull_desc(class: &Value, template: &VehicleTemplate) -> HullDesc {
     hull_records(class, &template.rig, &template.muzzle_tips, animated, has_clips)
 }
 
-/// A page has decoded clip resources already. Their track indices and model
+/// A client has decoded clip resources already. Their track indices and model
 /// records build the identical rig without manufacturing a content template.
 pub fn hull_records(class: &Value, rig: &Value, muzzle_tips: &[(String, [f64; 3])], animated: Vec<usize>, has_clips: bool) -> HullDesc {
     let settings = class.get("settings");

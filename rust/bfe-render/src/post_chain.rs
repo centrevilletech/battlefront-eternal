@@ -1,5 +1,5 @@
 //! Retained post policy and temporal history, ported from Graphics.postSteps,
-//! Bloom.steps and Upscaler. The browser publishes facts, never ordered steps.
+//! Bloom.steps and Upscaler. The earlier build publishes facts, never ordered steps.
 //! Arrays are reserved with the owner; neither planning nor commit allocates.
 #[path = "post_chain_layout.rs"]
 pub mod layout;

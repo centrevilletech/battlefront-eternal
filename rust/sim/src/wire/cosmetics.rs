@@ -1,5 +1,5 @@
 //! Cosmetic wire bytes and per-client delivery state, matching
-//! snapshot-cosmetics.js and snapshot-cosmetic-outbox.js. Event identities
+//! and snapshot-cosmetic-outbox.js. Event identities
 //! are opaque host tokens; key replacement never changes insertion order.
 use super::codec::{Result, Writer};
 use super::records::{quantize_pitch, quantize_position, quantize_yaw};

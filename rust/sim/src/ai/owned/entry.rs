@@ -4,7 +4,7 @@
 use super::rows::{row_buildings,row_context,row_store,row_store_mut};
 use crate::{world::owner::World,battle::live::Queries,recon::Authority,units::f3::WorldServices};
 
-/// missionTeams/teamTable are cold readers for the page's relationship,
+/// missionTeams/teamTable are cold readers for the client's relationship,
 /// capture and side UI. Runtime bot decisions use the canonical roster.
 pub fn ai_mission_teams_in(w:&mut World,roster:u32)->&crate::store::block::Block {
     use crate::{battle::spawning,gen::{AiMissionTeam,AiMissionTeams,AiMissionTeamsInput}};

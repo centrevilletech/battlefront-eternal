@@ -21,7 +21,7 @@
 //      draws then interleave exactly as one list sorted by three would.
 //   3. Segment k is the items between three's item k-1 and its item k:
 //      segment 0 is drawn at once (the start of three's transparent list),
-//      segment k > 0 right after three draws its item k-1 (the page calls
+//      segment k > 0 right after three draws its item k-1 (the client calls
 //      transparent_segment(k) from there); `segments` holds where each
 //      starts (three's count + 2 values). With nothing left in three, the
 //      whole list is segment 0.
@@ -38,7 +38,7 @@
 // together); its draw_run() draws them. Both default to nothing.
 //
 // This pass's own items, each registered once, then each frame taken out
-// of three's list by the page in the near scene's own render (three still
+// of three's list by the client in the near scene's own render (three still
 // culls and keys them, and draws them in any other render: a mirror's) and
 // written as a record in `objects`, with three's key for it:
 // - the map's blended buckets (one mesh each, the identity for a model
@@ -128,7 +128,7 @@ pub trait Source<C: HasContext, M: MultiDraw> {
     fn draw_run(&mut self, _core: &mut Core<C, M>, _view: &View, _run: &[Item]) {}
 }
 
-// three's remaining items (keys) the page can write a frame.
+// three's remaining items (keys) the client can write a frame.
 pub const MAX_THREE: usize = 4096;
 pub const KEY_STRIDE: usize = 4;
 
@@ -227,7 +227,7 @@ pub struct DrawState {
 }
 
 impl DrawState {
-    // The page's flags: 1 depth test, 2 depth write, 4 colour write.
+    // The client's flags: 1 depth test, 2 depth write, 4 colour write.
     pub fn from(blend: &[u32], depth_func: u32, flags: u32) -> DrawState {
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
@@ -276,7 +276,7 @@ struct Bucket<C: HasContext> {
 }
 
 // Objects: the material three draws them with (OBJECT_*), and their
-// records in `objects` (f64), written by the page each frame after the
+// records in `objects` (f64), written by the client each frame after the
 // count in objects[0].
 pub const OBJECT_BASIC: u32 = 0; // MeshBasicMaterial
 pub const OBJECT_SPRITE: u32 = 1; // SpriteMaterial
@@ -317,9 +317,9 @@ struct Object<C: HasContext> {
 
 pub struct TransparentPass<C: HasContext> {
     pub list: List,
-    // Written by the page each frame: three's remaining items' keys.
+    // Written by the client each frame: three's remaining items' keys.
     pub keys: Vec<f64>,
-    // Written by the page each frame: the objects' records (count first).
+    // Written by the client each frame: the objects' records (count first).
     pub objects: Vec<f64>,
     buckets: Vec<Bucket<C>>,
     things: Vec<Object<C>>,
@@ -504,7 +504,7 @@ impl<C: HasContext, M: MultiDraw> Source<C, M> for TransparentPass<C> {
                 }
             }
         }
-        // What the page took out of three's list, with three's keys: a
+        // What the client took out of three's list, with three's keys: a
         // bucket's record names the bucket, an object's is its record.
         let n = (self.objects[0] as usize).min(MAX_OBJECTS);
         for k in 0..n {

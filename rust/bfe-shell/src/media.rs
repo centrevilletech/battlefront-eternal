@@ -1,5 +1,5 @@
 //! Screen media transitions (`SCREEN_MEDIA`, `PREVIEW_DELAY`, `previewRect`,
-//! `ShellMedia` in `src/shell/media.js` and `MoviePlayer` in `src/shell/movies.js`).
+//! `ShellMedia` in `src/shell/media.js` and `MoviePlayer`).
 
 use crate::{
     data::{MovieClip, ScreenMovie, ShellData},
@@ -7,11 +7,11 @@ use crate::{
 };
 
 /// Delay in seconds (`0.5s`) before Instant Action's highlighted map flyover
-/// preview starts. Mirrors `PREVIEW_DELAY` in `src/shell/media.js`.
+/// preview starts. Mirrors `PREVIEW_DELAY`.
 pub const PREVIEW_DELAY: f64 = 0.5;
 
 /// Movie and music assignment for one shell screen.
-/// Mirrors an entry of `SCREEN_MEDIA` in `src/shell/media.js`.
+/// Mirrors an entry of `SCREEN_MEDIA`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ScreenMediaSpec {
     /// Key in `ShellData::movies` (`"start"`, `"main"`, `"sp"`, `"options"`,
@@ -25,7 +25,7 @@ pub struct ScreenMediaSpec {
 }
 
 /// Table of each shell screen's movie and music cue.
-/// Mirrors `SCREEN_MEDIA` in `src/shell/media.js`.
+/// Mirrors `SCREEN_MEDIA`.
 pub const SCREEN_MEDIA: [(&str, ScreenMediaSpec); 10] = [
     (
         "start",
@@ -124,7 +124,7 @@ pub fn preview_rect_with_aspect(width: f64, height: f64, target_aspect: f64) -> 
 
 /// Computes the Instant Action map preview rectangle `[x, y, w, h]` using the
 /// default `4.0 / 3.0` target aspect ratio.
-/// Mirrors `previewRect(width, height)` in `src/shell/media.js`.
+/// Mirrors `previewRect(width, height)`.
 pub fn preview_rect(width: f64, height: f64) -> [f64; 4] {
     preview_rect_with_aspect(width, height, 4.0 / 3.0)
 }
@@ -183,13 +183,13 @@ impl Default for BackdropState {
 /// Coordinates screen movies, transition whooshes, music bus dips, and
 /// [`ShellMusic`] across front-end navigation (`ifs_movietrans` behavior).
 ///
-/// Mirrors `ShellMedia` in `src/shell/media.js`.
+/// Mirrors `ShellMedia`.
 pub struct ShellMedia {
     /// Identifier of the currently active screen (`"start"`, `"main"`, `"sp"`, etc.).
     pub screen: Option<String>,
     /// Count of forward transitions into screens that played an intro clip.
     pub moves: usize,
-    /// Soundtrack and screen-specific music state machine (`src/shell/audio.js`).
+    /// Soundtrack and screen-specific music state machine.
     pub music: ShellMusic,
     /// Current movie clip URL and Instant Action preview state.
     pub backdrop: BackdropState,
@@ -205,7 +205,7 @@ impl ShellMedia {
     /// Creates a new [`ShellMedia`] state machine initialized with `data.music`
     /// and the `10.0s` inter-track silence interval (`crate::music::INTERVAL`),
     /// starting with no active screen (`screen = None`, `moves = 0`).
-    /// Mirrors `new ShellMedia({ data })` in `src/shell/media.js`.
+    /// Mirrors `new ShellMedia({ data })`.
     pub fn new(data: &ShellData) -> Self {
         Self {
             screen: None,
@@ -218,7 +218,7 @@ impl ShellMedia {
     }
 
     /// Looks up the [`ScreenMovie`] for screen `id` in `data.movies`.
-    /// Mirrors `ShellMedia.movieOf(id)` in `src/shell/media.js`.
+    /// Mirrors `ShellMedia.movieOf(id)`.
     pub fn movie_of<'a>(&self, data: &'a ShellData, id: &str) -> Option<&'a ScreenMovie> {
         let spec = screen_media_of(id);
         let movie_name = spec.movie?;
@@ -352,7 +352,7 @@ impl ShellMedia {
 
     /// Selects the Instant Action flyover preview for `map_id` after
     /// [`PREVIEW_DELAY`].
-    /// Mirrors `ShellMedia.preview(mapId)` in `src/shell/media.js`.
+    /// Mirrors `ShellMedia.preview(mapId)`.
     pub fn preview(&mut self, data: &ShellData, map_id: Option<&str>) -> MediaEvent {
         let map = map_id.and_then(|id| data.maps.iter().find(|m| m.id == id));
         let fly_url = map.and_then(|m| m.fly.as_ref()).map(|c| c.url.clone());
@@ -365,7 +365,7 @@ impl ShellMedia {
     }
 
     /// Advances the music silence timer and preview delay timer by `dt` seconds.
-    /// Mirrors `ShellMedia.update(dt)` in `src/shell/media.js`.
+    /// Mirrors `ShellMedia.update(dt)`.
     pub fn update(&mut self, dt: f64) -> Option<MusicStep> {
         if dt.is_finite() && dt > 0.0 {
             self.backdrop.preview_elapsed += dt;
@@ -519,7 +519,7 @@ mod tests {
         assert!(media.music.playing(Some(SOUNDTRACK)));
     }
 
-    // Verifies two `ShellMedia.enter` invariants from `src/shell/media.js`:
+    // Verifies two `ShellMedia.enter` invariants:
     // 1. Navigating back (`back == true`) starts the destination screen's loop
     //    without playing its intro, dipping `shellmusic`, or triggering a whoosh.
     // 2. Starting a second screen transition before an in-flight intro finishes
@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(media.screen.as_deref(), Some("sp"));
     }
 
-    // Verifies `previewRect(1024, 768)` against the 4:3 formula in `src/shell/media.js`
+    // Verifies `previewRect(1024, 768)` against the 4:3 formula
     // (`w = 530 * (1024 / 800) = 678.4`, `h = 400 * (768 / 600) = 512.0`).
     #[test]
     fn preview_rect_matches_1024x768_lower_right_box() {

@@ -11,7 +11,7 @@ pub struct Payloads {
     pub definition: Vec<u8>,
 }
 
-/// game.js's simulation camera has no cosmetic motions or spawn shots.
+/// simulation camera has no cosmetic motions or spawn shots.
 /// The display owner uses those common tables independently of this owner.
 pub fn aim(battle: &Battle) -> Payloads { payloads(&battle.soldier_def, None, None) }
 pub fn display(battle: &Battle) -> Payloads {

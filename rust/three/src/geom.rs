@@ -3,7 +3,7 @@
 //! three's module-level temporaries (`_vector`, `_v0`, ...) become
 //! locals here; they hold no state between calls in three either
 //! (a sim port must never rely on one surviving a call, and in
-//! three it does not — every method rewrites what it reads).
+//! three it does not: every method rewrites what it reads).
 //! Methods that return `null` on a miss return `Option`, with the
 //! target written only on a hit, as three leaves it.
 

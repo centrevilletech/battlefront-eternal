@@ -6,7 +6,7 @@ use crate::{world::owner::World, gen::{WorldTickInput, WorldTickOutput, WorldTic
 
 impl World {
     /// Cold binding adopts WaterState's independent authoritative clock.
-    /// Ordinary ticks never reimport or advance it from a page frame.
+    /// Ordinary ticks never reimport or advance it from a client frame.
     pub fn step_init(&mut self, setup: &WorldTickSetup) {
         self.tick.water=setup.water.then_some(super::Water {
             time:setup.water_time,height:setup.water_height,bobbing:setup.water_bob,wave:0.0,

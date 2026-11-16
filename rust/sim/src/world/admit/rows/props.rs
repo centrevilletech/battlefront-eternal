@@ -1,4 +1,4 @@
-//! Building admission from F3Props.prepare (f3-props.js). Immutable look
+//! Building admission from F3Props.prepare. Immutable look
 //! geometry and the initial F4 life frame are encoded together so combat and
 //! the live owner do not retain divergent copies of building health.
 use super::{Call, units::{call, error}};
@@ -26,7 +26,7 @@ pub struct Trap {
     pub build_frames: Option<f64>, pub trigger_frames: Option<f64>,
 }
 
-/// props.js num reads only an array's first element, uses parseFloat rather
+/// num reads only an array's first element, uses parseFloat rather
 /// than Number, and rejects infinite results. "12m" therefore means 12.
 fn num(value: Option<&Value>, fallback: f64) -> f64 {
     let value = value.and_then(|v| if let Value::Array(a) = v { a.first() } else { Some(v) });

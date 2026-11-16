@@ -1,4 +1,4 @@
-//! Where content bytes come from. In a browser or the world worker the
+//! Where content bytes come from. In a client or the local world thread the
 //! JavaScript fetches each file and hands its bytes over (`MemFiles`); the
 //! native tools read the content folder (`DirFiles`). Paths are the URL
 //! paths the game fetches, without the leading slash: `maps/nab2/map.json`.

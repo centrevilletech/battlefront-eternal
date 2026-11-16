@@ -2,7 +2,7 @@
 //! hull's sound class (docs/vehicles.md, "Effects and sounds"): the engine,
 //! turning on and off, taking off and landing, being hurt and destroyed,
 //! its feet and its turrets. Read off each hull every frame, so the hulls
-//! the page simulates, a worker's and a server's sound alike: all this needs
+//! the client simulates, a worker's and a server's sound alike: all this needs
 //! is whether it is alive, its health, flight state, velocity, where it is
 //! drawn, who holds which seat and where each seat aims.
 use crate::engine::{Ask, NONE, SILENT, FOLEY, EXPLOSIONS};

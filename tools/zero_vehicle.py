@@ -97,7 +97,7 @@ WALKER_ACTIONS = ('idle', 'death01', 'idle_to_leftfoot', 'idle_to_rightfoot',
                   'turnl', 'turnr', 'walk_leftfoot_rightfoot', 'walk_rightfoot_leftfoot')
 # A flyer's: the flyer class looks up its AnimationName bank's "takeoff"
 # (the landing gear, gear doors and an X-wing's S-foils, landed at its first
-# frame and stowed at its last; src/flight/gear.js) and "fins", which no
+# frame and stowed at its last) and "fins", which no
 # stock bank holds.
 FLYER_ACTIONS = ('takeoff',)
 DYING_INTERVAL = 0.4  # s between dying explosions, DeathAnimationExplosionTime's default
@@ -721,7 +721,7 @@ def extract_vehicles(map_name, mission, shared=None, setup=None):
             defs[name]['finalExplosion'] = final_explosion
     # Flyers' clips go after every walker's, so a walker's clips keep the
     # offsets they had before flyers had any. They are only drawn, and the
-    # content fingerprint leaves them out (src/runtime/content-hash.js).
+    # content fingerprint leaves them out.
     for model, (bank_name, names) in sorted(flyer_banks.items()):
         bank = bank_clips(archives, bank_name, names, FLYER_ACTIONS)
         meta = bank and flyer_clips(bank[0], names)

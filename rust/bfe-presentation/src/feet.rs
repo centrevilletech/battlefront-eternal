@@ -1,4 +1,4 @@
-//! Visual Footfalls.update/fall/place and cycleHeights from vehicle-feet.js.
+//! Visual Footfalls.update/fall/place and cycleHeights.
 //! Immutable clips are sampled at resource birth. Frames only advance fixed
 //! detectors and publish the authored primitive at the displayed matrix.
 use crate::layout::{foot_frame as f,foot_input as i,foot_event as o,foot_limits as lim};

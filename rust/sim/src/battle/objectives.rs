@@ -1,4 +1,4 @@
-//! Destructible command posts (src/objectives.js): a post's KillRegion as
+//! Destructible command posts: a post's KillRegion as
 //! its building is destroyed. 15 explosion, med_explosion or small_explosion
 //! effects at points drawn through the region's box (each axis uniform over
 //! its extent: 60 draws of the gameplay stream), then every soldier and
@@ -27,7 +27,7 @@ pub trait KillRegionHost {
     fn kill(&mut self, victim: usize);
 }
 
-/// killRegion(region, { random, play, victims }) (objectives.js:91): the
+/// killRegion(region, { random, play, victims }): the
 /// effects' points (`random()` draws), then whoever stands inside dies.
 /// Returns how many died.
 pub fn kill_region(region: Option<&RegionDesc>, host: &mut dyn KillRegionHost) -> usize {

@@ -3,7 +3,7 @@ use crate::store::Ref;
 use bfe_content::clips::{Clip, Clips};
 
 /// A seat's authored rider description (vehicles.js seat.view.rider and
-/// props.js Turret.rider). A missing clip and a missing rider are distinct.
+/// Turret.rider). A missing clip and a missing rider are distinct.
 #[derive(Clone, Debug, Default)]
 pub struct Rider {
     pub clip: Option<String>,
@@ -49,7 +49,7 @@ pub fn rider_birth<'a>(unit: Ref<Unit>, life: f64, scale: f64, clips: &'a Clips,
                 time: standin.and_then(|(_, frame)| clip.map(|c| frame / c.fps)) }
         }).collect(),
         Holder::Turret { turret, rider } => {
-            // props.js riderSample only considers rider.clip before its
+            // riderSample only considers rider.clip before its
             // fallback. rider.anim belongs to the hull alias path above.
             let clip = rider.as_ref().and_then(|r| r.clip.as_deref()).and_then(|n| clips.get(n))
                 .or_else(|| clips.get("human_minigun_9pose"));

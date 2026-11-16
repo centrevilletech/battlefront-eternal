@@ -1,5 +1,4 @@
-//! World capture, control, and death region geometry tests ported from
-//! `tests/capture-regions.test.js`.
+//! World capture, control, and death region geometry tests.
 
 use bfe_sim::battle::regions::{build_region, in_region, region_desc, DeathRegions};
 use bfe_sim::gen::RegionType;
@@ -12,7 +11,6 @@ fn translation_matrix(x: f64, y: f64, z: f64) -> [f64; 16] {
     m.elements
 }
 
-// Mirrors `tests/capture-regions.test.js`:
 // "a sphere's radius is the length of its SIZE, whatever its transform"
 #[test]
 fn sphere_radius_is_length_of_size_whatever_its_transform() {
@@ -42,7 +40,6 @@ fn sphere_radius_is_length_of_size_whatever_its_transform() {
     assert!(!in_region(&scaled, &Vector3::new(8.2, 0.0, 0.0)));
 }
 
-// Mirrors `tests/capture-regions.test.js`:
 // "a cylinder's radius is the length of its SIZE's x and z, its half height y"
 #[test]
 fn cylinder_radius_is_length_of_size_x_and_z_and_half_height_is_y() {
@@ -85,7 +82,6 @@ fn cylinder_radius_is_length_of_size_x_and_z_and_half_height_is_y() {
     assert!(!death.contains(&Vector3::new(-251.0, 5.0, 92.6)));
 }
 
-// Mirrors `tests/capture-regions.test.js`:
 // "box and cylinder sizes scale with the transform's axes; the axes are unit for the test"
 #[test]
 fn box_and_cylinder_sizes_scale_with_transform_axes_and_use_unit_axes_for_containment() {

@@ -1,4 +1,4 @@
-//! setupRows and the roster program in createNativeAI (ai-world-load.js).
+//! setupRows and the roster program in createNativeAI.
 //! Construction receipts carry ids and counts from earlier owners, while
 //! the mission's authored call sequence stays in its original order.
 use super::AiInterner;

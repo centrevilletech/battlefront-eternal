@@ -33,7 +33,7 @@ fn set_axis(v: &mut Vector3, a: Axis, x: f64) {
     }
 }
 
-/// src/muzzles.js barrelTips(points, forward, sign, across): the end rings
+/// barrelTips(points, forward, sign, across): the end rings
 /// of a rig's tubes, one tip per half across.
 pub fn barrel_tips(points: &[Vector3], forward: Axis, sign: f64, across: Axis) -> Vec<Vector3> {
     if points.is_empty() {
@@ -73,7 +73,7 @@ pub enum Muzzle {
     Found([f64; 3]),
 }
 
-/// src/muzzles.js weaponMuzzle(parts, authored, def): a held gun's muzzle
+/// weaponMuzzle(parts, authored, def): a held gun's muzzle
 /// in its model's frame.
 pub fn weapon_muzzle(parts: Option<&[Part]>, authored: Option<&Value>, def: Option<&Value>) -> Muzzle {
     let kept = || Muzzle::Authored(authored.cloned());
@@ -164,7 +164,7 @@ pub fn rig_world(bones: &[RigBone]) -> Vec<Matrix4> {
     (0..bones.len()).map(|i| resolve(i, bones, &mut world)).collect()
 }
 
-/// src/muzzles.js vehicleMuzzleTips(rig, parts): bone name (lower case) ->
+/// vehicleMuzzleTips(rig, parts): bone name (lower case) ->
 /// muzzle, in the rig's bone order.
 pub fn vehicle_muzzle_tips(rig: &Value, parts: &[Part]) -> Vec<(String, [f64; 3])> {
     let bones = rig_bones(rig);
@@ -224,7 +224,7 @@ pub fn vehicle_muzzle_tips(rig: &Value, parts: &[Part]) -> Vec<(String, [f64; 3]
     tips
 }
 
-/// src/vehicles.js 1973-1983: each wheel bone's radius, half the larger of
+/// 1973-1983: each wheel bone's radius, half the larger of
 /// its parts' joint bounds across x and z.
 pub fn wheel_radii(parts: &[Part]) -> Vec<(String, f64)> {
     let mut bounds: Vec<(String, Box3)> = Vec::new();
@@ -246,7 +246,7 @@ pub fn wheel_radii(parts: &[Part]) -> Vec<(String, f64)> {
     bounds.into_iter().map(|(bone, b)| (bone, js_max(b.max.x - b.min.x, b.max.z - b.min.z) * 0.5)).collect()
 }
 
-/// src/items.js: an item's radius and pickup centre. With a model (the
+/// an item's radius and pickup centre. With a model (the
 /// item's GeometryName in the battle's weapon models), the largest of its
 /// parts' bounding spheres (the first of equals), its centre kept; a model
 /// of no parts gives 0.3 and no centre; no model, 0.3 and no centre.
@@ -264,7 +264,7 @@ pub fn item_radius(model: Option<&Model>) -> (f64, Option<Vector3>) {
     }
 }
 
-/// A droideka's guns (src/droideka.js arm): each aimer's bone, and the
+/// A droideka's guns (arm): each aimer's bone, and the
 /// barrels' tips in the gun's parent bone's frame (None: the gun itself).
 #[derive(Clone, Debug)]
 pub struct DroidekaGun {
@@ -272,7 +272,7 @@ pub struct DroidekaGun {
     pub tips: Option<Vec<Vector3>>,
 }
 
-/// droideka.js arm(weapons): the blaster is the first weapon with aimers.
+/// arm(weapons): the blaster is the first weapon with aimers.
 pub fn droideka_guns(actor: &Actor, weapons: Option<&Value>) -> Vec<DroidekaGun> {
     let list = weapons.and_then(Value::as_array).unwrap_or(&[]);
     let blaster = list.iter().find(|w| match w.get("aimers") {

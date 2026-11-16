@@ -1,5 +1,5 @@
 //! LightPool's frame owns flash lifetimes and stable strongest-request
-//! selection. The page holds only scene lights and borrowed command rows.
+//! selection. The client holds only scene lights and borrowed command rows.
 use crate::page_layout::{light_command as c, light_frame as f, light_handle as h,
     light_header as header, light_kind as kind, light_limits as lim, light_output as o};
 

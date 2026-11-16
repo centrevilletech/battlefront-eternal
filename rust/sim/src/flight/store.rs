@@ -1,5 +1,5 @@
 //! A hull's flight between the store (`gen::Vehicle`'s flight fields,
-//! rust/sim/schema/flight.mjs) and the tick's working copy (`Flight`): the
+//! rust/sim/schema/flight.json) and the tick's working copy (`Flight`): the
 //! texts as enums, a craft's class definition's keys and takeoff clip from
 //! the content.
 

@@ -1,4 +1,4 @@
-//! LAN discovery responder and scanner (`src/lan.js` and `startLanDiscovery` in `src/local-server.js`).
+//! LAN discovery responder and scanner (`src/lan.js` and `startLanDiscovery`).
 
 use bfe_transport::crypto::random;
 use bfe_transport::server::normalize_ip;
@@ -12,16 +12,16 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-/// Default UDP port for `BFE-LAN/1` discovery (`PORT = 18452` in `src/lan.js`).
+/// Default UDP port for `BFE-LAN/1` discovery (`PORT = 18452`).
 pub const LAN_PORT: u16 = 18452;
-/// Protocol magic string for LAN discovery datagrams (`MAGIC = "BFE-LAN/1"` in `src/lan.js`).
+/// Protocol magic string for LAN discovery datagrams (`MAGIC = "BFE-LAN/1"`).
 pub const LAN_MAGIC: &str = "BFE-LAN/1";
-/// IPv6 link-local multicast group for LAN discovery (`MULTICAST_V6 = "ff02::bf:1"` in `src/lan.js`).
+/// IPv6 link-local multicast group for LAN discovery (`MULTICAST_V6 = "ff02::bf:1"`).
 pub const LAN_MULTICAST_V6: Ipv6Addr = Ipv6Addr::new(0xff02, 0, 0, 0, 0, 0, 0x00bf, 0x0001);
-/// Maximum UDP datagram payload size accepted or sent by LAN discovery (`MAX_PACKET = 2048` in `src/lan.js`).
+/// Maximum UDP datagram payload size accepted or sent by LAN discovery (`MAX_PACKET = 2048`).
 const MAX_PACKET: usize = 2048;
 
-/// Encodes a byte slice as lowercase hexadecimal (`randomBytes(16).toString('hex')` in `src/lan.js`).
+/// Encodes a byte slice as lowercase hexadecimal (`randomBytes(16).toString('hex')`).
 fn hex_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
@@ -30,14 +30,14 @@ fn hex_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Validates a 32-character lowercase hex discovery nonce (`validNonce` in `src/lan.js`:
+/// Validates a 32-character lowercase hex discovery nonce (`validNonce`:
 /// `/^[a-f0-9]{32}$/.test(nonce)`).
 pub fn valid_nonce(nonce: &str) -> bool {
     nonce.len() == 32 && nonce.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 /// Enumerates local network interface indices for IPv6 link-local multicast membership
-/// (`ipv6MulticastInterfaces` in `src/lan.js`).
+/// (`ipv6MulticastInterfaces`).
 ///
 /// Reads `/sys/class/net/<iface>/ifindex` using safe standard-library filesystem I/O (no `unsafe`
 /// FFI calls), always including index `0` (the kernel default multicast interface).
@@ -57,7 +57,7 @@ fn ipv6_multicast_interfaces() -> Vec<u32> {
     indices
 }
 
-/// Validates and sanitizes a `BFE-LAN/1` server response packet (`export function cleanServer(m, rinfo, nonce)` in `src/lan.js`).
+/// Validates and sanitizes a `BFE-LAN/1` server response packet (`export function cleanServer(m, rinfo, nonce)`).
 pub fn clean_lan_server(msg: &Value, rinfo: SocketAddr, nonce: &str) -> Option<Value> {
     let obj = msg.as_object()?;
     if obj.get("magic").and_then(Value::as_str) != Some(LAN_MAGIC) {
@@ -183,7 +183,7 @@ pub fn clean_lan_server(msg: &Value, rinfo: SocketAddr, nonce: &str) -> Option<V
     Some(Value::Object(out))
 }
 
-/// Strips `description` and `sponsor` from `/info` for LAN responses (`getInfo` in `startLocalServer` in `src/local-server.js`).
+/// Strips `description` and `sponsor` from `/info` for LAN responses (`getInfo` in `startLocalServer`).
 ///
 /// A LAN discovery reply must fit in a single UDP datagram (`MAX_PACKET = 2048`), so the longer
 /// `description` and `sponsor` fields remain on HTTP `GET /info` only.
@@ -197,16 +197,15 @@ pub fn lan_info(info: &Value) -> Value {
     Value::Object(clean)
 }
 
-/// Dual-stack `BFE-LAN/1` UDP discovery responder (`export async function startLanDiscovery` in `src/lan.js`).
-/// Dual-stack LAN discovery responder porting `startLanResponder(port, infoFn)` from
-/// `packages/bfe-server/src/lan.js`.
+/// Dual-stack `BFE-LAN/1` UDP discovery responder (`export async function startLanDiscovery`).
+/// Dual-stack LAN discovery responder porting `startLanResponder(port, infoFn)`.
 pub struct LanDiscoveryResponder {
     stop: Arc<AtomicBool>,
     threads: Vec<JoinHandle<()>>,
 }
 
 impl LanDiscoveryResponder {
-    /// Starts the dual-stack LAN discovery responder on `port` (default `18452`, `startLanDiscovery` in `src/lan.js`).
+    /// Starts the dual-stack LAN discovery responder on `port` (default `18452`, `startLanDiscovery`).
     ///
     /// Binds an IPv4 broadcast socket (`0.0.0.0:port`, `SO_BROADCAST`) and an IPv6-only socket
     /// (`[::]:port`, `IPV6_V6ONLY = 1`) joined to `ff02::bf:1` on every local interface.
@@ -219,7 +218,7 @@ impl LanDiscoveryResponder {
         let recent: Arc<Mutex<HashMap<IpAddr, Instant>>> = Arc::new(Mutex::new(HashMap::new()));
         let mut threads = Vec::new();
 
-        // IPv4 socket (`createSocket({ type: 'udp4', reuseAddr: true })` in `src/lan.js`).
+        // IPv4 socket (`createSocket({ type: 'udp4', reuseAddr: true })`).
         if let Ok(sock4) = UdpSocket::bind(SocketAddr::V4(SocketAddrV4::new(
             Ipv4Addr::UNSPECIFIED,
             port,
@@ -234,7 +233,7 @@ impl LanDiscoveryResponder {
             }));
         }
 
-        // IPv6 socket (`createSocket({ type: 'udp6', reuseAddr: true, ipv6Only: true })` in `src/lan.js`).
+        // IPv6 socket (`createSocket({ type: 'udp6', reuseAddr: true, ipv6Only: true })`).
         if let Ok(sock6) = bind_ipv6_only(port) {
             let _ = sock6.set_read_timeout(Some(Duration::from_millis(100)));
             for idx in ipv6_multicast_interfaces() {
@@ -251,7 +250,7 @@ impl LanDiscoveryResponder {
         Self { stop, threads }
     }
 
-    /// Stops both responder threads and releases the UDP discovery sockets (`close()` in `src/lan.js`).
+    /// Stops both responder threads and releases the UDP discovery sockets (`close()`).
     pub fn close(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
         for handle in self.threads.drain(..) {
@@ -267,7 +266,7 @@ impl Drop for LanDiscoveryResponder {
 }
 
 /// Binds a UDPv6 socket on `[::]:port` and sets `IPV6_V6ONLY = 1` so it can coexist with the
-/// IPv4 responder bound on `0.0.0.0:port` (`ipv6Only: true` in `src/lan.js`).
+/// IPv4 responder bound on `0.0.0.0:port` (`ipv6Only: true`).
 fn bind_ipv6_only(port: u16) -> std::io::Result<UdpSocket> {
     crate::sockets::udp(
         SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, port, 0, 0)),
@@ -275,7 +274,7 @@ fn bind_ipv6_only(port: u16) -> std::io::Result<UdpSocket> {
     )
 }
 
-/// Per-socket receive loop for `LanDiscoveryResponder` (`onMessage` in `startLanDiscovery` in `src/lan.js`).
+/// Per-socket receive loop for `LanDiscoveryResponder` (`onMessage` in `startLanDiscovery`).
 ///
 /// Enforces:
 /// - `1..=MAX_PACKET` byte length check.
@@ -300,13 +299,13 @@ fn responder_loop<F>(
             }
             Err(_) => break,
         };
-        // Ignore empty or oversize datagrams (`msg.length > MAX_PACKET` in `src/lan.js`).
+        // Ignore empty or oversize datagrams (`msg.length > MAX_PACKET`).
         if len == 0 || len > MAX_PACKET {
             continue;
         }
         let now = Instant::now();
         let ip = normalize_ip(rinfo.ip());
-        // Enforce 250 ms per-source-IP rate limit and 1024-entry recent map bound (`src/lan.js`).
+        // Enforce 250 ms per-source-IP rate limit and 1024-entry recent map bound.
         {
             let mut guard = recent.lock().unwrap();
             if let Some(&prev) = guard.get(&ip) {
@@ -352,7 +351,7 @@ fn responder_loop<F>(
 }
 
 /// Discovers LAN servers via IPv4 broadcast + loopback and IPv6 multicast + loopback
-/// (`export async function discoverLan` in `src/lan.js`).
+/// (`export async function discoverLan`).
 pub fn discover_lan(timeout_ms: u64, port: u16) -> Vec<Value> {
     let nonce_bytes = random::<16>().unwrap_or([0x42; 16]);
     let nonce = hex_encode(&nonce_bytes);

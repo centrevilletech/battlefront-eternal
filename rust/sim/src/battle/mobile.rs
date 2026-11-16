@@ -1,4 +1,4 @@
-//! Command vehicles as command posts (src/mobile-posts.js): a vehicle of the
+//! Command vehicles as command posts: a vehicle of the
 //! command classes (ODF base commandwalker: the AT-AT and the AT-TE;
 //! commandhover: the MTT and the hovernaut) is a post while it lives, one
 //! post a vehicle pad for the battle, named by the pad (transport-<slot>).
@@ -35,7 +35,7 @@ pub struct ClassData {
     pub points: Vec<[f64; 4]>,
 }
 
-/// classData(def, record) (mobile-posts.js:52): the mission's record, else
+/// classData(def, record): the mission's record, else
 /// what the vehicle class says (its ValueBleed parsed as an integer, NaN
 /// when it is none).
 pub fn class_data(value_bleed_setting: f64, record: Option<&ClassRecord>) -> ClassData {
@@ -87,7 +87,7 @@ pub struct Pad {
     pub vehicle: Option<Hull>,
 }
 
-/// new MobilePost(system, slot, index, classes) (mobile-posts.js:69): a
+/// new MobilePost(system, slot, index, classes): a
 /// pad's post before its first refresh.
 pub fn new_mobile_post(index: f64, strings: &mut Strings) -> MobilePost {
     let empty = strings.intern_str("");
@@ -110,7 +110,7 @@ pub fn new_mobile_post(index: f64, strings: &mut Strings) -> MobilePost {
     }
 }
 
-/// hull() (mobile-posts.js:132): the pad's live command vehicle.
+/// hull(): the pad's live command vehicle.
 fn hull(pad: &Pad) -> Option<&Hull> {
     let mut found = None;
     for v in &pad.variants {
@@ -143,7 +143,7 @@ fn copy_class(ai: &mut MobileAi, setting: f64, record: Option<&ClassRecord>) {
     ai.class_spawn_points = ai.points.len() as f64;
 }
 
-/// refresh() (mobile-posts.js:139). Native services lend their prepared facts;
+/// refresh(). Native services lend their prepared facts;
 /// no pad, class or path table is cloned for a living unchanged command hull.
 pub fn refresh<W: PostsWorld + ?Sized>(s: &mut Store, r: Ref<MobilePost>, world: &mut W) {
     let slot=s.mobile_post.get(r).expect("a command vehicle's post").index;
@@ -183,7 +183,7 @@ fn refresh_pad(s:&mut Store,r:Ref<MobilePost>,pad:&Pad)->bool{
     post.yaw=v.yaw;post.active=true;true
 }
 
-/// state(post) (mobile-posts.js:179).
+/// state(post).
 fn state(post: &MobilePost) -> Reported {
     Reported { active: post.active, team: post.team, vehicle: post.vehicle, life: post.life }
 }
@@ -207,7 +207,7 @@ pub fn report_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
     }
 }
 
-/// refresh() (mobile-posts.js:183).
+/// refresh().
 pub fn refresh_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
     for i in 0..s.mobile_posts.posts.len() {
         let r = s.mobile_posts.posts[i];
@@ -215,7 +215,7 @@ pub fn refresh_all<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) {
     }
 }
 
-/// events() (mobile-posts.js:191).
+/// events().
 pub fn events<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W) -> Vec<MobileEvent> {
     let mut out = Vec::new(); events_into(s, world, &mut out); out
 }
@@ -240,7 +240,7 @@ pub fn events_into<W: PostsWorld + ?Sized>(s: &mut Store, world: &mut W, out: &m
     }
 }
 
-/// commandSpawnPoint (mobile-posts.js): transform in the hull frame, then
+/// commandSpawnPoint: transform in the hull frame, then
 /// retract toward its collision centre to the first static surface. The hull
 /// owner supplies the cast with its own body excluded, preserving mask 0x48.
 pub fn command_spawn_point(matrix: &three::Matrix4, center: three::Vector3, yaw: f64, point: [f64; 4],

@@ -1,9 +1,8 @@
 # Classic AI: perception, aim, firing and combat
 
 Runtime ownership is described in [Native AI ownership](sim-ai.md). Bot policy
-runs in `rust/sim/rust/ai/` (ported from JavaScript). Function names are the
-Rust names where the port keeps one, usually the JavaScript name in
-snake_case; object-shaped examples document the behavioral contract.
+runs in `rust/sim/src/ai/`. Function names are the Rust names;
+object-shaped examples document the behavioral contract.
 
 
 Combat part of the Classic AI (`docs/ai.md`). It covers perception, targets,
@@ -18,11 +17,11 @@ under "Further behavior details".
 
 | File | What |
 | --- | --- |
-| `rust/sim/rust/ai/combat/aim.rs`, `math.rs` | the direction filter and `Aimer`, skill curves, float32/D3DX vector helpers, lookup trig, projectile speed/gravity, ballistic and relative-motion lead, the aim-state point |
-| `rust/sim/rust/ai/combat/weapons_ai.rs` | weapon AI data (`weapon_ai`, ai.json registration), ranges, utility, weapon choice, `FireControl`, the run-length buttons and the fire-request consumer, fire validation, friendly-human protection, sniper yaw, the shared RNG for bot spread |
-| `rust/sim/rust/ai/combat/perception.rs` | heaps, the sight scan, the deferred line-of-sight queue, thinning, the target tracker, hearing, grenade danger, targeted-shot and damage alerts, the interrupt responses |
-| `rust/sim/rust/ai/combat/agent.rs`, `binding.rs` | the engagement dispatcher, `CombatAgent`, `Patterns`, `Cover`, the combat services the control core calls (`CombatAi`) |
-| `rust/sim` (`weapons`) | additive AI options on `Weapon`/`Arsenal` (below) |
+| `rust/sim/src/ai/combat/aim.rs`, `math.rs` | the direction filter and `Aimer`, skill curves, float32/D3DX vector helpers, lookup trig, projectile speed/gravity, ballistic and relative-motion lead, the aim-state point |
+| `rust/sim/src/ai/combat/weapons_ai.rs` | weapon AI data (`weapon_ai`, ai.json registration), ranges, utility, weapon choice, `FireControl`, the run-length buttons and the fire-request consumer, fire validation, friendly-human protection, sniper yaw, the shared RNG for bot spread |
+| `rust/sim/src/ai/combat/perception.rs` | heaps, the sight scan, the deferred line-of-sight queue, thinning, the target tracker, hearing, grenade danger, targeted-shot and damage alerts, the interrupt responses |
+| `rust/sim/src/ai/combat/agent.rs`, `binding.rs` | the engagement dispatcher, `CombatAgent`, `Patterns`, `Cover`, the combat services the control core calls (`CombatAi`) |
+| `rust/sim` (`combat::weapons`) | additive AI options on `Weapon`/`Arsenal` (below) |
 | `tools/zero_ai_classes.py` | `public/sides/<side>/ai.json` |
 | `rust/sim/tests/ai_combat_control.rs` | tests |
 
@@ -30,7 +29,7 @@ under "Further behavior details".
 
 Per simulation step `h` (docs/ai.md "Tick order"), with the control core
 and its scheduler calling the combat services (`CombatAi`,
-`rust/sim/rust/ai/combat/binding.rs`):
+`rust/sim/src/ai/combat/binding.rs`):
 
 1. The AI phase (`ai_world_phase`, run by the world tick), decide:
    - `CombatAi::ingest`: the journal's `shot` and `damage` records become
@@ -39,7 +38,7 @@ and its scheduler calling the combat services (`CombatAi`,
      controller `alert_controllers(target)` finds: the unit's own, a seated
      soldier's seat control, and every AI crew control of a vehicle or a
      turret, as in the original game). A turret's damage reaches the journal
-     through `Turret.onDamaged` (game.js), a round's with its damage, factors
+     through the turret's damage hook, a round's with its damage, factors
      and the 30 m back-projection, so a gunner hears his turret being hit.
    - At a scheduler cycle wrap: `broadcast_acoustic(humanUnit, world)` for
      every human, and `rebuild_protected()` (protected humans).
@@ -61,7 +60,7 @@ and its scheduler calling the combat services (`CombatAi`,
    `intent.buttons`; `aim_point(controller, unit, dt, out)` gives Nav's
    analogs the aim-state point (state 0: the target led by the AI dt).
 3. The unit phase: the soldier moves, then the post-movement aim
-   (`Runtime::aim`, `rust/sim/rust/ai/owned/runtime.rs`) ->
+   (`Runtime::aim`, `rust/sim/src/ai/owned/runtime.rs`) ->
    `CombatAi::aim(controller, dt)`: the `Aimer` filters the body's aim into
    `intent.aim` (and hands the cannon in hand curves B and S); the weapons
    fire along it with the bot spread rules. Until `aim` is first called the
@@ -106,7 +105,7 @@ and its scheduler calling the combat services (`CombatAi`,
   ai.json record of `def.class` (levels matched by `at`), else the record's
   own flattened keys (`MinRange`, `MaxRange`, `Target*`, `Barrage*`, ...)
   over the engine's WeaponClass defaults.
-- `weapon_records` (`rust/sim/rust/ai/owned/load.rs`) reads each side's
+- `weapon_records` (`rust/sim/src/ai/owned/load.rs`) reads each side's
   ai.json weapon records in order, levels keyed by `at`.
 - Ranges: `effective_range(unit, controller, def)` (implicit MaxRange
   doubled for non-infantry owners; `controller.rangeScale`; the extreme cap),
@@ -195,8 +194,8 @@ and its scheduler calling the combat services (`CombatAi`,
 ## What other code provides
 
 Combat reads the battle through its `World` trait
-(`rust/sim/rust/ai/combat/world.rs`), which the native owner implements over
-the canonical stores (`rust/sim/rust/ai/owned/frame.rs`). The facts it reads:
+(`rust/sim/src/ai/combat/world.rs`), which the native owner implements over
+the canonical stores (`rust/sim/src/ai/owned/frame.rs`). The facts it reads:
 
 - `world.units` (`query`, `relation`, `living`), `world.los(from, to, a, b)`,
   `world.time`, `world.random` (A), `world.randomB` (B), `world.difficulty`
@@ -218,7 +217,7 @@ the canonical stores (`rust/sim/rust/ai/owned/frame.rs`). The facts it reads:
   `world.nav.jetHints.{find, excluded, enter, tick, exit}` (pattern 11),
   `world.nav.directClear(unit, point)` (melee), `world.nav.segmentBlocked(a,
   b, unit)` (direct jets), `world.nav.inDangerRegion(unit)` (flyers).
-- Vehicles (the vehicle AI, `rust/sim/rust/ai/vehicles/service.rs`): `dispatch(controller, unit, target,
+- Vehicles (the vehicle AI, `rust/sim/src/ai/vehicles/service.rs`): `dispatch(controller, unit, target,
   switchAllowed, world, out)` for walker/flyer/hover sources,
   `enterPattern(patterns, state)`, `tickPattern(patterns, state, dt)`,
   `exitPattern(patterns, state)` for 7 and 13-16, `sidestep(patterns)` from
@@ -248,7 +247,7 @@ What the host provides:
   FleeSound, e.g. the stock `*_inf_com_chatter_flee`) at the record's
   position.
 
-## Weapon options (`rust/sim` (`weapons`))
+## Weapon options (`rust/sim` (`combat::weapons`))
 
 All additive; a player's weapons behave as before.
 
@@ -273,7 +272,7 @@ All additive; a player's weapons behave as before.
 y.json` for one archive). Reads `SIDE/<side>.lvl` plus the shared
 `common.lvl` and `core.lvl`; every `entc`/`wpnc` class the side defines.
 
-```js
+```text
 {
   schema: 1, generator: "tools/zero_ai_classes.py 1", side,
   source: { path, bytes, sha256 }, shared: [{ path, bytes, sha256 }],
@@ -308,7 +307,7 @@ y.json` for one archive). Reads `SIDE/<side>.lvl` plus the shared
 ```
 
 The runtime reads `weapons[*].ai` (and levels) through `weapon_records`
-(`rust/sim/rust/ai/owned/load.rs`), from the class data the page hands the
+(`rust/sim/src/ai/owned/load.rs`), from the class data the page hands the
 native owner at battle start.
 
 ## Further behavior details
@@ -475,7 +474,7 @@ pace.
   rate with NaN) and restarts on non-finite input. Safe-port divergence.
 - Mounted aim is filtered before the seat input batch; on-foot aim runs after
   soldier movement and before firing. Full parity with the original's
-  coupled clock is not claimed by the browser battle checks.
+  coupled clock is not claimed by the battle checks.
 - `weapons_ai.rs weapon_utility` tests the weapon's category mask only for a
   soldier's soldier target; other targets go by the damage rules alone, as
   in the original. A wider mask test would leave the Hoth turrets' gunners
@@ -509,7 +508,7 @@ pace.
 ## Gaps (left as hooks)
 
 - Vehicle dispatch, patterns, shared human target and mounted reach are
-  served by the vehicle AI (`rust/sim/rust/ai/vehicles/`); see `ai-vehicles.md` for
+  served by the vehicle AI (`rust/sim/src/ai/vehicles/`); see `ai-vehicles.md` for
   their scoped fidelity limits.
 - Jet hints (pattern 11) now use Nav's authored hint service; see `ai-classes.md`.
 - Pattern 8 is implemented but dormant (the dispatcher never assigns it).
@@ -518,7 +517,7 @@ pace.
 
 ## Tests
 
-`cargo test` in `rust/sim`: `rust/sim/tests/ai_combat_control.rs` and `rust/sim/rust/ai/owned/tests/phase.rs` cover the combat
+`cargo test` in `rust/sim`: `rust/sim/tests/ai_combat_control.rs` and `rust/sim/src/ai/owned/tests/phase.rs` cover the combat
 services inside the native phase (Classic and Enhanced acceptance policies,
 the Enhanced aimer). Checks against optional local reference data
 skip when it is absent.

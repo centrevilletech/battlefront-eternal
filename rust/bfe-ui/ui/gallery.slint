@@ -186,7 +186,7 @@ export component ComponentGallery inherits Window {
             activated => { root.status = "DELETE PROFILE"; }
         }
         Caption { x: 38px; y: 496px; width: 400px; height: 24px; text: root.status; }
-        // EllipseBrush: the page's elliptical scrim as the setup screens draw it.
+        // EllipseBrush: the screen's elliptical scrim as the setup screens draw it.
         Rectangle {
             x: 460px; y: 410px; width: 300px; height: 110px; clip: true;
             EllipseBrush { x: 0px; y: 0px; width: parent.width; height: parent.height; cx: parent.width / 2; cy: parent.height / 2; rx: 0.57 * parent.width; ry: 0.78 * parent.height; fill: Theme.bfe-scrim; }

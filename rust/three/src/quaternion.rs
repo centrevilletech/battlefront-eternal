@@ -1,4 +1,4 @@
-//! `Quaternion.js` (r170). The `_onChangeCallback` sync to a
+//! (r170). The `_onChangeCallback` sync to a
 //! sibling Euler lives in [`crate::TransformNode`]; a bare
 //! `Quaternion` here is just the four numbers, as in three when
 //! nothing registered a callback.
@@ -34,7 +34,7 @@ impl Quaternion {
     /// `Quaternion.slerpFlat(dst, dstOffset, src0, srcOffset0, src1,
     /// srcOffset1, t)` on flat f64 slices (in three these may be
     /// Float32Arrays; a caller sorting through f32 storage rounds
-    /// at the stores itself — the arithmetic here is the double
+    /// at the stores itself; the arithmetic here is the double
     /// arithmetic three does between the reads and writes).
     pub fn slerp_flat(
         dst: &mut [f64],

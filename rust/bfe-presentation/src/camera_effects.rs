@@ -1,11 +1,11 @@
 //! DeathTrace.show: the replay line's camera-facing endpoints and glow span.
 //!
-//! The killing shot's trace for the Enhanced death camera (src/death-shot.js),
+//! The killing shot's trace for the Enhanced death camera,
 //! as a broadcast replay draws a ball's flight: a glowing line from the killer
 //! to the body. Its head runs from him to the body with the line glowing
 //! behind it, then it fades. It is drawn over the scene, as a telestrator's
 //! line is, additive: red for an enemy's shot, green for a teammate's. Only
-//! the page builds it.
+//! the client builds it.
 //!
 //! DeathTrace.show publishes a four-vertex camera-facing strip. Each endpoint
 //! uses its own distance to the camera for the minimum apparent glow width.

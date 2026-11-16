@@ -10,7 +10,7 @@ use crate::rig::hull::HullRig;
 use crate::vehicles::Hull;
 use three::{lerp, Quaternion, Vector3};
 
-/// The drawn hull's nose (vehicles.js NOSE).
+/// The drawn hull's nose (NOSE).
 const NOSE: Vector3 = Vector3::new(0.0, 0.0, 1.0);
 
 impl Hull {

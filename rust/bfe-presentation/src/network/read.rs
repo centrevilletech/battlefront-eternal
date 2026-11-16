@@ -22,7 +22,7 @@ impl<'a> Reader<'a> {
         self.at = end;
         Ok(value) }
     // Nested own/world sections retain offsets into the original datagram.
-    // The page uses those offsets when constructing owned payload bytes.
+    // The client uses those offsets when constructing owned payload bytes.
     fn section(&mut self, n: usize) -> Result<Self> { let origin = self.origin + self.at;
         Ok(Self { bytes: self.take(n)?, at: 0, origin }) }
     fn counted_section(&mut self) -> Result<Self> { let n = self.u16()? as usize;
@@ -115,7 +115,7 @@ impl<'a> World<'a> {
             input.optional_bytes()?; }
         Ok(Self { rows: &input.values[start..input.at] }) }
     // A repeated numeric identity resolves to the last field, matching Map
-    // replacement when the page assembles a baseline with repeated keys.
+    // replacement when the client assembles a baseline with repeated keys.
     fn get(&self, id: f64, schema: f64) -> Result<Option<&'a [u8]>> { let mut r = Words::new(self.rows);
         let n = r.uint(4096)?;
         let mut found = None;
@@ -399,7 +399,7 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     bytes.put(&[channel]);
     Ok(()) }
 /// Protocol operations are named by PageNetOp, and stream sections retain the
-/// counted format. Every result is consumed before any page callback.
+/// counted format. Every result is consumed before any client callback.
 pub fn run(op: u32, input: &mut Words, out: &mut Output) -> Result<()> { match op { ops::HEADER => {
             let bytes = input.bytes()?;
             let h = header(bytes)?;
@@ -430,7 +430,7 @@ pub fn run(op: u32, input: &mut Words, out: &mut Output) -> Result<()> { match o
                 out.values[count_at] = count as f64; } }
         ops::REQUESTS => requests(input, out)?, ops::RECORD => record(input, out)?,
         // Reverse every changed entry in one phase. The leading result count
-        // lets the page retain the numeric values without per-field calls.
+        // lets the client retain the numeric values without per-field calls.
         ops::RECORDS => { let count = input.uint(512)?;
             for _ in 0..count { let at = out.at;
                 out.push(0.)?;
@@ -453,7 +453,7 @@ fn mount(input: &mut Words, out: &mut Output) -> Result<()> { out.extend(&[ inpu
 
 // A world baseline may contain thousands of held fields, but a datagram asks
 // for only the delta fields it carries. Request their numeric identities first
-// so the page never copies the entire baseline into a bounded packet window.
+// so the client never copies the entire baseline into a bounded packet window.
 fn requests(input: &mut Words, out: &mut Output) -> Result<()> { let kind = input.uint(2)?;
     let bytes = input.bytes()?;
     request_fields(kind, bytes, out) }

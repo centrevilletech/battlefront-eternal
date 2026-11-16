@@ -1,5 +1,5 @@
 //! UDP game server listener, client authentication, per-prefix player caps, and session routing
-//! (`src/udp-server.js` and `WorldRouter` in `src/game-session.js`).
+//! (`src/udp-server.js` and `WorldRouter`).
 
 use crate::game_session::{GameSessionState, SessionAction};
 use crate::udp_peer::{valid_incoming_state_payload, PeerPath, UdpPeerState};
@@ -22,7 +22,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// (`src/udp-server.js` and `crates/bfe-transport/src/server.rs`).
 const MAX_PACKET: usize = 1500;
 
-/// Signaling candidate descriptor (`hostCandidates` in `src/udp-server.js` and `parseCandidates` in `src/online-server.js`).
+/// Signaling candidate descriptor (`hostCandidates` in `src/udp-server.js` and `parseCandidates`).
 ///
 /// Why `kind` is optional:
 /// Direct LAN / configured host entries carry `kind: Some("host")`, STUN bindings carry
@@ -38,10 +38,10 @@ pub struct CandidateEntry {
     pub kind: Option<String>,
 }
 
-/// Discovered STUN reflexive addresses per IP family (`this.reflexive` in `src/online-server.js`).
+/// Discovered STUN reflexive addresses per IP family (`this.reflexive`).
 ///
 /// Tracks IPv4 and IPv6 public NAT mappings independently so dual-stack servers advertise both
-/// `srflx` candidates to the master coordinator (`candidates()` in `src/online-server.js`).
+/// `srflx` candidates to the master coordinator (`candidates()`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReflexiveMap {
     /// Public IPv4 `srflx` mapping discovered via STUN (`0x0001`), if reachable.
@@ -50,15 +50,15 @@ pub struct ReflexiveMap {
     pub ipv6: Option<CandidateEntry>,
 }
 
-/// Paired transport peer state (`UdpPeer` in `src/udp-peer.js`) and game session state
-/// (`GameSession` in `src/game-session.js`) for one connected player.
+/// Paired transport peer state (`UdpPeer`) and game session state
+/// (`GameSession`) for one connected player.
 ///
 /// Keeping `UdpPeerState` and `GameSessionState` paired by 64-hex Ed25519 identity mirrors
 /// `peers.set(id, peer)` + `sessions.set(id, session)` in `src/udp-server.js` and `src/game-session.js`.
 pub struct ConnectedPeer {
-    /// Per-peer `BFE-UDP/1` token bucket, congestion watermark, and `NetMetrics` tracker (`src/udp-peer.js`).
+    /// Per-peer `BFE-UDP/1` token bucket, congestion watermark, and `NetMetrics` tracker.
     pub peer: UdpPeerState,
-    /// Per-peer input/control rate limiters, ping/pong RTT tracker, and 15 s silence timer (`src/game-session.js`).
+    /// Per-peer input/control rate limiters, ping/pong RTT tracker, and 15 s silence timer.
     pub session: GameSessionState,
     /// The last edge-results message sent and when, so a repeat of it is not queued again at once.
     last_edges: Option<(Vec<u8>, f64)>,
@@ -70,10 +70,10 @@ pub struct ConnectedPeer {
 /// [`UdpGameServer::send_superseding`]).
 const SUPERSEDING_BACKLOG_BYTES: usize = 8_192;
 
-/// Events emitted by [`UdpGameServer::poll`] for the world loop (`WorldRouter` in `src/game-session.js`).
+/// Events emitted by [`UdpGameServer::poll`] for the world loop (`WorldRouter`).
 #[derive(Clone, Debug)]
 pub enum WorldPeerEvent {
-    /// A client completed the `BFE-UDP/1` handshake and was admitted (`admitSession` in `src/udp-server.js`).
+    /// A client completed the `BFE-UDP/1` handshake and was admitted (`admitSession`).
     Joined {
         id: String,
         name: String,
@@ -81,33 +81,33 @@ pub enum WorldPeerEvent {
         prefix: String,
         path: PeerPath,
     },
-    /// A client session closed or was evicted (`peer.once("closed", ...)` in `src/udp-server.js`).
+    /// A client session closed or was evicted (`peer.once("closed", ...)`).
     Left {
         id: String,
     },
-    /// A client called the `start` RPC (`m.method === "start"` in `src/game-session.js`).
+    /// A client called the `start` RPC (`m.method === "start"`).
     Start {
         id: String,
         call_id: Option<Value>,
         args: Value,
     },
-    /// A client submitted a chat message (`m.type === "chat"` in `src/game-session.js`).
+    /// A client submitted a chat message (`m.type === "chat"`).
     Chat {
         id: String,
         text: String,
         team: bool,
     },
-    /// A client acknowledged reliable entity-edge results (`entity-edge-ack` in `src/game-session.js`).
+    /// A client acknowledged reliable entity-edge results (`entity-edge-ack`).
     EdgeAck {
         id: String,
         message: Value,
     },
-    /// A client sent a validated, rate-limited `BNI1` or `BNA1` binary datagram (`GameSession.binary` in `src/game-session.js`).
+    /// A client sent a validated, rate-limited `BNI1` or `BNA1` binary datagram (`GameSession.binary`).
     Input {
         id: String,
         bytes: Vec<u8>,
     },
-    /// A client requested or requires a snapshot delta baseline reset (`resync` in `src/game-session.js`).
+    /// A client requested or requires a snapshot delta baseline reset (`resync`).
     Resync {
         id: String,
     },
@@ -159,12 +159,45 @@ struct PollSink<'a, F: FnMut(&str) -> bool> {
     closed: Vec<u32>,
 }
 
+/// The refusal a player sees when their game and this server differ: which side is out of date and
+/// what to do. A client of the same version whose game data differs is told so.
+pub fn version_refusal(protocol: usize, profile: &str, simulation: &str) -> String {
+    let number = |sim: &str| sim.strip_prefix("bfe-sim-").and_then(|n| n.parse::<u64>().ok());
+    let ours = number(network_contract::SIMULATION).unwrap_or(0);
+    let theirs = number(simulation);
+    let older = if protocol != network_contract::PROTOCOL {
+        Some(protocol < network_contract::PROTOCOL)
+    } else if simulation != network_contract::SIMULATION {
+        theirs.map(|n| n < ours)
+    } else if profile != network_contract::PROFILE {
+        None
+    } else {
+        return "Your game data differs from this server's. Update the game; if it is up to date, \
+                prepare its game data again."
+            .to_string();
+    };
+    let versions = match theirs {
+        Some(n) if n != ours => format!(" (your game: simulation {n}, this server: {ours})"),
+        _ => String::new(),
+    };
+    match older {
+        Some(true) => format!(
+            "Your game is older than this server{versions}. Update Battlefront Eternal to join."
+        ),
+        Some(false) => format!(
+            "This server runs an older version of Battlefront Eternal{versions}. \
+             It can be joined once the server updates."
+        ),
+        None => format!("Your game and this server are different versions{versions}."),
+    }
+}
+
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
         crate::sockets::send_to(self.socket, bytes, to);
     }
 
-    /// Builds the server handshake `hello` payload (`server.hello` in `startUdpServer` in `src/udp-server.js`).
+    /// Builds the server handshake `hello` payload (`server.hello` in `startUdpServer`).
     ///
     /// Includes only the compact version/digest fields (`protocol`, `profile`, `simulation`, `content`,
     /// `fingerprint`) so the encrypted `RESPONSE` packet stays well below the 1200-byte UDP MTU.
@@ -178,7 +211,7 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
         })
     }
 
-    /// Evaluates handshake admission policy (`server.admit` in `startUdpServer` in `src/udp-server.js`):
+    /// Evaluates handshake admission policy (`server.admit` in `startUdpServer`):
     /// 1. Wire compatibility (`protocol`, `profile`, `simulation`) and content digest check (`CLOSE_CODE.VERSION`).
     /// 2. Local and global ban check (`CLOSE_CODE.REJECTED`, `"You are banned from this server."`).
     /// 3. Player capacity check (`CLOSE_CODE.REJECTED`, `"The server is full."`).
@@ -204,12 +237,11 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
             || hello_sim != network_contract::SIMULATION
             || (hello_content != self.fingerprint && hello_content != self.content)
         {
-            return AdmitDecision::reject(
-                close_code::VERSION as u64,
-                "Incompatible game or content version.",
-            );
+            // Earlier games show this text as it is, so it says which side is out of date.
+            let reason = version_refusal(hello_protocol, hello_profile, hello_sim);
+            return AdmitDecision::reject(close_code::VERSION as u64, &reason);
         }
-        // Reject locally or globally banned Ed25519 player identities (`isBanned(client.id)` in `src/udp-server.js`).
+        // Reject locally or globally banned Ed25519 player identities (`isBanned(client.id)`).
         if (self.is_banned)(&client.id_hex) {
             return AdmitDecision::reject(
                 close_code::REJECTED as u64,
@@ -243,23 +275,22 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     }
 }
 
-/// Authoritative UDP game port server (`export async function startUdpServer` in `src/udp-server.js`).
-/// Authoritative UDP game server porting `createUdpServer(options)` from
-/// `packages/bfe-server/src/udp-server.js`.
+/// Authoritative UDP game port server (`export async function startUdpServer`).
+/// Authoritative UDP game server porting `createUdpServer(options)`.
 pub struct UdpGameServer {
     /// Non-blocking dual-stack UDP socket bound to the game port (`18451`).
     socket: UdpSocket,
-    /// Actual bound UDP port (`bound.port` in `src/udp-server.js`).
+    /// Actual bound UDP port (`bound.port`).
     pub port: u16,
     /// Bound socket address family (`"IPv6"` dual-stack or `"IPv4"` fallback).
     pub family: &'static str,
     /// Underlying `BFE-UDP/1` transport server endpoint (`bfe_transport::server::ServerEndpoint`).
     pub endpoint: ServerEndpoint,
-    /// Connected players keyed by 64-hex Ed25519 identity (`peers` map in `src/udp-server.js`).
+    /// Connected players keyed by 64-hex Ed25519 identity (`peers` map).
     pub peers: HashMap<String, ConnectedPeer>,
     /// Reverse lookup from `ServerEndpoint` session ID (`u32`) to 64-hex player identity.
     pub by_session: HashMap<u32, String>,
-    /// Active session count per IPv4 `/32` or IPv6 `/64` prefix (`byPrefix` in `src/udp-server.js`).
+    /// Active session count per IPv4 `/32` or IPv6 `/64` prefix (`byPrefix`).
     pub by_prefix: HashMap<String, usize>,
     /// Maximum simultaneous players allowed on the server (`maxPlayers`).
     pub max_players: usize,
@@ -276,14 +307,14 @@ pub struct UdpGameServer {
     pub pending_match: Option<(String, f64)>,
     /// Sessions the transport closed during a flush or an explicit close (see `SendOnlySink`).
     closed_outside_poll: Vec<u32>,
-    /// Monotonic start instant for `now_ms()` (`performance.now()` in `src/game-session.js`).
+    /// Monotonic start instant for `now_ms()` (`performance.now()`).
     start_instant: Instant,
     /// Reusable 1500-byte UDP receive buffer.
     recv_buf: [u8; MAX_PACKET],
 }
 
 impl UdpGameServer {
-    /// Binds the UDP game server socket (`startUdpServer` in `src/udp-server.js` and `attachNetwork` in `src/main.js`).
+    /// Binds the UDP game server socket (`startUdpServer` in `src/udp-server.js` and `attachNetwork`).
     ///
     /// Computes `maxSessions = (maxPlayers * 2 + 32).max(32)` matching
     /// `Math.max(32, (config.maxPlayers ?? 64) * 2 + 32)` in `src/main.js` so transport session
@@ -292,7 +323,7 @@ impl UdpGameServer {
     #[allow(clippy::too_many_arguments)]
     /// Binds a non-blocking dual-stack UDP socket (`[::]:port` with `IPV6_V6ONLY = 0`, falling back
     /// to `0.0.0.0:port` when IPv6 is disabled on the host) and initializes `bfe_transport::Server`,
-    /// porting `createUdpServer(options)` in `packages/bfe-server/src/udp-server.js`.
+    /// porting `createUdpServer(options)`.
     pub fn bind(
         port: u16,
         bind_host: Option<&str>,
@@ -337,18 +368,17 @@ impl UdpGameServer {
         })
     }
 
-    /// Returns the bound UDP game port (`bound.port` in `src/udp-server.js`).
+    /// Returns the bound UDP game port (`bound.port`).
     pub fn port(&self) -> u16 {
         self.port
     }
 
-    /// Returns the list of currently connected 64-hex player identities (`players: () => [...peers.keys()]`
-    /// in `src/udp-server.js`).
+    /// Returns the list of currently connected 64-hex player identities (`players: () => [...peers.keys()]`).
     pub fn players(&self) -> Vec<String> {
         self.peers.keys().cloned().collect()
     }
 
-    /// Returns direct host candidates for this socket (`export function hostCandidates` in `src/udp-server.js`).
+    /// Returns direct host candidates for this socket (`export function hostCandidates`).
     pub fn candidates(&self) -> Vec<CandidateEntry> {
         let mut out = Vec::new();
         if let Ok(local) = self.socket.local_addr() {
@@ -365,7 +395,7 @@ impl UdpGameServer {
     }
 
     /// Performs an RFC 5389 STUN Binding Request over the game port socket to discover the server's
-    /// public reflexive address (`endpoint.reflexive` in `src/udp-server.js`).
+    /// public reflexive address (`endpoint.reflexive`).
     pub fn reflexive(&self, server: SocketAddr, timeout: Duration) -> Result<ReflexiveMap, String> {
         let tx = stun::new_transaction().map_err(|e| e.to_string())?;
         let req = stun::encode_binding_request(&tx);
@@ -405,12 +435,12 @@ impl UdpGameServer {
         Ok(ReflexiveMap::default())
     }
 
-    /// Monotonic milliseconds elapsed since server bind (`performance.now()` in `src/game-session.js`).
+    /// Monotonic milliseconds elapsed since server bind (`performance.now()`).
     pub fn now_ms(&self) -> f64 {
         self.start_instant.elapsed().as_secs_f64() * 1000.0
     }
 
-    /// Current Unix epoch time in milliseconds (`Date.now()` in `src/game-session.js`).
+    /// Current Unix epoch time in milliseconds (`Date.now()`).
     pub fn unix_ms() -> u64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -418,12 +448,12 @@ impl UdpGameServer {
             .as_millis() as u64
     }
 
-    /// Updates the active content fingerprint on map rotation (`setBattle` in `src/udp-server.js`).
+    /// Updates the active content fingerprint on map rotation (`setBattle`).
     pub fn set_fingerprint(&mut self, fingerprint: String) {
         self.fingerprint = fingerprint;
     }
 
-    /// Schedules UDP hole-punch datagrams (`0xb8`, `endpoint.punch` in `src/udp-server.js`).
+    /// Schedules UDP hole-punch datagrams (`0xb8`, `endpoint.punch`).
     pub fn punch(&mut self, candidates: &[CandidateEntry]) {
         let mut addrs = Vec::with_capacity(candidates.len());
         for candidate in candidates {
@@ -453,7 +483,7 @@ impl UdpGameServer {
         true
     }
 
-    /// Closes a player's session with `CLOSE_CODE.KICKED` (`kick(id, message)` in `src/udp-server.js`).
+    /// Closes a player's session with `CLOSE_CODE.KICKED` (`kick(id, message)`).
     pub fn kick(&mut self, peer_id: &str, reason: &str) {
         let now_ms = self.now_ms();
         self.close_peer(peer_id, close_code::KICKED as u16, reason, now_ms);
@@ -461,12 +491,11 @@ impl UdpGameServer {
 
     /// Drains pending UDP datagrams from the non-blocking socket, advances `ServerEndpoint`
     /// handshakes and sessions, runs `GameSessionState` input/control/liveness logic, and returns
-    /// [`WorldPeerEvent`] items for the world tick thread (`startUdpServer` + `WorldRouter` in
-    /// `src/udp-server.js` and `src/game-session.js`).
+    /// [`WorldPeerEvent`] items for the world tick thread (`startUdpServer` + `WorldRouter`).
     /// Drains all available UDP datagrams from the socket, advances the `bfe_transport::Server`
     /// handshake/session state machine, enforces per-peer rate limits and idle timeouts, and
     /// returns the ordered list of `WorldPeerEvent`s for `NativeWorldHost`, porting the socket
-    /// receive + timer callbacks in `packages/bfe-server/src/udp-server.js`.
+    /// receive + timer callbacks.
     pub fn poll<F>(&mut self, mut is_banned: F) -> Vec<WorldPeerEvent>
     where
         F: FnMut(&str) -> bool,
@@ -523,7 +552,7 @@ impl UdpGameServer {
             closed.append(&mut sink.closed);
         }
 
-        // Admit newly established sessions (`admitSession` in `src/udp-server.js`).
+        // Admit newly established sessions (`admitSession`).
         for (sid, client, remote, rtt) in admitted {
             let peer_id = client.id_hex.clone();
             let name = clean_player_name(client.hello.get("name").and_then(Value::as_str));
@@ -579,7 +608,7 @@ impl UdpGameServer {
             });
         }
 
-        // Update peer path on NAT rebinding (`session.on("path", ...)` in `src/udp-peer.js`).
+        // Update peer path on NAT rebinding (`session.on("path", ...)`).
         for (sid, new_addr) in paths {
             if let Some(peer_id) = self.by_session.get(&sid) {
                 if let Some(connected) = self.peers.get_mut(peer_id) {
@@ -607,7 +636,7 @@ impl UdpGameServer {
                         connected.peer.metrics.record_drop("state");
                         continue;
                     }
-                    // Enforce the 180 packets/sec input rate limit (`GameSession.binary` in `src/game-session.js`).
+                    // Enforce the 180 packets/sec input rate limit (`GameSession.binary`).
                     if let Some(SessionAction::ForwardInput(bytes)) =
                         connected.session.on_state_datagram(&payload, now_ms)
                     {
@@ -617,7 +646,7 @@ impl UdpGameServer {
                         });
                     }
                 } else if text && lane == Lane::Events {
-                    // Enforce the 32 messages/sec control rate limit (`GameSession.control` in `src/game-session.js`).
+                    // Enforce the 32 messages/sec control rate limit (`GameSession.control`).
                     let actions = connected.session.on_events_message(&payload, now_ms);
                     for action in actions {
                         match action {
@@ -761,7 +790,7 @@ impl UdpGameServer {
     }
 
     /// Serializes `payload` as JSON and queues it on `peer_id`'s reliable `events` lane
-    /// (`peer.send("events", value)` in `src/udp-peer.js`).
+    /// (`peer.send("events", value)`).
     /// Queues a message that replaces the previous one of its kind (an input acknowledgement,
     /// the edges received so far): the next one carries the same news, so such a message is not
     /// queued while the player's reliable lane is backed up (a slow or lossy link then gets
@@ -801,7 +830,7 @@ impl UdpGameServer {
     }
 
     /// Queues pre-serialized JSON `bytes` on `peer_id`'s reliable `events` lane
-    /// (`peer.sendEncoded("events", data)` in `src/udp-peer.js`).
+    /// (`peer.sendEncoded("events", data)`).
     pub fn send_events_bytes(&mut self, peer_id: &str, bytes: &[u8]) -> bool {
         let now_ms = self.now_ms();
         let unix_ms = Self::unix_ms();
@@ -818,10 +847,10 @@ impl UdpGameServer {
     }
 
     /// Queues a binary `BNS1` or `BNO1` snapshot datagram on `peer_id`'s unordered `state` lane
-    /// (`GameSession.entityPacket` in `src/game-session.js`).
+    /// (`GameSession.entityPacket`).
     /// Sends an unreliable sequenced `bni1` state snapshot (or baseline fragment) to `peer_id`
     /// on `Lane::State` (Channel 2) if its size is within `state_budget_bytes` (default 1200 B),
-    /// porting `sendState(peerId, bytes)` in `packages/bfe-server/src/udp-server.js`.
+    /// porting `sendState(peerId, bytes)`.
     /// `own`: the player's own datagram, which congestion and staleness never hold back.
     pub fn send_state(
         &mut self,
@@ -852,7 +881,7 @@ impl UdpGameServer {
     }
 
     /// Serializes `payload` once and sends it to all connected peers on the `events` lane
-    /// (`WorldRouter.broadcastEvents` in `src/game-session.js` and `match(value)` in `src/udp-server.js`).
+    /// (`WorldRouter.broadcastEvents` in `src/game-session.js` and `match(value)`).
     /// The pending rotation as the `match` event a newly welcomed player needs, with the
     /// delay that is left of it.
     pub fn pending_match_event(&self) -> Option<Value> {
@@ -872,7 +901,7 @@ impl UdpGameServer {
     }
 
     /// Flushes all pending encrypted packets across all active sessions to the UDP socket
-    /// (`UdpPeer.flush()` in `src/udp-peer.js`).
+    /// (`UdpPeer.flush()`).
     pub fn flush(&mut self) {
         let now_ms = self.now_ms();
         let mut sink = SendOnlySink(&self.socket, &mut self.closed_outside_poll);
@@ -883,7 +912,7 @@ impl UdpGameServer {
         self.endpoint.poll(now_ms, &mut sink);
     }
 
-    /// Sends a `CLOSE` frame and removes `peer_id` from the server (`peer.close` in `src/udp-peer.js`).
+    /// Sends a `CLOSE` frame and removes `peer_id` from the server (`peer.close`).
     pub fn close_peer(&mut self, peer_id: &str, code: u16, reason: &str, now_ms: f64) {
         let Some(removed) = self.peers.remove(peer_id) else {
             return;
@@ -900,7 +929,7 @@ impl UdpGameServer {
         );
     }
 
-    /// Closes all connected peers with `CLOSE_CODE.SHUTDOWN` (`clearBattle` / `close` in `src/udp-server.js`).
+    /// Closes all connected peers with `CLOSE_CODE.SHUTDOWN` (`clearBattle` / `close`).
     pub fn close_all(&mut self) {
         let now_ms = self.now_ms();
         let ids: Vec<String> = self.peers.keys().cloned().collect();
@@ -910,7 +939,7 @@ impl UdpGameServer {
     }
 
     /// Returns per-player status and transport metrics for the operator `status` action
-    /// (`diagnostics` in `src/udp-server.js`).
+    /// (`diagnostics`).
     pub fn stats(&mut self) -> Vec<Value> {
         let now_ms = self.now_ms();
         let mut out = Vec::with_capacity(self.peers.len());
@@ -932,7 +961,7 @@ impl UdpGameServer {
         out
     }
 
-    /// Returns endpoint-wide packet and rate-limit counters (`endpoint.stats()` in `src/udp-server.js`).
+    /// Returns endpoint-wide packet and rate-limit counters (`endpoint.stats()`).
     pub fn transport_metrics(&mut self, reset: bool) -> Value {
         let c = &mut self.endpoint.counters;
         let out = json!({
@@ -954,7 +983,7 @@ impl UdpGameServer {
 }
 
 /// Sanitizes the player name offered in the client handshake `hello` (`export function playerName(value)`
-/// in `src/game-session.js`), stripping control characters and bounding length, defaulting to `"Player"`.
+///), stripping control characters and bounding length, defaulting to `"Player"`.
 fn clean_player_name(raw: Option<&str>) -> String {
     let text = raw.unwrap_or("Player");
     let cleaned: String = text
@@ -976,7 +1005,7 @@ fn clean_player_name(raw: Option<&str>) -> String {
 }
 
 /// Binds a dual-stack UDP socket on `[::]:port` (`IPV6_V6ONLY = 0`) with fallback to `0.0.0.0:port`
-/// (`endpoint.listen({ port, host })` in `src/udp-server.js`).
+/// (`endpoint.listen({ port, host })`).
 fn bind_dual_stack_udp(
     port: u16,
     bind_host: Option<&str>,
@@ -1000,4 +1029,24 @@ fn bind_dual_stack_udp(
     let sock4 = crate::sockets::udp(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), false)
         .map_err(|e| format!("failed to bind UDP port {port}: {e}"))?;
     Ok((sock4, "IPv4"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_refusal_says_which_side_is_out_of_date() {
+        let ours: u64 = network_contract::SIMULATION.trim_start_matches("bfe-sim-").parse().unwrap();
+        let p = network_contract::PROTOCOL;
+        let older = version_refusal(p, network_contract::PROFILE, &format!("bfe-sim-{}", ours - 1));
+        assert!(older.starts_with("Your game is older than this server"), "{older}");
+        assert!(older.contains(&format!("simulation {}, this server: {ours}", ours - 1)), "{older}");
+        let newer = version_refusal(p, network_contract::PROFILE, &format!("bfe-sim-{}", ours + 1));
+        assert!(newer.starts_with("This server runs an older version"), "{newer}");
+        assert!(version_refusal(p - 1, "old", "").starts_with("Your game is older"));
+        let data = version_refusal(p, network_contract::PROFILE, network_contract::SIMULATION);
+        assert!(data.starts_with("Your game data differs"), "{data}");
+        assert!(older.len() < 200 && newer.len() < 200);
+    }
 }

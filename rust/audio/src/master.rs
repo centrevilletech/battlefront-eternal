@@ -1,5 +1,5 @@
-//! The master chain in the mixer's own module: what follows the spatial mixer in src/audio/spatial.js
-//! (Renderer.build), worked out here instead of in the browser's nodes and
+//! The master chain in the mixer's own module: what follows the spatial mixer
+//! (Renderer.build), worked out here instead of in Chromium's nodes and
 //! three more worklets. Per block, as the graph computes it:
 
 use crate::biquad::{Biquad, Kind};
@@ -39,7 +39,7 @@ pub struct Master {
     gains: [f32; FRAMES],
 }
 
-/// A filter's kind by the number the page sends (0 lowpass, 1 highpass,
+/// A filter's kind by the number the client sends (0 lowpass, 1 highpass,
 /// 2 peaking, 3 highshelf).
 pub fn kind(n: u32) -> Kind {
     match n {
@@ -161,7 +161,7 @@ impl Master {
     /// One block at context frame `block`: `feeds` the mixer's speaker
     /// feeds (channels runs), `lfe_send` its LFE send (surround), `send`
     /// the engine's reverb send, `send_in` and `mix_in` the inputs that
-    /// carry the browser's own voices' sends and everything else bound for
+    /// carry Chromium's own voices' sends and everything else bound for
     /// the mix (None when silent). Writes `out` (channels runs); returns
     /// the limiter's gain reduction (dB) when a report is due.
     #[allow(clippy::too_many_arguments)]

@@ -1,50 +1,46 @@
 # Live objects: service droids and the repair tool
 
-How the power-up droids (`rust/sim` (`props`) PowerupStation) and the fusion
-cutter (`rust/sim` (`combat`), `rust/sim` (`weapons`)) show their work in a battle that a
-world host (the local server worker, or a server) runs and the page shows.
+How the power-up droids (`rust/sim` (`battle::live`) PowerupStation) and the fusion
+cutter (`rust/sim` (`combat`), `rust/sim` (`combat::weapons`)) show their work in a battle that a
+world host (the client's local world thread, or a server) runs and the client shows.
 
 ## What travels, what is derived
 
-The page gets each building's plain state in the entity protocol's world
-presentation records (`rust/sim` (`wire`)) and the effect and
-sound calls the tick made as presentation events
-(`rust/sim` (`wire`)). It never ticks the buildings
-itself. So:
+The client gets each building's plain state in the entity protocol's world
+presentation records (`rust/sim` (`wire`)) and the effect and sound calls
+the tick made as presentation events (`rust/sim` (`wire`)). It never ticks
+the buildings itself. So:
 
-- A droid's idle cycle and serve pulse are state only (`update` and `step`:
-  `mode`, `t`, `direction`, `rate`, `pulse`, `yaw`, `servedPlayer`,
-  `servedHealth`, `servedAmmo`). Its rig is posed from that state by
-  `pose()`, which accumulates nothing, so the page and the world agree
-  whoever calls it and however often. `LiveObjects.present(dt, viewer)` poses
-  the living droids and updates the build holograms every frame
-  (`game.js`, in the world presentation after the posts); the tick's
-  `LiveObjects.update` does not touch holograms.
-- A pulse that gave someone on foot something calls the station's `onServe`
-  hook; `game.js` plays the soldier's `HealthGainEffect` (default
-  `Powerup_blue`) and `AmmoGainEffect` (`Powerup_red`) at his feet, the
-  same effects a power-up plays (`rust/sim` (`units`)). The PowerupSound
-  (`emitSound("serve")`) travels as a `serve` presentation event.
-- The HUD's supply indicator is derived on the page: `combat.updateHud` asks
-  `live.supplying(soldier.position)` for a station whose last pulse served
-  the player (`supplied.player === true` in `game.js`) while he is still
-  within its radius, and `hud.setSupply(health, ammo)` pulses the health bar
-  and the rounds green and keeps them shown.
+- A droid's idle cycle and serve pulse are state only (mode, time,
+  direction, rate, pulse, yaw, and whom it served last with health or
+  ammo). Its rig is posed from that state alone, which accumulates nothing,
+  so the client and the world agree whoever poses it and however often. The
+  client poses the living droids and updates the build holograms every
+  frame; the world's tick does not touch holograms.
+- A pulse that gave someone on foot something plays the soldier's
+  `HealthGainEffect` (default `Powerup_blue`) and `AmmoGainEffect`
+  (`Powerup_red`) at his feet, the same effects a power-up plays. The
+  PowerupSound travels as a `serve` presentation event, and every supply
+  station is a sound emitter of its own (`rust/bfe-client`
+  (`online::sound`)).
 - The repair lock is also a plain field, carried in the unit's entity state:
-  `combat.repairLock` is `l{i}` for a building or `v{j}` for a vehicle
-  (`repairLockKey`), and `combat.lockedTarget()` resolves it on a page that
-  never ran `lockOn`. The second health bar (the target's health, a pad's
-  build progress) shows on such a page because of this.
-- The cutter's sparks (`MuzzleFlashEffect`, `repairkit`) are the page's: the
-  world host has no posed hand, so `presentRepairTick` plays them at the
-  tool's fire point as drawn (on the tool in the hand or, in first person, on
-  the arms' tool) when the tick's shot reaches the page. The FireLoopSound
-  rides on the shot's `fire` sound event.
+  `l{i}` for a building or `v{j}` for a vehicle, which the client resolves
+  without running the lock itself (`rust/bfe-client` (`online::hud_feed`)).
+  The second health bar (the target's health, a pad's build progress) shows
+  because of this.
+- The cutter's sparks (`MuzzleFlashEffect`, `repairkit`) are the client's:
+  the world host has no posed hand, so the client plays them at the tool's
+  fire point as drawn (on the tool in the hand or, in first person, on the
+  arms' tool) when the tick's shot reaches it. The FireLoopSound rides on
+  the shot's `fire` sound event.
+- Not drawn yet in the Rust client: the HUD's supply indicator (the health
+  bar and the rounds pulsing green while a station that served the player
+  is in reach).
 
 ## Turrets: damage effects, pieces and sounds
 
-A placed turret (`rust/sim` (`props`) Turret) shows and sounds as a hull's turret
-does, on the page in every mode, from what every host gives it: its state
+A placed turret (`rust/sim` (`battle::live`) Turret) shows and sounds as a hull's turret
+does, in the client in every mode, from what every host gives it: its state
 (built, destroyed, unbuilt), its health, its lease and its drum's angles.
 
 - The original reads an armed building's class through the building reader
@@ -58,9 +54,9 @@ does, on the page in every mode, from what every host gives it: its state
 - `tools/extract.py` `write_props` gives each instance its class's
   `fx.damage` and `fx.chunks` (`tools/zero_vehicle.py` `vehicle_fx`), writes
   the effects they play in `props.json`'s `effects` (a fallback library the
-  page merges under the shared ones) and the pieces' models in the model's
+  client merges under the shared ones) and the pieces' models in the model's
   space in `props_extras.bin` (`props.json`'s `extras`).
-- `rust/sim` (`vehicle-effects`) `updateBuildings` runs each turret through the
+- `rust/bfe-presentation` (`vehicle_effects`) `updateBuildings` runs each turret through the
   hulls' rules: each damage record burns at its node of the built model
   (the model's root where it lacks the node: the AAA, Hoth and gun turrets
   have no `hp_smoke_1`, so theirs rise from the base) while built and its
@@ -92,7 +88,7 @@ seat's (docs/vehicles.md "Riders in the open", docs/formats.md "Riders"): the
 armed building's update poses its pilot through the vehicles' pilot section, so
 he shows only where the class names a pilot animation, and rounds, melee swings
 and blasts meet him only where he shows. The rules are the same for every
-gunner: the player at his `Gunner` (`rust/sim` (`gunner`)), bots and network humans
+gunner: the player at his `Gunner` (`rust/sim` (`seats::turrets`)), bots and network humans
 at `TurretSeats` (`rust/sim` (`seats`)).
 
 - Shown (`Turret.rider`): at `PilotPosition`, in `human_` and his
@@ -111,29 +107,29 @@ at `TurretSeats` (`rust/sim` (`seats`)).
   back over the deck against the view and its gunner hanging outside the hull,
   facing away from the gun; instead the gun points out over the rail and he
   stands on the deck behind it.
-- Drawn the same on every page: bots and other people by `Crews::pose`
-  (`rust/sim/rust/seats/turrets.rs`) in the world, and on a page from the
-  turret's record, whose turn speed is the yaw's change between records
-  (`Turret.aimFrom`); the player by the same seat pose in the world and on his
-  own page by the presentation body batch (`rider_sample`,
-  `rust/bfe-presentation (units.rs)`), at the aim the page previews, so the page poses its own player at the gun in the
-  gunner's pose the world strikes him in.
+- Drawn the same in every client: bots and other people by `Crews::pose`
+  (`rust/sim/src/seats/turrets.rs`) in the world, and in a client from the
+  turret's record, whose turn speed is the yaw's change between records; the
+  player by the same seat pose in the world and in his own client by the
+  presentation body batch (`rider_sample`, `rust/bfe-presentation
+  (units.rs)`), at the aim the client previews, so the client poses its own
+  player at the gun in the gunner's pose the world strikes him in.
 - Struck (`Turret.exposedSeat`, `Unit.hitShapes`, `SeatLease.exposed`):
   his posed body at the seat, in the seat node's frame
-  (`rust/bfe-pose/rust/rig/rider.rs`, published through
+  (`rust/bfe-pose/src/rig/rider.rs`, published through
   `rust/bfe-presentation`): head, torso, thighs, shins and both arms to the
   middle of the hand. The turret's own collision is the nearest hit where it
   lies in front of him: the gun turret's tub covers him to the waist (its
   collision is a plain drum about 1 m tall, without the shield plates or the
   gun); the Yavin tower's walls cover him to the chest. The turret's own
   guns never strike him.
-- Blasts (`SeatLease.blastable`, game.js `onExplode`, `Combat.explode`): the
+- Blasts (`SeatLease.blastable`, the combat phase's explosions): the
   original's soldier area damage hurts a seated soldier only when the seat is
   an armed building's, and its push skips a soldier in a seat. A shown gunner
   takes a blast's damage at the gun without being moved. One the blast kills
   has left the gun by the time it pushes (his death in the seat runs the seat
   exit), and his body is thrown as any other.
-- Killed at the gun (`rust/sim` (`boarding`) `leaveKilled`: `TurretSeats.vacate`
+- Killed at the gun (`rust/sim` (`seats::boarding`) `leaveKilled`: `TurretSeats.vacate`
   with reason `killed` for a bot or a network human, `Gunner.exit` with
   `killed` for the player), or with the turret destroyed under him, he
   leaves it at once and no spot beside it is sought: his body falls from
@@ -174,7 +170,7 @@ makes: the building's class parser hands every key after `BuildingSection` to
 the seat's parser, which reads the camera keys through the camera section
 parser and the fields of view through the control section's. Its camera is the
 seat's and its aim the seat's update, so a placed turret looks and aims by
-docs/formats.md "Vehicle seats" (`rust/sim` (`props`) Turret, `rust/sim` (`gunner`) Gunner
+docs/formats.md "Vehicle seats" (`rust/sim` (`battle::live`) Turret, `rust/sim` (`seats::turrets`) Gunner
 and TurretCamera, `rust/sim` (`seats`) TurretSeats).
 
 - **The aim frame** hangs at the drum's pivot (`TurretNodeName`, its place in
@@ -206,11 +202,10 @@ and TurretCamera, `rust/sim` (`seats`) TurretSeats).
 - **The aim point** is the first wall, prop, hull or soldier within 512 m
   along the aim from the person's own view: his eye in first person, else
   where his chase camera rests, brought forward to the eye's plane. The
-  page's `Gunner` and the server's `TurretSeats` (for a network human, whose
-  view arrives with his input) aim from the same point
-  (`seats.js` `turretAimPoint`), so the gun turns to what lies under his
-  crosshair on either. The page's reticle points from the drawn camera at
-  that point (`Gunner.reticleDirection`), so it stays on it while a wall
+  client and the world (for a network human, whose view arrives with his
+  input) aim from the same point (`rust/sim` (`seats::turrets`)), so the gun
+  turns to what lies under his crosshair on either. The client's reticle
+  points from the drawn camera at that point, so it stays on it while a wall
   pulls the camera in off its rest or the camera eases after a turn. Bots aim from the gun's fire point along their own
   aim.
 - **The gun** (`AimerNodeName`) turns toward the aim point from its rest pose
@@ -230,9 +225,9 @@ and TurretCamera, `rust/sim` (`seats`) TurretSeats).
   under the crosshair from either of the AAA's barrels, at any pitch the view
   takes. Only while the gun is still turning do they fly along it. The rule
   needs only the gun's angles, so the server, a bot's seat
-  (`TurretSeats.drive`) and the page's predicted rounds
+  and the client's predicted rounds
   (`rust/sim` (`wire`)) agree. The AI's own reach test
-  (`rust/sim/rust/ai/vehicles`) reads the view's `PitchLimits` up positive and is
+  (`rust/sim/src/ai/vehicles`) reads the view's `PitchLimits` up positive and is
   kept as the original has it.
 
 | Turret | Eye (aim frame) | Chase camera: pivot, offset, tilt | View pitch | Yaw | Gun pitch (widened), gun yaw |
@@ -252,8 +247,8 @@ view.
 the camera's place and rounds meeting the aim point in both views.
 `cargo test --locked --workspace` shoots each class's views; `cargo test --locked --workspace`
 fires each across a wall at 10 m and 100 m, level and at the lowest and
-highest pitch its view takes, and measures the rounds against the page's
-reticle.
+highest pitch its view takes, and measures the rounds against the
+client's reticle.
 
 ## Data used
 
@@ -286,8 +281,8 @@ is gone 30 s into the battle.
   (class, team, the instance's matrix and the class's item settings, as a
   dispenser's item is written), its model with the pieces' in
   `props_extras.bin`.
-- `rust/sim` (`placed-items`) spawns them in the world as it loads (the world
-  worker, the dedicated server, a headless check), never on a page. Each
+- The world spawns them as it loads (`rust/sim` (`world::admit`): the local
+  world thread, the dedicated server, a headless check), never in a client. Each
   travels as an item record like a dropped one
   (`rust/sim` (`wire`)): its definition is the prepared
   object, which the combat registry names by id.
@@ -301,7 +296,7 @@ is gone 30 s into the battle.
 An animated prop (`animatedprop`: Tatooine: Dune Sea's sarlacc tentacles,
 Jabba's Palace's Jabba, rancor, torture droid and trapdoor, Cloud City's
 carbon-freeze forklift) runs as the original's animated prop does, in
-`rust/sim` (`props`) `AnimatedProp`. Doors (`door`, the palace cell doors) keep their
+`rust/sim` (`battle::live`) `AnimatedProp`. Doors (`door`, the palace cell doors) keep their
 own rule: open while anyone is in reach, the Open clip run both ways.
 
 What its class gives (`tools/extract.py` `animated_prop_animation`):
@@ -334,7 +329,7 @@ What it does each update:
   weight then rises by the step: a second a second into an action, a fifth back
   into the idle. So an action blends in over about a second, the idle over
   five, and the next trigger waits 2.5 s after an action. The port does this
-  per 60 Hz world step; a page's frame takes the share as many steps would.
+  per 60 Hz world step; a client's frame takes the share as many steps would.
 - **The grab:** while the attach trigger's action plays, up to `window` seconds
   in, the attach node (on an animated bone: the tentacle's `hp_active`, on
   `sarlacc_bone4`) takes the first body found within its reach, if he lives and
@@ -378,7 +373,7 @@ Dune Sea also names the pit's region `Sarlac01` with `AddDeathRegion`: a
 cylinder of 8.43 m radius reaching 6 m up and down from the pit's centre kills
 whoever walks or falls in, no one credited. Its `SIZE` is 2.14 x 6.06 x 8.16;
 building the region sets a cylinder's radius to the length of its x and z, and
-the region test reads that (docs/formats.md "Regions", `rust/sim` (`regions`)).
+the region test reads that (docs/formats.md "Regions", `rust/sim` (`battle::regions`)).
 
 The tentacle's mesh is one soft-skinned segment of 308 vertices over nine
 bones (docs/formats.md "Models"), each vertex blending three. The port
@@ -396,31 +391,30 @@ How the port runs it:
   (`PlayerCombat.mounted`).
 - A creature that grabs is the world's alone. Its state (clip slot, the
   tick and time it started, whom it holds and since when) travels as world
-  record schema 9 (identity 400000 + its index, `rust/sim` (`wire`)), taken at once when it changes (`rust/sim` (`wire`)). A page follows it (`AnimatedProp.adopt`,
-  `follow`): the clip at the world's time for the tick it draws, which is
-  fractional, so the tentacle and whom it holds move smoothly at any frame
-  rate, the page's own soldier included (not predicted while held), and the
-  same for every other client online. Until the first record a page idles
+  record schema 9 (identity 400000 + its index, `rust/sim` (`wire`)), taken at once when it changes. A client follows it: the clip at the world's time
+  for the tick it draws, which is fractional, so the tentacle and whom it
+  holds move smoothly at any frame rate, the client's own soldier included
+  (not predicted while held), and the same for every other client online.
+  Until the first record a client idles
   the creature itself. Doors and props that don't grab still step on every
   host from the soldiers it has.
 - Held, a body is drawn in his clip (`SoldierAnimator.gunner` at the hold's
-  time) with his actor's root on the node's frame (`Unit.present`, the
-  player's own in `rust/sim` (`game`)); the seized player's death camera starts
-  (`startDeathCamera`) and first person goes off.
+  time) with his actor's root on the node's frame (the player's own too);
+  the seized player's death camera starts and first person goes off.
 
 `cargo test --locked --workspace` covers the triggers, the reach, the eased
 pose, `IdleDelay`, the grab, the swallow and the record;
 `tests/test_attachments_export.py` the class keys and the soft skin;
 `cargo test --locked --workspace` (the native client and the extracted Dune Sea) puts the
 player and a bot at two tentacles' hotspots and a bot in the pit, and checks
-the seizure, the page drawing them where the world holds them, the death
+the seizure, the client drawing them where the world holds them, the death
 camera, the swallow and the region.
 
 ## Ewok log traps
 
 Endor's two log traps (`end_weap_treesmash`, ODF base `trap`, placed with
 Team 0 on the west side between the Camp and the Village) run as the
-original's trap does, in `rust/sim` (`traps`) `Trap`. Two logs hang from ropes
+original's trap does, in `rust/sim` (`battle::traps`) `Trap`. Two logs hang from ropes
 either side of a clearing (`bone_r_tree`, `bone_l_tree`, a soft-skinned rope
 mesh); cocked they are hauled up 23 m out and 11 m high, and the swing brings
 them together over the trap's origin.
@@ -501,23 +495,23 @@ How the port runs it:
   keys above, the pad and its hologram mount); `tools/extract.py` makes
   `trap` a live base, so the traps are not baked into the world, and exports
   both clips and the DeathEffect.
-- `rust/sim` (`traps`) `Trap` (a `Building` from `rust/sim` (`props`)) keeps the
+- `rust/sim` (`battle::traps`) `Trap` (a `Building` from `rust/sim` (`battle::live`)) keeps the
   original's order per world tick (`LiveObjects.update`): its phase
   (`down`, `reset`, `armed`, `swing`), the tick it began, seconds into it.
   Vehicles are `live.vehicleTargets`; a vehicle's sphere is its
   `blastSphere` (its model's). A crushed hull gets `setHealth(0)` with no
   attacker and `dying = 0`: it is gone at once, its crew dies uncredited.
-  The DeathEffect goes through `presentEffect`, so it reaches the pages.
-  `rust/sim` (`game`) gives the traps their sides from the battle's teams (the
+  The DeathEffect travels as a presentation event, so it reaches every
+  client. The battle's setup gives the traps their sides from the battle's teams (the
   prefix of each team's classes) and their team from ResetTeam.
 - The pad stands on the world's collision under BuildPoint
   (`padOnGround`); the hologram is the build hologram, shown to soldiers
   carrying a repair weapon, as a turret pad's.
 - The traps are in `live.buildings`: repair locks, BuildingBuild ticks,
-  blasts and the Classic AI's repair jobs (`rust/sim/rust/ai/owned/services.rs`) find them
+  blasts and the Classic AI's repair jobs (`rust/sim/src/ai/owned/services.rs`) find them
   as any building. Their state, health and team travel as schema 7; their
   phase and its start tick as world schema 10 (identity 500000 + index,
-  `rust/sim` (`wire`)), taken at once when it changes. A page
+  `rust/sim` (`wire`)), taken at once when it changes. A client
   draws the clip of its phase at the world's time for the tick it draws
   (the native prop phase, `rust/bfe-presentation`).
 - Not done: the logs' collision (capsules on the swinging bones; the trap
@@ -530,5 +524,5 @@ How the port runs it:
 crush, the swing's end, being shot down and the record;
 `rust/sim` (`battle::traps`) walks an AT-ST into a trap on the extracted Endor
 (and `--battle` counts the traps' builds, swings and kills in Classic AI
-battles); `cargo test --locked --workspace` (the native client and Endor) checks the page drawing the
+battles); `cargo test --locked --workspace` (the native client and Endor) checks the client drawing the
 swing, the walker gone and the effect.

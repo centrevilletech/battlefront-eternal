@@ -1,9 +1,9 @@
-//! DeathShot from src/death-shot.js. The body, killer and drawn view follow
+//! DeathShot. The body, killer and drawn view follow
 //! exact critically damped springs on the display clock, never the world tick.
-// The death camera as this page draws it. The world keeps the original's
-// (src/camera.js DeathCamera) as the camera its Classic AI schedules from;
-// this one is presentation only. It runs on the page in every host (a local
-// battle, a world worker's, a server's) from what the page draws: the body
+// The death camera as this client draws it. The world keeps the original's
+// (DeathCamera) as the camera its Classic AI schedules from;
+// this one is presentation only. It runs on the client in every host (a local
+// battle, a local world thread's, a server's) from what the client draws: the body
 // where it lies, and the killer the world named (DeathCamera.blame) where he
 // is drawn. While he is dead it is the drawn camera's only writer, on the
 // frame's own clock.
@@ -55,7 +55,7 @@ impl Follow {
         x
     }
 }
-// spring in death-shot.js: the moving goal's lag is kept separate from the
+// spring: the moving goal's lag is kept separate from the
 // decaying homogeneous solution, so a long frame traces the same path.
 // One step of a critically damped spring: x (and its velocity v) after dt,
 // following a goal that moved evenly from a0 to a1 over the step. Exact for
@@ -122,7 +122,7 @@ struct FollowTurn {
 }
 // The shorter way round.
 // Where it is, and where the goal went, from the goal's last place.
-// The killer where this page draws him, from the world's record of him
+// The killer where this client draws him, from the world's record of him
 // (DeathCamera.blame): { point (his eyes, or a hull's or turret's), size (m,
 // for framing), living (he has a body now), friendly }, into out, or null.
 // follow: once his life has ended, look for his Character's next body (as
@@ -698,7 +698,7 @@ impl Death {
     // A style change blends from the old style while both booms retain state.
     // Freeze uses zero visual dt without substituting the world tick clock.
     // Trace outputs are geometric facts for the retained DeathTrace mesh.
-    // Its previous-camera draw ordering is preserved by the page publisher.
+    // Its previous-camera draw ordering is preserved by the client publisher.
     // A stopped or Classic trace is hidden without advancing another owner.
     pub fn frame<M: Math, C: Cast>(
         &mut self,

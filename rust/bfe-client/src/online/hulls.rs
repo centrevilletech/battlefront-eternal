@@ -1,4 +1,4 @@
-//! Vehicle constructor records prepare the same rig and batches as the page.
+//! Vehicle constructor records prepare the same rig and batches as the client.
 //! Live frames bind qualified snapshot identities to those retained resources;
 //! Vehicles owns placement, animation, seats and all published node matrices.
 use super::{index::Index, receiver::Receiver, replay::Collision};
@@ -98,7 +98,7 @@ struct Model {
     death_span: f64,
     // Its thrust, damage and death effects (VehicleEffects).
     fx: Option<super::hull_effects::ClassFx>,
-    // A walker's feet (vehicle-feet.js): its foot detector's content, its
+    // A walker's feet: its foot detector's content, its
     // StompEffect group and each foot's bone.
     feet: Option<(Value, Option<usize>, Vec<usize>)>,
 }
@@ -159,7 +159,7 @@ impl Hulls {
         let effect_names = content.effects.iter().find(|(n, _)| n == "battle").map(|(_, e)| e.handles.clone()).unwrap_or_default();
         let effect = |name: &str| effect_names.iter().find(|(n, _)| n == name).map(|(_, id)| *id);
         // new Vehicle and RigBatches use the same cold numerical builders
-        // as the page. Their records preserve authored bone and muzzle order.
+        // as the client. Their records preserve authored bone and muzzle order.
         // Native admission creates GPU resources from those completed records;
         // it does not rebuild an independent vehicle rig or animator.
         let mut budget = crate::loading_work::Budget::new();
@@ -198,7 +198,7 @@ impl Hulls {
             let batches: Value = serde_json::from_slice(&batch).map_err(|e| e.to_string())?;
             // Skeleton inverse binds are captured before placement. The pose
             // owner later publishes world matrices; multiplying these same
-            // inverses before the final f32 write preserves the page's skin
+            // inverses before the final f32 write preserves the client's skin
             // rounding and the distinction between the static and root bones.
             let inverses: Vec<[f64; 16]> = array(&records["inverses"])?;
             let mut placements = Placements { parts: vec![], deferred: 0 };
@@ -565,7 +565,7 @@ impl Hulls {
         // Mount records have their own short history. Position snapshots can
         // arrive without new seat aim, and seat changes can arrive without a
         // new hull position. Sampling both at the same playout tick retains
-        // the page's presentMounts behavior through packet loss and pause.
+        // the client's presentMounts behavior through packet loss and pause.
         for field in receiver.publications.iter() {
             if field.row[r::KIND] == k::MOUNT as f64 {
                 self.mounts.ingest(&field.row);

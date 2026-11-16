@@ -336,7 +336,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
 }
 
 // GpuResources implements this bridge natively. A platform may supply its own
-// target owner; no operation calls a browser scene or material callback.
+// target owner; no operation calls a client scene or material callback.
 pub trait FrameTargets {
     fn present(&mut self,_source:i32,_width:i32,_height:i32)->Result<bool,String>{Ok(false)}
     fn bind(&mut self, binding: &[f64]) -> Result<(),String>;
@@ -433,7 +433,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     // Only this native loop binds, clears, resolves and invokes the passes.
     pub fn battle_frame<T:FrameTargets>(&mut self,targets:&mut T)->Result<(),String> {
         use crate::frame_plan::layout::operation as O;
-        // Seal collection before executing: a draw never asks the browser to
+        // Seal collection before executing: a draw never asks the client to
         // republish scene inputs, update matrices or choose the next pass.
         self.frames.collecting=false;self.frames.plan.state[S::MOTION_COMPLETE]=0.;
         self.frames.plan.select();self.frames.plan.plan();

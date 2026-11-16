@@ -1,5 +1,5 @@
 //! Synthetic whole-phase fixtures for the water/shore and wake owners. These
-//! exercise frame calls and capacity behavior without map assets or a browser.
+//! exercise frame calls and capacity behavior without map assets or a client.
 use bfe_environment::{shore::{Queries, waterline_segment}, surfaces::Phase, surface_math::V8, wakes::Wakes};
 use bfe_environment::layout::{surface as lim, surface_config as cfg, surface_frame as frame,
     surface_command as cmd, surface_command_kind as kind, surface_result as out,

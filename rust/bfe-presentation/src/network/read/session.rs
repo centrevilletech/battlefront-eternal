@@ -1,5 +1,5 @@
 //! SnapshotClient's multipart and ACK ownership, beside the retained display
-//! ring. Wire groups use the tested reader above; no baseline becomes a page
+//! ring. Wire groups use the tested reader above; no baseline becomes a client
 //! object and no sampled pose leaves this memory on its way to a display phase.
 use super::*;
 use crate::network_layout::{net_header as h, net_kind as k, net_limits as l, net_record as r};
@@ -177,7 +177,7 @@ impl Session {
             removed: Vec::with_capacity(l::SLOTS), staging: Vec::new(), fields: Vec::with_capacity(l::WORLD_FIELDS),
             epoch: 0., ack: 0., newest_entities: -1., newest_own: -1., current: None, serial: 0, pending: false,
             excluded: [-1.; 2], lease: 0, missed: 0, hz: 60., extrapolate: 6., maximum: 64, } }
-    // The page receiver calls this before transport delivery. Timeline-only and
+    // The client receiver calls this before transport delivery. Timeline-only and
     // encode-only owners avoid this larger reservation; repeated setup is inert.
     // The extra snapshot protects current lookups while an assembly is recycled.
     // SnapshotPresentation registers a display owner once, at cold admission.
@@ -367,7 +367,7 @@ impl Session {
                 if change.removed { rows.remove(at); } else { rows[at] = change.field.handle as u16; }
             } else if !change.removed { if rows.len() == l::WORLD_FIELDS { self.bank.release(change.field.handle);
                 } else { rows.push(change.field.handle as u16); } } } }
-    // Changed gameplay records are the only numeric values the page still reads.
+    // Changed gameplay records are the only numeric values the client still reads.
     // The publication window is larger than any MTU-limited packet can produce;
     // foreign oversized expansions return a receive fault without a buffer grow.
     fn emit(&mut self,record:&[f64;r::STRIDE])->Result<()>{self.emit_bytes(record,&[])}
@@ -716,7 +716,7 @@ impl Session {
             "seatChanges":self.leases.seats.iter().take((self.header[h::SEATS]as usize).min(l::SLOTS*2)).map(|&id|capture(id)).collect::<Vec<_>>()})
     }
     /// An explicit, cold replay capture. Live receive and display never call
-    /// this serializer or reconstruct immutable baseline objects on the page.
+    /// this serializer or reconstruct immutable baseline objects on the client.
     pub fn capture(&self, tick: f64) -> serde_json::Value { use serde_json::json;
         let snapshot = if tick.is_nan() { self.current } else { self.held(tick) };
         let value = snapshot.map(|i| self.capture_snapshot(i));

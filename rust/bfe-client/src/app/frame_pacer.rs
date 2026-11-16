@@ -1,13 +1,13 @@
-//! When the window presents a frame. The browser hands the page one chance
+//! When the window presents a frame. The earlier build hands the client one chance
 //! to draw every display refresh and its FramePacer
-//! (src/runtime/frame-pacing.js) lets a chance pass while the frameLimit
+//! lets a chance pass while the frameLimit
 //! setting's deadline is still ahead. Here the chances come from the display
 //! as well: a swap that waits for the refresh, or the compositor's frame
 //! callbacks. `Display` watches that they really do, and counts the refresh
 //! out on a timer where they don't (a software surface, a driver with its
 //! sync forced off), so no frame is ever drawn faster than it can be shown.
 
-/// frame-pacing.js FramePacer. Times are seconds.
+/// FramePacer. Times are seconds.
 pub struct FramePacer {
     pub limit: f64,
     elapsed: f64,
@@ -59,7 +59,7 @@ impl FramePacer {
         Some(dt)
     }
     /// Seconds from the last chance until the deadline can be met: how long
-    /// the loop may sleep instead of asking again. The page has no such
+    /// the loop may sleep instead of asking again. The client has no such
     /// question, its next chance simply comes a refresh later.
     pub fn wait(&self) -> f64 {
         if self.limit == 0. {

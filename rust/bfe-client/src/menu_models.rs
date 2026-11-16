@@ -1,4 +1,4 @@
-//! Common hologram models prepared from the same authored pack as the browser.
+//! Common hologram models prepared from the same authored pack as the client.
 //! Geometry is recentered and normalized once; a battle view only places it.
 use bfe_content_native::BattleContent;
 pub struct Model {

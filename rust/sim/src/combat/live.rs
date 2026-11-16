@@ -113,7 +113,7 @@ pub(crate) fn blast_in(w: &mut crate::world::owner::World, definition: crate::st
     world.notice.emit(&mut world.w.sim.events);
 }
 
-/// refOf (game.js) for a committed source, including frozen launch lives.
+/// refOf for a committed source, including frozen launch lives.
 pub(crate) fn owner_reference_in(store: &crate::gen::Store, owner: OrdnanceOwner) -> Option<crate::gen::F3LifeRef> {
     match owner {
         OrdnanceOwner::Unit(r) => store.unit.get(r).map(|u| crate::gen::F3LifeRef {
@@ -342,7 +342,7 @@ pub(crate) fn hit_packet_in(w: &mut crate::world::owner::World,
     f3::changed_in(w, reference);
 }
 
-// teamOf/isHumanOwner (game.js). Ordinary F1 rounds retain a Unit pointer;
+// teamOf/isHumanOwner. Ordinary F1 rounds retain a Unit pointer;
 // captured recon launch lives are prepared by the authority's owner service.
 pub(crate) fn owner_facts_in(sim: &crate::abi::Sim, units: &mut crate::units::owner::Units, owner: OrdnanceOwner) -> (f64, bool, Attacker) {
     match owner {
@@ -394,7 +394,7 @@ pub(crate) fn character_in(w: &crate::world::owner::World,
     }
 }
 
-/// refOf/teamOf (game.js) at notification time, before a pooled owner could
+/// refOf/teamOf at notification time, before a pooled owner could
 /// advance to another life. The current victim may be out of the store.
 pub(crate) fn attribution_in(w: &mut crate::world::owner::World,
     attacker: Attacker,
@@ -455,7 +455,7 @@ pub(crate) fn attribution_in(w: &mut crate::world::owner::World,
     }
 }
 
-/// Unit.origin (units.js) reads its current combat pivot, with a raw-stance
+/// Unit.origin reads its current combat pivot, with a raw-stance
 /// fallback before the first aim. It does not observe the lazy hit shapes.
 pub(crate) fn origin(unit: &Unit, combat: &crate::gen::Combat) -> [f64; 3] {
     if v(combat.pivot).length_sq() > 0.0 {
