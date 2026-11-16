@@ -110,6 +110,34 @@ pub fn parse_answer(text: &str, server_id: &str, nonces: &[String]) -> Option<Ve
     )
 }
 
+/// The payload of a match-readiness probe: is the server already running the battle `token`
+/// names? (Exactly three keys: the master checks the shape.)
+pub fn match_probe_payload(token: &str, nonce: &str) -> String {
+    json!({ "type": "matchProbe", "matchProbe": token, "nonce": nonce }).to_string()
+}
+
+/// Whether a signalling message is the server's "ready" to our probe for `token` with `nonce`.
+pub fn is_match_ready(text: &str, server_id: &str, token: &str, nonce: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Ready {
+        #[serde(rename = "matchReady", default)]
+        ready: String,
+        #[serde(default)]
+        nonce: String,
+    }
+    if text.len() > MAX_SIGNAL_BYTES {
+        return false;
+    }
+    let Ok(envelope) = serde_json::from_str::<Envelope>(text) else {
+        return false;
+    };
+    if !envelope.from.eq_ignore_ascii_case(server_id) || envelope.kind != "matchReady" {
+        return false;
+    }
+    serde_json::from_str::<Ready>(&envelope.payload)
+        .is_ok_and(|r| r.ready == token && r.nonce == nonce)
+}
+
 /// A fresh 32-hex offer nonce.
 pub fn new_nonce() -> Result<String, String> {
     let mut bytes = [0u8; 16];
@@ -288,6 +316,25 @@ mod tests {
         assert!(parse_answer(&message, SERVER, &["ff".repeat(16)]).is_none());
         let offer = message.replace("\"answer\"", "\"offer\"");
         assert!(parse_answer(&offer, SERVER, std::slice::from_ref(&nonce)).is_none());
+    }
+
+    #[test]
+    fn match_readiness_is_matched_to_the_server_token_and_nonce() {
+        let token = "ab".repeat(16);
+        let nonce = "cd".repeat(16);
+        let probe: Value = serde_json::from_str(&match_probe_payload(&token, &nonce)).unwrap();
+        assert_eq!(probe.as_object().map(|o| o.len()), Some(3));
+        assert_eq!(probe["type"], "matchProbe");
+        let ready = |from: &str, kind: &str, t: &str, n: &str| {
+            json!({"from": from, "type": kind,
+                "payload": json!({"type": "matchReady", "matchReady": t, "nonce": n}).to_string()})
+            .to_string()
+        };
+        assert!(is_match_ready(&ready(SERVER, "matchReady", &token, &nonce), SERVER, &token, &nonce));
+        assert!(!is_match_ready(&ready(SERVER, "matchReady", &"ef".repeat(16), &nonce), SERVER, &token, &nonce));
+        assert!(!is_match_ready(&ready(SERVER, "matchReady", &token, &"ef".repeat(16)), SERVER, &token, &nonce));
+        assert!(!is_match_ready(&ready(&"cd".repeat(32), "matchReady", &token, &nonce), SERVER, &token, &nonce));
+        assert!(!is_match_ready(&ready(SERVER, "answer", &token, &nonce), SERVER, &token, &nonce));
     }
 
     #[test]

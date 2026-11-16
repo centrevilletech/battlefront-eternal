@@ -46,6 +46,21 @@ impl Probe {
     // endpoint must advertise the announced match before content is reloaded;
     // a stale /info response still belongs to the previous battle.
     pub fn start(address: String, query: String) -> Self {
+        // A listed server reached through the master is asked through the master's signalling
+        // whether it runs the announced match (its listing may carry no battle query).
+        if let Some(id) = address.strip_prefix(super::info::LISTED) {
+            let token = bfe_content::mission::Query::parse(&query).get("match").to_string();
+            let (send, received) = mpsc::channel();
+            let cancelled = Arc::new(AtomicBool::new(false));
+            let stop = cancelled.clone();
+            let id = id.to_string();
+            std::thread::spawn(move || {
+                if super::info::listed_match_ready(&id, &token, &stop) {
+                    let _ = send.send(true);
+                }
+            });
+            return Self { received, cancelled };
+        }
         Self::spawn(address, move |s| (s.query == query).then_some(true))
     }
     // After a join refused for content: true once /info names another battle
