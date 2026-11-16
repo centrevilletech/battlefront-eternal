@@ -7,7 +7,7 @@ object-shaped examples document the behavioral contract.
 
 Vehicles, turrets and seats for the Classic AI (`docs/ai.md`). Two layers:
 
-- **Seats** (gameplay, `rust/sim/src/seats/` with the page's `rust/sim` (`seats`),
+- **Seats** (gameplay, `rust/sim/src/seats/`,
   `rust/sim` (`vehicles`), `rust/sim` (`seats::turrets`), turret parts of `rust/sim` (`battle::live`)): who sits in which vehicle seat or turret,
   the player and bots alike; how a seated bot's intent drives its seat; exits;
   destruction; the vehicles and turrets as perception targets.
@@ -109,7 +109,7 @@ bot seats fire; tethers; bot bodies placed at their seats.
 - **Presentation**: a bot's body sits at the seat's rider node and takes the
   seat's pilot pose, visible only on a seat with a pilot animation (an exposed
   rider), exactly as the player's (`rust/sim/src/vehicles/module/f2/riders.rs`).
-  On a page the presentation body batch (`rust/bfe-presentation (units.rs)`)
+  In the client the presentation body batch (`rust/bfe-presentation (units.rs)`)
   places shown riders at their node's place and turn (or the saddle, on an
   animal), the player's included. It keeps the body
   hidden on an enclosed seat every frame, as a remote soldier record (or, for
@@ -165,9 +165,8 @@ the same way (`TurretSeats.destroyed`). `Vehicle.damage(amount, attacker)` and
 
 ### Turrets
 
-The turret crews (`rust/sim/src/seats/turrets.rs`, with the page facade
-`TurretSeats` in `rust/sim` (`seats`)) man the turrets with bots; the player
-keeps the `Gunner` adapter. `man(unit, turret)`, `leave(unit, ...)`,
+The turret crews (`rust/sim/src/seats/turrets.rs`) man the turrets with
+bots, and the player's seat goes through the same owner. `man(unit, turret)`, `leave(unit, ...)`,
 `request_exit(unit, ...)`, `update`, `drive`, `seat_of(unit)`,
 `can_man(unit, turret)`. A manned turret has `turret.gunner` (the body, as the
 existing checks expect) and `turret.lease`. The bot's turn/pitch analogs turn
@@ -207,13 +206,12 @@ target references cannot resolve to the new turret life.
 
 The world owns the drum's `yaw`, `pitch`, `yawVel`, `pitchVel` and the gun's
 `gunYaw`/`gunPitch` (the turret's `steer` and `pose`,
-`rust/sim/src/seats/turrets.rs`). A page showing another world's battle (a world worker's, or
-a server's) never steps them: they arrive with the turret's state, and the
-page's seat adapter sets `gunner.turret` (`EntitySeats.setGunner`,
-`rust/sim` (`wire`)) without `enter()`. The page draws from that
+`rust/sim/src/seats/turrets.rs`). The client never steps them: they arrive
+with the turret's state (`rust/sim` (`wire`)), whether the world runs on the
+client's local world thread or a server, and the client draws from that
 state:
 
-- The presentation camera (`rust/sim` `gunner`) hands
+- The presentation camera (`rust/bfe-presentation` (`cameras`)) hands
   the set turret's root, drum pivot, up and shown angles (or the seat
   owner's canonical aim and eye when the turret has a native seat) to the
   native camera phase, which makes the view; the native prop phase poses
@@ -222,19 +220,17 @@ state:
   game's (docs/live-objects.md "Turret views and aim"): the chase camera
   rests at TrackCenter in the aim frame (the drum's pivot, looking along the
   aim) plus TrackOffset in its own, pitched down by TiltValue, 48 degrees;
-  first person (the perspective key, `setPerspective` in `rust/sim` (`game`)) looks from
+  first person (the perspective key) looks from
   EyePointOffset in the aim frame straight down the aim. An eye inside the
   turret's box (the Hoth, dish and Geonosian turrets) puts the drum and gun
-  meshes on the hidden layer (`Gunner.hideRig`), as his own body is in first person; third
+  meshes on the hidden layer, as his own body is in first person; third
   person puts them back, as does leaving.
-- `Gunner.preview(pending, looks, scale, invert, alpha)` runs the drum ahead
-  over the commands the world has not taken yet and the looks not yet in a
-  command (`previewSteer`, the turret's own `steer`, a tick per command),
-  then back through the tick shown by `alpha`, into `previewYaw`/
-  `previewPitch`, which the camera facts, `viewDirection(out)` (the reticle's
-  direction as shown) and the drum pose use. The page calls it each frame
-  beside the soldier's look preview (`game.js` clientFrame); a page stepping
-  its own world has nothing pending and may skip it.
+- The client's preview runs the drum ahead over the commands the world has
+  not taken yet and the looks not yet in a command (the turret's own
+  `steer`, a tick per command), then back through the tick shown, into the
+  previewed yaw and pitch, which the camera facts, the reticle's direction
+  as shown and the drum pose use. It runs each frame beside the soldier's
+  look preview.
 - The native prop phase poses the bots' turrets the same way, once a frame
   after the ticks.
 
@@ -269,7 +265,7 @@ that control as a unit (docs/ai.md interface), for a bot's controller to drive:
 
 - `kind`: the pilot seat classifies as the vehicle (2/5/6); any other seat and
   a turret as 7 (mounted turret / passenger slot);
-- `classDef`: aircraft speeds and rates come from `flight/config.js`; ground
+- `classDef`: aircraft speeds and rates come from `rust/sim/src/flight/config.rs`; ground
   classes retain their authored values/defaults (walker MaxSpeed 20,
   MaxTurnSpeed 2, MaxYawSpeed 1,
   MaxPitchSpeed 0.5; hover ForwardSpeed, StrafeSpeed, TurnRate, PitchRate,
@@ -559,12 +555,13 @@ clears it.
 
 ## Integration
 
-`rust/sim` (`game`) registers hulls and turret targets, creates `TurretSeats`,
-hands the AI world `vehicleSystem`, and routes mounted shots,
-damage, boarding and exits into the simulation journal. Capture and blast
+The world's admission (`rust/sim` (`world::admit`)) registers hulls and
+turret targets and the turret crews, hands the AI world the vehicles, and the
+tick routes mounted shots, damage, boarding and exits into the simulation
+journal. Capture and blast
 soldier loops skip non-soldier registry entries. Repair services see actual
-hulls and buildings. `humanTarget(vehicle)` exposes the player's reticle
-target to his AI gunners.
+hulls and buildings. The player's reticle target is exposed to his AI
+gunners.
 
 Every simulation step runs AI decisions/input, on-foot unit movement, then
 vehicle and turret input batches. Seated bodies skip soldier physics and
@@ -603,8 +600,8 @@ The control core consults the vehicle AI at these points:
 
 Reads the vehicle AI's `dispatch`, `enter_pattern`, `tick_pattern`,
 `exit_pattern`, `sidestep`, `shared_target`, `unreachable_from_mount` and
-`mount_reach`. `shared_target` needs the player's reticle target (the page's
-`reticleTarget`, passed in the AI phase facts: what is under his view).
+`mount_reach`. `shared_target` needs the player's reticle target (passed in
+the AI phase facts: what is under his view).
 
 ### Population
 
