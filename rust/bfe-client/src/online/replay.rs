@@ -18,9 +18,36 @@ fn alloc_collision() -> Collision {
     Rc::new(RefCell::new(Box::new(CollisionOwner::new())))
 }
 
+/// Mouse motion that is in no command yet (the 60 Hz input clock has not
+/// taken it), with the mouse settings it will be sent with, and how far that
+/// clock is into its tick. The picture follows it on every drawn frame; the
+/// simulation sees the same counts in the next command.
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub struct Loose {
+    pub x: f64,
+    pub y: f64,
+    pub scale: f64,
+    pub invert: bool,
+    pub alpha: f64,
+}
+impl Loose {
+    /// The counts turn a soldier's shown aim exactly as the next tick's
+    /// replay will turn his body: divided by the weapon's zoom, through
+    /// Soldier.lookRaw with its posture rate and pitch limits.
+    pub fn turn(&self, body: &mut Soldier, zoom: f64) {
+        if self.x == 0. && self.y == 0. {
+            return;
+        }
+        let zoom = zoom.max(1.);
+        body.look_raw(self.x.clamp(-10000., 10000.) / zoom, self.y.clamp(-10000., 10000.) / zoom, self.scale.min(2.), self.invert);
+    }
+}
+
 // Retain the original command/relative-look pair until an applied checkpoint
 // acknowledges it. Transport receipt alone cannot discard replay history.
 pub struct History {
+    /// The look the newest command has not taken (see [`Loose`]).
+    pub loose: Loose,
     rows: [ClientCommand; COMMANDS],
     looks: [ClientLook; COMMANDS],
     flights: [ClientFlightCommand; COMMANDS],
@@ -40,6 +67,7 @@ pub struct History {
 impl Default for History {
     fn default() -> Self {
         Self {
+            loose: Loose::default(),
             rows: std::array::from_fn(|_| ClientCommand::default()),
             looks: std::array::from_fn(|_| ClientLook::default()),
             flights: std::array::from_fn(|_| ClientFlightCommand::default()),
@@ -56,6 +84,7 @@ impl Default for History {
 }
 impl History {
     pub fn clear(&mut self) {
+        self.loose = Loose::default();
         self.at = 0;
         self.count = 0;
         self.held = 0;
@@ -86,6 +115,10 @@ impl History {
         self.firing && self.firing_generation == generation
     }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
+        // The command took every count there was: none is loose until the
+        // frame says so again, and none can be applied twice.
+        self.loose.x = 0.;
+        self.loose.y = 0.;
         self.firing = c.held & (1 << bfe_sim::gen::ClientHeld::Primary as u8) != 0;
         self.firing_generation = generation;
         if self.count == COMMANDS {
@@ -103,11 +136,31 @@ impl History {
         self.flights[at] = flight.clone();
         self.count += 1;
     }
+    /// The look no command has yet, alone: for a view whose commands the
+    /// prediction has already replayed (a pilot's seat). It goes in the last
+    /// look row, the owner's loose group, with the settings the next command
+    /// will carry, at the input clock's fraction of its tick (a turret's
+    /// servo is drawn that far into the step those counts will drive).
+    pub fn preview_loose(&self, phase: &mut bfe_presentation::network::preview::Phase) {
+        use bfe_presentation::network_layout::{net_preview_frame as f, net_preview_look as l};
+        let last = phase.looks.len() / l::STRIDE - 1;
+        phase.looks[last * l::STRIDE + l::X] = self.loose.x;
+        phase.looks[last * l::STRIDE + l::Y] = self.loose.y;
+        phase.frame[f::LOOKS] = 1.;
+        phase.frame[f::HAS_LOOSE] = 1.;
+        phase.frame[f::SCALE] = self.loose.scale;
+        phase.frame[f::INVERT] = self.loose.invert as u8 as f64;
+        phase.frame[f::INPUT_ALPHA] = self.loose.alpha;
+        phase.frame[f::PRESENT_ALPHA] = self.loose.alpha;
+        phase.frame[f::COMMANDS] = 0.;
+    }
     // The native display borrows the same acknowledged command tail as
     // movement replay. Shared Preview owns servo integration and angle arcs.
     pub fn preview(&self, phase: &mut bfe_presentation::network::preview::Phase) {
         use bfe_presentation::network_layout::{net_preview_command as c, net_preview_frame as f, net_preview_look as l};
-        let count = self.count.min(phase.commands.len() / c::STRIDE).min(phase.looks.len() / l::STRIDE);
+        self.preview_loose(phase);
+        // The last look row is the loose group's.
+        let count = self.count.min(phase.commands.len() / c::STRIDE).min(phase.looks.len() / l::STRIDE - 1);
         phase.frame[f::COMMANDS] = count as f64;
         for n in 0..count {
             let index = (self.at + n) % COMMANDS;
@@ -197,6 +250,14 @@ pub struct Replay {
     pub snaps: u64,
     pub correction_metres: f64,
     display: super::own_view::Display,
+    walker_view: super::own_view::Walker,
+    /// The player's own droideka as this frame draws it (see own_view::Walker).
+    pub walker: Option<super::own_view::ShownWalker>,
+    /// The yaw and pitch of the player's view in this frame, whatever he controls: the minimap's
+    /// heading, and the aim his own droideka is drawn with.
+    pub view: [f64; 2],
+    // The zoom the prediction will divide the next tick's look by, while it predicts the body.
+    predicted_zoom: Option<f64>,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
     props: super::props::Props,
@@ -287,7 +348,8 @@ impl Replay {
             words: Vec::with_capacity(16384),
             class: usize::MAX,
             body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
-            smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(), life: [0.; 3],
+            smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(),
+            walker_view: Default::default(), walker: None, view: [0.; 2], predicted_zoom: None, life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -330,7 +392,20 @@ impl Replay {
         let at = self.weapon_at + 1 + self.weapon_count * bfe_sim::gen::Weapon::WORDS;
         self.owner.output.get(at..at + 2).map_or([0.; 2], |v| [v[0], v[1]])
     }
-    pub fn present(&mut self, alpha: f64, dt: f64) {
+    /// The body as this frame draws it: between its last two ticks at
+    /// `alpha`, and turned by the mouse motion no command has taken yet
+    /// (`loose`, at the weapon's zoom), so the view follows the mouse at
+    /// the frame rate while the body's ticks stay as the simulation ran them.
+    /// A droideka, which is not replayed here, is drawn between the server's
+    /// corrections of `own`.
+    pub fn present(&mut self, alpha: f64, dt: f64, loose: &Loose, own: &super::receiver::Own) {
+        let zoom = look_zoom(self.predicted_zoom, own.zoom);
+        self.walker = None;
+        if own.alive && own.walker && own.mount.is_none() && self.body.is_none() {
+            self.walker = Some(self.walker_view.sample(own, self.life, dt));
+        } else {
+            self.walker_view.forget();
+        }
         self.fleet.alpha = alpha;
         self.fleet.decay(dt);
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
@@ -341,6 +416,7 @@ impl Replay {
             for axis in 0..3 {
                 shown.position[axis] += self.smoother.offset[axis];
             }
+            loose.turn(shown, zoom);
         }
     }
     /// Predicts the player's own body and seat. Prediction only runs ahead of
@@ -366,6 +442,7 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
+        self.predicted_zoom = None;
         self.shots.clear();
         self.walker_ahead = false;
         let interval = self.before.take();
@@ -554,6 +631,7 @@ impl Replay {
         };
         frame.put(x, &mut Vec::new());
         self.owner.predict_session(x, &mut collision.state)?;
+        self.predicted_zoom = Some(self.owner.zoom());
         if self.owner.output.len() >= ClientResult::WORDS {
             let result = ClientResult::take(&self.owner.output, &[]);
             self.weapon_at = result.weapons_at as usize;
@@ -624,6 +702,14 @@ impl Replay {
     }
 }
 
+/// The zoom the drawn body's loose look is divided by. The next tick's replay divides the same
+/// counts by the prediction's own zoom, which follows the scope key at once; the server's zoom
+/// only changes when its answer comes back, and until then a frame drawn with it turns at the
+/// old speed and is pulled back at every tick. So: the prediction's while it predicts the body,
+/// the server's last word otherwise.
+fn look_zoom(predicted: Option<f64>, server: f64) -> f64 {
+    predicted.filter(|zoom| zoom.is_finite()).unwrap_or(server).max(1.)
+}
 fn body_air(output: &[f64], result: &ClientResult) -> bool {
     output.get(result.actor_at as usize..).is_some_and(|row| row.len() >= Soldier::WORDS && Soldier::take(row, &[]).air.is_some())
 }
@@ -703,5 +789,193 @@ mod history_tests {
         assert!(!history.firing(1.));
         assert_eq!(history.flight_held(1.), 0);
         assert_eq!(history.held(1.), 0);
+    }
+}
+
+#[cfg(test)]
+mod loose_tests {
+    use super::*;
+    use bfe_presentation::network::preview::Phase;
+    use bfe_presentation::network_layout::{net_preview_frame as f, net_preview_look as l, net_preview_output as o};
+
+    fn body() -> Soldier {
+        Soldier { max_turn: 2., pitch_limits: [-0.8, 1.1], aim_yaw: 0.3, aim_pitch: 0.1, ..Default::default() }
+    }
+
+    // What a frame between two ticks shows is what the next tick's replay
+    // computes from the same counts, so nothing jumps when the tick comes.
+    #[test]
+    fn the_loose_look_turns_the_shown_body_as_the_next_command_will() {
+        let loose = Loose { x: 40., y: -12., scale: 1.5, invert: false, alpha: 0.4 };
+        let mut shown = body();
+        loose.turn(&mut shown, 2.);
+        let mut replayed = body();
+        replayed.look_raw(40. / 2., -12. / 2., 1.5, false);
+        assert_eq!((shown.aim_yaw, shown.aim_pitch), (replayed.aim_yaw, replayed.aim_pitch));
+        assert!(shown.aim_yaw < 0.3 && shown.aim_pitch > 0.1);
+        // The pitch stops at the class limit, as the body's does.
+        let mut up = body();
+        Loose { y: -1e9, scale: 1., ..Default::default() }.turn(&mut up, 1.);
+        assert_eq!(up.aim_pitch, 1.1);
+        // Nothing loose: the body is drawn exactly as its tick left it.
+        let mut still = Soldier { aim_pitch: 5., ..body() };
+        Loose { scale: 1., ..Default::default() }.turn(&mut still, 1.);
+        assert_eq!((still.aim_yaw, still.aim_pitch), (0.3, 5.));
+    }
+
+    // Raising a 4x scope: the prediction is zoomed at once, the server's answer is still 1x.
+    // The frames before the next tick must turn at the scope's speed, as that tick will.
+    #[test]
+    fn the_loose_look_is_divided_by_the_predictions_zoom() {
+        assert_eq!(look_zoom(Some(4.), 1.), 4.);
+        assert_eq!(look_zoom(Some(1.), 4.), 1.);
+        assert_eq!(look_zoom(None, 2.5), 2.5);
+        assert_eq!(look_zoom(None, 0.), 1.);
+        let loose = Loose { x: 40., y: 0., scale: 1., invert: false, alpha: 0.5 };
+        let mut shown = body();
+        loose.turn(&mut shown, look_zoom(Some(4.), 1.));
+        let mut next_tick = body();
+        next_tick.look_raw(40. / 4., 0., 1., false);
+        assert_eq!(shown.aim_yaw, next_tick.aim_yaw);
+    }
+
+    // A turret held against its upper pitch stop with the mouse still pushing: every frame of
+    // the tick, and the next tick, shows it on the stop. (Unwinding the loose step by the
+    // servo's velocity drew it up to a tick's travel below the stop at the start of each tick.)
+    #[test]
+    fn a_turret_at_its_pitch_stop_stays_on_it_between_ticks() {
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let shown = |commands: usize, loose: f64, alpha: f64| {
+            let mut history = History::default();
+            for n in 0..commands {
+                history.push(&command, &ClientLook { x: 0., y: -60. }, &ClientFlightCommand::default(), n as f64, 1., n as f64 + 1.);
+            }
+            history.loose = Loose { x: 0., y: loose, scale: 1., invert: false, alpha };
+            let mut phase = Phase::new();
+            phase.frame[f::ENABLED] = 1.;
+            phase.frame[f::PREDICTED] = 1.;
+            phase.frame[f::TURRET_ACTIVE] = 1.;
+            phase.frame[f::TURN_RATE] = 2.;
+            phase.frame[f::FILTER] = 20.;
+            phase.frame[f::TURRET_PITCH_LOW] = -0.3;
+            phase.frame[f::TURRET_PITCH_HIGH] = 0.3;
+            history.preview(&mut phase);
+            phase.present();
+            (phase.output[o::SHOWN_PITCH], phase.output[o::TURRET_PITCH], phase.output[o::TURRET_PITCH_VEL])
+        };
+        // Forty ticks of pushing up put the servo on the stop, still with a rate.
+        let (_, servo, rate) = shown(40, 0., 1.);
+        assert_eq!(servo, 0.3);
+        assert!(rate > 0.5, "{rate}");
+        for (loose, alpha) in [(0., 0.), (-15., 0.25), (-30., 0.5), (-45., 0.75), (-60., 1.)] {
+            assert_eq!(shown(40, loose, alpha).0, 0.3, "at {alpha} of the tick");
+        }
+        assert_eq!(shown(41, 0., 0.).0, 0.3);
+        // On the way to the stop the last tick is still drawn part by part, and ends on it.
+        let rising: Vec<f64> = [0., 0.5, 1.].iter().map(|alpha| shown(5, -60. * alpha, *alpha).0).collect();
+        assert!(rising[0] < rising[1] && rising[1] < rising[2] && rising[2] <= 0.3, "{rising:?}");
+    }
+
+    // A turret with a yaw arc, turned into its stop: the tick that reaches the stop is drawn
+    // part by part too (the stop drops the servo's rate, so unwinding by it showed the stop at
+    // the first frame of the tick).
+    #[test]
+    fn a_turret_eases_into_its_yaw_stop() {
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let shown = |commands: usize, loose: f64, alpha: f64| {
+            let mut history = History::default();
+            for n in 0..commands {
+                history.push(&command, &ClientLook { x: -60., y: 0. }, &ClientFlightCommand::default(), n as f64, 1., n as f64 + 1.);
+            }
+            history.loose = Loose { x: loose, y: 0., scale: 1., invert: false, alpha };
+            let mut phase = Phase::new();
+            phase.frame[f::ENABLED] = 1.;
+            phase.frame[f::PREDICTED] = 1.;
+            phase.frame[f::TURRET_ACTIVE] = 1.;
+            phase.frame[f::TURN_RATE] = 2.;
+            phase.frame[f::FILTER] = 20.;
+            phase.frame[f::HAS_YAW_ARC] = 1.;
+            phase.frame[f::ARC_LOW] = -0.2;
+            phase.frame[f::ARC_HIGH] = 0.2;
+            phase.frame[f::TURRET_PITCH_LOW] = -1.;
+            phase.frame[f::TURRET_PITCH_HIGH] = 1.;
+            history.preview(&mut phase);
+            phase.present();
+            (phase.output[o::SHOWN_YAW], phase.output[o::TURRET_YAW])
+        };
+        // (The stop is 0.2 to the last bit or one below it: the arc wraps the angle before it clamps.)
+        let on_stop = |yaw: f64| (yaw - 0.2).abs() < 1e-12;
+        assert!(on_stop(shown(40, 0., 1.).1));
+        // The tick whose step reaches the stop: the servo is short of it before the step, on it after.
+        let reaching = (1..60).find(|&n| shown(n, 0., 0.).0 < 0.2 - 1e-9 && on_stop(shown(n, -60., 1.).0)).expect("the stop is reached");
+        let before = shown(reaching, 0., 0.).0;
+        let frames: Vec<f64> = [0.25, 0.5, 0.75, 1.].iter().map(|alpha| shown(reaching, -60. * alpha, *alpha).0).collect();
+        assert!(before < frames[0] && frames.windows(2).all(|pair| pair[0] < pair[1]) && on_stop(frames[3]), "{before} {frames:?}");
+        assert!(frames[0] < 0.2 - (0.2 - before) * 0.5, "the first quarter of the tick is not the stop: {before} {frames:?}");
+        assert!(on_stop(shown(reaching + 1, 0., 0.).0));
+    }
+
+    #[test]
+    fn a_command_takes_the_loose_look_with_it() {
+        let mut history = History::default();
+        history.loose = Loose { x: 5., y: 7., scale: 1., invert: false, alpha: 0.5 };
+        history.push(&ClientCommand::default(), &ClientLook { x: 5., y: 7. }, &ClientFlightCommand::default(), 3., 1., 1.);
+        assert_eq!((history.loose.x, history.loose.y), (0., 0.));
+        history.loose.x = 2.;
+        history.clear();
+        assert_eq!(history.loose, Loose::default());
+    }
+
+    // A seat's view (a vehicle's passenger or gunner) turns by the loose
+    // look on top of its commands, with the settings of the moment.
+    #[test]
+    fn a_seat_view_turns_by_the_loose_look_after_its_commands() {
+        let mut history = History::default();
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        history.push(&command, &ClientLook { x: 50., y: 0. }, &ClientFlightCommand::default(), 3., 1., 7.);
+        history.loose = Loose { x: 3., y: -4., scale: 0.5, invert: true, alpha: 0.25 };
+        let mut phase = Phase::new();
+        phase.frame[f::ENABLED] = 1.;
+        phase.frame[f::PREDICTED] = 1.;
+        phase.frame[f::VEHICLE_ACTIVE] = 1.;
+        phase.frame[f::VEHICLE_PITCH_LOW] = -1.;
+        phase.frame[f::VEHICLE_PITCH_HIGH] = 1.;
+        history.preview(&mut phase);
+        assert_eq!((phase.frame[f::COMMANDS], phase.frame[f::LOOKS], phase.frame[f::HAS_LOOSE]), (1., 1., 1.));
+        let last = phase.looks.len() - l::STRIDE;
+        assert_eq!((phase.looks[last + l::X], phase.looks[last + l::Y]), (3., -4.));
+        phase.present();
+        assert!((phase.output[o::VEHICLE_YAW] - -(50. + 3. * 0.5) / 2048.).abs() < 1e-15);
+        assert!((phase.output[o::VEHICLE_PITCH] - -4. * 0.5 / 2048.).abs() < 1e-15);
+    }
+
+    // A manned turret's servo is drawn part of the way into the step the
+    // loose look will drive: every frame between two ticks shows a new aim,
+    // and the last one before the tick is the aim the tick then computes.
+    #[test]
+    fn a_turret_aim_moves_between_ticks_and_meets_the_next_tick() {
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let shown = |commands: &[f64], loose: f64, alpha: f64| {
+            let mut history = History::default();
+            for (n, x) in commands.iter().enumerate() {
+                history.push(&command, &ClientLook { x: *x, y: 0. }, &ClientFlightCommand::default(), n as f64, 1., n as f64 + 1.);
+            }
+            history.loose = Loose { x: loose, y: 0., scale: 1., invert: false, alpha };
+            let mut phase = Phase::new();
+            phase.frame[f::ENABLED] = 1.;
+            phase.frame[f::PREDICTED] = 1.;
+            phase.frame[f::TURRET_ACTIVE] = 1.;
+            phase.frame[f::TURN_RATE] = 2.;
+            phase.frame[f::FILTER] = 20.;
+            phase.frame[f::TURRET_PITCH_LOW] = -1.;
+            phase.frame[f::TURRET_PITCH_HIGH] = 1.;
+            history.preview(&mut phase);
+            phase.present();
+            phase.output[o::SHOWN_YAW]
+        };
+        let frames = [shown(&[30.], 0., 0.), shown(&[30.], 8., 0.3), shown(&[30.], 16., 0.6), shown(&[30.], 24., 1.)];
+        assert!(frames.windows(2).all(|pair| pair[1] < pair[0]), "{frames:?}");
+        let next_tick = shown(&[30., 24.], 0., 0.);
+        assert!((frames[3] - next_tick).abs() < 1e-12, "{} {next_tick}", frames[3]);
     }
 }

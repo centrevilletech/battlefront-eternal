@@ -11,6 +11,8 @@ impl Clock{
     /// world thread of Instant Action keeps the 2 tick minimum.
     pub fn online()->Self{Self{min_delay:4.,..Self::default()}}
     pub fn reset(&mut self){*self=Self{min_delay:self.min_delay,..Self::default()};}
+    /// The tick of the newest snapshot that arrived: what the records now held were true at.
+    pub fn heard(&self)->f64{self.latest}
     // PlayoutClock.arrive records packet arrival time before a frame samples.
     // A missing interval changes measured delay, not the authority tick.
     pub fn arrive(&mut self,tick:f64,now:f64,interval:f64)->Result<(),&'static str>{

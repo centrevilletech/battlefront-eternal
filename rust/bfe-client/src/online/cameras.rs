@@ -258,6 +258,10 @@ impl Cameras {
             x[f::POSTURE] = if body.air.is_some() { 0. } else { body.posture as u8 as f64 };
             x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&body.velocity);
         }
+        if let Some(walker) = &prediction.walker {
+            x[f::FEET..f::FEET + 3].copy_from_slice(&walker.position);
+            x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&walker.velocity);
+        }
         x.copy_within(f::FEET..f::FEET + 3, f::BODY_POSITION);
         if receiver.own.walker {
             x[f::EYE_KIND] = eyes::DROIDEKA as f64;

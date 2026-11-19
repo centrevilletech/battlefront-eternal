@@ -948,6 +948,21 @@ impl Prepared {
         Ok(hud)
     }
 }
+/// The minimap's heading before the vehicles and turrets are placed (a seat's or a manned
+/// turret's shown aim replaces it then). On foot, as a droideka and at a predicted hull's
+/// controls it is the yaw of the view this frame shows. A recon droid keeps the yaw the server
+/// last gave it: the look preview turns like a soldier, a droid turns at its own rate and
+/// ignores the soldier's scope, so between corrections the preview would run at another speed
+/// and snap back. A seat that has no shown aim keeps the body's own yaw.
+fn heading(own: &super::receiver::Own, piloting: bool, view_yaw: f64) -> f64 {
+    if own.remote.is_some() {
+        own.remote_yaw
+    } else if own.mount.is_some() && !piloting {
+        own.yaw
+    } else {
+        view_yaw
+    }
+}
 impl Hud {
     /// How a team looks to the viewer's: 0 neutral, 1 friendly, 2 enemy, 3
     /// locals (radarRelation).
@@ -1322,23 +1337,18 @@ impl Hud {
         x[H::CAPTURE_POST] = -1.;
         x[H::FOV] = 60.;
         x[H::ASPECT] = self.size[0] as f64 / self.size[1] as f64;
+        // The minimap's player is the body as this frame draws it (between
+        // its ticks, turned by the newest mouse motion), as the camera is.
         let position = if receiver.own.remote.is_some() {
             receiver.own.remote_position
         } else {
-            prediction.body.as_ref().map_or_else(
-                || prediction.fleet.state.as_ref().map_or(receiver.own.position, |h| h.position),
+            prediction.displayed.as_ref().map_or_else(
+                || prediction.walker.map(|walker| walker.position).or_else(|| prediction.fleet.shown_position()).unwrap_or(receiver.own.position),
                 |b| b.position,
             )
         };
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
-        x[H::PLAYER_YAW] = if receiver.own.remote.is_some() {
-            receiver.own.remote_yaw
-        } else {
-            prediction.body.as_ref().map_or_else(
-                || if prediction.fleet.identity.is_some() { prediction.fleet.aim[0] } else { receiver.own.yaw },
-                |b| b.aim_yaw,
-            )
-        };
+        x[H::PLAYER_YAW] = heading(&receiver.own, prediction.fleet.identity.is_some(), prediction.view[0]);
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
         self.radar.publish(x, receiver, &self.teams);
         // Radar sensors originate at the controlled body or mounted hull.
@@ -1848,5 +1858,24 @@ mod tests {
             }
             assert!(named > 0, "fixture did not exercise weapon art");
         }
+    }
+}
+
+#[cfg(test)]
+mod heading_tests {
+    use super::heading;
+    use crate::online::receiver::Own;
+
+    #[test]
+    fn the_minimap_heading_follows_the_view_except_in_a_recon_droid_or_a_plain_seat() {
+        let foot = Own { yaw: 0.5, ..Default::default() };
+        assert_eq!(heading(&foot, false, 0.7), 0.7);
+        // A recon droid: the yaw the server gave the droid, not the soldier's look preview.
+        let droid = Own { yaw: 0.5, remote: Some((3, 1, 2)), remote_yaw: 1.9, ..Default::default() };
+        assert_eq!(heading(&droid, false, 0.7), 1.9);
+        // A seat without a shown aim keeps the body's yaw; a predicted hull's pilot has the view's.
+        let seat = Own { yaw: 0.5, mount: Some((8, 1, 1)), ..Default::default() };
+        assert_eq!(heading(&seat, false, 0.7), 0.5);
+        assert_eq!(heading(&seat, true, 0.7), 0.7);
     }
 }

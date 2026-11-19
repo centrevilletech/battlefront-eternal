@@ -89,6 +89,117 @@ pub(crate) fn apply_camera(camera: &mut crate::scene::MapCamera) {
     }
 }
 
+/// `drawn=PATH`: what each drawn frame showed, one JSON line per frame, to
+/// count how often the picture really changes. `t` is milliseconds since the
+/// first line, `tick` the newest simulation tick heard, `own` the player's
+/// unit, `mouse` the mouse counts received before the frame began,
+/// `cam` a digest of the camera matrices with the eye and the view
+/// direction, `rec` every unit, vehicle, turret and other moving model as
+/// `[kind, id, part, x, y, z, digest of its matrix and bones]` (kind 2 unit,
+/// 3 vehicle, 4 turret, 0 other), `fx` the effect draws, `hud` the reticle,
+/// the marker, the minimap's player and a digest of every HUD quad, and
+/// `arms` the first person model.
+struct Drawn {
+    out: BufWriter<File>,
+    started: std::time::Instant,
+    mouse: [f64; 2],
+    tick: f64,
+    own: f64,
+}
+static DRAWN: std::sync::OnceLock<Option<std::sync::Mutex<Drawn>>> = std::sync::OnceLock::new();
+
+fn drawn_log() -> Option<std::sync::MutexGuard<'static, Drawn>> {
+    DRAWN
+        .get_or_init(|| {
+            let file = File::create(value("drawn")?).ok()?;
+            Some(std::sync::Mutex::new(Drawn { out: BufWriter::new(file), started: std::time::Instant::now(), mouse: [0.; 2], tick: 0., own: 0. }))
+        })
+        .as_ref()?
+        .lock()
+        .ok()
+}
+
+fn digest(mut hash: u64, bytes: impl Iterator<Item = u64>) -> u64 {
+    for word in bytes {
+        hash = (hash ^ word).wrapping_mul(0x100_0000_01b3);
+    }
+    hash
+}
+const DIGEST: u64 = 0xcbf2_9ce4_8422_2325;
+
+fn record_digest(bridge: &crate::render_bridge::Bridge, record: usize) -> u64 {
+    use bfe_render::instances as draw;
+    let row = &bridge.r.core.input[draw::IN_RECORDS + record * draw::REC_STRIDE..][..draw::REC_STRIDE];
+    let hash = digest(DIGEST, row[draw::REC_WORLD..draw::REC_WORLD + 16].iter().map(|v| v.to_bits()));
+    let (at, count) = (row[draw::REC_BONE_AT] as usize, row[draw::REC_BONES] as usize);
+    let bones = bridge.r.core.bones.get(at * 16..(at + count) * 16).unwrap_or(&[]);
+    digest(hash, bones.iter().map(|v| u64::from(v.to_bits())))
+}
+
+/// What the frame about to be drawn began with: the mouse counts received so far, the newest tick
+/// heard and the player's unit, in an Instant Action battle or an online one.
+pub(super) fn drawn_note(mouse: [f64; 2], tick: f64, own: f64) {
+    if let Some(mut log) = drawn_log() {
+        log.mouse = mouse;
+        log.tick = tick;
+        log.own = own;
+    }
+}
+
+/// Ends the frame's line with the first person model's records, digested while they are in the instance list.
+pub(crate) fn drawn_arms(bridge: &crate::render_bridge::Bridge, records: usize) {
+    let Some(mut log) = drawn_log() else { return };
+    let arms = (0..records).fold(DIGEST, |hash, record| digest(hash, [record_digest(bridge, record)].into_iter()));
+    let _ = writeln!(log.out, r#","arms":"{arms:x}"}}"#);
+}
+
+/// One line for the frame being drawn: `first..records` are the instance records of everything that can move.
+pub(crate) fn drawn(bridge: &crate::render_bridge::Bridge, view: &[f64], first: usize, records: usize) {
+    use bfe_render::{effects as fx, hud_model::layout::HudFrame as h, instances as draw};
+    let Some(mut log) = drawn_log() else { return };
+    let log = &mut *log;
+    let t = log.started.elapsed().as_secs_f64() * 1000.;
+    let camera = digest(DIGEST, view[..32].iter().map(|v| v.to_bits()));
+    let mut world = three::Matrix4::default();
+    world.elements.copy_from_slice(&view[16..32]);
+    world.invert();
+    let e = world.elements;
+    let _ = write!(
+        log.out,
+        r#"{{"t":{t:.3},"tick":{},"own":{},"mouse":[{},{}],"cam":"{camera:x}","eye":[{},{},{}],"look":[{},{},{}],"rec":["#,
+        log.tick, log.own, log.mouse[0], log.mouse[1], e[12], e[13], e[14], -e[8], -e[9], -e[10]
+    );
+    for record in first..records {
+        let row = &bridge.r.core.input[draw::IN_RECORDS + record * draw::REC_STRIDE..][..draw::REC_STRIDE];
+        let id = row[draw::REC_MOTION_ID] as u64;
+        let _ = write!(
+            log.out,
+            r#"{}[{},{},{},{:.5},{:.5},{:.5},"{:x}"]"#,
+            if record == first { "" } else { "," },
+            id >> 32,
+            id & 0xffff_ffff,
+            row[draw::REC_MOTION_PART],
+            row[draw::REC_WORLD + 12],
+            row[draw::REC_WORLD + 13],
+            row[draw::REC_WORLD + 14],
+            record_digest(bridge, record)
+        );
+    }
+    let effects = &bridge.r.effects;
+    let draws = (effects.input[fx::IN_DRAWS] as usize).min(fx::MAX_DRAWS);
+    let mut particles = digest(DIGEST, effects.input[..fx::DRAW_AT + draws * fx::DRAW_STRIDE].iter().map(|v| v.to_bits()));
+    particles = digest(particles, effects.data.iter().map(|v| u64::from(v.to_bits())));
+    particles = digest(particles, effects.matrices.iter().map(|v| v.to_bits()));
+    let hud = &bridge.hud_model;
+    let quads = digest(DIGEST, hud.batch.position[..(hud.batch.count * 12).min(hud.batch.position.len())].iter().map(|v| u64::from(v.to_bits())));
+    let x = &hud.input;
+    let _ = write!(
+        log.out,
+        r#"],"fx":"{particles:x}","hud":[{},{},{},{},{},{},{},"{quads:x}"]"#,
+        x[h::RETICLE_X], x[h::RETICLE_Y], x[h::MARKER_X], x[h::MARKER_Y], x[h::PLAYER_X], x[h::PLAYER_Z], x[h::PLAYER_YAW]
+    );
+}
+
 pub struct Bench {
     map: String,
     era: Option<String>,

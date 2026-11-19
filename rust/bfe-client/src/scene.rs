@@ -2075,7 +2075,7 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
-        if component==Component::All{if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}}
+        if component==Component::All{if let Some(online)=&mut self.online{let first=records;(records,bones)=online.append(&mut self.bridge,records,bones);crate::app::bench::drawn(&self.bridge,&view.values,first,records);}}
         self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
         let lamp_timer = self.bridge.r.core.profile.clock();
         let online=&self.online;
@@ -2114,7 +2114,7 @@ impl Scene {
                 online.hulls.draw_tethers(&view.values, &mut self.bridge)?;
             }
         }
-        if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if view_records!=0{
+        if let Some(online)=&self.online{let (view_records,view_bones)=online.first_person.append(&online.units,&mut self.bridge);if component==Component::All{crate::app::bench::drawn_arms(&self.bridge,view_records);}if view_records!=0{
                 // Graphics.render gives the view camera the drawn camera's own
                 // field of view and aspect each frame (near 0.3, far 10), so the
                 // arms narrow with the first-person lens instead of keeping 60 degrees.

@@ -1996,6 +1996,11 @@ impl BattleController {
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
         }
+        // Mouse motion those steps did not take (a frame between two ticks,
+        // which is most frames above 60 a second): the view turns by it in
+        // this frame, and the next step's command carries the same counts.
+        let loose = if active_gameplay { self.input.loose_look() } else { ClientLook::default() };
+        let (mouse_scale, invert_mouse) = (settings.interface.mouse_scale(), settings.player.shell.invert_y);
         for (_, _, _, actions) in step_cmds.iter().flatten() {
             if actions.map {
                 self.scene.bridge.hud_model_observe(
@@ -2102,9 +2107,11 @@ impl BattleController {
                 }
 
                 let mut own = receiver.own;
+                sender.set_loose(&loose, mouse_scale, invert_mouse, alpha_interp);
                 sender.preview(receiver);
+                sender.ease_walker_turn(receiver, dt);
                 replay.frame(receiver, sender);
-                replay.present(alpha_interp, dt);
+                replay.present(alpha_interp, dt, &sender.history.loose, &receiver.own);
                 crate::app::trace_own_aim(receiver, sender, replay);
                 if let Some(hull) = &replay.fleet.state {
                     let offset = replay.fleet.offset();
@@ -2121,6 +2128,10 @@ impl BattleController {
                     sender.yaw = body.aim_yaw;
                     sender.pitch = body.aim_pitch;
                 }
+                if let Some(walker) = &replay.walker {
+                    own.position = walker.position;
+                }
+                replay.view = [sender.yaw, sender.pitch];
                 if receiver.corrections != 0 {
                     let pos =
                         three::Vector3::new(own.position[0], own.position[1], own.position[2]);
@@ -2159,6 +2170,7 @@ impl BattleController {
                         settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }
+                client.sender.set_loose(&loose, mouse_scale, invert_mouse, alpha_interp);
                 client.present(alpha_interp);
                 if let Err(err) = client.send() {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
@@ -2194,6 +2206,13 @@ impl BattleController {
         // - `game_over == true`: Synchronize `LiveScoreboardPort` so the post-battle
         //   scoreboard (`BoardState::End`) displays final tickets and awards.
         // 4. Inspect life/death and match-over transitions.
+        {
+            let receiver = match &self.authority {
+                BattleAuthority::InstantAction { receiver, .. } => receiver,
+                BattleAuthority::Online { client, .. } => &client.receiver,
+            };
+            super::bench::drawn_note(self.input.pointer_metrics().0, receiver.latest, receiver.own.id);
+        }
         let (own_alive, own_dead, own_removed, game_over) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
                 let over = self

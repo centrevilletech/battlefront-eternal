@@ -14,6 +14,57 @@ use bfe_presentation::{
 };
 use bfe_render::instances as draw;
 use three::{Matrix4, Quaternion, Vector3};
+/// A turret's aim (yaw, pitch and the gun's own two angles) as the last few
+/// snapshots gave it. The drum and gun are drawn between those samples on
+/// the playout clock, as soldiers and vehicles are: taken straight from the
+/// newest snapshot they turned in steps, 20 a second from a server.
+#[derive(Clone, Copy, Default)]
+struct AimHistory {
+    life: (f64, f64),
+    ticks: [f64; AimHistory::SAMPLES],
+    aims: [[f64; 4]; AimHistory::SAMPLES],
+    // Samples held, oldest first.
+    len: usize,
+}
+impl AimHistory {
+    // The playout clock can run ten ticks behind the newest snapshot after a hitch, and Instant
+    // Action hears one a tick.
+    const SAMPLES: usize = 16;
+    /// The aim heard at `tick`, for the turret's life `life` (another life starts afresh).
+    fn push(&mut self, life: (f64, f64), tick: f64, aim: [f64; 4]) {
+        if self.life != life || self.len != 0 && tick < self.ticks[self.len - 1] {
+            self.len = 0;
+        }
+        self.life = life;
+        if self.len != 0 && self.ticks[self.len - 1] == tick {
+            self.aims[self.len - 1] = aim;
+            return;
+        }
+        if self.len == Self::SAMPLES {
+            self.ticks.copy_within(1.., 0);
+            self.aims.copy_within(1.., 0);
+            self.len -= 1;
+        }
+        self.ticks[self.len] = tick;
+        self.aims[self.len] = aim;
+        self.len += 1;
+    }
+    /// The aim at `tick`: between the two samples around it, each angle
+    /// along its shorter arc; the nearest sample outside what was heard.
+    fn sample(&self, tick: f64) -> Option<[f64; 4]> {
+        let ticks = &self.ticks[..self.len];
+        let after = ticks.iter().position(|t| *t > tick).unwrap_or(self.len);
+        if after == 0 || after == self.len {
+            return self.len.checked_sub(1).map(|last| self.aims[if after == 0 { 0 } else { last }]);
+        }
+        let (a, b) = (self.aims[after - 1], self.aims[after]);
+        let f = (tick - ticks[after - 1]) / (ticks[after] - ticks[after - 1]);
+        Some(std::array::from_fn(|k| {
+            let turn = b[k] - a[k];
+            a[k] + turn.sin().atan2(turn.cos()) * f
+        }))
+    }
+}
 struct Part {
     row: [f64; draw::REC_STRIDE],
     node: usize,
@@ -38,6 +89,7 @@ struct Turret {
     pub nine: bool,
     camera: Vec<f64>,
     aim: super::seat_view::View,
+    heard: AimHistory,
 }
 pub struct Turrets {
     pub owner: Box<Props>,
@@ -45,6 +97,43 @@ pub struct Turrets {
     pub visible: usize,
     pub hidden: Option<usize>,
     preview: Box<bfe_presentation::network::preview::Phase>,
+    /// The aim of the turret the player mans as this frame shows it (the minimap's heading).
+    pub gunner_yaw: Option<f64>,
+}
+/// The turret the player mans, as a frame shows it: the drum's yaw and pitch in the turret's own
+/// frame (what its rig and its camera are given; both add the turret's facing themselves), and
+/// the world yaw the gunner looks along, which is that yaw plus the facing (the minimap's heading).
+/// `values` are the mounted checkpoint's yaw, pitch and their two rates: the baseline every
+/// pending command, and then the look no command has yet, is replayed on.
+fn gunner_shown(
+    preview: &mut bfe_presentation::network::preview::Phase,
+    view: &super::seat_view::View,
+    facing: f64,
+    turret: (f64, f64),
+    values: &[f64],
+    history: &super::replay::History,
+) -> ([f64; 2], f64) {
+    use bfe_presentation::network_layout::{net_preview_frame as p, net_preview_output as o};
+    let a = &mut preview.frame;
+    a.fill(0.);
+    a[p::ENABLED] = 1.;
+    a[p::PREDICTED] = 1.;
+    a[p::SCALE] = 1.;
+    a[p::ZOOM] = 1.;
+    a[p::TURRET_ACTIVE] = 1.;
+    a[p::TURRET_ID] = turret.0;
+    a[p::TURRET_GENERATION] = turret.1;
+    a[p::TURRET_YAW] = values[0];
+    a[p::TURRET_PITCH] = values[1];
+    a[p::YAW_VEL] = values[2];
+    a[p::PITCH_VEL] = values[3];
+    view.preview(a, true);
+    // The commands, then the look no command has yet, at the input clock's
+    // fraction of the tick that look will drive.
+    history.preview(preview);
+    preview.present();
+    let shown = [preview.output[o::SHOWN_YAW], preview.output[o::SHOWN_PITCH]];
+    (shown, facing + shown[0])
 }
 pub(super) fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
@@ -281,9 +370,10 @@ impl Turrets {
                 nine,
                 camera,
                 aim: super::seat_view::View::new(&view),
+                heard: AimHistory::default(),
             });
         }
-        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()) })
+        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()), gunner_yaw: None })
     }
     pub fn source(&self, id: f64, generation: f64) -> Option<usize> {
         self.rows.iter().position(|t| t.id == id && t.generation == generation && t.shown)
@@ -293,17 +383,23 @@ impl Turrets {
         Some((t.clip.as_deref().unwrap_or("human_minigun_9pose"), t.nine))
     }
     pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64, effects: &mut HullEffects) {
+        self.gunner_yaw = None;
         for row in receiver.active().filter(|r| r[r::KIND] == k::TURRET as f64) {
             if let Some((index, turret)) = self.rows.iter_mut().enumerate().find(|(_, t)| t.building == Some(row[r::BUILDING] as usize)) {
                 turret.id = row[r::ID];
                 turret.generation = row[r::GENERATION];
                 turret.shown = row[r::STATE] == 1.;
                 turret.health = row[r::HEALTH];
+                let aim = [row[r::YAW], row[r::PITCH], row[r::GUN_YAW], row[r::GUN_PITCH]];
+                // Stamped with the newest snapshot's tick: an unchanged turret is not sent again,
+                // so its record's own tick is older than what is known of it.
+                turret.heard.push((turret.id, turret.generation), receiver.clock.heard(), aim);
+                let aim = turret.heard.sample(receiver.clock.shown).unwrap_or(aim);
                 let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
-                input[t::YAW] = row[r::YAW];
-                input[t::PITCH] = row[r::PITCH];
-                input[t::GUN_YAW] = row[r::GUN_YAW];
-                input[t::GUN_PITCH] = row[r::GUN_PITCH];
+                input[t::YAW] = aim[0];
+                input[t::PITCH] = aim[1];
+                input[t::GUN_YAW] = aim[2];
+                input[t::GUN_PITCH] = aim[3];
                 input[t::YAW_RATE] = 0.;
             }
         }
@@ -312,30 +408,13 @@ impl Turrets {
         if let Ok(Some(mount)) = bfe_sim::prediction::corrections::own_mounted(&receiver.checkpoint[..receiver.checkpoint_length]) {
             if mount.mode == 3 {
                 if let Some(index) = self.source(mount.id as f64, mount.generation as f64) {
-                    use bfe_presentation::network_layout::{net_preview_frame as p, net_preview_output as o};
                     let turret = &self.rows[index];
-                    let view = &turret.aim;
-                    let a = &mut self.preview.frame;
-                    a.fill(0.);
-                    a[p::ENABLED] = 1.;
-                    a[p::PREDICTED] = 1.;
-                    a[p::SCALE] = 1.;
-                    a[p::ZOOM] = 1.;
-                    a[p::TURRET_ACTIVE] = 1.;
-                    a[p::TURRET_ID] = mount.id as f64;
-                    a[p::TURRET_GENERATION] = mount.generation as f64;
-                    a[p::TURRET_YAW] = mount.values[0];
-                    a[p::TURRET_PITCH] = mount.values[1];
-                    a[p::YAW_VEL] = mount.values[2];
-                    a[p::PITCH_VEL] = mount.values[3];
-                    view.preview(a, true);
-                    a[p::INPUT_ALPHA] = 1.;
-                    a[p::PRESENT_ALPHA] = 1.;
-                    history.preview(&mut self.preview);
-                    self.preview.present();
+                    let facing = turret.camera[bfe_presentation::layout::camera_frame::TURRET_FACING];
+                    let (shown, heading) = gunner_shown(&mut self.preview, &turret.aim, facing, (mount.id as f64, mount.generation as f64), &mount.values, history);
                     let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
-                    input[t::YAW] = self.preview.output[o::SHOWN_YAW];
-                    input[t::PITCH] = self.preview.output[o::SHOWN_PITCH];
+                    input[t::YAW] = shown[0];
+                    input[t::PITCH] = shown[1];
+                    self.gunner_yaw = Some(heading);
                     input[t::GUN_YAW] = mount.values[4];
                     input[t::GUN_PITCH] = mount.values[5];
                 }
@@ -460,5 +539,61 @@ impl Turrets {
             }
         }
         (records, bones)
+    }
+}
+
+#[cfg(test)]
+mod gunner_tests {
+    use super::gunner_shown;
+    use crate::online::{replay::History, seat_view::View};
+    use bfe_presentation::network::preview::Phase;
+
+    // A turret that faces south-west (2.2 rad from +Z) with its drum 0.3 rad off centre: the
+    // rig gets the drum's own angle, the minimap the direction the gunner really looks in.
+    #[test]
+    fn a_gunners_heading_is_the_turrets_facing_plus_its_drum() {
+        let view = View::new(&serde_json::json!({"turret": {}, "pitchLimits": [-0.5, 0.5], "turnRate": 2., "filter": 10.}));
+        let mut preview = Phase::new();
+        let (shown, heading) = gunner_shown(&mut preview, &view, 2.2, (14., 2.), &[0.3, 0.1, 0., 0., 0., 0.], &History::default());
+        assert!((shown[0] - 0.3).abs() < 1e-12 && (shown[1] - 0.1).abs() < 1e-12, "{shown:?}");
+        assert!((heading - 2.5).abs() < 1e-12, "{heading}");
+    }
+}
+
+#[cfg(test)]
+mod aim_history_tests {
+    use super::AimHistory;
+    use std::f64::consts::PI;
+
+    // Snapshots three ticks apart, drawn on a clock between them.
+    #[test]
+    fn a_turret_aim_is_drawn_between_its_snapshots_along_the_short_arc() {
+        let mut heard = AimHistory::default();
+        assert_eq!(heard.sample(10.), None);
+        heard.push((7., 1.), 30., [3.1, 0.2, 0., 0.]);
+        // One sample: that aim, whatever the clock says.
+        assert_eq!(heard.sample(12.), Some([3.1, 0.2, 0., 0.]));
+        heard.push((7., 1.), 33., [-3.1, 0.5, 0.3, -0.3]);
+        // Half way: through the seam at pi (the turn is 2 pi - 6.2), not back through zero.
+        let half = heard.sample(31.5).unwrap();
+        assert!((half[0] - (3.1 + (2. * PI - 6.2) / 2.)).abs() < 1e-12, "{}", half[0]);
+        assert!((half[1] - 0.35).abs() < 1e-12 && (half[2] - 0.15).abs() < 1e-12 && (half[3] + 0.15).abs() < 1e-12);
+        // A clock outside what was heard holds the nearest sample.
+        assert_eq!(heard.sample(29.), Some([3.1, 0.2, 0., 0.]));
+        assert_eq!(heard.sample(40.), Some([-3.1, 0.5, 0.3, -0.3]));
+        // The same tick heard again replaces its sample; the history keeps the newest eight.
+        heard.push((7., 1.), 33., [-3., 0.5, 0.3, -0.3]);
+        assert_eq!(heard.sample(33.).unwrap()[0], -3.);
+        for tick in 0..20 {
+            heard.push((7., 1.), 36. + 3. * tick as f64, [tick as f64 * 0.01, 0., 0., 0.]);
+        }
+        assert_eq!(heard.len, AimHistory::SAMPLES);
+        assert!((heard.sample(91.5).unwrap()[0] - 0.185).abs() < 1e-12);
+        // Another life of the turret (rebuilt) never blends from the old one's aim.
+        heard.push((7., 2.), 96., [1., 0., 0., 0.]);
+        assert_eq!(heard.sample(94.), Some([1., 0., 0., 0.]));
+        // Nor does a clock that went back (a new battle on the same server).
+        heard.push((7., 2.), 5., [2., 0., 0., 0.]);
+        assert_eq!(heard.sample(4.), Some([2., 0., 0., 0.]));
     }
 }

@@ -780,6 +780,10 @@ impl Replicas {
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
+        // In a seat the minimap's heading is the seat's or the turret's aim as this frame shows it.
+        if let Some(yaw) = self.hulls.seat_yaw.or(self.turrets.gunner_yaw) {
+            bridge.hud_model.input[bfe_render::hud_model::layout::HudFrame::PLAYER_YAW] = yaw;
+        }
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.items.light(&mut self.lights);
@@ -1060,6 +1064,17 @@ impl Replicas {
                     input[i::WALKER_LEGS] = receiver.own.walker_legs;
                     input[i::WALKER_ROLL] = receiver.own.walker_roll;
                     input[i::WALKER_LEAN] = receiver.own.walker_lean;
+                }
+                // His own droideka between the server's corrections.
+                if let Some(walker) = prediction.walker.filter(|_| kind == k::DROIDEKA) {
+                    input[i::POSITION..i::POSITION + 3].copy_from_slice(&walker.position);
+                    input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&walker.velocity);
+                    input[i::YAW] = prediction.view[0];
+                    input[i::PITCH] = prediction.view[1];
+                    input[i::WALKER_ROLL] = walker.pose[0];
+                    input[i::WALKER_LEAN] = walker.pose[1];
+                    input[i::WALKER_LEGS] = walker.pose[2];
+                    input[i::WALKER_TIME] = walker.pose[3];
                 }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);

@@ -333,6 +333,9 @@ impl Phase {
         if a[f::LOCKSTEP] == 0. {
             Self::own_look(a, &mut yaw, &mut pitch, looks);
         }
+        // Where the servo stands before the loose step: the step is drawn
+        // from here to where it ends.
+        let before = [turret[0], turret[1]];
         if a[f::HAS_LOOSE] != 0. {
             if a[f::TURRET_ACTIVE] != 0. {
                 Self::steer(a, &mut turret, looks, a[f::SCALE], a[f::INVERT] != 0.);
@@ -368,14 +371,28 @@ impl Phase {
             } else {
                 a[f::PRESENT_ALPHA]
             };
-            let back = TICK * (1. - clamp(alpha, 0., 1.));
-            let shown = turret[0] - turret[2] * back;
+            let alpha = clamp(alpha, 0., 1.);
+            // With a loose step the drawn aim goes from the servo before it
+            // to the servo after it (the yaw along the shorter arc). Away
+            // from the stops that is the step unwound by its velocity; at a
+            // stop the step ends on the stop, and unwinding it by a velocity
+            // the stop did not use would pull the aim back off the stop
+            // every tick (the pitch keeps its velocity there) or put it on
+            // the stop at once (a yaw arc drops its velocity). Without a
+            // loose step (lockstep) only the canonical servo is known, and
+            // its last step is unwound.
+            let (shown, pitch) = if a[f::HAS_LOOSE] != 0. {
+                (before[0] + wrap(turret[0] - before[0]) * alpha, before[1] + (turret[1] - before[1]) * alpha)
+            } else {
+                let back = TICK * (1. - alpha);
+                (turret[0] - turret[2] * back, turret[1] - turret[3] * back)
+            };
             output[o::TURRET_PREVIEW_YAW] = wrap(
                 (if a[f::HAS_YAW_ARC] != 0. { arc(shown, a[f::WRAP_YAW] != 0., a[f::ARC_LOW], a[f::ARC_HIGH]) } else { shown })
                     - a[f::TURRET_YAW],
             );
             output[o::TURRET_PREVIEW_PITCH] =
-                clamp(turret[1] - turret[3] * back, a[f::TURRET_PITCH_LOW], a[f::TURRET_PITCH_HIGH]) - a[f::TURRET_PITCH];
+                clamp(pitch, a[f::TURRET_PITCH_LOW], a[f::TURRET_PITCH_HIGH]) - a[f::TURRET_PITCH];
             output[o::TURRET_YAW] = turret[0];
             output[o::TURRET_PITCH] = turret[1];
             output[o::TURRET_YAW_VEL] = turret[2];
