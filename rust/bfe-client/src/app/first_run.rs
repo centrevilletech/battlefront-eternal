@@ -90,7 +90,15 @@ pub struct TransferEnd {
 
 pub const NO_ACTION: usize = usize::MAX;
 
+#[cfg(not(target_os = "macos"))]
 pub const MISSING_DETAIL: &str = "Battlefront Eternal plays the battles from your own copy of Star Wars: Battlefront (2004). Import a content export from your other computer, or install the original from Steam or GOG. If it is installed somewhere else, choose its folder.";
+// The original is a Windows game: neither store's Mac client installs it, so a Mac player brings the copy over.
+#[cfg(target_os = "macos")]
+pub const MISSING_DETAIL: &str = "Battlefront Eternal plays the battles from your own copy of Star Wars: Battlefront (2004). It is a Windows game, which Steam and GOG do not install on a Mac. Import a content export from a PC, or choose the folder of your copy: one copied from a PC, on an external drive, or inside a CrossOver or Whisky bottle.";
+#[cfg(not(target_os = "macos"))]
+const OUTDATED_DETAIL: &str = "This content was prepared for a different version. Install Star Wars: Battlefront (2004) from Steam or GOG, or choose its folder, to update automatically, or import a current content export from your other computer.";
+#[cfg(target_os = "macos")]
+const OUTDATED_DETAIL: &str = "This content was prepared for a different version. Choose the folder of your copy of Star Wars: Battlefront (2004) to update automatically, or import a current content export from your other computer.";
 pub const REPAIR: &str = "In Steam: the game's Properties > Installed Files > Verify integrity of game files. In GOG Galaxy: the game's settings > Manage installation > Verify / Repair.";
 /// Ports failureMessage: use the tool's saved receipt, including skipped tools.
 pub fn failure_message(target: &Path, snapshot: &PrepareSnapshot) -> String {
@@ -442,7 +450,7 @@ impl Setup {
                 "STAR WARS BATTLEFRONT NOT FOUND"
             }
             .into();
-            v.detail=if self.outdated{"This content was prepared for a different version. Install Star Wars: Battlefront (2004) from Steam or GOG, or choose its folder, to update automatically, or import a current content export from your other computer."}else{MISSING_DETAIL}.into();
+            v.detail=if self.outdated{OUTDATED_DETAIL}else{MISSING_DETAIL}.into();
             return v;
         };
         v.listing = true;

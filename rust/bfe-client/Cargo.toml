@@ -55,5 +55,11 @@ arboard = { version = "3", default-features = false, features = ["wayland-data-c
 # Reuse the Xlib connection behind winit's X11 window; other backends do not load it.
 x11-dl = "2.21"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# The menu bar; the versions winit's AppKit window already brings.
+objc2 = "0.5"
+objc2-app-kit = { version = "0.2", default-features = false, features = ["std", "NSApplication", "NSEvent", "NSMenu", "NSMenuItem", "NSResponder"] }
+objc2-foundation = { version = "0.2", default-features = false, features = ["std", "NSString", "NSThread"] }
+
 [build-dependencies]
 slint-build.workspace = true

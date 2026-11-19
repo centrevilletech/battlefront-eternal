@@ -148,8 +148,9 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             for i in 0..gl.get_active_attributes(program) {
                 let a = gl.get_active_attribute(program, i).ok_or("missing active attribute")?;
                 // Drivers can enumerate built-in inputs (gl_InstanceID, which the
-                // instanced rewrite reads) without an attribute location.
-                if a.name.starts_with("gl_") && gl.get_attrib_location(program, &a.name).is_none() { continue; }
+                // instanced rewrite reads), without an attribute location or, on
+                // macOS, with one. The name is reserved, so it is never a manifest's.
+                if a.name.starts_with("gl_") { continue; }
                 if !s.attributes.iter().any(|(n, l)| *n == a.name && gl.get_attrib_location(program, n) == Some(*l)) {
                     return Err(format!("{key}: undeclared attribute {}", a.name));
                 }

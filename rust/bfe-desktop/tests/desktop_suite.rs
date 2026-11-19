@@ -384,6 +384,38 @@ fn discover_finds_steam_install_across_secondary_libraries() {
     assert_eq!(found.source, "steam");
 }
 
+/// A Mac player's Steam copy is the Windows client's inside a Wine bottle: CrossOver's, Whisky's, or
+/// the prefix Heroic gives a game.
+#[test]
+fn discover_finds_the_windows_steam_copy_inside_a_macos_bottle() {
+    for bottle in [
+        "Library/Application Support/CrossOver/Bottles/Steam",
+        "Library/Containers/com.isaacmarovitz.Whisky/Bottles/5E3A0E0C-0000-4000-8000-000000000001",
+        "Games/Heroic/Prefixes/default/Steam",
+    ] {
+        let tmp = TempDir::new("discover-bottle");
+        let steam = tmp.path().join(bottle).join("drive_c/Program Files (x86)/Steam");
+        let game = steam.join("steamapps/common/Star Wars Battlefront (Classic, 2004)");
+        make_install(&game, false);
+        fs::write(
+            steam.join("steamapps").join(format!("appmanifest_{}.acf", BF1_STEAM_APP)),
+            "\"AppState\" { \"installdir\" \"Star Wars Battlefront (Classic, 2004)\" }\n",
+        )
+        .unwrap();
+        let options = |platform: &str| FindGameOptions {
+            platform: platform.to_string(),
+            home: Some(tmp.path().to_path_buf()),
+            env: BTreeMap::new(),
+            extra: vec![],
+        };
+        let found = find_game_install(&options("darwin")).unwrap_or_else(|| panic!("no install in {bottle}"));
+        assert_eq!(found.dir, game);
+        assert_eq!(found.source, "steam");
+        // Only macOS looks there for Steam: elsewhere Steam's own client installs the game.
+        assert!(find_game_install(&options("linux")).is_none(), "{bottle}");
+    }
+}
+
 /// Verifies GOG discovery across Wine `system.reg` files and Heroic Launcher `installed.json`.
 ///
 /// Mirrors the GOG / Wine / Heroic discovery tests in the desktop host.

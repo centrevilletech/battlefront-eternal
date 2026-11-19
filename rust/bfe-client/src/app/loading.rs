@@ -185,9 +185,10 @@ impl Work {
             };
             {
                 // The shell shows the reason in a dialog; the log keeps it too.
+                // The finished future is dropped first: polled again after a failure it would panic.
+                self.opening = None;
                 let result = result.inspect_err(|err| eprintln!("battle loading: display admission failed: {err}"));
                 self.ready = Some(Box::new(result?));
-                self.opening = None;
                 eprintln!(
                     "battle loading: display admission complete ({:.0} ms of display steps); ready {:.2} s after loading began",
                     self.display_ms,

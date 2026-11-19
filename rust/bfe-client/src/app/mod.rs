@@ -47,6 +47,8 @@ mod frame_log;
 mod frame_pacer;
 mod resize_guard;
 mod display_mode;
+#[cfg(target_os = "macos")]
+mod mac_menu;
 pub mod startup;
 
 use crate::{
@@ -232,6 +234,12 @@ fn new_event_loop() -> Result<EventLoop<()>, String> {
         }
         // The caller prints it and shows it in a dialog.
         Err(message) => return Err(message),
+    }
+    // The menu bar is the game's own (mac_menu), set once the window opens.
+    #[cfg(target_os = "macos")]
+    {
+        use winit::platform::macos::EventLoopBuilderExtMacOS;
+        builder.with_default_menu(false);
     }
     builder.build().map_err(|e| e.to_string())
 }
@@ -814,6 +822,10 @@ impl StandaloneWindowApp {
                         .args(["url.dll,FileProtocolHandler", url])
                         .spawn();
                 }
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = std::process::Command::new("/usr/bin/open").arg(url).spawn();
+                }
             }
         }
     }
@@ -1106,6 +1118,8 @@ impl ApplicationHandler for StandaloneWindowApp {
             )?);
 
             window.set_ime_allowed(true);
+            #[cfg(target_os = "macos")]
+            mac_menu::install();
             let window = Arc::new(window);
             let context = Rc::new(context);
             let surface = Rc::new(surface);

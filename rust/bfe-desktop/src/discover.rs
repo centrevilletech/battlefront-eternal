@@ -80,6 +80,12 @@ pub const DRIVE_GOG_FOLDERS: &[&str] = &[
     "Program Files\\GOG Galaxy\\Games",
 ];
 
+/// Where the Windows Steam client installs itself inside a Wine prefix.
+pub const PREFIX_STEAM_ROOTS: &[&str] = &[
+    "drive_c/Program Files (x86)/Steam",
+    "drive_c/Program Files/Steam",
+];
+
 /// Relative paths inside Wine or CrossOver prefixes checked for GOG installations.
 ///
 /// Mirrors `PREFIX_GOG_FOLDERS` in the desktop host.
@@ -625,6 +631,15 @@ pub fn steam_libraries(
 ) -> Vec<PathBuf> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut roots = steam_roots(platform, home, env);
+    // Steam's Mac client does not install this Windows game: a Mac player's Steam copy is the
+    // Windows client's, inside a Wine bottle (CrossOver, Whisky, Heroic).
+    if platform == "darwin" || platform == "macos" {
+        for prefix in wine_prefixes(home) {
+            for rel in PREFIX_STEAM_ROOTS {
+                roots.push(prefix.join(rel));
+            }
+        }
+    }
     roots.extend(extra_roots.iter().cloned());
 
     let mut seen = BTreeSet::new();
@@ -712,24 +727,25 @@ fn common_folders(library: &Path) -> Vec<PathBuf> {
     dirs
 }
 
-/// Discovers Wine and CrossOver prefix directories under `home` that contain `drive_c`.
+/// Discovers Wine, CrossOver, Whisky and Heroic prefix directories under `home` that contain `drive_c`.
 fn wine_prefixes(home: Option<&Path>) -> Vec<PathBuf> {
     let Some(h) = home else {
         return Vec::new();
     };
     let mut prefixes = vec![h.join(".wine")];
-    if let Ok(entries) = fs::read_dir(h.join("Games")) {
-        for entry in entries.flatten() {
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                prefixes.push(h.join("Games").join(entry.file_name()));
-            }
-        }
-    }
-    let bottles = h.join("Library/Application Support/CrossOver/Bottles");
-    if let Ok(entries) = fs::read_dir(&bottles) {
-        for entry in entries.flatten() {
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                prefixes.push(bottles.join(entry.file_name()));
+    // Lutris's prefixes, CrossOver's and Whisky's bottles, and the prefix Heroic gives each game.
+    for parent in [
+        h.join("Games"),
+        h.join("Library/Application Support/CrossOver/Bottles"),
+        h.join("Library/Containers/com.isaacmarovitz.Whisky/Bottles"),
+        h.join("Games/Heroic/Prefixes"),
+        h.join("Games/Heroic/Prefixes/default"),
+    ] {
+        if let Ok(entries) = fs::read_dir(&parent) {
+            for entry in entries.flatten() {
+                if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                    prefixes.push(parent.join(entry.file_name()));
+                }
             }
         }
     }
