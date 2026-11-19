@@ -55,11 +55,29 @@ identities, saves, prepared game data and hosted server state in
 
 ## Updates
 
-On Windows and Linux the client updates itself at every launch: the client
-binary, the dedicated server binary, the interface, the engine and the
-preparation tools, without administrator rights. macOS is not supported yet and
-does not self-update. Prepared game data is refreshed only when a release
-changes what preparation produces. See [desktop-updates.md](desktop-updates.md).
+On Windows, Linux and macOS the client updates itself at every launch: the
+client binary, the dedicated server binary, the interface, the engine and the
+preparation tools, without administrator rights. On macOS the app in
+Applications is replaced by the new version once that version has started
+properly. Prepared game data is refreshed only when a release changes what
+preparation produces. See [desktop-updates.md](desktop-updates.md).
+
+## Installing on macOS
+
+The Mac build is `Battlefront Eternal.app` in a disk image: open the image and
+drag the app to Applications. It needs Apple silicon and macOS 11 or later,
+holds the client, the dedicated server and the preparation tools, and keeps
+its settings, prepared game data and updates in
+`~/Library/Application Support/Battlefront Eternal`. Removing the app is
+dragging it to the Trash; that folder stays until it is deleted by hand.
+
+No Mac download is published yet. The app that the workflows build is signed
+ad hoc: it runs on the Mac that built it, and on another Mac Gatekeeper
+refuses it until the player allows it in System Settings, Privacy & Security.
+A published build is signed with a Developer ID certificate, uses the hardened
+runtime with no entitlements, and is notarized by Apple with the ticket
+stapled to the app and to the disk image
+(`build/native/sign-macos.py`).
 
 ## Prepared content compatibility
 
@@ -502,7 +520,9 @@ For native builds, see "Building native packages locally" in
 [development.md](development.md). The scripts under `build/native/` stage the
 unpacked folder (`build/native/stage.py`), build the Linux `.deb` and
 `.AppImage` (`build/native/package-linux.py`), build the Windows NSIS installer
-(`build/native/package-windows.py`), pack the headless Linux server archive
+(`build/native/package-windows.py`), build the Mac app bundle and its disk
+image (`build/native/package-macos.py`, signed by `build/native/sign-macos.py`),
+pack the headless Linux server archive
 (`build/native/server-archive.py`), pack the content-addressed update payload
 (`build/native/update-payload.py`), and verify every artifact
 (`build/native/check-packages.py`).
@@ -513,7 +533,7 @@ Targets:
 | --- | --- | --- |
 | Linux (Ubuntu, Omarchy) | AppImage, deb and server `.tar.xz` | x64, arm64 |
 | Windows | NSIS installer | x64 |
-| macOS (planned) | dmg and zip | x64, arm64 |
+| macOS | app bundle in a disk image (dmg) | arm64 |
 
 ## Continuous integration
 
@@ -521,8 +541,11 @@ Targets:
 `main`, every pull request and on demand: the generated-code check
 (`cargo xtask check`), Linux `x64` and `arm64` unit and integration tests
 and the Python tests of the preparation and packaging tools
-(`build/ci/python-tests.py`), Windows `x64` unit tests, and the software
-OpenGL `renderer-smoke-native` job.
+(`build/ci/python-tests.py`), Windows `x64` unit tests, the macOS `arm64`
+job (`build/ci/macos.sh`: the same lint, tests and server start as Linux, then
+the app bundle, disk image and update payload built and checked by
+`build/ci/macos-package.sh`), and the software OpenGL `renderer-smoke-native`
+job.
 No job in this repository uses a self-hosted runner.
 
 `.github/workflows/release.yml` builds the native Windows (`windows-latest`
@@ -532,7 +555,11 @@ pinned Rust toolchain (`1.99.0`, `--locked`), runs the native Rust and
 distribution test suites, verifies each package on its runner with
 `build/native/check-packages.py`, and publishes the release through
 `build/publish-distribution.py`. A Windows installer without a code-signing
-certificate shows a SmartScreen warning.
+certificate shows a SmartScreen warning. The same workflow builds the Mac app
+on a hosted Apple silicon runner and attaches it to the release as one build
+input archive for the signing step
+([desktop-updates.md](desktop-updates.md)); that job is not part of the
+release job, so it cannot hold back the Windows and Linux release.
 
 ## Networking in the desktop client
 
