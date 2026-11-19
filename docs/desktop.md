@@ -516,9 +516,10 @@ display has two to three times the pixels of a common PC monitor, so when
 the full preset is kept the first start also turns DYNAMIC RESOLUTION to
 60 FPS: the scene is drawn smaller whenever the full size would miss 60
 frames a second, and sharpened back up. On a 24-inch iMac (M4, 4480 x 2520)
-that holds 60 frames a second where the full size draws about 40. macOS's
-OpenGL has no GPU timers, so there the adaptive resolution reads the GPU's
-load from whether its last frame was finished in time.
+that gave 57 to 60 frames a second on the heaviest maps, where the full size
+drew 30 to 45. macOS's OpenGL has no GPU timers, so there the adaptive
+resolution reads the GPU's load from whether its last frame was finished in
+time.
 
 **Where things are kept.** Settings and the prepared game data are in
 `~/Library/Application Support/Battlefront Eternal` (the data in `game-data`
