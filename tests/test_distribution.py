@@ -297,11 +297,22 @@ class DistributionTest(unittest.TestCase):
             self.assertEqual(native_release['platforms']['win32-x64']['executable'], 'bfe-client.exe')
             self.assertEqual(native_release['platforms']['win32-x64']['server_executable'], 'bfeserver.exe')
 
-            # The Mac build is signed and notarized after the release is live and joins it then.
+            # The Mac build is signed and notarized after the release is live and joins it then. Its record is
+            # signed by a key that only the signing Mac holds; the release host has the public half.
             app_name = 'Battlefront Eternal.app'
             mac = root / 'mac'
+            record_keys = {}
+            for owner in ('signing-mac', 'someone-else'):
+                record_keys[owner] = root / f'{owner}-record.pem'
+                subprocess.run(['openssl', 'genpkey', '-algorithm', 'ed25519', '-out', str(record_keys[owner])], check=True)
+            distribution.MAC_RECORD_KEY = root / 'macos-record.pub.pem'
+            distribution.MAC_RECORD_KEY.write_bytes(subprocess.check_output(['openssl', 'pkey', '-in', str(record_keys['signing-mac']), '-pubout']))
 
-            def mac_build(number, stapled=True, revision='d' * 40):
+            def sign_record(owner='signing-mac'):
+                raw = subprocess.check_output(['openssl', 'pkeyutl', '-sign', '-inkey', str(record_keys[owner]), '-rawin', '-in', str(mac / 'macos-notarized.json')])
+                (mac / 'macos-notarized.json.sig').write_text(base64.b64encode(raw).decode() + '\n')
+
+            def mac_build(number, stapled=True, revision='d' * 40, arch='arm64', signer='signing-mac'):
                 shutil.rmtree(mac, ignore_errors=True)
                 contents = mac / 'tree' / app_name / 'Contents'
                 (contents / 'MacOS').mkdir(parents=True)
@@ -323,28 +334,56 @@ class DistributionTest(unittest.TestCase):
                 image.write_text(f'disk image {number}')
                 described = lambda path: {'name': path.name, 'size': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
                 record = {'schema': 1, 'release_id': f'preview-{number}', 'version': f'0.1.0-preview.{number}', 'revision': revision,
-                          'notarized': True, 'dmg': {**described(image), 'arch': 'arm64'},
+                          'notarized': True, 'dmg': {**described(image), 'arch': arch},
                           'updates': {'darwin-arm64': described(mac / 'update-darwin-arm64.tar')}}
                 (mac / 'macos-notarized.json').write_text(json.dumps(record))
+                if signer:
+                    sign_record(signer)
                 return record
+
+            def refused(why):
+                """The Mac step refuses, and leaves nothing behind: no blob, no file of the release, no staging folder."""
+                blobs = sorted(path.name for path in store.glob('*/*.zst'))
+                with self.assertRaises(ValueError, msg=why):
+                    distribution.publish_macos(mac)
+                self.assertEqual(sorted(path.name for path in store.glob('*/*.zst')), blobs, f'{why}: a refused Mac build left blobs in the store')
+                self.assertFalse(list(downloads.glob('.macos-*')) + list((downloads / 'updates').glob('.incoming-*')), why)
+                self.assertFalse((downloads / 'preview-5/macos.json').exists(), why)
+                self.assertFalse(list((downloads / 'preview-5').glob('*.dmg')), why)
+                self.assertNotIn('darwin-arm64', channel()['platforms'], why)
 
             sums_before = (downloads / 'preview-5/SHA256SUMS').read_bytes()
             mac_build(4)
-            with self.assertRaises(ValueError):
-                distribution.publish_macos(mac)  # not the live release
+            refused('not the live release')
             mac_build(5, stapled=False)
-            with self.assertRaises(ValueError):
-                distribution.publish_macos(mac)  # made from an app without its notarization ticket
+            refused('made from an app without its notarization ticket')
             mac_build(5, revision='f' * 40)
-            with self.assertRaises(ValueError):
-                distribution.publish_macos(mac)  # built from another commit than the live release
-            self.assertFalse((downloads / 'preview-5/macos.json').exists())
-            self.assertNotIn('darwin-arm64', channel()['platforms'])
+            refused('built from another commit than the live release')
+            # Whoever can write where the Mac files are handed over can write a record, but cannot sign one.
+            mac_build(5, signer=None)
+            refused('a record without a signature')
+            mac_build(5, signer='someone-else')
+            refused('a record signed with another key')
+            mac_build(5)
+            forged = json.loads((mac / 'macos-notarized.json').read_text())
+            (mac / forged['dmg']['name']).write_text('another image')
+            forged['dmg'].update(size=len('another image'), sha256=hashlib.sha256(b'another image').hexdigest())
+            (mac / 'macos-notarized.json').write_text(json.dumps(forged))
+            refused('a record changed after it was signed, consistent in itself')
+            mac_build(5, arch='x64')
+            refused('an Intel image with the Apple silicon update')
             record = mac_build(5)
             (mac / record['dmg']['name']).write_text('another image')
-            with self.assertRaises(ValueError):
-                distribution.publish_macos(mac)  # not the file the record describes
+            refused('not the file the record describes')
+
+            # A step that stops before its last file lands leaves a release without a Mac build, and runs again.
             mac_build(5)
+            from unittest.mock import patch as patch_object
+            with patch_object.object(distribution, 'sign_update', side_effect=RuntimeError('the update key is unreadable')):
+                with self.assertRaises(RuntimeError):
+                    distribution.publish_macos(mac)
+            self.assertFalse((downloads / 'preview-5/macos.json').exists(), 'a stopped step must not look finished')
+            self.assertNotIn('darwin-arm64', channel()['platforms'])
             distribution.publish_macos(mac)
             with_mac = channel()
             self.assertEqual(sorted(with_mac['platforms']), ['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64'])
@@ -362,9 +401,16 @@ class DistributionTest(unittest.TestCase):
             mac_sums = downloads / 'preview-5/SHA256SUMS-macos'
             subprocess.run(['gpg', '--homedir', str(keyhome), '--verify', str(mac_sums) + '.asc', str(mac_sums)], check=True, capture_output=True)
             subprocess.run(['sha256sum', '--check', str(mac_sums)], cwd=mac_sums.parent, check=True, capture_output=True)
+            self.assertIn('  macos.json\n', mac_sums.read_text())
             with self.assertRaises(ValueError):
                 distribution.publish_macos(mac)  # a release takes its Mac build once
-            self.assertFalse(list(downloads.glob('.macos-*')), 'a refused Mac build leaves no stage behind')
+            self.assertFalse(list(downloads.glob('.macos-*')), 'the Mac step leaves no stage behind')
+
+            # An update manifest that names a path twice is refused.
+            twice = json.loads(json.dumps(mac_tree))
+            twice['files'].append(dict(twice['files'][0]))
+            with self.assertRaises(ValueError):
+                distribution.check_tree(twice, 'darwin-arm64', '0.1.0-preview.5')
 
             # Later releases go live without a Mac build: the channel then has no macOS entry, and the
             # Mac download and its update blobs stay until a newer Mac build replaces them.
