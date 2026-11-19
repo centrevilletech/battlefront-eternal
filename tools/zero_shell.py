@@ -780,14 +780,38 @@ def interleave(channels):
     return out
 
 
+# Whether this ffmpeg has the soxr resampler: the macOS builds the toolchain fetches do not.
+FFMPEG_SOXR = True
+
+
 def resample(pcm, rate, pitch, target):
     """Mono 16-bit PCM played at `pitch`, resampled to `target` Hz (soxr)."""
+    global FFMPEG_SOXR
     played = round(rate * pitch)
-    run = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(played),
-                          "-ac", "1", "-i", "pipe:0", "-af", f"aresample={target}:resampler=soxr:precision=28",
-                          "-f", "s16le", "-ac", "1", "pipe:1"], input=bytes(pcm), capture_output=True, check=True)
+
+    def ffmpeg(resampler):
+        return subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(played),
+                               "-ac", "1", "-i", "pipe:0", "-af", f"aresample={target}{resampler}",
+                               "-f", "s16le", "-ac", "1", "pipe:1"], input=bytes(pcm), capture_output=True)
+
     out = array("h")
-    out.frombytes(run.stdout)
+    if FFMPEG_SOXR:
+        run = ffmpeg(":resampler=soxr:precision=28")
+        if run.returncode == 0:
+            out.frombytes(run.stdout)
+            return out
+        FFMPEG_SOXR = False
+        print("ffmpeg has no soxr resampler; resampling the whooshes without it", flush=True)
+    try:
+        # The same resampler at the same quality, from the toolchain's own Python module.
+        import numpy
+        import soxr
+        mono = numpy.frombuffer(bytes(pcm), dtype="<i2")
+        out.frombytes(soxr.resample(mono, played, target, quality="VHQ").astype("<i2").tobytes())
+    except ImportError:
+        run = ffmpeg("")
+        run.check_returncode()
+        out.frombytes(run.stdout)
     return out
 
 
