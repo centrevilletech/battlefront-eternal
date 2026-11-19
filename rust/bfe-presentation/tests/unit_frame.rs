@@ -61,6 +61,21 @@ fn bones() -> Vec<Bone> {
         bone("bone_ribcage", 2),
     ]
 }
+fn tables() -> TableInput {
+    TableInput {
+        sets: [[Some(0); 9]; 3],
+        alert: [Some(0); 9],
+        transitions: [[Some(0); 3]; 3],
+        jump: Some(0),
+        fall: Some(0),
+        land_soft: Some(0),
+        land_hard: Some(0),
+        dive: Some(0),
+        jet: Some(0),
+        thrown: [[Some(0); 4]; 2],
+        upper: vec![vec![0]],
+    }
+}
 #[test]
 fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     // A menu-sized kernel: one actor and 64 commands. The host claims far
@@ -70,19 +85,7 @@ fn overfull_counts_and_unknown_ids_never_fail_a_frame() {
     let content = units.load(Input {
         bones: bones(),
         clips: vec![clip()],
-        tables: TableInput {
-            sets: [[Some(0); 9]; 3],
-            alert: [Some(0); 9],
-            transitions: [[Some(0); 3]; 3],
-            jump: Some(0),
-            fall: Some(0),
-            land_soft: Some(0),
-            land_hard: Some(0),
-            dive: Some(0),
-            jet: Some(0),
-            thrown: [[Some(0); 4]; 2],
-            upper: vec![vec![0]],
-        },
+        tables: tables(),
         walker: None,
     });
     let identity = [
@@ -134,19 +137,7 @@ fn leaving_a_seat_gives_the_body_its_own_clips_back() {
     let content = units.load(Input {
         bones: bones(),
         clips: vec![clip()],
-        tables: TableInput {
-            sets: [[Some(0); 9]; 3],
-            alert: [Some(0); 9],
-            transitions: [[Some(0); 3]; 3],
-            jump: Some(0),
-            fall: Some(0),
-            land_soft: Some(0),
-            land_hard: Some(0),
-            dive: Some(0),
-            jet: Some(0),
-            thrown: [[Some(0); 4]; 2],
-            upper: vec![vec![0]],
-        },
+        tables: tables(),
         walker: None,
     });
     let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
@@ -189,4 +180,57 @@ fn leaving_a_seat_gives_the_body_its_own_clips_back() {
     let animation = units.actor_animation(0).unwrap();
     assert!(animation.gunning.is_none(), "the turret pose outlived the seat");
     assert!(animation.base_layers().count() > 0);
+}
+#[test]
+fn a_distant_soldier_keeps_his_heading_between_animated_frames() {
+    let mut units = Units::new();
+    let content = units.load(Input { bones: bones(), clips: vec![clip()], tables: tables(), walker: None });
+    let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_eq!(units.actor(content, &[identity; 4]), 0);
+    units.input[f::VERSION] = VERSION as f64;
+    units.input[f::ACTORS] = 1.0;
+    units.input[f::DT] = 1.0 / 60.0;
+    units.input[f::FIRST_PERSON] = -1.0;
+    // He is in the view of a camera 200 m away: animated on every second frame.
+    units.input[f::HAS_VIEW] = 1.0;
+    units.input[f::CAMERA_POSITION] = 200.0;
+    let input = &mut units.input[f::STRIDE..f::STRIDE + i::STRIDE];
+    input[i::ID] = 7.0;
+    input[i::GENERATION] = 1.0;
+    input[i::PRESENT] = 1.0;
+    input[i::ALPHA] = 1.0;
+    input[i::HELD_CLIP] = -1.0;
+    input[i::ROOT_QUATERNION + 3] = 1.0;
+    input[i::DIVE_TIME] = 0.6;
+    // He spawned facing 2 rad and walks that way.
+    input[i::YAW] = 2.0;
+    for (axis, speed) in [(0, 3.0 * 2f64.sin()), (2, 3.0 * 2f64.cos())] {
+        input[i::VELOCITY + axis] = speed;
+        input[i::PREVIOUS_VELOCITY + axis] = speed;
+    }
+    units.commands[c::KIND] = k::RESET as f64;
+    units.commands[c::YAW] = 2.0;
+    let mut animated = 0;
+    for frame in 0..8 {
+        units.input[f::FRAME] = frame as f64;
+        units.input[f::COMMANDS] = if frame == 0 { 1.0 } else { 0.0 };
+        units.pose_frame();
+        // The frames that animate him are the odd ones (frame + id).
+        if frame % 2 == 1 {
+            animated += 1;
+        }
+        // Before the first of them there is no heading to keep.
+        if animated == 0 {
+            continue;
+        }
+        let animation = units.actor_animation(0).unwrap();
+        let body = animation.facing + animation.legs;
+        let (_, rig) = units.rider_source(0).unwrap();
+        let q = rig.tree.node(rig.root).quaternion;
+        let drawn = 2.0 * q.y.atan2(q.w);
+        let apart = (drawn - body).sin().atan2((drawn - body).cos()).abs();
+        assert!((body - 2.0).abs() < 0.5, "frame {frame}: he should head about where he walks, not {body}");
+        assert!(apart < 1e-9, "frame {frame}: the body is drawn facing {drawn}, its heading is {body}");
+    }
+    assert_eq!(animated, 4);
 }
