@@ -297,6 +297,95 @@ class DistributionTest(unittest.TestCase):
             self.assertEqual(native_release['platforms']['win32-x64']['executable'], 'bfe-client.exe')
             self.assertEqual(native_release['platforms']['win32-x64']['server_executable'], 'bfeserver.exe')
 
+            # The Mac build is signed and notarized after the release is live and joins it then.
+            app_name = 'Battlefront Eternal.app'
+            mac = root / 'mac'
+
+            def mac_build(number, stapled=True):
+                shutil.rmtree(mac, ignore_errors=True)
+                contents = mac / 'tree' / app_name / 'Contents'
+                (contents / 'MacOS').mkdir(parents=True)
+                (contents / 'Resources/tools').mkdir(parents=True)
+                (contents / '_CodeSignature').mkdir()
+                for name in ('bfe-client', 'bfeserver'):
+                    (contents / 'MacOS' / name).write_text(f'mac {name} {number}')
+                    (contents / 'MacOS' / name).chmod(0o755)
+                (contents / 'MacOS/resources').symlink_to('../Resources')
+                (contents / 'Info.plist').write_text('<plist/>')
+                (contents / '_CodeSignature/CodeResources').write_text(f'seal {number}')
+                if stapled:
+                    (contents / 'CodeResources').write_text(f'ticket {number}')
+                (contents / 'Resources/tools/content-version.json').write_text('{"state":2,"maps":8,"sides":2}')
+                (contents / 'Resources/bfe-tree.json').write_text('{}')
+                payload_mod.build_update_payload(staged_dir=mac / 'tree', platform='darwin-arm64', version=f'0.1.0-preview.{number}',
+                                                 out_path=mac / 'update-darwin-arm64.tar', known_blobs_path=downloads / 'updates/blobs.json')
+                image = mac / f'Battlefront-Eternal-0.1.0-preview.{number}-macos-arm64.dmg'
+                image.write_text(f'disk image {number}')
+                described = lambda path: {'name': path.name, 'size': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                record = {'schema': 1, 'release_id': f'preview-{number}', 'version': f'0.1.0-preview.{number}', 'notarized': True,
+                          'dmg': {**described(image), 'arch': 'arm64'}, 'updates': {'darwin-arm64': described(mac / 'update-darwin-arm64.tar')}}
+                (mac / 'macos-notarized.json').write_text(json.dumps(record))
+                return record
+
+            sums_before = (downloads / 'preview-5/SHA256SUMS').read_bytes()
+            mac_build(4)
+            with self.assertRaises(ValueError):
+                distribution.publish_macos(mac)  # not the live release
+            mac_build(5, stapled=False)
+            with self.assertRaises(ValueError):
+                distribution.publish_macos(mac)  # made from an app without its notarization ticket
+            self.assertFalse((downloads / 'preview-5/macos.json').exists())
+            self.assertNotIn('darwin-arm64', channel()['platforms'])
+            record = mac_build(5)
+            (mac / record['dmg']['name']).write_text('another image')
+            with self.assertRaises(ValueError):
+                distribution.publish_macos(mac)  # not the file the record describes
+            mac_build(5)
+            distribution.publish_macos(mac)
+            with_mac = channel()
+            self.assertEqual(sorted(with_mac['platforms']), ['darwin-arm64', 'linux-arm64', 'linux-x64', 'win32-x64'])
+            self.assertEqual(with_mac['platforms']['linux-x64'], native_release['platforms']['linux-x64'])
+            entry = with_mac['platforms']['darwin-arm64']
+            self.assertEqual(entry['executable'], f'{app_name}/Contents/MacOS/bfe-client')
+            mac_tree = json.loads(subprocess.check_output(['zstd', '-dcq', str(downloads / entry['manifest'])]))
+            self.assertIn({'path': f'{app_name}/Contents/MacOS/resources', 'target': '../Resources'}, mac_tree['links'])
+            for item in mac_tree['files']:
+                self.assertTrue((store / item['sha256'][:2] / f"{item['sha256']}.zst").is_file(), item['path'])
+            self.assertEqual((downloads / 'latest-macos/Battlefront-Eternal-macos-arm64.dmg').read_text(), 'disk image 5')
+            self.assertEqual(json.loads((downloads / 'preview-5/macos.json').read_text())['platforms'], ['darwin-arm64'])
+            # What the release already had is untouched; the Mac files have signed checksums of their own.
+            self.assertEqual((downloads / 'preview-5/SHA256SUMS').read_bytes(), sums_before)
+            mac_sums = downloads / 'preview-5/SHA256SUMS-macos'
+            subprocess.run(['gpg', '--homedir', str(keyhome), '--verify', str(mac_sums) + '.asc', str(mac_sums)], check=True, capture_output=True)
+            subprocess.run(['sha256sum', '--check', str(mac_sums)], cwd=mac_sums.parent, check=True, capture_output=True)
+            with self.assertRaises(ValueError):
+                distribution.publish_macos(mac)  # a release takes its Mac build once
+            self.assertFalse(list(downloads.glob('.macos-*')), 'a refused Mac build leaves no stage behind')
+
+            # Later releases go live without a Mac build: the channel then has no macOS entry, and the
+            # Mac download and its update blobs stay until a newer Mac build replaces them.
+            with patch.dict(os.environ, {'BFE_KEEP_RELEASES': '2'}):
+                for number in (6, 7, 8):
+                    for arch in ['amd64', 'arm64']:
+                        control = root / f'deb-{arch}' / 'DEBIAN/control'
+                        control.write_text(control.read_text().replace(f'preview.{number - 1}', f'preview.{number}'))
+                        subprocess.run(['dpkg-deb', '--build', '--root-owner-group', str(control.parent.parent), str(source / f'{arch}.deb')], check=True, stdout=subprocess.DEVNULL)
+                    for platform in ('linux-x64', 'linux-arm64', 'win32-x64'):
+                        payload_mod.build_update_payload(staged_dir=source / f'native-tree-{platform}', platform=platform,
+                                                         version=f'0.1.0-preview.{number}', out_path=source / f'update-{platform}.tar')
+                    distribution.publish(source, f'0.1.0~preview.{number}', f'preview-{number}', 'e' * 40, '2026-10-19')
+            self.assertEqual(sorted(channel()['platforms']), ['linux-arm64', 'linux-x64', 'win32-x64'])
+            self.assertFalse((downloads / 'preview-6').exists())
+            self.assertEqual(os.readlink(downloads / 'latest-macos'), 'preview-5')
+            self.assertEqual((downloads / 'latest-macos/Battlefront-Eternal-macos-arm64.dmg').read_text(), 'disk image 5')
+            for item in mac_tree['files']:
+                self.assertTrue((store / item['sha256'][:2] / f"{item['sha256']}.zst").is_file(), item['path'])
+            self.assertFalse(list((root / 'public/apt/pool').rglob('*preview.5*')), "an aged-out release's packages leave the catalogue")
+            mac_build(8)
+            distribution.publish_macos(mac)
+            self.assertEqual(os.readlink(downloads / 'latest-macos'), 'preview-8')
+            self.assertIn('darwin-arm64', channel()['platforms'])
+
     def test_appimage_rejects_bundled_host_display_libraries(self):
         repo = Path(__file__).parents[1]
         spec = importlib.util.spec_from_file_location('check_packages', repo / 'build/native/check-packages.py')
