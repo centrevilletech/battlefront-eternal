@@ -256,6 +256,8 @@ pub struct Replay {
     /// The yaw and pitch of the player's view in this frame, whatever he controls: the minimap's
     /// heading, and the aim his own droideka is drawn with.
     pub view: [f64; 2],
+    // The zoom the prediction will divide the next tick's look by, while it predicts the body.
+    predicted_zoom: Option<f64>,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
     props: super::props::Props,
@@ -347,7 +349,7 @@ impl Replay {
             class: usize::MAX,
             body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
             smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(),
-            walker_view: Default::default(), walker: None, view: [0.; 2], life: [0.; 3],
+            walker_view: Default::default(), walker: None, view: [0.; 2], predicted_zoom: None, life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -397,7 +399,7 @@ impl Replay {
     /// A droideka, which is not replayed here, is drawn between the server's
     /// corrections of `own`.
     pub fn present(&mut self, alpha: f64, dt: f64, loose: &Loose, own: &super::receiver::Own) {
-        let zoom = own.zoom;
+        let zoom = look_zoom(self.predicted_zoom, own.zoom);
         self.walker = None;
         if own.alive && own.walker && own.mount.is_none() && self.body.is_none() {
             self.walker = Some(self.walker_view.sample(own, self.life, dt));
@@ -440,6 +442,7 @@ impl Replay {
         // publications are admitted only by this frame's qualified mode.
         self.body = None;
         self.displayed = None;
+        self.predicted_zoom = None;
         self.shots.clear();
         self.walker_ahead = false;
         let interval = self.before.take();
@@ -628,6 +631,7 @@ impl Replay {
         };
         frame.put(x, &mut Vec::new());
         self.owner.predict_session(x, &mut collision.state)?;
+        self.predicted_zoom = Some(self.owner.zoom());
         if self.owner.output.len() >= ClientResult::WORDS {
             let result = ClientResult::take(&self.owner.output, &[]);
             self.weapon_at = result.weapons_at as usize;
@@ -698,6 +702,14 @@ impl Replay {
     }
 }
 
+/// The zoom the drawn body's loose look is divided by. The next tick's replay divides the same
+/// counts by the prediction's own zoom, which follows the scope key at once; the server's zoom
+/// only changes when its answer comes back, and until then a frame drawn with it turns at the
+/// old speed and is pulled back at every tick. So: the prediction's while it predicts the body,
+/// the server's last word otherwise.
+fn look_zoom(predicted: Option<f64>, server: f64) -> f64 {
+    predicted.filter(|zoom| zoom.is_finite()).unwrap_or(server).max(1.)
+}
 fn body_air(output: &[f64], result: &ClientResult) -> bool {
     output.get(result.actor_at as usize..).is_some_and(|row| row.len() >= Soldier::WORDS && Soldier::take(row, &[]).air.is_some())
 }
@@ -809,6 +821,22 @@ mod loose_tests {
         let mut still = Soldier { aim_pitch: 5., ..body() };
         Loose { scale: 1., ..Default::default() }.turn(&mut still, 1.);
         assert_eq!((still.aim_yaw, still.aim_pitch), (0.3, 5.));
+    }
+
+    // Raising a 4x scope: the prediction is zoomed at once, the server's answer is still 1x.
+    // The frames before the next tick must turn at the scope's speed, as that tick will.
+    #[test]
+    fn the_loose_look_is_divided_by_the_predictions_zoom() {
+        assert_eq!(look_zoom(Some(4.), 1.), 4.);
+        assert_eq!(look_zoom(Some(1.), 4.), 1.);
+        assert_eq!(look_zoom(None, 2.5), 2.5);
+        assert_eq!(look_zoom(None, 0.), 1.);
+        let loose = Loose { x: 40., y: 0., scale: 1., invert: false, alpha: 0.5 };
+        let mut shown = body();
+        loose.turn(&mut shown, look_zoom(Some(4.), 1.));
+        let mut next_tick = body();
+        next_tick.look_raw(40. / 4., 0., 1., false);
+        assert_eq!(shown.aim_yaw, next_tick.aim_yaw);
     }
 
     // A turret held against its upper pitch stop with the mouse still pushing: every frame of

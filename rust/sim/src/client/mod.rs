@@ -532,8 +532,9 @@ impl ClientPrediction {
     }
     // PlayerCombat.zooms and its zoom getter supplied replayPrediction's look
     // scale. Keep ascending levels and the continuous ZoomRate exception;
-    // an invalid selection behaves as unzoomed.
-    fn zoom(&mut self) -> f64 {
+    // an invalid selection behaves as unzoomed. Public for the display: a
+    // frame drawn between two ticks turns the view by this same zoom.
+    pub fn zoom(&mut self) -> f64 {
         let a = Arsenal { weapons: &mut self.arsenal.weapons, selected: &mut self.arsenal.selected };
         let Some(i) = a.current(&self.arsenal.defs, 0) else { return 1.0 };
         if self.arsenal.zoom == 0.0 { return 1.0; }
