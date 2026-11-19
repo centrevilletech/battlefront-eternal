@@ -16,8 +16,11 @@ come from the environment (or, by name, from a keychain):
                          since an earlier release gets the signed copy made
                          then, so its update blob stays the same.
   BFE_NOTARY_KEY, BFE_NOTARY_KEY_ID, BFE_NOTARY_ISSUER_ID
-                         An App Store Connect API key file and its ids; or
-  BFE_NOTARY_PROFILE     a notarytool keychain profile.
+                         An App Store Connect API key file and its ids (a
+                         team key has an issuer id, an individual key has
+                         none); or
+  BFE_NOTARY_PROFILE     a notarytool keychain profile (which can also hold
+                         an Apple ID with an app-specific password).
 
 With a certificate, every program is signed with the hardened runtime and a
 secure timestamp and no entitlements: the client needs none (it draws, plays
@@ -222,11 +225,13 @@ def notary_credentials() -> list[str]:
         keychain = os.environ.get('BFE_MAC_KEYCHAIN', '').strip()
         return ['--keychain-profile', profile] + (['--keychain', keychain] if keychain else [])
     try:
-        return ['--key', os.environ['BFE_NOTARY_KEY'], '--key-id', os.environ['BFE_NOTARY_KEY_ID'],
-                '--issuer', os.environ['BFE_NOTARY_ISSUER_ID']]
+        credentials = ['--key', os.environ['BFE_NOTARY_KEY'], '--key-id', os.environ['BFE_NOTARY_KEY_ID']]
     except KeyError as missing:
-        raise RuntimeError(f'Notarization needs BFE_NOTARY_PROFILE, or BFE_NOTARY_KEY, BFE_NOTARY_KEY_ID and '
-                           f'BFE_NOTARY_ISSUER_ID (missing {missing})') from None
+        raise RuntimeError(f'Notarization needs BFE_NOTARY_PROFILE, or BFE_NOTARY_KEY and BFE_NOTARY_KEY_ID '
+                           f'(missing {missing})') from None
+    # A team key has an issuer; an individual key has none, and naming one makes Apple refuse it.
+    issuer = os.environ.get('BFE_NOTARY_ISSUER_ID', '').strip()
+    return credentials + (['--issuer', issuer] if issuer else [])
 
 
 def notarize(path: Path, report: Path | None = None) -> dict:
