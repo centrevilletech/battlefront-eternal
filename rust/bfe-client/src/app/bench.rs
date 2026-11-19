@@ -136,6 +136,16 @@ fn record_digest(bridge: &crate::render_bridge::Bridge, record: usize) -> u64 {
     digest(hash, bones.iter().map(|v| u64::from(v.to_bits())))
 }
 
+/// What the frame about to be drawn began with: the mouse counts received so far, the newest tick
+/// heard and the player's unit, in an Instant Action battle or an online one.
+pub(super) fn drawn_note(mouse: [f64; 2], tick: f64, own: f64) {
+    if let Some(mut log) = drawn_log() {
+        log.mouse = mouse;
+        log.tick = tick;
+        log.own = own;
+    }
+}
+
 /// Ends the frame's line with the first person model's records, digested while they are in the instance list.
 pub(crate) fn drawn_arms(bridge: &crate::render_bridge::Bridge, records: usize) {
     let Some(mut log) = drawn_log() else { return };
@@ -329,13 +339,6 @@ impl Bench {
                     }
                     eprintln!("bench: cycle {how} after battle {}", self.battles);
                 }
-            }
-        }
-        if let Some(mut log) = drawn_log() {
-            log.mouse = battle.input.pointer_metrics().0;
-            if let BattleAuthority::InstantAction { receiver, .. } = &battle.authority {
-                log.tick = receiver.latest;
-                log.own = receiver.own.id;
             }
         }
         if let Some(frames) = &mut self.frames {

@@ -2201,6 +2201,13 @@ impl BattleController {
         // - `game_over == true`: Synchronize `LiveScoreboardPort` so the post-battle
         //   scoreboard (`BoardState::End`) displays final tickets and awards.
         // 4. Inspect life/death and match-over transitions.
+        {
+            let receiver = match &self.authority {
+                BattleAuthority::InstantAction { receiver, .. } => receiver,
+                BattleAuthority::Online { client, .. } => &client.receiver,
+            };
+            super::bench::drawn_note(self.input.pointer_metrics().0, receiver.latest, receiver.own.id);
+        }
         let (own_alive, own_dead, own_removed, game_over) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
                 let over = self
