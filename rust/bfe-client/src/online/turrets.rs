@@ -14,6 +14,55 @@ use bfe_presentation::{
 };
 use bfe_render::instances as draw;
 use three::{Matrix4, Quaternion, Vector3};
+/// A turret's aim (yaw, pitch and the gun's own two angles) as the last few
+/// snapshots gave it. The drum and gun are drawn between those samples on
+/// the playout clock, as soldiers and vehicles are: taken straight from the
+/// newest snapshot they turned in steps, 20 a second from a server.
+#[derive(Clone, Copy, Default)]
+struct AimHistory {
+    life: (f64, f64),
+    ticks: [f64; AimHistory::SAMPLES],
+    aims: [[f64; 4]; AimHistory::SAMPLES],
+    // Samples held, oldest first.
+    len: usize,
+}
+impl AimHistory {
+    const SAMPLES: usize = 8;
+    /// The aim heard at `tick`, for the turret's life `life` (another life starts afresh).
+    fn push(&mut self, life: (f64, f64), tick: f64, aim: [f64; 4]) {
+        if self.life != life || self.len != 0 && tick < self.ticks[self.len - 1] {
+            self.len = 0;
+        }
+        self.life = life;
+        if self.len != 0 && self.ticks[self.len - 1] == tick {
+            self.aims[self.len - 1] = aim;
+            return;
+        }
+        if self.len == Self::SAMPLES {
+            self.ticks.copy_within(1.., 0);
+            self.aims.copy_within(1.., 0);
+            self.len -= 1;
+        }
+        self.ticks[self.len] = tick;
+        self.aims[self.len] = aim;
+        self.len += 1;
+    }
+    /// The aim at `tick`: between the two samples around it, each angle
+    /// along its shorter arc; the nearest sample outside what was heard.
+    fn sample(&self, tick: f64) -> Option<[f64; 4]> {
+        let ticks = &self.ticks[..self.len];
+        let after = ticks.iter().position(|t| *t > tick).unwrap_or(self.len);
+        if after == 0 || after == self.len {
+            return self.len.checked_sub(1).map(|last| self.aims[if after == 0 { 0 } else { last }]);
+        }
+        let (a, b) = (self.aims[after - 1], self.aims[after]);
+        let f = (tick - ticks[after - 1]) / (ticks[after] - ticks[after - 1]);
+        Some(std::array::from_fn(|k| {
+            let turn = b[k] - a[k];
+            a[k] + turn.sin().atan2(turn.cos()) * f
+        }))
+    }
+}
 struct Part {
     row: [f64; draw::REC_STRIDE],
     node: usize,
@@ -38,6 +87,7 @@ struct Turret {
     pub nine: bool,
     camera: Vec<f64>,
     aim: super::seat_view::View,
+    heard: AimHistory,
 }
 pub struct Turrets {
     pub owner: Box<Props>,
@@ -281,6 +331,7 @@ impl Turrets {
                 nine,
                 camera,
                 aim: super::seat_view::View::new(&view),
+                heard: AimHistory::default(),
             });
         }
         Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()) })
@@ -299,11 +350,16 @@ impl Turrets {
                 turret.generation = row[r::GENERATION];
                 turret.shown = row[r::STATE] == 1.;
                 turret.health = row[r::HEALTH];
+                let aim = [row[r::YAW], row[r::PITCH], row[r::GUN_YAW], row[r::GUN_PITCH]];
+                // Stamped with the newest snapshot's tick: an unchanged turret is not sent again,
+                // so its record's own tick is older than what is known of it.
+                turret.heard.push((turret.id, turret.generation), receiver.clock.heard(), aim);
+                let aim = turret.heard.sample(receiver.clock.shown).unwrap_or(aim);
                 let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
-                input[t::YAW] = row[r::YAW];
-                input[t::PITCH] = row[r::PITCH];
-                input[t::GUN_YAW] = row[r::GUN_YAW];
-                input[t::GUN_PITCH] = row[r::GUN_PITCH];
+                input[t::YAW] = aim[0];
+                input[t::PITCH] = aim[1];
+                input[t::GUN_YAW] = aim[2];
+                input[t::GUN_PITCH] = aim[3];
                 input[t::YAW_RATE] = 0.;
             }
         }
@@ -460,5 +516,43 @@ impl Turrets {
             }
         }
         (records, bones)
+    }
+}
+
+#[cfg(test)]
+mod aim_history_tests {
+    use super::AimHistory;
+    use std::f64::consts::PI;
+
+    // Snapshots three ticks apart, drawn on a clock between them.
+    #[test]
+    fn a_turret_aim_is_drawn_between_its_snapshots_along_the_short_arc() {
+        let mut heard = AimHistory::default();
+        assert_eq!(heard.sample(10.), None);
+        heard.push((7., 1.), 30., [3.1, 0.2, 0., 0.]);
+        // One sample: that aim, whatever the clock says.
+        assert_eq!(heard.sample(12.), Some([3.1, 0.2, 0., 0.]));
+        heard.push((7., 1.), 33., [-3.1, 0.5, 0.3, -0.3]);
+        // Half way: through the seam at pi (the turn is 2 pi - 6.2), not back through zero.
+        let half = heard.sample(31.5).unwrap();
+        assert!((half[0] - (3.1 + (2. * PI - 6.2) / 2.)).abs() < 1e-12, "{}", half[0]);
+        assert!((half[1] - 0.35).abs() < 1e-12 && (half[2] - 0.15).abs() < 1e-12 && (half[3] + 0.15).abs() < 1e-12);
+        // A clock outside what was heard holds the nearest sample.
+        assert_eq!(heard.sample(29.), Some([3.1, 0.2, 0., 0.]));
+        assert_eq!(heard.sample(40.), Some([-3.1, 0.5, 0.3, -0.3]));
+        // The same tick heard again replaces its sample; the history keeps the newest eight.
+        heard.push((7., 1.), 33., [-3., 0.5, 0.3, -0.3]);
+        assert_eq!(heard.sample(33.).unwrap()[0], -3.);
+        for tick in 0..20 {
+            heard.push((7., 1.), 36. + 3. * tick as f64, [tick as f64 * 0.01, 0., 0., 0.]);
+        }
+        assert_eq!(heard.len, AimHistory::SAMPLES);
+        assert!((heard.sample(91.5).unwrap()[0] - 0.185).abs() < 1e-12);
+        // Another life of the turret (rebuilt) never blends from the old one's aim.
+        heard.push((7., 2.), 96., [1., 0., 0., 0.]);
+        assert_eq!(heard.sample(94.), Some([1., 0., 0., 0.]));
+        // Nor does a clock that went back (a new battle on the same server).
+        heard.push((7., 2.), 5., [2., 0., 0., 0.]);
+        assert_eq!(heard.sample(4.), Some([2., 0., 0., 0.]));
     }
 }
