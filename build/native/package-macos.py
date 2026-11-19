@@ -145,11 +145,12 @@ def ensure_dmgbuild() -> Path:
     return python
 
 
-def build_dmg(app: Path, platform: str, version: str, out_dir: Path, repo_root: Path = REPO_ROOT) -> Path:
+def build_dmg(app: Path, platform: str, version: str, out_dir: Path) -> Path:
     out_path = out_dir / f'Battlefront-Eternal-{version}-macos-{ARCH_NAMES[platform]}.dmg'
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path.unlink(missing_ok=True)
-    native = repo_root / 'build' / 'native'
+    # Beside this script, wherever it is installed.
+    native = Path(__file__).resolve().parent
     run([ensure_dmgbuild(), '-m', 'dmgbuild',
          '-s', native / 'macos' / 'dmg-settings.py',
          '-D', f'app={app}',
