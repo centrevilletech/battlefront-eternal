@@ -71,7 +71,10 @@ def main():
             tail = "\n".join((stdout + stderr).decode(errors="replace").splitlines()[-15:])
             raise RuntimeError(f"release app failed ({process.returncode}):\n{tail}")
         summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
-        if not summary["ok"] or summary["glErrors"] != 0 or "llvmpipe" not in summary["renderer"].lower():
+        # macOS draws with its own OpenGL (Apple's software renderer on a hosted runner); elsewhere the
+        # smoke must have run on Mesa's llvmpipe.
+        expected_renderer = "apple" if sys.platform == "darwin" else "llvmpipe"
+        if not summary["ok"] or summary["glErrors"] != 0 or expected_renderer not in summary["renderer"].lower():
             raise RuntimeError(f"software GL smoke failed: {summary}")
         if [f["stage"] for f in summary["frames"]] != ["startup", "main-menu", "scene", "slint"]:
             raise RuntimeError(f"app did not render every required stage: {summary}")
