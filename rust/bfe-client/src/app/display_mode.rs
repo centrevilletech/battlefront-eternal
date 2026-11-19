@@ -5,7 +5,9 @@
 //!
 //! - X11 and Windows switch the mode through winit's exclusive full screen. Wayland gives a client no mode
 //!   switching: there no modes are listed and the option offers only DESKTOP (RENDER SCALE still draws the
-//!   scene smaller, and the compositor scales nothing extra).
+//!   scene smaller, and the compositor scales nothing extra). macOS is treated the same: a Mac game keeps the
+//!   desktop's mode in its full screen Space (Mission Control, Command-Tab and the menu bar keep working, which
+//!   a captured display with another mode takes away) and draws its scene smaller instead.
 //! - The desktop mode comes back whenever the game leaves full screen, loses focus, or exits; Windows itself
 //!   restores it if the process dies. On X11 nothing does that for a crashed client, so while a mode is set a
 //!   small watcher (`sh` reading a pipe from the game) puts the desktop mode back with `xrandr` when the pipe
@@ -22,8 +24,9 @@ pub fn parse(choice: &str) -> Option<(u32, u32)> {
     Some((w.parse().ok()?, h.parse().ok()?))
 }
 
+/// Whether the full screen always keeps the desktop's own mode (Wayland, macOS).
 fn wayland(window: &Window) -> bool {
-    window.window_handle().is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)))
+    cfg!(target_os = "macos") || window.window_handle().is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)))
 }
 
 /// The monitor's modes. winit asserts that Windows reports each mode's refresh rate; Wine (and some

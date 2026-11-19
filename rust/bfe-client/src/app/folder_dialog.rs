@@ -276,7 +276,45 @@ fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
     Ok((!path.is_empty()).then(|| PathBuf::from(path)))
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+/// A string as an AppleScript literal.
+#[cfg(target_os = "macos")]
+fn applescript_text(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
+}
+/// Runs one AppleScript expression through `osascript`, which shows the system's own panel or alert in a
+/// process of its own (the game keeps drawing). `None` when the player cancels.
+#[cfg(target_os = "macos")]
+fn applescript(expression: &str) -> Result<Option<String>, String> {
+    let output = std::process::Command::new("/usr/bin/osascript")
+        // The panel belongs to osascript, which starts in the background: bring it to the front.
+        .args(["-e", "tell me to activate", "-e", expression])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        let text = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+        return Ok(Some(text.trim_end_matches('\n').to_owned()));
+    }
+    // Cancel is error -128 ("User canceled.").
+    if String::from_utf8_lossy(&output.stderr).contains("-128") {
+        return Ok(None);
+    }
+    Err("Cannot open the folder chooser.".into())
+}
+#[cfg(target_os = "macos")]
+fn choose_native(kind: Kind) -> Result<Option<PathBuf>, String> {
+    let expression = match kind {
+        Kind::Folder => format!("POSIX path of (choose folder with prompt {})", applescript_text(TITLE)),
+        Kind::ImportFile => "POSIX path of (choose file with prompt \"Import prepared game content\" of type {\"bfepack\", \"zip\"})".to_owned(),
+        Kind::ExportFile => {
+            let place = downloads_dir().filter(|dir| dir.is_dir())
+                .map(|dir| format!(" default location (POSIX file {})", applescript_text(&dir.to_string_lossy())))
+                .unwrap_or_default();
+            format!("POSIX path of (choose file name with prompt \"Export prepared game content\" default name {}{place})", applescript_text(EXPORT_NAME))
+        }
+    };
+    Ok(applescript(&expression)?.filter(|path| !path.is_empty()).map(PathBuf::from))
+}
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 fn choose_native(_: Kind) -> Result<Option<PathBuf>, String> {
     Err("Folder selection is unavailable on this platform.".into())
 }
@@ -331,7 +369,12 @@ fn warning_native(path: &std::path::Path) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     Ok(())
 }
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+fn warning_native(path: &std::path::Path) -> Result<(), String> {
+    applescript(&format!("display alert {} message {} as warning buttons {{\"OK\"}} default button 1",
+        applescript_text(INVALID), applescript_text(&path.to_string_lossy()))).map(|_| ())
+}
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 fn warning_native(_: &std::path::Path) -> Result<(), String> {
     Err(INVALID.into())
 }
@@ -379,6 +422,11 @@ pub fn fatal_message(detail: &str) {
     let script = format!("Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.MessageBox]::Show('{}','{}','OK','Error')|Out-Null", detail, FATAL_TITLE);
     let _ = hidden_powershell().args(["-NoProfile", "-STA", "-Command", &script]).status();
 }
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+pub fn fatal_message(detail: &str) {
+    let _ = applescript(&format!("display alert {} message {} as critical buttons {{\"OK\"}} default button 1",
+        applescript_text(FATAL_TITLE), applescript_text(&detail.replace('\0', " "))));
+}
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
 pub fn fatal_message(_: &str) {}
 pub const FATAL_TITLE: &str = "Battlefront Eternal could not start";
