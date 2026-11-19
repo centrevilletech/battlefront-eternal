@@ -228,7 +228,11 @@ The scripts involved:
   channel file again with the `darwin-arm64` entry. A release is published
   for Windows and Linux without waiting for this; until the Mac build
   arrives, the channel has no macOS entry and installed Mac clients keep the
-  version they have. Publishing Mac builds is not switched on yet.
+  version they have. In the workflow the Mac job is apart from the release
+  job, so it never delays or changes the release of its own run; a Mac job
+  that hangs keeps the run open until its timeout (60 minutes, like the
+  other build jobs), and the next run starts after that. Publishing Mac
+  builds is not switched on yet.
 - Official release builds embed `resources/bfe-release.json` with channel
   `development-preview`. Local builds without a release channel never update
   themselves or replace an installation.

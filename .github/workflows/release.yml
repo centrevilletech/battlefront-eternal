@@ -12,8 +12,11 @@ name: Release
 # with an Apple developer certificate, which no workflow here holds, so the
 # release carries the unsigned app as one build input archive and the project's
 # signing step makes the download from it (docs/desktop-updates.md). The Mac
-# job is not part of the release job: its failure never holds back or changes
-# the Windows and Linux release.
+# job is not part of the release job: whether it fails, hangs or is slow, this
+# run's Windows and Linux release is made at the same time and with the same
+# files as without it. What it can do is what any build job here can: a hung
+# Mac job holds this run open until its timeout (60 minutes, as for the other
+# builds; it takes about 25), and the next run starts only when this one ends.
 
 on:
   workflow_dispatch:
@@ -509,7 +512,7 @@ jobs:
     name: Build & Package (macOS arm64)
     # GitHub's standard Apple silicon runner: three cores, 7 GB of memory.
     runs-on: macos-15
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -607,11 +610,11 @@ jobs:
 
   release-macos:
     # Adds the Mac build input to the release that the job above created. Kept apart from
-    # it so that a Mac build that fails or is slow never delays Windows and Linux.
+    # it so that a Mac build that fails or is slow never delays or changes that release.
     needs: [linux-x64, release, macos]
     if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:

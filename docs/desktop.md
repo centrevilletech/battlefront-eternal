@@ -560,8 +560,10 @@ distribution test suites, verifies each package on its runner with
 certificate shows a SmartScreen warning. The same workflow builds the Mac app
 on a hosted Apple silicon runner and attaches it to the release as one build
 input archive for the signing step
-([desktop-updates.md](desktop-updates.md)); that job is not part of the
-release job, so it cannot hold back the Windows and Linux release.
+([desktop-updates.md](desktop-updates.md)). That job is not part of the
+release job: it never delays or changes the Windows and Linux release of its
+own run. Like any build job, a Mac job that hangs keeps its run open until
+its timeout (60 minutes), and the next release run starts after that.
 
 ## Networking in the desktop client
 
