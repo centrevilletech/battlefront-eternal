@@ -95,6 +95,8 @@ pub struct Turrets {
     pub visible: usize,
     pub hidden: Option<usize>,
     preview: Box<bfe_presentation::network::preview::Phase>,
+    /// The aim of the turret the player mans as this frame shows it (the minimap's heading).
+    pub gunner_yaw: Option<f64>,
 }
 pub(super) fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
@@ -334,7 +336,7 @@ impl Turrets {
                 heard: AimHistory::default(),
             });
         }
-        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()) })
+        Ok(Self { owner, rows, visible: 0, hidden: None, preview: Box::new(Default::default()), gunner_yaw: None })
     }
     pub fn source(&self, id: f64, generation: f64) -> Option<usize> {
         self.rows.iter().position(|t| t.id == id && t.generation == generation && t.shown)
@@ -344,6 +346,7 @@ impl Turrets {
         Some((t.clip.as_deref().unwrap_or("human_minigun_9pose"), t.nine))
     }
     pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64, effects: &mut HullEffects) {
+        self.gunner_yaw = None;
         for row in receiver.active().filter(|r| r[r::KIND] == k::TURRET as f64) {
             if let Some((index, turret)) = self.rows.iter_mut().enumerate().find(|(_, t)| t.building == Some(row[r::BUILDING] as usize)) {
                 turret.id = row[r::ID];
@@ -392,6 +395,7 @@ impl Turrets {
                     let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
                     input[t::YAW] = self.preview.output[o::SHOWN_YAW];
                     input[t::PITCH] = self.preview.output[o::SHOWN_PITCH];
+                    self.gunner_yaw = Some(self.preview.output[o::SHOWN_YAW]);
                     input[t::GUN_YAW] = mount.values[4];
                     input[t::GUN_PITCH] = mount.values[5];
                 }

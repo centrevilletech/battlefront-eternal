@@ -124,8 +124,8 @@ pub struct Hulls {
     pub hidden: Option<usize>,
     mounts: Box<bfe_presentation::network::mounts::Phase>,
     preview: Box<bfe_presentation::network::preview::Phase>,
-    /// The piloted hull's seat aim as this frame shows it (the minimap's heading).
-    pub pilot_yaw: Option<f64>,
+    /// The aim of the player's own vehicle seat as this frame shows it (the minimap's heading).
+    pub seat_yaw: Option<f64>,
     epoch: f64,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
@@ -439,7 +439,7 @@ impl Hulls {
             hidden: None,
             mounts: Box::new(Default::default()),
             preview: Box::new(Default::default()),
-            pilot_yaw: None,
+            seat_yaw: None,
             epoch: 0.,
             models,
             classes,
@@ -630,7 +630,7 @@ impl Hulls {
             eprintln!("vehicles census t={}s world={world} bound={bound} unmapped={unmapped} unlinked={unlinked} refused={}", tick as u64 / 60, self.refused);
         }
         self.visible = 0;
-        self.pilot_yaw = None;
+        self.seat_yaw = None;
         let blank_mount = [0.; mo::STRIDE];
         let mut mount_index = 0;
         for row in receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.) {
@@ -784,7 +784,7 @@ impl Hulls {
                     self.preview.present();
                     aim = [self.preview.output[po::VEHICLE_YAW], self.preview.output[po::VEHICLE_PITCH]];
                 }
-                self.pilot_yaw = Some(aim[0]);
+                self.seat_yaw = Some(aim[0]);
                 let x = &mut self.owner.stream_in[start..][..seat::STRIDE];
                 x[seat::AIM_YAW] = aim[0];
                 x[seat::PITCH] = aim[1];
@@ -816,6 +816,7 @@ impl Hulls {
                     let at = start + seat_no * seat::STRIDE;
                     self.owner.stream_in[at + seat::AIM_YAW] = self.preview.output[po::VEHICLE_YAW];
                     self.owner.stream_in[at + seat::PITCH] = self.preview.output[po::VEHICLE_PITCH];
+                    self.seat_yaw = Some(self.preview.output[po::VEHICLE_YAW]);
                 }
             }
             self.visible += 1;

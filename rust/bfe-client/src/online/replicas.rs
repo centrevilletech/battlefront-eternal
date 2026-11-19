@@ -779,11 +779,11 @@ impl Replicas {
         // The unit links then borrow its output by identity and generation.
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
-        // A pilot's minimap heading is his seat's aim as this frame shows it.
-        if let Some(yaw) = self.hulls.pilot_yaw {
+        self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
+        // In a seat the minimap's heading is the seat's or the turret's aim as this frame shows it.
+        if let Some(yaw) = self.hulls.seat_yaw.or(self.turrets.gunner_yaw) {
             bridge.hud_model.input[bfe_render::hud_model::layout::HudFrame::PLAYER_YAW] = yaw;
         }
-        self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
         self.items.light(&mut self.lights);

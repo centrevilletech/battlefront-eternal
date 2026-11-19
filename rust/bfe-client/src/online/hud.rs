@@ -1333,8 +1333,11 @@ impl Hud {
             )
         };
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
-        // The heading is the yaw of the view this frame shows (a pilot's seat aim replaces it later).
-        x[H::PLAYER_YAW] = prediction.view[0];
+        // The heading is the yaw of the view this frame shows. In a seat that is the seat's or the
+        // turret's shown aim, which replaces this once the vehicles and turrets are placed; a seat
+        // with neither keeps the body's own yaw, as before.
+        let seated = receiver.own.mount.is_some() && prediction.fleet.identity.is_none();
+        x[H::PLAYER_YAW] = if seated { receiver.own.yaw } else { prediction.view[0] };
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
         self.radar.publish(x, receiver, &self.teams);
         // Radar sensors originate at the controlled body or mounted hull.
