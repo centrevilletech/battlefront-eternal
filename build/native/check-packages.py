@@ -469,7 +469,7 @@ def check_macos_app(app: Path, platform: str, notarized: bool = False, run_progr
     return manifest
 
 
-def check_dmg(dmg: Path, platform: str, notarized: bool = False) -> None:
+def check_dmg(dmg: Path, platform: str, notarized: bool = False, run_programs: bool = True) -> None:
     if sys.platform != 'darwin':
         print(f'[INFO] {dmg.name}: a disk image is checked on macOS; skipped')
         return
@@ -487,7 +487,7 @@ def check_dmg(dmg: Path, platform: str, notarized: bool = False) -> None:
             extra = sorted(entry.name for entry in volume.iterdir() if not entry.name.startswith('.') and entry.name not in (MACOS_APP_NAME, 'Applications'))
             if extra:
                 raise RuntimeError(f'{dmg.name} holds unexpected entries: {extra}')
-            check_macos_app(volume / MACOS_APP_NAME, platform, notarized=notarized)
+            check_macos_app(volume / MACOS_APP_NAME, platform, notarized=notarized, run_programs=run_programs)
         finally:
             subprocess.run(['hdiutil', 'detach', '-quiet', mount], check=False, stderr=subprocess.DEVNULL)
 
@@ -556,6 +556,7 @@ def main() -> None:
     parser.add_argument('--macos-app', type=Path, help='macOS app bundle to check')
     parser.add_argument('--dmg', type=Path, help='macOS disk image to check')
     parser.add_argument('--notarized', action='store_true', help='Require the macOS app and disk image to be notarized Developer ID builds')
+    parser.add_argument('--no-run', action='store_true', help='macOS app and disk image: check without starting any of their programs')
     parser.add_argument('--report-out', type=Path, help='Optional file path to write Markdown size report')
     args = parser.parse_args()
 
@@ -587,10 +588,10 @@ def main() -> None:
         sizes.append(('Windows NSIS installer (.exe)', args.windows_installer))
         print(f'[OK] Windows NSIS installer verified: {args.windows_installer}')
     if args.macos_app:
-        check_macos_app(args.macos_app, platform, notarized=args.notarized)
+        check_macos_app(args.macos_app, platform, notarized=args.notarized, run_programs=not args.no_run)
         print(f'[OK] macOS app bundle verified: {args.macos_app}')
     if args.dmg:
-        check_dmg(args.dmg, platform, notarized=args.notarized)
+        check_dmg(args.dmg, platform, notarized=args.notarized, run_programs=not args.no_run)
         sizes.append(('macOS disk image (.dmg)', args.dmg))
         print(f'[OK] macOS disk image verified: {args.dmg}')
     if args.update_payload:
