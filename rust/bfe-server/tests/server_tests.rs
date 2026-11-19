@@ -4289,7 +4289,12 @@ fn a_player_joins_through_the_servers_relay_allocation() {
     assert!(welcomed, "welcome in the next battle through the same relay allocation");
 
     server.udp.lock().unwrap().close_relay("player-1");
-    turn.step();
+    // The release is a datagram on its way: not every system has it readable at once.
+    let start = Instant::now();
+    while !turn.released && start.elapsed() < Duration::from_secs(2) {
+        turn.step();
+        std::thread::sleep(Duration::from_millis(2));
+    }
     assert!(turn.released, "the allocation was released with a zero lifetime");
     assert_eq!(server.udp.lock().unwrap().relay_count(), 0);
     let _ = fs::remove_dir_all(&dir);
