@@ -683,6 +683,87 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
         assert!(!win_out.contains_key("PYTHONHOME"));
         assert!(!win_out.contains_key("PYTHONPATH"));
     }
+
+    // Windows spells its search path `Path` and compares names without regard to case. One
+    // `PATH` must come out, with the bundled tools first: a `Path` left beside it reaches the
+    // child last and the tools no longer find the bundled FFmpeg.
+    {
+        let mut win_base_env = BTreeMap::new();
+        win_base_env.insert("Path".to_string(), r"C:\Windows\System32".to_string());
+        win_base_env.insert("PythonHome".to_string(), r"C:\bad".to_string());
+        win_base_env.insert("bfe_game_dir".to_string(), r"C:\elsewhere".to_string());
+
+        let win_out = tool_env(&ToolEnvOptions {
+            toolchain: tmp.path().to_path_buf(),
+            game: Some(PathBuf::from(r"C:\games\swbf1")),
+            content: None,
+            env: win_base_env.clone(),
+            platform: "win32".to_string(),
+        });
+        let spelled = |name: &str| win_out.keys().filter(|key| key.eq_ignore_ascii_case(name)).count();
+        assert_eq!(spelled("PATH"), 1, "{:?}", win_out.keys());
+        assert_eq!(
+            win_out["PATH"],
+            format!("{};{};{}", bin.display(), ktx_bin.display(), r"C:\Windows\System32")
+        );
+        assert_eq!(spelled("PYTHONHOME"), 0);
+        assert_eq!(spelled("BFE_GAME_DIR"), 1);
+        assert_eq!(win_out["BFE_GAME_DIR"], r"C:\games\swbf1");
+
+        // Elsewhere `Path` is a variable of its own and stays as it is.
+        let unix_out = tool_env(&ToolEnvOptions {
+            toolchain: tmp.path().to_path_buf(),
+            game: None,
+            content: None,
+            env: win_base_env,
+            platform: "linux".to_string(),
+        });
+        assert_eq!(unix_out["Path"], r"C:\Windows\System32");
+        assert_eq!(unix_out["PATH"], format!("{}:{}", bin.display(), ktx_bin.display()));
+    }
+}
+
+/// On Windows itself: a program started with the environment `tool_env` builds from the system's
+/// own (which spells the search path `Path`) finds a program that is only in the bundled tools'
+/// folder, as the menu step finds FFmpeg.
+#[cfg(windows)]
+#[test]
+fn prepare_tools_find_a_bundled_program_on_windows() {
+    let tmp = TempDir::new("tool-env-windows");
+    let bin = tmp.path().join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let system = PathBuf::from(std::env::var("SystemRoot").unwrap()).join("System32");
+    // A program under a name that exists nowhere else on the search path.
+    fs::copy(system.join("whoami.exe"), bin.join("bfe-bundled-tool.exe")).unwrap();
+
+    let mut base_env: BTreeMap<String, String> = std::env::vars().collect();
+    let system_path = base_env
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case("PATH"))
+        .map(|(_, value)| value.clone())
+        .unwrap();
+    base_env.retain(|name, _| !name.eq_ignore_ascii_case("PATH"));
+    base_env.insert("Path".to_string(), system_path);
+
+    let env_out = tool_env(&ToolEnvOptions {
+        toolchain: tmp.path().to_path_buf(),
+        game: None,
+        content: None,
+        env: base_env,
+        platform: "win32".to_string(),
+    });
+    let mut command = std::process::Command::new(system.join("cmd.exe"));
+    command.args(["/d", "/c", "bfe-bundled-tool.exe"]);
+    command.env_clear();
+    for (name, value) in &env_out {
+        command.env(name, value);
+    }
+    let output = command.output().unwrap();
+    assert!(
+        output.status.success(),
+        "the bundled program was not found: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// Verifies `prepared_content_current`, `prepared_from`, and `prepared_for` against `ContentVersion`.
