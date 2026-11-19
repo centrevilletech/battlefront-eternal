@@ -55,11 +55,31 @@ identities, saves, prepared game data and hosted server state in
 
 ## Updates
 
-On Windows and Linux the client updates itself at every launch: the client
-binary, the dedicated server binary, the interface, the engine and the
-preparation tools, without administrator rights. macOS is not supported yet and
-does not self-update. Prepared game data is refreshed only when a release
-changes what preparation produces. See [desktop-updates.md](desktop-updates.md).
+On Windows, Linux and macOS the client updates itself at every launch: the
+client binary, the dedicated server binary, the interface, the engine and the
+preparation tools, without administrator rights. On macOS the app in
+Applications is replaced by the new version once that version has started
+properly. Prepared game data is refreshed only when a release changes what
+preparation produces. See [desktop-updates.md](desktop-updates.md).
+
+## Installing on macOS
+
+The Mac build is `Battlefront Eternal.app` in a disk image: open the image and
+drag the app to Applications. It needs Apple silicon and macOS 12.3 or later
+(the newest minimum among the programs it bundles, read from them when the app
+is built; the client itself starts on macOS 11). It
+holds the client, the dedicated server and the preparation tools, and keeps
+its settings, prepared game data and updates in
+`~/Library/Application Support/Battlefront Eternal`. Removing the app is
+dragging it to the Trash; that folder stays until it is deleted by hand.
+
+No Mac download is published yet. The app that the workflows build is signed
+ad hoc: it runs on the Mac that built it, and on another Mac Gatekeeper
+refuses it until the player allows it in System Settings, Privacy & Security.
+A published build is signed with a Developer ID certificate, uses the hardened
+runtime with no entitlements, and is notarized by Apple with the ticket
+stapled to the app and to the disk image
+(`build/native/sign-macos.py`).
 
 ## Prepared content compatibility
 
@@ -171,7 +191,8 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    chose: used as it is.
 2. The Steam copy of Star Wars: Battlefront (2004), app 1058020, found by
    discovering the platform's Steam roots (the registry on
-   Windows; native, Flatpak and Snap installs on Linux), every library in
+   Windows; native, Flatpak and Snap installs on Linux; on macOS also the
+   Windows Steam client's folder inside Wine bottles, see "macOS" below), every library in
    `libraryfolders.vdf` (`steamapps/` and `config/`), and the folder the app
    manifest names in any of them. A `steamapps/common` folder that only looks
    like the game counts only after the GOG copy (below, "Asking first").
@@ -192,7 +213,8 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    a folder whose name says Battlefront where GOG games usually go:
    `GOG Games` and `GOG Galaxy\Games` on each Windows drive,
    `~/Games/Heroic`, and those Windows folders inside Wine prefixes
-   (`~/.wine`, Lutris's in `~/Games`, CrossOver's bottles). Steam's copy wins
+   (`~/.wine`, Lutris's in `~/Games`, CrossOver's and Whisky's bottles, the
+   prefixes Heroic gives its games). Steam's copy wins
    when there are both, as the project's reference edition.
 4. With no copy to prepare from: the app's `game-data` folder if it has data,
    then extracted data elsewhere (a checkout's `public/`, a `game-data`
@@ -453,8 +475,19 @@ menus applies the next time the loader opens.
 - CPython 3.13 from python-build-standalone, with Pillow, numpy, scipy,
   soundfile and soxr installed for the target by pip, test suites pruned;
 - a static ffmpeg (BtbN's GPL builds for Linux and Windows,
-  martin-riedl.de's for macOS);
+  martin-riedl.de's signed builds for macOS, one named build each for Apple
+  silicon and Intel);
 - KTX-Software's `ktx` and its library.
+
+On macOS every download is checked against a SHA-256 written in the script,
+and the Python packages are installed with `pip --require-hashes` from
+`build/native/macos/toolchain-requirements.txt`, because what a Mac build
+fetches is signed with it as well as shipped. The Windows and Linux
+downloads are not pinned to digests yet.
+
+`mac arm64` and `mac x64` both fetch and run. The programs themselves start
+on macOS 11 (Apple silicon) and 10.12 (Intel); the fetched tools need more
+(FFmpeg 12.0, the scipy wheel 12.3), so preparation needs macOS 12.3.
 
 Without a toolchain (a plain checkout), the system `python3` runs the tools
 and steps whose dependencies are missing are skipped.
@@ -486,6 +519,82 @@ create is left alone. `BFE_NO_DESKTOP_INTEGRATION=1` turns this off. The
 launchers start the newest installed update directly when there is one
 ([desktop-updates.md](desktop-updates.md)).
 
+## macOS
+
+The client runs on macOS with the system's OpenGL (the 4.1 core profile,
+which an Apple silicon Mac draws through Metal). It is built and tested on
+Apple silicon; the Intel build also runs there through Rosetta and has not
+been tried on an Intel Mac. See [development.md](development.md) for
+building it.
+
+**Window, full screen and the menu bar.** The game draws at the display's own
+pixels (4480 x 2520 on a 24-inch iMac). Its menu bar has the application menu
+(About, Hide, Quit with Command-Q), View > Enter Full Screen (Globe-F or
+Control-Command-F; F11 and the window's green button do the same) and
+Window > Minimize (Command-M) and Zoom. Quit and Command-Q leave the way the
+window's close button does: while this computer hosts a server, the game
+first asks whether the server keeps running. Full screen is the system's
+own: the window takes a Space of its own at the desktop's display mode, so
+Mission Control, Command-Tab and notifications behave as in any Mac
+application. VIDEO OPTIONS > RESOLUTION therefore offers DESKTOP only, as on
+Wayland; RENDER SCALE and DYNAMIC RESOLUTION draw the scene smaller instead.
+
+**The first start** measures the GPU as on the other systems. A Mac's own
+display has two to three times the pixels of a common PC monitor, so when
+the full preset is kept the first start also turns DYNAMIC RESOLUTION to
+60 FPS: the scene is drawn smaller whenever the full size would miss 60
+frames a second, and sharpened back up. On a 24-inch iMac (M4, 4480 x 2520)
+that gave 57 to 60 frames a second on the heaviest maps, where the full size
+drew 30 to 45. macOS's OpenGL has no GPU timers, so there the adaptive
+resolution reads the GPU's load from whether its last frame was finished in
+time.
+
+**Where things are kept.** Settings and the prepared game data are in
+`~/Library/Application Support/Battlefront Eternal` (the data in `game-data`
+inside it). The preparation log is `~/Library/Logs/Battlefront
+Eternal/prepare.log`, which Console lists under Log Reports.
+
+**Sound** goes to the system's default output through CoreAudio and moves
+with it: when headphones are plugged in or another output is chosen, the
+game reopens its stream there within a second.
+
+**Finding your copy.** The original is a Windows game. Steam's and GOG's Mac
+clients do not install it, so on a Mac the first launch looks where a
+Windows copy can be:
+
+- the Steam folder of the Windows Steam client inside CrossOver bottles
+  (`~/Library/Application Support/CrossOver/Bottles`), Whisky bottles and
+  the prefixes Heroic Games Launcher gives its games;
+- GOG installs recorded by Heroic or by the installer inside those bottles;
+- a folder you choose: CHOOSE GAME FOLDER opens the system's folder panel,
+  and takes the folder holding `GameData` (or `GameData` itself) wherever it
+  is, for example a copy brought over from a PC or an external drive.
+
+When nothing is found the loader says so and offers CHOOSE GAME FOLDER and
+IMPORT CONTENT EXPORT (data prepared on another computer, see "Moving
+prepared content to another computer").
+
+**Downloading the copy you own, without a PC.** Valve's SteamCMD downloads
+the Windows files of a game your account owns on any system. It is an Intel
+program, so an Apple silicon Mac runs it through Rosetta:
+
+```bash
+mkdir ~/steamcmd && cd ~/steamcmd
+curl -L https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz | tar -xz
+./steamcmd.sh +@sSteamCmdForcePlatformType windows \
+  +force_install_dir "$HOME/Games/Star Wars Battlefront (Classic 2004)" \
+  +login YOUR_STEAM_NAME +app_update 1058020 validate +quit
+```
+
+SteamCMD asks for the account's password and Steam Guard code itself. Then
+choose `~/Games/Star Wars Battlefront (Classic 2004)` with CHOOSE GAME
+FOLDER. A GOG copy installed with Heroic Games Launcher is found through
+Heroic's records.
+
+**Not done on macOS yet.** Aim uses the pointer movement macOS reports, which
+includes the system's pointer acceleration; unaccelerated mouse input is not
+implemented. There is no game controller support (on any platform).
+
 ## Steam and Discord
 
 Friends on Steam and Discord see the player in Battlefront Eternal. The
@@ -502,7 +611,9 @@ For native builds, see "Building native packages locally" in
 [development.md](development.md). The scripts under `build/native/` stage the
 unpacked folder (`build/native/stage.py`), build the Linux `.deb` and
 `.AppImage` (`build/native/package-linux.py`), build the Windows NSIS installer
-(`build/native/package-windows.py`), pack the headless Linux server archive
+(`build/native/package-windows.py`), build the Mac app bundle and its disk
+image (`build/native/package-macos.py`, signed by `build/native/sign-macos.py`),
+pack the headless Linux server archive
 (`build/native/server-archive.py`), pack the content-addressed update payload
 (`build/native/update-payload.py`), and verify every artifact
 (`build/native/check-packages.py`).
@@ -513,7 +624,7 @@ Targets:
 | --- | --- | --- |
 | Linux (Ubuntu, Omarchy) | AppImage, deb and server `.tar.xz` | x64, arm64 |
 | Windows | NSIS installer | x64 |
-| macOS (planned) | dmg and zip | x64, arm64 |
+| macOS | app bundle in a disk image (dmg) | arm64 |
 
 ## Continuous integration
 
@@ -521,8 +632,11 @@ Targets:
 `main`, every pull request and on demand: the generated-code check
 (`cargo xtask check`), Linux `x64` and `arm64` unit and integration tests
 and the Python tests of the preparation and packaging tools
-(`build/ci/python-tests.py`), Windows `x64` unit tests, and the software
-OpenGL `renderer-smoke-native` job.
+(`build/ci/python-tests.py`), Windows `x64` unit tests, the macOS `arm64`
+job (`build/ci/macos.sh`: the same lint, tests and server start as Linux, then
+the app bundle, disk image and update payload built and checked by
+`build/ci/macos-package.sh`), and the software OpenGL `renderer-smoke-native`
+job.
 No job in this repository uses a self-hosted runner.
 
 `.github/workflows/release.yml` builds the native Windows (`windows-latest`
@@ -532,7 +646,13 @@ pinned Rust toolchain (`1.99.0`, `--locked`), runs the native Rust and
 distribution test suites, verifies each package on its runner with
 `build/native/check-packages.py`, and publishes the release through
 `build/publish-distribution.py`. A Windows installer without a code-signing
-certificate shows a SmartScreen warning.
+certificate shows a SmartScreen warning. The same workflow builds the Mac app
+on a hosted Apple silicon runner and attaches it to the release as one build
+input archive for the signing step
+([desktop-updates.md](desktop-updates.md)). That job is not part of the
+release job: it never delays or changes the Windows and Linux release of its
+own run. Like any build job, a Mac job that hangs keeps its run open until
+its timeout (60 minutes), and the next release run starts after that.
 
 ## Networking in the desktop client
 

@@ -174,6 +174,64 @@ jobs:
           path: platform-smoke-windows-x64/
           if-no-files-found: error
 
+  macos:
+    name: macOS Native (arm64)
+    if: ${{ inputs.package_run_id == '' }}
+    # GitHub's standard Apple silicon runner: three cores, 7 GB of memory.
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        env:
+          CARGO_BUILD_TARGET: aarch64-apple-darwin
+        run: bash build/ci/install-rust.sh
+
+      - name: Cache Cargo registry and build target
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust/target/
+          key: cargo-macos-arm64-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-macos-arm64-${{ hashFiles('rust/rust-toolchain.toml') }}-
+
+      - name: Cache toolchain downloads (mac-arm64)
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-mac-arm64-${{ hashFiles('build/native/fetch-toolchain.py') }}
+
+      - name: Fetch pinned content preparation toolchain (mac-arm64)
+        run: python3 build/native/fetch-toolchain.py mac arm64
+
+      - name: Run macOS native lint, tests, and startup checks
+        env:
+          BFE_CI_PYTHON: toolchain/mac-arm64/python/bin/python3
+        run: bash build/ci/macos.sh
+
+      # The release profile's LTO link needs more memory than this runner has; the release
+      # workflow builds the shipped programs. This build checks the package that holds them.
+      - name: Build, package and check the app bundle and disk image
+        run: bash build/ci/macos-package.sh darwin-arm64 0.1.0-preview.0 ci
+
+      - name: Run the packaged app
+        run: python3 tools/platform-smoke-native.py --client-bin "release/macos-arm64/Battlefront Eternal.app/Contents/MacOS/bfe-client" --output-dir platform-smoke-macos-arm64
+
+      - name: Upload macOS app smoke PNGs and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-smoke-macos-arm64
+          path: platform-smoke-macos-arm64/
+          if-no-files-found: warn
+
   renderer-smoke-native:
     name: Native Software-GL Renderer Smoke
     if: ${{ inputs.package_run_id == '' }}
@@ -324,4 +382,40 @@ jobs:
         with:
           name: package-smoke-linux-arm64
           path: package-smoke-linux-arm64/
+          if-no-files-found: error
+
+  package-smoke-macos:
+    name: Package smoke, macOS (${{ matrix.os }})
+    if: ${{ inputs.package_run_id != '' }}
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Release run's macOS build
+        uses: actions/download-artifact@v7
+        with:
+          name: macos-build-input-arm64
+          path: packages
+          run-id: ${{ inputs.package_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Install, start, smoke and remove
+        run: bash build/ci/package-smoke-macos.sh packages package-smoke-${{ matrix.os }}
+
+      - name: Upload screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: package-smoke-${{ matrix.os }}
+          path: package-smoke-${{ matrix.os }}/
           if-no-files-found: error

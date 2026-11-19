@@ -390,7 +390,8 @@ pub fn user_data_dir_with(
 ///
 /// Returns the per-user directory where self-updated application builds are
 /// stored (`~/.local/share/battlefront-eternal` on Linux,
-/// `%LOCALAPPDATA%\Battlefront Eternal` on Windows, or `None` elsewhere).
+/// `%LOCALAPPDATA%\Battlefront Eternal` on Windows,
+/// `~/Library/Application Support/Battlefront Eternal/updates` on macOS, or `None` elsewhere).
 pub fn update_root() -> Option<PathBuf> {
     let env_map: HashMap<String, String> = env::vars().collect();
     let home = home_dir_from_env(&env_map);
@@ -423,6 +424,13 @@ pub fn update_root_with(
                 .unwrap_or_else(|| home.join("AppData").join("Local"));
             Some(base.join("Battlefront Eternal"))
         }
+        // Beside the settings and the prepared game data, in a folder of its own.
+        "darwin" | "macos" => Some(
+            home.join("Library")
+                .join("Application Support")
+                .join("Battlefront Eternal")
+                .join("updates"),
+        ),
         _ => None,
     }
 }
@@ -456,8 +464,15 @@ pub fn timings_file(user_data: &Path) -> PathBuf {
 }
 
 /// Returns `<userData>/logs/prepare.log`, the log file path passed to
-/// `new Preparer` in the desktop host.
+/// `new Preparer` in the desktop host. On macOS, where the user data folder is the
+/// standard one in `~/Library/Application Support`, the log goes where the system keeps
+/// logs and Console lists them: `~/Library/Logs/Battlefront Eternal/prepare.log`.
 pub fn prepare_log_file(user_data: &Path) -> PathBuf {
+    if user_data.ends_with("Library/Application Support/Battlefront Eternal") {
+        if let Some(library) = user_data.parent().and_then(Path::parent) {
+            return library.join("Logs").join("Battlefront Eternal").join("prepare.log");
+        }
+    }
     user_data.join("logs").join("prepare.log")
 }
 

@@ -1,0 +1,29 @@
+# The Python packages of the macOS preparation toolchain (build/native/fetch-toolchain.py),
+# with everything they depend on, each pinned to the exact files PyPI lists for
+# CPython 3.13 on macOS: the first hash is the Apple silicon wheel, the second the Intel
+# one, a single hash a wheel for both. pip installs them with --require-hashes, so a file
+# that differs, or a dependency that is not listed here, stops the build.
+# To change a version: download the wheels for both architectures with the same
+# --platform tags as the script, and write the SHA-256 PyPI lists for each file.
+cffi==2.1.1 \
+    --hash=sha256:19ee6127ee34de7d83ce3d371ebc5ed91addbdcc39f9ab15ce4eb35a4e534971 \
+    --hash=sha256:9d2055050ea716bd38b7f7f1579c275386646b4894c155a3e2f3cd62ed41b7c6
+numpy==2.5.3 \
+    --hash=sha256:92f30e89b8ee0ecf363033576c422b2f58fed6a80bed0aa48dff6d14c654663e \
+    --hash=sha256:66a78fe4556c60aceda5916f9eacd638b18e9e681016ec302dcb4682d6d4d034
+pillow==13.0.0 \
+    --hash=sha256:f11a3c1358bb3c68012a7b1f41b223c3db9f7bfde90b481df028cfe1c3363313 \
+    --hash=sha256:ef5fe6b7db3f501c56000ba8fe7c7e1a35ca1d45824fbeb95a67daa85cff4dbe
+pycparser==3.12 \
+    --hash=sha256:a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e
+scipy==1.18.1 \
+    --hash=sha256:e6fb6a55cc0ba97b59a1f288fb86dc6fce8bdfc0fffcbfd015e3a954bf2a2d93 \
+    --hash=sha256:3ab3523da44749156e1f68b464dc56af11ae4cbc5c739a49d05f32b982eca9f3
+soundfile==0.14.0 \
+    --hash=sha256:d828d35a059626da52f1415b5faee610aeab393319cb3fc4a9aef47b619fc14c \
+    --hash=sha256:19be05428da76ed61a4cad29b8e4bcf43a3e5c100089d2ec81dc961eed1b0dd4
+soxr==1.1.0 \
+    --hash=sha256:d6a7ad82b8d5f3fcc04b1d2ca055562b96af571e1d4fa7c6c61d0fb509ac43b4 \
+    --hash=sha256:e0e09fa633ce2e67df08b298afced4d184f6e753fc330f241022250f1d0d61da
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8

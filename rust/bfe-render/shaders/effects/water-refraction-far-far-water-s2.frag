@@ -68,6 +68,7 @@ float luminance( const in vec3 rgb ) {
   #endif
 
   
+  #ifndef FAR_WATER
   uniform vec4 waders[8];
   // Rings spreading from the legs of each wading soldier, as a slope.
   vec2 waderSlope(vec2 at, float time, out float near) {
@@ -83,6 +84,7 @@ float luminance( const in vec3 rgb ) {
     }
     return slope;
   }
+  #endif
 
   uniform vec3 tint;
   uniform float quality;
@@ -114,9 +116,10 @@ float luminance( const in vec3 rgb ) {
       // fog (toward white where it multiplies).
       float fog = farFog(vSurfaceDepth);
       gl_FragColor = vec4(quality < 0.5 ? mix(tint, vec3(1.0), fog) : mix(tint * vec3(0.16, 0.36, 0.34), fogColor, fog), 1.0);
-      return;
     }
-    #endif
+    #else
+    // The rest is the near water's alone. It is compiled out of the far water, not left behind its
+    // return: not every compiler drops unreachable code, and one that keeps it keeps its uniforms.
     if (quality < 0.5) { gl_FragColor = vec4(tint, 1.0); return; }
     vec2 screen = gl_FragCoord.xy / resolution;
     if (underwater > 0.5) {
@@ -148,4 +151,5 @@ float luminance( const in vec3 rgb ) {
     float crest = clamp(length(ripple) * 4.0, 0.0, 1.0) * near;
     color = mix(color, vec3(0.86, 0.92, 0.9), clamp(hug * churn * 1.1 + crest * 0.18, 0.0, 0.9));
     gl_FragColor = vec4(color, 1.0);
+    #endif
   }

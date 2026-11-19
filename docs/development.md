@@ -229,6 +229,40 @@ cargo xtask check                                  # run all generators in --che
 
 The simulation schema sources under `rust/sim/schema/*.json` and `rust/sim/schema-test/*.json` are declarative JSON files read by `rust/sim-gen`. The store's code is generated at build time and never committed; commit the other generated files alongside any schema or shader change (`cargo xtask check` fails in CI if one is out of date).
 
+## Building and running on macOS
+
+The client and the server build on macOS with Xcode's Command Line Tools
+(`xcode-select --install`) and the pinned Rust toolchain from `rustup`;
+nothing else is installed. The window uses the system's OpenGL, sound uses
+CoreAudio.
+
+```bash
+cargo build --manifest-path rust/Cargo.toml --release --locked --bin bfe-client --bin bfeserver
+python3 build/native/fetch-toolchain.py mac arm64    # or: mac x64
+rust/target/release/bfe-client
+```
+
+The release build of `bfe-client` links with whole-program optimization and
+needs about 7 GB of memory at its peak; on a Mac with less to spare,
+`CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16` builds
+a slightly slower program in a fraction of the memory and time. Run from a
+checkout, the client keeps its settings and prepared data where an installed
+one does (`~/Library/Application Support/Battlefront Eternal`, see
+[desktop.md](desktop.md), "macOS"), and takes the preparation tools from
+`toolchain/mac-<arch>` when that folder was fetched.
+
+An Intel build is `--target x86_64-apple-darwin` after
+`rustup target add x86_64-apple-darwin`; on an Apple silicon Mac it runs
+through Rosetta.
+
+A program started from a remote shell has no display: the window and the
+OpenGL context need a logged-in desktop session. `--script ia:<MAP>` plays one
+map by itself with generated input, writes its own frames and a
+`gate-summary.json` with frame times and exits; `--script online` does the
+same on a server from the internet list. `render-smoke` (see
+[renderer-smoke.md](renderer-smoke.md)) compiles every shader variant on the
+Mac's own OpenGL.
+
 ## Building native packages locally
 
 Native desktop installers, dedicated server archives and update payloads are

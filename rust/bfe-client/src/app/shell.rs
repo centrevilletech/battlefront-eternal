@@ -728,7 +728,9 @@ impl ShellHost {
         #[cfg(target_os = "windows")]
         let mono = std::env::var_os("WINDIR")
             .map(|root| std::path::PathBuf::from(root).join("Fonts/consola.ttf"));
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+        #[cfg(target_os = "macos")]
+        let mono = Some(std::path::PathBuf::from("/System/Library/Fonts/Menlo.ttc"));
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
         let mono: Option<std::path::PathBuf> = None;
         if let Some(bytes) = mono.and_then(|p| std::fs::read(p).ok()) {
             if let Ok((alpha, mut font)) = super::page_font::atlas(&bytes) {

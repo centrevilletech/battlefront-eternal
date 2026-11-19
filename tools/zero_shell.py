@@ -780,14 +780,34 @@ def interleave(channels):
     return out
 
 
+# What ffmpeg says when it was built without the soxr resampler, as the macOS builds the toolchain fetches are.
+FFMPEG_NO_SOXR = b"Requested resampling engine is unavailable"
+# Whether this ffmpeg has the soxr resampler, until it says it has not.
+FFMPEG_SOXR = True
+
+
 def resample(pcm, rate, pitch, target):
     """Mono 16-bit PCM played at `pitch`, resampled to `target` Hz (soxr)."""
+    global FFMPEG_SOXR
     played = round(rate * pitch)
-    run = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(played),
-                          "-ac", "1", "-i", "pipe:0", "-af", f"aresample={target}:resampler=soxr:precision=28",
-                          "-f", "s16le", "-ac", "1", "pipe:1"], input=bytes(pcm), capture_output=True, check=True)
     out = array("h")
-    out.frombytes(run.stdout)
+    if FFMPEG_SOXR:
+        run = subprocess.run(["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-f", "s16le", "-ar", str(played),
+                              "-ac", "1", "-i", "pipe:0", "-af", f"aresample={target}:resampler=soxr:precision=28",
+                              "-f", "s16le", "-ac", "1", "pipe:1"], input=bytes(pcm), capture_output=True)
+        if run.returncode == 0:
+            out.frombytes(run.stdout)
+            return out
+        # Any other failure is an error, as it always was.
+        if FFMPEG_NO_SOXR not in run.stderr:
+            run.check_returncode()
+        FFMPEG_SOXR = False
+        print("ffmpeg has no soxr resampler; resampling the whooshes with the soxr module", flush=True)
+    # The same resampler at the same quality, from the toolchain's own Python module.
+    import numpy
+    import soxr
+    mono = numpy.frombuffer(bytes(pcm), dtype="<i2")
+    out.frombytes(soxr.resample(mono, played, target, quality="VHQ").astype("<i2").tobytes())
     return out
 
 

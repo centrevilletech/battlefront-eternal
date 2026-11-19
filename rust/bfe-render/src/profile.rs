@@ -9,19 +9,39 @@ impl<C: HasContext, M: crate::core::MultiDraw> crate::core::Core<C, M> {
     }
 }
 
+/// Whether this context's timestamp queries tell the time: the driver must offer them (desktop OpenGL, or
+/// EXT_disjoint_timer_query on OpenGL ES), and one read back after a finish must hold a time. macOS's OpenGL
+/// lists the timer extension but counts nothing, and reading its queries back each frame makes the driver
+/// wait for the GPU (frames of 75 ms where 25 ms were drawn). Asked once per context: it finishes the queue.
+pub fn gpu_timestamps<C: HasContext>(gl: &C) -> bool {
+    if gl.version().is_embedded && !gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query")) { return false; }
+    unsafe {
+        let Ok(query) = gl.create_query() else { return false; };
+        gl.query_counter(query, glow::TIMESTAMP);
+        gl.finish();
+        let time = gl.get_query_parameter_u64(query, glow::QUERY_RESULT);
+        gl.delete_query(query);
+        time != 0
+    }
+}
+
 pub struct CpuSample{wall:std::time::Instant,thread:Option<f64>}
 impl CpuSample{
     pub fn now()->Self{Self{wall:std::time::Instant::now(),thread:thread_cpu_ms()}}
     pub fn elapsed_ms(&self)->f64{self.thread.zip(thread_cpu_ms()).map_or_else(||self.wall.elapsed().as_secs_f64()*1000.,|(start,end)|(end-start).max(0.))}
 }
-#[cfg(all(target_os="linux",target_pointer_width="64"))]
+// The thread's own CPU time. macOS needs it more than any: its OpenGL waits for the GPU inside draw calls,
+// so wall time around a frame's drawing reads a GPU-bound frame as a CPU-bound one.
+#[cfg(all(any(target_os="linux",target_os="macos"),target_pointer_width="64"))]
 fn thread_cpu_ms()->Option<f64>{
     #[repr(C)]struct Time{seconds:std::ffi::c_long,nanoseconds:std::ffi::c_long}
     unsafe extern "C"{fn clock_gettime(clock:i32,value:*mut Time)->i32;}
+    // CLOCK_THREAD_CPUTIME_ID
+    const THREAD:i32=if cfg!(target_os="macos"){16}else{3};
     let mut t=Time{seconds:0,nanoseconds:0};
-    if unsafe{clock_gettime(3,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
+    if unsafe{clock_gettime(THREAD,&mut t)}==0{Some(t.seconds as f64*1000.+t.nanoseconds as f64/1e6)}else{None}
 }
-#[cfg(not(all(target_os="linux",target_pointer_width="64")))]
+#[cfg(not(all(any(target_os="linux",target_os="macos"),target_pointer_width="64")))]
 fn thread_cpu_ms()->Option<f64>{None}
 
 pub struct Token<Q> { start: CpuSample, query: Option<(Q, Q)>, draws: u64, triangles: u64 }
@@ -54,7 +74,7 @@ impl<C: HasContext> Default for Profile<C> {
 impl<C: HasContext> Profile<C> {
     pub fn enable(&mut self, gl: &C) {
         self.enabled = true;
-        self.gpu_supported = !gl.version().is_embedded || gl.supported_extensions().iter().any(|e| e.contains("disjoint_timer_query"));
+        self.gpu_supported = gpu_timestamps(gl);
         eprintln!("graphics trace GPU={} CPU={} renderer={} API={}", self.gpu_supported, if thread_cpu_ms().is_some(){"thread"}else{"wall"}, unsafe { gl.get_parameter_string(glow::RENDERER) }, unsafe { gl.get_parameter_string(glow::VERSION) });
         // Some drivers expose a timestamp period that differs from wall time.
         // Calibrate once when tracing starts, before collecting battle samples.

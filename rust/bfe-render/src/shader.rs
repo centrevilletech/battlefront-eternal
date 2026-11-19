@@ -474,13 +474,18 @@ pub fn desktop_glsl(embedded: bool, es3_compatible: bool) -> bool { !embedded &&
 // driver, macOS's 4.1) gets the two functions the shaders use written out in
 // GLSL 3.30 (normal and zero halves; values past the half range become infinity).
 const HALF_FALLBACK: &str = "uint bfeHalf(float f){uint x=floatBitsToUint(f);uint s=(x>>16)&0x8000u;int e=int((x>>23)&0xffu)-112;uint m=x&0x7fffffu;if(e<=0)return s;if(e>=31)return s|0x7c00u;return s|((uint(e)<<10)+((m+0x1000u)>>13));}\nfloat bfeFloat(uint h){uint s=(h&0x8000u)<<16;uint e=(h>>10)&0x1fu;uint m=h&0x3ffu;if(e==0u){float v=float(m)*exp2(-24.0);return s!=0u?-v:v;}if(e==31u)return uintBitsToFloat(s|0x7f800000u|(m<<13));return uintBitsToFloat(s|((e+112u)<<23)|(m<<13));}\nuint bfePackHalf2x16(vec2 v){return bfeHalf(v.x)|(bfeHalf(v.y)<<16);}\nvec2 bfeUnpackHalf2x16(uint p){return vec2(bfeFloat(p&0xffffu),bfeFloat(p>>16));}\n";
+// Desktop GLSL has built-in noise1 to noise4 (they return zero); GLSL ES has none, so a shader
+// may name its own function so. A compiler that keeps the built-in (macOS) refuses that function
+// for its return type: on desktop GLSL the shader's name is moved out of the built-in's way.
+const NOISE_NAMES: &str = "\n#define noise1 bfeNoise1\n#define noise2 bfeNoise2\n#define noise3 bfeNoise3\n#define noise4 bfeNoise4";
 pub fn to_desktop_glsl(source: &str, packing: bool) -> String {
     let Some(rest) = source.strip_prefix("#version 300 es") else { return source.to_string() };
+    let names = if ["noise1", "noise2", "noise3", "noise4"].iter().any(|name| rest.contains(name)) { NOISE_NAMES } else { "" };
     if !rest.contains("packHalf2x16") {
-        return format!("#version 330 core{rest}");
+        return format!("#version 330 core{names}{rest}");
     }
     if packing {
-        return format!("#version 330 core\n#extension GL_ARB_shading_language_packing : enable{rest}");
+        return format!("#version 330 core\n#extension GL_ARB_shading_language_packing : enable{names}{rest}");
     }
     // The functions go after the leading directives and before the first statement.
     let body = rest.replace("unpackHalf2x16(", "bfeUnpackHalf2x16(").replace("packHalf2x16(", "bfePackHalf2x16(").replace("bfeUnbfePackHalf2x16(", "bfeUnpackHalf2x16(");
@@ -490,7 +495,7 @@ pub fn to_desktop_glsl(source: &str, packing: bool) -> String {
         if !(t.is_empty() || t.starts_with('#')) { break; }
         at += line.len();
     }
-    format!("#version 330 core{}{HALF_FALLBACK}{}", &body[..at], &body[at..])
+    format!("#version 330 core{names}{}{HALF_FALLBACK}{}", &body[..at], &body[at..])
 }
 
 #[cfg(test)]
@@ -503,6 +508,11 @@ mod tests {
         let fallback = super::to_desktop_glsl("#version 300 es\n#define A 1\nprecision highp float;\nvec2 r = unpackHalf2x16(packHalf2x16(v));\n", false);
         assert!(fallback.starts_with("#version 330 core\n#define A 1\nuint bfeHalf("), "{fallback}");
         assert!(fallback.ends_with("precision highp float;\nvec2 r = bfeUnpackHalf2x16(bfePackHalf2x16(v));\n"), "{fallback}");
+    }
+    #[test]
+    fn a_shaders_own_noise_function_does_not_meet_desktop_glsls_built_in() {
+        let own = super::to_desktop_glsl("#version 300 es\nprecision highp float;\nfloat noise3(vec3 p){return p.x;}\n", false);
+        assert_eq!(own, "#version 330 core\n#define noise1 bfeNoise1\n#define noise2 bfeNoise2\n#define noise3 bfeNoise3\n#define noise4 bfeNoise4\nprecision highp float;\nfloat noise3(vec3 p){return p.x;}\n");
     }
     use super::*;
     #[test]

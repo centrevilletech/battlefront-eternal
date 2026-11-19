@@ -6,6 +6,17 @@ name: Release
 # host then signs the update channel and the APT repository and publishes the
 # release to get.battlefronteternal.com (build/publish-distribution.py).
 # GitHub-hosted runners only; no secrets beyond this workflow's own token.
+#
+# macOS: the same run builds the Mac app and checks it, its disk image and its
+# update payload. A Mac app that players can open must be signed and notarized
+# with an Apple developer certificate, which no workflow here holds, so the
+# release carries the unsigned app as one build input archive and the project's
+# signing step makes the download from it (docs/desktop-updates.md). The Mac
+# job is not part of the release job: whether it fails, hangs or is slow, this
+# run's Windows and Linux release is made at the same time and with the same
+# files as without it. What it can do is what any build job here can: a hung
+# Mac job holds this run open until its timeout (60 minutes, as for the other
+# builds; it takes about 25), and the next run starts only when this one ends.
 
 on:
   workflow_dispatch:
@@ -497,6 +508,75 @@ jobs:
             release/update-win32-x64.tar
             release/size-report-win32-x64.md
 
+  macos:
+    name: Build & Package (macOS arm64)
+    # GitHub's standard Apple silicon runner: three cores, 7 GB of memory.
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: The Rust toolchain rust/rust-toolchain.toml pins
+        working-directory: rust
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-darwin
+
+      - name: Restore Cargo's downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+          key: rust-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/rust-toolchain.toml', 'rust/Cargo.lock') }}
+          restore-keys: rust-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Assign monotonically increasing preview version
+        id: meta
+        shell: bash
+        run: |
+          number=$((GITHUB_RUN_NUMBER + PREVIEW_OFFSET))
+          version="0.1.0-preview.$number"
+          tag="preview-$number"
+          commit="${GITHUB_SHA}"
+          date=$(date -u +%Y-%m-%d)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          python3 - "${version}" "${tag}" "${commit}" "${date}" <<'PY'
+          import json, pathlib, sys
+          version, tag, commit, date = sys.argv[1:5]
+          pathlib.Path("build/bfe-release.json").write_text(json.dumps({
+              "version": version,
+              "tag": tag,
+              "commit": commit,
+              "date": date,
+              "channel": "development-preview",
+          }, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Cache toolchain downloads (mac-arm64)
+        uses: actions/cache@v6
+        with:
+          path: toolchain/.downloads
+          key: toolchain-mac-arm64-${{ hashFiles('build/native/fetch-toolchain.py') }}
+
+      # The test suites run on macOS in the CI workflow; this job builds what ships.
+      - name: Build, package and check the app, its disk image and update payload
+        env:
+          BFE_MAC_BUILD_INPUT: "1"
+        run: |
+          bash build/ci/macos-package.sh darwin-arm64 "${{ steps.meta.outputs.version }}" release
+          cat release/size-report-darwin-arm64.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-build-input-arm64
+          retention-days: 3
+          if-no-files-found: error
+          path: release/macos-arm64-unsigned-build-input.tar.zst
+
   release:
     # One release with every platform's files, created only when all three
     # native builds pass and publishing is enabled (workflow_dispatch with
@@ -526,4 +606,25 @@ jobs:
           ls -l release
           gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "Development preview $VERSION" \
-            --notes "Development preview built from $GITHUB_SHA. Install it from https://battlefronteternal.com/download; installed copies update themselves once it is published there."
+            --notes "Development preview built from $GITHUB_SHA. Install it from https://battlefronteternal.com/download; installed copies update themselves once it is published there. The file macos-arm64-unsigned-build-input.tar.zst, when present, is not an installer: it is the unsigned Mac build that the project's signing step takes. macOS builds are downloaded from the page above once they are signed and notarized."
+
+  release-macos:
+    # Adds the Mac build input to the release that the job above created. Kept apart from
+    # it so that a Mac build that fails or is slow never delays or changes that release.
+    needs: [linux-x64, release, macos]
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: macos-build-input-arm64
+          path: release
+
+      - name: Add the Mac build input to the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.linux-x64.outputs.tag }}
+        run: gh release upload "$TAG" release/macos-arm64-unsigned-build-input.tar.zst --repo "$GITHUB_REPOSITORY" --clobber

@@ -92,7 +92,10 @@ impl Smoke {
                     }
                     let gl = &scene.bridge.r.core.gl;
                     let renderer = unsafe { gl.get_parameter_string(glow::RENDERER) };
-                    if !renderer.to_ascii_lowercase().contains("llvmpipe") {
+                    // Linux and Windows run this smoke on Mesa's software renderer and must say so. macOS
+                    // has only its own OpenGL: a GPU on a real Mac, Apple's software renderer in a
+                    // virtual machine.
+                    if !cfg!(target_os = "macos") && !renderer.to_ascii_lowercase().contains("llvmpipe") {
                         return Err(format!("platform smoke requires llvmpipe, got {renderer}"));
                     }
                     let report = serde_json::json!({

@@ -10,6 +10,7 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -27,6 +28,11 @@ CACHE = ROOT / "toolchain" / ".downloads"
 
 PYTHON = {"version": "3.13.16", "release": "20261009"}
 KTX = "4.4.2"
+# The macOS FFmpeg builds are static, signed and notarized; each build has its
+# own folder name on the download site.
+FFMPEG_MAC = {"x64": "1789931006_9.0.2", "arm64": "1789931890_9.0.2"}
+# Some download sites refuse urllib's default client name.
+USER_AGENT = "battlefront-eternal-toolchain"
 CORE_WHEELS = ["pillow>=10"]
 AUDIO_WHEELS = ["numpy==2.5.3", "scipy==1.18.1", "soundfile==0.14.0", "soxr==1.1.0"]
 
@@ -59,7 +65,7 @@ TARGETS = {
             "macosx_13_0_x86_64",
             "macosx_14_0_x86_64",
         ],
-        "ffmpeg": "https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffmpeg.zip",
+        "ffmpeg": f"https://ffmpeg.martin-riedl.de/download/macos/amd64/{FFMPEG_MAC['x64']}/ffmpeg.zip",
         "ktx": f"https://github.com/KhronosGroup/KTX-Software/releases/download/v{KTX}/KTX-Software-{KTX}-Darwin-x86_64.pkg",
     },
     "mac-arm64": {
@@ -71,10 +77,44 @@ TARGETS = {
             "macosx_14_0_arm64",
             "macosx_15_0_arm64",
         ],
-        "ffmpeg": "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip",
+        "ffmpeg": f"https://ffmpeg.martin-riedl.de/download/macos/arm64/{FFMPEG_MAC['arm64']}/ffmpeg.zip",
         "ktx": f"https://github.com/KhronosGroup/KTX-Software/releases/download/v{KTX}/KTX-Software-{KTX}-Darwin-arm64.pkg",
     },
 }
+
+
+# What a Mac build fetches is signed with the developer's certificate as well as shipped,
+# so every macOS download is checked against a digest written here, as its publisher
+# states it (python-build-standalone's SHA256SUMS, the .sha256 beside each FFmpeg build,
+# the digest GitHub lists for each KTX-Software file), and the macOS Python packages
+# against the hashes in macos/toolchain-requirements.txt. A new version needs its new
+# digests. The Windows and Linux downloads are not pinned yet.
+MAC_REQUIREMENTS = Path(__file__).resolve().parent / "macos" / "toolchain-requirements.txt"
+MAC_PYTHON_ARCHIVE = "https://github.com/astral-sh/python-build-standalone/releases/download/20261009/cpython-3.13.16%2B20261009-{}-apple-darwin-install_only_stripped.tar.gz"
+SHA256 = {
+    MAC_PYTHON_ARCHIVE.format("aarch64"): "11785155d0f70e634178219c20925d8f20be00a3da4684fc4f5019dd15602ef7",
+    MAC_PYTHON_ARCHIVE.format("x86_64"): "bd085c51e960f00ee33b630e2b13ac90fe90cdc3da25a0f0bc0719b1294920bf",
+    "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip": "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924",
+    "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip": "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4",
+    "https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Darwin-arm64.pkg": "500bd8f9d63358c3f3a0d83b724c8574436a72c37dc0e4bad90ec1ca38032c3c",
+    "https://github.com/KhronosGroup/KTX-Software/releases/download/v4.4.2/KTX-Software-4.4.2-Darwin-x86_64.pkg": "efecc685ab891a6e119a9fdc8cbe038e135f9a367eb2f5d8a059553f947f1fea",
+}
+
+
+class DigestMismatch(RuntimeError):
+    """A download is not the file whose digest is pinned, or has no pinned digest where one is required."""
+
+
+def is_mac(target: dict) -> bool:
+    return target["python"].endswith("-apple-darwin")
+
+
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def tar_bin() -> str:
@@ -102,18 +142,28 @@ def host_key() -> tuple[str, str]:
     return os_part, arch_part
 
 
-def download(url: str, attempts: int = 6) -> Path:
+def download(url: str, attempts: int = 6, require_digest: bool = False) -> Path:
+    """Fetch `url` into the cache. A URL with a pinned digest only ever yields that file;
+    `require_digest` refuses a URL that has none (every macOS download)."""
+    expected = SHA256.get(url)
+    if expected is None and require_digest:
+        raise DigestMismatch(f"{url}: no SHA-256 is pinned for it in {Path(__file__).name}")
     CACHE.mkdir(parents=True, exist_ok=True)
-    safe_name = re.sub(r"[^\w.-]+", "_", re.sub(r"^https?://", "", url))
+    safe_name = re.sub(r"[^\w.-]+", "_", re.sub(r"^[a-z]+://", "", url))
     dest = CACHE / safe_name
     if dest.is_file():
-        return dest
+        if expected is None or sha256_of(dest) == expected:
+            return dest
+        # Not the pinned file (an older pin's, or changed since): fetched again.
+        dest.unlink()
     part = Path(str(dest) + ".part")
     for attempt in range(1, attempts + 1):
         have = part.stat().st_size if part.is_file() else 0
         try:
             print(f"download {url}" + (f" (resuming at {have} bytes)" if have else ""))
-            headers = {"Range": f"bytes={have}-"} if have else {}
+            headers = {"User-Agent": USER_AGENT}
+            if have:
+                headers["Range"] = f"bytes={have}-"
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=60) as resp:
                 status = getattr(resp, "status", 200)
@@ -137,6 +187,11 @@ def download(url: str, attempts: int = 6) -> Path:
                 raise RuntimeError(f"{url}: {err}") from err
             print(f"download interrupted ({err}); retrying", file=sys.stderr)
             time.sleep(2 * attempt)
+    if expected is not None:
+        actual = sha256_of(part)
+        if actual != expected:
+            part.unlink()
+            raise DigestMismatch(f"{url}: its SHA-256 is {actual}, the pinned one is {expected}")
     part.replace(dest)
     return dest
 
@@ -163,7 +218,7 @@ def ensure_host_python() -> Path:
     exe = host_dir / "python" / "python.exe" if os.name == "nt" else host_dir / "python" / "bin" / "python3"
     if not exe.is_file():
         host_dir.mkdir(parents=True, exist_ok=True)
-        archive = download(python_url(triple))
+        archive = download(python_url(triple), require_digest=os_part == "mac")
         run(tar_bin(), ["-xzf", str(archive), "-C", str(host_dir)])
     _HOST_PYTHON = exe
     return exe
@@ -205,7 +260,7 @@ def prune_python(py_dir: Path) -> None:
 
 
 def fetch_python(target: dict, out: Path) -> None:
-    archive = download(python_url(target["python"]))
+    archive = download(python_url(target["python"]), require_digest=is_mac(target))
     run(tar_bin(), ["-xzf", str(archive), "-C", str(out)])
     host_py = ensure_host_python()
     is_win = "windows" in target["python"]
@@ -236,16 +291,20 @@ def fetch_python(target: dict, out: Path) -> None:
             ],
         )
 
-    pip_install(CORE_WHEELS)
-    try:
-        pip_install(AUDIO_WHEELS)
-    except Exception:
-        print(f"warning: no audio wheels for {target['python']}; Enhanced sound preparation will be unavailable", file=sys.stderr)
+    if is_mac(target):
+        # The exact files of macos/toolchain-requirements.txt, dependencies included, or nothing.
+        pip_install(["--require-hashes", "-r", str(MAC_REQUIREMENTS)])
+    else:
+        pip_install(CORE_WHEELS)
+        try:
+            pip_install(AUDIO_WHEELS)
+        except Exception:
+            print(f"warning: no audio wheels for {target['python']}; Enhanced sound preparation will be unavailable", file=sys.stderr)
     prune_python(out / "python")
 
 
 def fetch_ffmpeg(target: dict, out: Path, key: str) -> None:
-    archive = download(target["ffmpeg"])
+    archive = download(target["ffmpeg"], require_digest=is_mac(target))
     work = scratch(f"ffmpeg-{key}")
     unpack(archive, work)
     exe = "ffmpeg.exe" if key.startswith("win") else "ffmpeg"
@@ -260,7 +319,7 @@ def fetch_ffmpeg(target: dict, out: Path, key: str) -> None:
 
 
 def fetch_ktx(target: dict, out: Path, key: str) -> None:
-    archive = download(target["ktx"])
+    archive = download(target["ktx"], require_digest=is_mac(target))
     work = scratch(f"ktx-{key}")
     dest = out / "ktx"
     arch_str = str(archive)
@@ -278,11 +337,17 @@ def fetch_ktx(target: dict, out: Path, key: str) -> None:
     (dest / "bin").mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary, dest / "bin" / exe)
     (dest / "bin" / exe).chmod(0o755)
-    for lib_dir in (base / "lib", binary.parent):
+    lib_dirs = [base / "lib", binary.parent]
+    if arch_str.endswith(".pkg"):
+        # The macOS installer keeps the library in a component package of its own.
+        lib_dirs = sorted({found.parent for found in work.rglob("libktx*.dylib")})
+    for lib_dir in lib_dirs:
         if not lib_dir.is_dir():
             continue
         for entry in lib_dir.iterdir():
             if not re.search(r"^(lib)?ktx(\.|-?\d)", entry.name, re.IGNORECASE) or re.search(r"jni", entry.name, re.IGNORECASE):
+                continue
+            if arch_str.endswith(".pkg") and not entry.name.endswith(".dylib"):
                 continue
             into = dest / ("bin" if key.startswith("win") else "lib")
             into.mkdir(parents=True, exist_ok=True)
@@ -305,6 +370,9 @@ def fetch_target(key: str) -> None:
     fetch_ffmpeg(target, out, key)
     try:
         fetch_ktx(target, out, key)
+    except DigestMismatch:
+        # Never a warning: the build would go on without the file, or with another one.
+        raise
     except Exception as err:
         print(f"warning: KTX-Software unavailable for {key}: {err}", file=sys.stderr)
     (out / "toolchain.json").write_text(

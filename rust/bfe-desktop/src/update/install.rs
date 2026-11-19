@@ -23,6 +23,8 @@ use crate::update::feed::{
     decompress_zstd_stream, join_url, open_url_reader, validate_link_target, ManifestFileEntry,
     PlatformManifest,
 };
+use crate::update::bundle::top_level_app;
+use crate::update::signer::{check_bundle, Signer};
 use crate::update::state::{
     versions_dir, InstallFileEntry, InstallRecord, INSTALL_RECORD,
 };
@@ -141,8 +143,29 @@ pub fn place_from_local(
     }
 
     fs::copy(source, dest).map_err(|e| e.to_string())?;
+    clear_quarantine(dest);
     apply_file_mode(dest, mode);
     Ok(())
+}
+
+/// macOS marks every file of a downloaded app as quarantined, and a copy made by the system
+/// carries the mark along. A file reused from the installed app must not bring it into the new
+/// version: Gatekeeper would then question programs the player already accepted.
+pub(crate) fn clear_quarantine(path: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        if let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) {
+            // SAFETY: both pointers are valid NUL-terminated strings for the duration of the call.
+            unsafe {
+                libc::removexattr(c_path.as_ptr(), c"com.apple.quarantine".as_ptr(), libc::XATTR_NOFOLLOW);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+    }
 }
 
 /// Streams a Zstandard-compressed blob from `url`, decompresses it on the fly while
@@ -269,23 +292,57 @@ pub struct InstallReleaseOptions {
     pub concurrency: usize,
     /// Per-blob download timeout in milliseconds (`DEFAULT_BLOB_TIMEOUT_MS`).
     pub timeout_ms: u64,
+    /// macOS: who has to have signed the app bundle of this release
+    /// (`update/signer.rs`). [`Signer::Anyone`] on the other systems.
+    pub signer: Signer,
 }
+
+/// [`InstallOutcome::reason`] of a release that was fetched whole and then not installed
+/// because its app bundle is not signed by [`InstallReleaseOptions::signer`].
+pub const REFUSED: &str = "refused";
 
 /// Outcome returned by [`install_release`].
 ///
 /// Mirrors the return value of `installRelease` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallOutcome {
-    /// True if the version was newly installed; false if already present.
+    /// True if the version was newly installed; false if already present or refused.
     pub installed: bool,
-    /// Status code: `"installed"` or `"already-installed"`.
+    /// Status code: `"installed"`, `"already-installed"` or [`REFUSED`].
     pub reason: String,
+    /// Why, for a refused release.
+    pub detail: Option<String>,
     /// Path to `<root>/versions/<version>`.
     pub dir: PathBuf,
     /// Number of files reused from local trees.
     pub reused: usize,
     /// Number of files downloaded from remote `.zst` blobs.
     pub downloaded: usize,
+}
+
+/// The folder name of the one app bundle `manifest` consists of: its program is
+/// `<Name>.app/Contents/MacOS/<program>` and every file, link and folder it lists is inside
+/// `<Name>.app`. An error says what is not.
+fn release_app(manifest: &PlatformManifest, exe_rel: &str) -> Result<String, String> {
+    let app = top_level_app(Path::new(exe_rel))
+        .and_then(|app| app.to_str())
+        .ok_or_else(|| format!("its program {exe_rel} is not directly in the MacOS folder of the release's own app bundle"))?;
+    let listed = manifest
+        .files
+        .iter()
+        .map(|file| &file.path)
+        .chain(manifest.links.iter().map(|link| &link.path))
+        .chain(manifest.dirs.iter());
+    for path in listed {
+        let inside = safe_relative_path(path).is_some_and(|rel| {
+            let rel = Path::new(&rel);
+            rel.starts_with(app) && rel != Path::new(app)
+        });
+        if !inside {
+            return Err(format!("it holds {path}, which is not inside its app bundle {app}"));
+        }
+    }
+    Ok(app.to_string())
 }
 
 /// Installs a verified [`PlatformManifest`] into `<root>/versions/<version>`.
@@ -306,10 +363,31 @@ where
         .ok_or_else(|| "Invalid update executable".to_string())?;
 
     let final_dir = versions_dir(&opts.root).join(&opts.manifest.version);
+    // macOS, for an app that states who signs its updates: the release has to be one app
+    // bundle and nothing beside it, with its program directly in that bundle, so that the
+    // check of the bundle's signature further down is a check of everything the release
+    // holds. Anything else is refused before a single file is fetched.
+    let signed_app = match &opts.signer {
+        Signer::Anyone => None,
+        Signer::Requirement(_) => match release_app(&opts.manifest, &exe_rel) {
+            Ok(app) => Some(app),
+            Err(why) => {
+                return Ok(InstallOutcome {
+                    installed: false,
+                    reason: REFUSED.to_string(),
+                    detail: Some(why),
+                    dir: final_dir,
+                    reused: 0,
+                    downloaded: 0,
+                })
+            }
+        },
+    };
     if final_dir.join(INSTALL_RECORD).exists() {
         return Ok(InstallOutcome {
             installed: false,
             reason: "already-installed".to_string(),
+            detail: None,
             dir: final_dir,
             reused: 0,
             downloaded: 0,
@@ -517,6 +595,23 @@ where
         let _ = fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755));
     }
 
+    // macOS: the build is here as the app's own developer sealed it, or it is no update of
+    // this app. Checked before the record below makes the folder an installed version, so
+    // nothing ever starts a build that was not checked.
+    if let Some(app) = &signed_app {
+        if let Err(why) = check_bundle(&stage_dir.join(app), &opts.signer) {
+            let _ = fs::remove_dir_all(&stage_dir);
+            return Ok(InstallOutcome {
+                installed: false,
+                reason: REFUSED.to_string(),
+                detail: Some(why),
+                dir: final_dir,
+                reused,
+                downloaded,
+            });
+        }
+    }
+
     let record = InstallRecord {
         version: opts.manifest.version.clone(),
         release_id: opts.manifest.release_id.clone(),
@@ -569,6 +664,7 @@ where
     Ok(InstallOutcome {
         installed: true,
         reason: "installed".to_string(),
+        detail: None,
         dir: final_dir,
         reused,
         downloaded,

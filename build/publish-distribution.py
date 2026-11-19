@@ -28,6 +28,19 @@ KEY = 'F210B0710D270963CB641C118043BCB331D34C9B'
 CHANNEL = os.environ.get('BFE_UPDATE_CHANNEL', 'development-preview')
 UPDATE_KEY = os.environ.get('BFE_UPDATE_KEY', str(Path(KEYHOME) / 'update-ed25519.pem'))
 UPDATE_PLATFORMS = ('linux-x64', 'linux-arm64', 'win32-x64')
+# A Mac build is signed and notarized after the release it belongs to is
+# built, so it joins a release that is already live (publish_macos).
+MAC_PLATFORMS = ('darwin-arm64', 'darwin-x64')
+MAC_RECORD = 'macos-notarized.json'
+MAC_TICKET = 'Battlefront Eternal.app/Contents/CodeResources'
+# The update keys a disk image of each kind serves.
+MAC_ARCH_PLATFORMS = {'arm64': {'darwin-arm64'}, 'x64': {'darwin-x64'}, 'universal': {'darwin-arm64', 'darwin-x64'}}
+# The signing Mac signs its record with an Ed25519 key that never leaves it;
+# this is the public half, installed with the publisher. Whoever can write
+# the place the Mac files are handed over in can write a record; only the
+# signing Mac can sign one. Without this file no Mac build is published.
+MAC_RECORD_KEY = Path(os.environ.get('BFE_MAC_RECORD_KEY') or Path(__file__).resolve().parent / 'release-host' / 'macos-record.pub.pem')
+MAC_SIGNATURE = MAC_RECORD + '.sig'
 MAX_BLOB = 2 << 30
 
 def run(*args, **kw):
@@ -128,6 +141,8 @@ def check_tree(tree, platform, version):
         if (not isinstance(item, dict) or not safe_relative(item.get('path')) or not re.fullmatch(r'[a-f0-9]{64}', str(item.get('sha256')))
                 or not isinstance(item.get('size'), int) or not isinstance(item.get('zsize'), int) or item.get('mode') not in (0o644, 0o755)):
             raise ValueError(f'Malformed update manifest entry for {platform}')
+        if item['path'] in by_path:
+            raise ValueError(f"Update manifest for {platform} names {item['path']} twice")
         by_path[item['path']] = item
     if tree['executable'] not in by_path or by_path[tree['executable']]['mode'] != 0o755:
         raise ValueError(f'Update manifest for {platform} has no executable')
@@ -135,11 +150,15 @@ def check_tree(tree, platform, version):
         server_executable = tree.get('server_executable')
         if not safe_relative(server_executable) or server_executable not in by_path or by_path[server_executable]['mode'] != 0o755:
             raise ValueError(f'Update manifest for {platform} has an invalid server executable')
+    linked = set()
     for link in tree.get('links', []):
         target = link.get('target') if isinstance(link, dict) else None
         if not safe_relative(link.get('path')) or not isinstance(target, str) or target.startswith('/') or not safe_relative(
                 os.path.normpath(os.path.join(os.path.dirname(link['path']), target)).replace(os.sep, '/')):
             raise ValueError(f'Unsafe link in the update manifest for {platform}')
+        if link['path'] in by_path or link['path'] in linked:
+            raise ValueError(f"Update manifest for {platform} names {link['path']} twice")
+        linked.add(link['path'])
     return tree
 
 def ingest_updates(source, stage, version, release_id, store):
@@ -155,50 +174,74 @@ def ingest_updates(source, stage, version, release_id, store):
         raise ValueError('Update payloads are missing for ' + ', '.join(sorted(set(UPDATE_PLATFORMS) - set(present))))
     platforms, content = {}, None
     for platform, path in tars.items():
-        tree = None
-        with tarfile.open(path, 'r:') as archive:
-            for member in archive:
-                if not member.isfile() or member.size > MAX_BLOB:
-                    raise ValueError(f'Unexpected entry {member.name} in {path.name}')
-                stream = archive.extractfile(member)
-                if member.name == f'update-{platform}.json':
-                    tree = json.loads(stream.read())
-                    continue
-                match = re.fullmatch(r'blobs/([a-f0-9]{64})\.zst', member.name)
-                if not match:
-                    raise ValueError(f'Unexpected entry {member.name} in {path.name}')
-                digest = match.group(1)
-                target = store / digest[:2] / f'{digest}.zst'
-                if target.exists():
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                temporary = target.parent / f'.{digest}.{os.getpid()}'
-                with temporary.open('wb') as output:
-                    shutil.copyfileobj(stream, output)
-                if zstd_digest(temporary) != digest:
-                    temporary.unlink()
-                    raise ValueError(f'Update blob {digest} does not hold what its name says')
-                temporary.chmod(0o644)
-                os.replace(temporary, target)
-        tree = check_tree(tree, platform, version)
-        unique = {}
-        for item in tree['files']:
-            blob = store / item['sha256'][:2] / f"{item['sha256']}.zst"
-            if not blob.exists() or blob.stat().st_size != item['zsize']:
-                raise ValueError(f"Update blob for {item['path']} ({platform}) is missing from the store")
-            unique[item['sha256']] = item['zsize']
-        packed = subprocess.run(['zstd', '-19', '-q', '-c'], input=json.dumps(tree).encode(), stdout=subprocess.PIPE, check=True).stdout
-        name = f'update-{platform}.json.zst'
-        (stage / name).write_bytes(packed)
-        entry = {'manifest': f'{release_id}/{name}', 'sha256': hashlib.sha256(packed).hexdigest(),
-                 'files': len(tree['files']), 'size': sum(item['size'] for item in tree['files']),
-                 'download': sum(unique.values())}
-        if 'server_executable' in tree:
-            entry['executable'] = tree['executable']
-            entry['server_executable'] = tree['server_executable']
-        platforms[platform] = entry
+        platforms[platform], tree = ingest_platform(path, platform, stage, version, release_id, store)
         content = content or tree.get('content')
     return platforms, content
+
+def ingest_platform(path, platform, stage, version, release_id, store):
+    """One platform's payload: its new blobs into the store, its manifest
+    into `stage`. Returns the signed release's entry for the platform and the
+    platform's tree. Nothing reaches the store unless the whole payload is
+    sound."""
+    incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=store.parent))
+    try:
+        tree = read_payload(path, platform, version, store, incoming)
+        return store_payload(tree, platform, stage, release_id, store, incoming), tree
+    finally:
+        shutil.rmtree(incoming, ignore_errors=True)
+
+def read_payload(path, platform, version, store, incoming):
+    """Reads a payload without touching the store: returns its tree, checked,
+    and leaves the blobs the store lacks in `incoming`, each checked against
+    the hash it is named by."""
+    tree = None
+    with tarfile.open(path, 'r:') as archive:
+        for member in archive:
+            if not member.isfile() or member.size > MAX_BLOB:
+                raise ValueError(f'Unexpected entry {member.name} in {path.name}')
+            stream = archive.extractfile(member)
+            if member.name == f'update-{platform}.json':
+                tree = json.loads(stream.read())
+                continue
+            match = re.fullmatch(r'blobs/([a-f0-9]{64})\.zst', member.name)
+            if not match:
+                raise ValueError(f'Unexpected entry {member.name} in {path.name}')
+            digest = match.group(1)
+            waiting = incoming / f'{digest}.zst'
+            if (store / digest[:2] / f'{digest}.zst').exists() or waiting.exists():
+                continue
+            with waiting.open('wb') as output:
+                shutil.copyfileobj(stream, output)
+            if zstd_digest(waiting) != digest:
+                raise ValueError(f'Update blob {digest} does not hold what its name says')
+    tree = check_tree(tree, platform, version)
+    for item in tree['files']:
+        held = [blob for blob in (store / item['sha256'][:2] / f"{item['sha256']}.zst", incoming / f"{item['sha256']}.zst") if blob.exists()]
+        if not held or held[0].stat().st_size != item['zsize']:
+            raise ValueError(f"Update blob for {item['path']} ({platform}) is missing from the store")
+    return tree
+
+def store_payload(tree, platform, stage, release_id, store, incoming):
+    """Moves a read payload's new blobs into the store and writes its manifest
+    into `stage`. Returns the signed release's entry for the platform."""
+    unique = {}
+    for item in tree['files']:
+        waiting, target = incoming / f"{item['sha256']}.zst", store / item['sha256'][:2] / f"{item['sha256']}.zst"
+        if waiting.exists() and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            waiting.chmod(0o644)
+            os.replace(waiting, target)
+        unique[item['sha256']] = item['zsize']
+    packed = subprocess.run(['zstd', '-19', '-q', '-c'], input=json.dumps(tree).encode(), stdout=subprocess.PIPE, check=True).stdout
+    name = f'update-{platform}.json.zst'
+    (stage / name).write_bytes(packed)
+    entry = {'manifest': f'{release_id}/{name}', 'sha256': hashlib.sha256(packed).hexdigest(),
+             'files': len(tree['files']), 'size': sum(item['size'] for item in tree['files']),
+             'download': sum(unique.values())}
+    if 'server_executable' in tree:
+        entry['executable'] = tree['executable']
+        entry['server_executable'] = tree['server_executable']
+    return entry
 
 def sign_update(payload):
     """The channel file: the release JSON, signed with the Ed25519 update key
@@ -323,6 +366,11 @@ def publish(source, version, release_id, revision, date):
                          key=lambda p: p.stat().st_mtime, reverse=True)
     retained = generations[:keep_count]
     retained_packages = {p.name for directory in retained for p in directory.glob('*.deb')}
+    # The newest Mac build can belong to an older release than these. Its
+    # folder and blobs stay for as long as the Mac download points at it;
+    # its Debian packages leave the catalogue like any aged-out release's.
+    mac_link = downloads / 'latest-macos'
+    kept = retained + [p for p in generations[keep_count:] if mac_link.is_symlink() and p.name == os.readlink(mac_link)]
     # Retain old immutable index generations for APT's Acquire-By-Hash requests.
     indices = apt / 'indices' / release_id
     indices.mkdir(parents=True)
@@ -376,19 +424,131 @@ def publish(source, version, release_id, revision, date):
     # Prune only after the new signed catalogue is live. Shared by-hash files
     # are small and retained so previously fetched Release files still resolve.
     for directory in generations[keep_count:]:
+        if directory in kept:
+            continue
         shutil.rmtree(directory)
         shutil.rmtree(apt / 'indices' / directory.name, ignore_errors=True)
     for package in pool.glob('*.deb'):
         if package.name not in retained_packages:
             package.unlink()
     if updates:
-        collect_blobs(downloads / 'updates' / 'blobs', retained)
+        collect_blobs(downloads / 'updates' / 'blobs', kept)
     print('Published', release_id, 'with signed APT indices, download checksums' + (' and the signed update channel ' + CHANNEL if updates else ''))
+
+def verify_mac_record(record, signature):
+    """Raises unless `signature` (base64 text) is the signing Mac's Ed25519
+    signature of the record's bytes."""
+    if not MAC_RECORD_KEY.is_file():
+        raise ValueError(f'No public key for the Mac build record is installed ({MAC_RECORD_KEY})')
+    try:
+        raw = base64.b64decode(signature.strip(), validate=True)
+    except (ValueError, TypeError):
+        raw = b''
+    with tempfile.TemporaryDirectory() as work:
+        data, detached = Path(work) / 'record', Path(work) / 'signature'
+        data.write_bytes(record)
+        detached.write_bytes(raw)
+        accepted = len(raw) == 64 and subprocess.run(
+            ['openssl', 'pkeyutl', '-verify', '-pubin', '-inkey', str(MAC_RECORD_KEY), '-rawin', '-in', str(data), '-sigfile', str(detached)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    if not accepted:
+        raise ValueError('The Mac build record is not signed by the signing Mac')
+
+def publish_macos(source):
+    """Adds a signed and notarized Mac build to the live release. `source`
+    holds the disk image, one update payload per platform key, the signing
+    step's record of them (macos-notarized.json) and the signing Mac's
+    signature of that record. Nothing the release already has changes: the
+    Mac files and their own signed checksums are added beside it, the channel
+    file is signed again with the Mac platforms added, which is when
+    installed Mac clients see it, and downloads/latest-macos points at the
+    release. macos.json is written last and is what says the release has its
+    Mac build: a step that stopped anywhere before it is simply run again."""
+    os.umask(0o022)
+    downloads = ROOT / 'downloads'
+    raw = (source / MAC_RECORD).read_bytes()
+    # Before anything the record names is read: is the record the signing Mac's own?
+    verify_mac_record(raw, (source / MAC_SIGNATURE).read_text() if (source / MAC_SIGNATURE).is_file() else '')
+    record = json.loads(raw)
+    live = json.loads((downloads / 'latest/manifest.json').read_text())
+    release_id, version = record.get('release_id'), record.get('version')
+    if (record.get('schema') != 1 or release_id != live['release_id'] or version != live['version'].replace('~', '-')
+            or record.get('revision') != live['revision']):
+        raise ValueError('The Mac build is not for the live release')
+    if record.get('notarized') is not True:
+        raise ValueError('The Mac build is not notarized')
+    generation = downloads / release_id
+    if (generation / 'macos.json').exists():
+        raise ValueError('The live release already has its Mac build')
+
+    def named(item):
+        # A file of the record, checked against the size and hash it gives.
+        name = item.get('name') if isinstance(item, dict) else None
+        if not isinstance(name, str) or Path(name).name != name or name.startswith('.'):
+            raise ValueError('Invalid file name in the Mac build record')
+        path = source / name
+        if not path.is_file() or path.stat().st_size != item.get('size') or sha256(path) != item.get('sha256'):
+            raise ValueError(f'{name} is not the file the Mac build record describes')
+        return path
+
+    image, updates = record.get('dmg'), record.get('updates')
+    if not isinstance(image, dict) or image.get('arch') not in MAC_ARCH_PLATFORMS or not str(image.get('name')).endswith('.dmg'):
+        raise ValueError('The Mac build record names no disk image')
+    # An arm64 image comes with the arm64 update and nothing else; a universal one with both keys.
+    if not isinstance(updates, dict) or set(updates) != MAC_ARCH_PLATFORMS[image['arch']]:
+        raise ValueError(f"The Mac build record's update payloads are not those of a {image.get('arch')} image")
+    image_file = named(image)
+    store = downloads / 'updates' / 'blobs'
+    # As publish() does: a release that was published without update payloads has no store yet.
+    store.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.macos-', dir=downloads))
+    incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=store.parent))
+    try:
+        # Every payload is read and checked before one blob of any reaches the store.
+        trees = {}
+        for platform in sorted(updates):
+            trees[platform] = read_payload(named(updates[platform]), platform, version, store, incoming)
+            # Stapling adds this file: an update without it was not made from the notarized app.
+            if not any(item['path'] == MAC_TICKET for item in trees[platform]['files']):
+                raise ValueError(f'The {platform} update lacks the notarization ticket')
+        entries = {platform: store_payload(tree, platform, stage, release_id, store, incoming) for platform, tree in trees.items()}
+        public = f"Battlefront-Eternal-macos-{image['arch']}.dmg"
+        shutil.copyfile(image_file, stage / public)
+        done = (json.dumps({
+            'version': version, 'release_id': release_id, 'file': public, 'sha256': image['sha256'], 'size': image['size'],
+            'arch': image['arch'], 'platforms': sorted(entries), 'minimum_macos': record.get('minimum_macos'),
+            'notarization': record.get('notarization')}, indent=2) + '\n').encode()
+        (stage / 'SHA256SUMS-macos').write_text(''.join(sha256(p) + '  ' + p.name + '\n' for p in sorted(stage.iterdir()))
+                                                + hashlib.sha256(done).hexdigest() + '  macos.json\n')
+        sign(stage / 'SHA256SUMS-macos', True)
+        for p in sorted(stage.iterdir()):
+            p.chmod(0o644)
+            os.replace(p, generation / p.name)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+        shutil.rmtree(incoming, ignore_errors=True)
+    channel = downloads / 'updates' / f'{CHANNEL}.json'
+    signed = False
+    if channel.exists():
+        release = json.loads(base64.b64decode(json.loads(channel.read_text())['payload']))
+        if release.get('release_id') == release_id:
+            release['platforms'].update(entries)
+            write_atomic(channel, (json.dumps(sign_update(json.dumps(release).encode())) + '\n').encode())
+            signed = True
+    temporary = downloads / '.latest-macos-next'
+    temporary.unlink(missing_ok=True)
+    temporary.symlink_to(release_id)
+    temporary.replace(downloads / 'latest-macos')
+    # Last: until this file exists the release has no Mac build and the whole step may run again.
+    write_atomic(generation / 'macos.json', done)
+    print('Published the Mac build of', release_id, 'for', ', '.join(sorted(entries)) + (' and signed the update channel again' if signed else ''))
 
 def main():
     ROOT.mkdir(parents=True, exist_ok=True)
     with (ROOT / '.publish.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
+        if os.environ.get('BFE_MACOS_DIR'):
+            return publish_macos(Path(os.environ['BFE_MACOS_DIR']))
         with tempfile.TemporaryDirectory(prefix='bfe-distribution-') as work:
             source = Path(os.environ.get('BFE_RELEASE_DIR', work))
             if 'BFE_RELEASE_DIR' not in os.environ:

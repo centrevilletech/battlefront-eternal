@@ -483,6 +483,11 @@ impl AppSettingsStore {
         } else if !gpu.is_old_intel {
             if let Some(preset) = fill_ms_per_mpix.and_then(measured_preset) {
                 self.interface.set("performancePreset", preset);
+            } else if cfg!(target_os = "macos") {
+                // A Mac's own display has two to three times the pixels of a common PC monitor and an
+                // integrated GPU to fill them: a first start there keeps 60 frames a second by drawing
+                // the scene smaller when it has to (an iMac's 4480x2520 at full size draws about 40).
+                self.interface.set("dynamicResolution", "60");
             }
         }
         self.interface.fresh = false;

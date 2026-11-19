@@ -16,13 +16,15 @@ use crate::launch::{
 };
 use crate::paths::{home_dir_from_env, normalize_lexical};
 use crate::update::feed::{fetch_channel, fetch_manifest, DEFAULT_TIMEOUT_MS};
+use crate::update::bundle::{bundle_of, version_bundle};
 use crate::update::install::{
     install_release, InstallProgress, InstallReleaseOptions, DEFAULT_BLOB_TIMEOUT_MS,
-    DEFAULT_CONCURRENCY,
+    DEFAULT_CONCURRENCY, REFUSED,
 };
 use crate::update::keys::{default_keys, FEED};
+use crate::update::signer::{check_bundle, signer_of, Signer};
 use crate::update::state::{
-    choose_launch, installed_versions, platform_key, read_state, record_attempt,
+    choose_launch, installed_versions, platform_key, read_state, record_attempt, record_bad,
     resolve_update_root, InstalledVersion,
 };
 use crate::update::version::{is_newer, parse_version};
@@ -64,7 +66,7 @@ pub struct UpdaterContext {
     pub feed_url: Option<String>,
     /// Trusted Ed25519 public keys (`key_id -> PEM`).
     pub keys: BTreeMap<String, String>,
-    /// Target OS (`"linux"` or `"win32"`).
+    /// Target OS (`"linux"`, `"win32"` or `"darwin"`).
     pub platform: String,
     /// Target CPU architecture (`"x64"` or `"arm64"`).
     pub arch: String,
@@ -84,9 +86,23 @@ pub struct UpdaterContext {
     pub blob_timeout_ms: u64,
     /// Maximum concurrent blob downloads (`DEFAULT_CONCURRENCY`).
     pub concurrency: usize,
+    /// macOS: who has to have signed an update. `None` reads it from the running app's own
+    /// signature (`update/signer.rs`), which is what every real start does.
+    pub signer: Option<Signer>,
 }
 
 impl UpdaterContext {
+    /// macOS: who has to have signed a build that updates the running app, read from the
+    /// app's own signature unless the context names it. An error means that signature could
+    /// not be read; no update is then fetched or started.
+    fn required_signer(&self, plat: &str) -> Result<Signer, String> {
+        match (&self.signer, bundle_of(&self.own_dir)) {
+            (Some(signer), _) => Ok(signer.clone()),
+            (None, Some(bundle)) if plat.starts_with("darwin-") => signer_of(&bundle),
+            (None, _) => Ok(Signer::Anyone),
+        }
+    }
+
     /// Captures [`UpdaterContext`] from the current process environment and executable location.
     pub fn from_current_process() -> Self {
         let env_map: BTreeMap<String, String> = env::vars().collect();
@@ -117,6 +133,7 @@ impl UpdaterContext {
             fetch_timeout_ms: DEFAULT_TIMEOUT_MS,
             blob_timeout_ms: DEFAULT_BLOB_TIMEOUT_MS,
             concurrency: DEFAULT_CONCURRENCY,
+            signer: None,
         }
     }
 
@@ -222,6 +239,45 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
             break;
         };
 
+        // macOS: whatever put this version into the folder, it is started only as a build
+        // signed by the developer of this app (update/signer.rs). The check at installation
+        // already refused anything else that came through the channel; this one costs a
+        // fraction of a second and also covers a folder that something else wrote into.
+        let signer = match ctx.required_signer(resolved.plat) {
+            Ok(signer) => signer,
+            Err(reason) => {
+                // This app's own signature cannot be read: nothing is wrong with the
+                // candidate, and nothing can be checked. This copy starts as it is.
+                append_update_log(
+                    &resolved.root,
+                    Some(&resolved.own_version),
+                    &format!("no hand-off to {}: {reason}", candidate.version),
+                );
+                break;
+            }
+        };
+        let checked = match &signer {
+            Signer::Anyone => Ok(()),
+            // The version's own bundle, never one nested inside it: the signature that is
+            // checked has to seal everything the version runs from.
+            Signer::Requirement(_) => version_bundle(&candidate.dir, &candidate.executable)
+                .ok_or_else(|| "its program is not directly in the MacOS folder of the version's own app bundle".to_string())
+                .and_then(|bundle| check_bundle(&bundle, &signer)),
+        };
+        if let Err(reason) = checked {
+            let _ = record_bad(&resolved.root, &candidate.version);
+            let _ = std::fs::remove_dir_all(&candidate.dir);
+            append_update_log(
+                &resolved.root,
+                Some(&resolved.own_version),
+                &format!(
+                    "not starting {}: it is not a build signed by the developer of this app ({reason}); removed",
+                    candidate.version
+                ),
+            );
+            continue;
+        }
+
         let _ = record_attempt(&resolved.root, &candidate.version);
         let result = launch_version(&LaunchOptions {
             target: LaunchTarget {
@@ -300,10 +356,25 @@ pub enum CheckOutcome {
         /// Installed target version.
         version: String,
     },
-    /// Channel release was previously marked `bad` after failing launch attempts.
+    /// The channel's newest release has no build for this platform (a platform's build can
+    /// follow the others); nothing to do until it has.
+    NoBuildYet {
+        /// The release that lacks this platform's build.
+        version: String,
+    },
+    /// Channel release was previously marked `bad`: it failed its launch attempts or was
+    /// refused as it arrived.
     SkippedBad {
         /// Skipped version string.
         version: String,
+    },
+    /// macOS: the release was fetched, and its app bundle is not a build signed by the
+    /// developer of the running app. Nothing of it is kept and it is not fetched again.
+    Refused {
+        /// Refused version string.
+        version: String,
+        /// What the signature check said.
+        reason: String,
     },
     /// Channel release was downloaded, verified, and installed into `<root>/versions/<version>`.
     Installed {
@@ -347,6 +418,12 @@ where
             });
         }
 
+        if !release.platforms.contains_key(resolved.plat) {
+            return Ok(CheckOutcome::NoBuildYet {
+                version: release.version.clone(),
+            });
+        }
+
         let existing = installed_versions(&resolved.root, Some(resolved.plat));
         if let Some(found) = existing.iter().find(|v| v.version == release.version) {
             let _ = found;
@@ -366,6 +443,10 @@ where
                 version: release.version.clone(),
             });
         }
+
+        // macOS: only a build signed by this app's developer may update it. Read before
+        // anything is fetched: an app whose own signature cannot be read takes no update.
+        let signer = ctx.required_signer(resolved.plat)?;
 
         append_update_log(
             &resolved.root,
@@ -396,9 +477,29 @@ where
                 local_trees,
                 concurrency: ctx.concurrency,
                 timeout_ms: ctx.blob_timeout_ms,
+                signer,
             },
             on_progress,
         )?;
+
+        if result.reason == REFUSED {
+            let reason = result.detail.unwrap_or_default();
+            // Marked so that the next start does not fetch it again; a later release is
+            // looked at afresh.
+            let _ = record_bad(&resolved.root, &release.version);
+            append_update_log(
+                &resolved.root,
+                Some(&resolved.own_version),
+                &format!(
+                    "refused {}: it is not a build signed by the developer of this app ({reason}); nothing of it is kept",
+                    release.version
+                ),
+            );
+            return Ok(CheckOutcome::Refused {
+                version: release.version.clone(),
+                reason,
+            });
+        }
 
         append_update_log(
             &resolved.root,

@@ -417,6 +417,12 @@ pub struct AudioDevice {
     pub status: Arc<Status>,
     /// The channels the stream was opened with.
     pub channels: usize,
+    /// The output device the stream was opened on, by its name.
+    pub name: String,
+}
+/// The system's default output device, by its name.
+pub fn default_output_name() -> Option<String> {
+    cpal::default_host().default_output_device()?.name().ok()
 }
 impl AudioDevice {
     // Startup negotiates one supported sample format. Runtime errors are
@@ -462,7 +468,7 @@ impl AudioDevice {
             cpal::SampleFormat::U16 => build::<u16>(&device, &config, output, &status),
             _ => unreachable!(),
         }?;
-        let result = Self { stream, status, channels: config.channels as usize };
+        let result = Self { stream, status, channels: config.channels as usize, name: device.name().unwrap_or_default() };
         eprintln!("audio device: {} channels at {rate} Hz (device default {default}, up to {max})", result.channels);
         let played = result.play();
         DEVICE_GENERATION.fetch_add(1, Ordering::Relaxed);

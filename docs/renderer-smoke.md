@@ -21,6 +21,16 @@ sheet PNG.
 The release client itself is checked on software OpenGL by
 `tools/platform-smoke-native.py` (startup, menu and the synthetic room).
 
+macOS has no EGL of its own, so there `render-smoke` makes an offscreen
+context of the system's OpenGL (the 4.1 core profile the game's window gets)
+and the check runs on the Mac's GPU, from a logged-in desktop session:
+
+```bash
+cargo build --manifest-path rust/Cargo.toml --release --locked -p bfe-client --bin render-smoke
+python3 tools/renderer-smoke-native.py --hardware-gl --backend apple-opengl \
+  --render-smoke-bin rust/target/release/render-smoke
+```
+
 ## Shader catalog and pass coverage
 
 At startup the renderer smoke check reads every
