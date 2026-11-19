@@ -301,7 +301,7 @@ class DistributionTest(unittest.TestCase):
             app_name = 'Battlefront Eternal.app'
             mac = root / 'mac'
 
-            def mac_build(number, stapled=True):
+            def mac_build(number, stapled=True, revision='d' * 40):
                 shutil.rmtree(mac, ignore_errors=True)
                 contents = mac / 'tree' / app_name / 'Contents'
                 (contents / 'MacOS').mkdir(parents=True)
@@ -322,8 +322,9 @@ class DistributionTest(unittest.TestCase):
                 image = mac / f'Battlefront-Eternal-0.1.0-preview.{number}-macos-arm64.dmg'
                 image.write_text(f'disk image {number}')
                 described = lambda path: {'name': path.name, 'size': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
-                record = {'schema': 1, 'release_id': f'preview-{number}', 'version': f'0.1.0-preview.{number}', 'notarized': True,
-                          'dmg': {**described(image), 'arch': 'arm64'}, 'updates': {'darwin-arm64': described(mac / 'update-darwin-arm64.tar')}}
+                record = {'schema': 1, 'release_id': f'preview-{number}', 'version': f'0.1.0-preview.{number}', 'revision': revision,
+                          'notarized': True, 'dmg': {**described(image), 'arch': 'arm64'},
+                          'updates': {'darwin-arm64': described(mac / 'update-darwin-arm64.tar')}}
                 (mac / 'macos-notarized.json').write_text(json.dumps(record))
                 return record
 
@@ -334,6 +335,9 @@ class DistributionTest(unittest.TestCase):
             mac_build(5, stapled=False)
             with self.assertRaises(ValueError):
                 distribution.publish_macos(mac)  # made from an app without its notarization ticket
+            mac_build(5, revision='f' * 40)
+            with self.assertRaises(ValueError):
+                distribution.publish_macos(mac)  # built from another commit than the live release
             self.assertFalse((downloads / 'preview-5/macos.json').exists())
             self.assertNotIn('darwin-arm64', channel()['platforms'])
             record = mac_build(5)
@@ -381,7 +385,7 @@ class DistributionTest(unittest.TestCase):
             for item in mac_tree['files']:
                 self.assertTrue((store / item['sha256'][:2] / f"{item['sha256']}.zst").is_file(), item['path'])
             self.assertFalse(list((root / 'public/apt/pool').rglob('*preview.5*')), "an aged-out release's packages leave the catalogue")
-            mac_build(8)
+            mac_build(8, revision='e' * 40)
             distribution.publish_macos(mac)
             self.assertEqual(os.readlink(downloads / 'latest-macos'), 'preview-8')
             self.assertIn('darwin-arm64', channel()['platforms'])

@@ -416,7 +416,8 @@ def publish_macos(source):
     record = json.loads((source / MAC_RECORD).read_text())
     live = json.loads((downloads / 'latest/manifest.json').read_text())
     release_id, version = record.get('release_id'), record.get('version')
-    if record.get('schema') != 1 or release_id != live['release_id'] or version != live['version'].replace('~', '-'):
+    if (record.get('schema') != 1 or release_id != live['release_id'] or version != live['version'].replace('~', '-')
+            or record.get('revision') != live['revision']):
         raise ValueError('The Mac build is not for the live release')
     if record.get('notarized') is not True:
         raise ValueError('The Mac build is not notarized')
