@@ -35,6 +35,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import sys
@@ -104,12 +105,26 @@ def file_digest(path: Path, prefix: bytes = b'') -> str:
     return digest.hexdigest()
 
 
-def sign_file(path: Path, identity: str, cache: Path | None) -> bool:
-    """Sign one program in place. Returns True when an earlier signed copy was reused."""
+def identity_fingerprint(identity: str) -> str | None:
+    """The SHA-1 of the one certificate the identity names, as the keychain lists it. None when no
+    certificate or more than one answers to the name: then nothing can be said about earlier copies."""
+    if re.fullmatch(r'[0-9A-Fa-f]{40}', identity):
+        return identity.upper()
+    keychain = os.environ.get('BFE_MAC_KEYCHAIN', '').strip()
+    _, listing = output(['security', 'find-identity', '-p', 'codesigning', *([keychain] if keychain else [])])
+    found = {match.group(1) for match in re.finditer(r'^\s*\d+\)\s+([0-9A-F]{40})\s+"(.*?)"', listing, re.M) if match.group(2) == identity}
+    return found.pop() if len(found) == 1 else None
+
+
+def sign_file(path: Path, identity: str, cache: Path | None, fingerprint: str | None = None) -> bool:
+    """Sign one program in place. Returns True when an earlier signed copy was reused.
+
+    A copy is reused only when the same certificate made it: the key is the certificate's
+    fingerprint, not its name, which a renewed certificate shares with the one it replaces."""
     command = codesign_command(identity)
     cached = None
-    if cache is not None and identity != '-':
-        key = file_digest(path, ('\0'.join(command[3:]) + '\0').encode())
+    if cache is not None and identity != '-' and fingerprint:
+        key = file_digest(path, f'{fingerprint}\0hardened runtime\0secure timestamp\0'.encode())
         cached = cache / key[:2] / key
         if cached.is_file():
             mode = path.stat().st_mode
@@ -142,7 +157,8 @@ def sign_app(app: Path, platform: str) -> None:
     (app / 'Contents' / 'CodeResources').unlink(missing_ok=True)
     shutil.rmtree(app / 'Contents' / '_CodeSignature', ignore_errors=True)
     helpers = [path for path in signable_files(app) if path != main]
-    reused = sum(sign_file(path, identity, cache_dir) for path in helpers)
+    fingerprint = identity_fingerprint(identity) if cache_dir is not None and identity != '-' else None
+    reused = sum(sign_file(path, identity, cache_dir, fingerprint) for path in helpers)
     build_bundle_tree_index(app, platform)
     run(codesign_command(identity) + [app])
     kind = 'ad hoc' if identity == '-' else f'as {identity}'

@@ -55,6 +55,12 @@ def bundle_tree(folder: Path, platform: str) -> dict:
         raise FileNotFoundError(f'Missing {MACOS_APP_NAME} in {folder}')
     if not (app / 'Contents' / '_CodeSignature' / 'CodeResources').is_file():
         raise RuntimeError(f'{app} is not signed: an update made from it could not start on Apple silicon')
+    # The walk below leaves Python's bytecode files out, as it must for a tree that a build machine
+    # may have run. A sealed bundle holds none; one that does was written into after it was signed,
+    # and a payload without those files would not be the bundle that was notarized.
+    bytecode = [str(path.relative_to(folder)) for path in app.rglob('*') if path.name == '__pycache__' or path.suffix in ('.pyc', '.pyo')]
+    if bytecode:
+        raise RuntimeError(f'{app} holds Python bytecode written after it was signed: {bytecode[:3]}')
     files, links, dirs = walk_tree(folder, False)
     outside = [entry['path'] for entry in files + links if not entry['path'].startswith(MACOS_APP_NAME + '/')]
     if outside:

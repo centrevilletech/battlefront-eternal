@@ -26,6 +26,7 @@ codesign).
 """
 
 import argparse
+import contextlib
 import os
 from pathlib import Path
 import plistlib
@@ -42,8 +43,8 @@ from stage import MACOS_APP_NAME, REPO_ROOT, normalize_permissions, normalize_pl
 BUNDLE_IDENTIFIER = 'com.battlefronteternal.client'
 ARCH_NAMES = {'darwin-arm64': 'arm64', 'darwin-x64': 'x64'}
 # The disk image's window layout is written without Finder (and so without a
-# desktop session) by dmgbuild; pinned, and installed into a folder of its own.
-DMGBUILD_REQUIREMENTS = ('dmgbuild==1.6.7', 'ds_store==1.3.3', 'mac_alias==2.2.3')
+# desktop session) by dmgbuild, pinned by hash in this file.
+DMGBUILD_REQUIREMENTS = Path(__file__).resolve().parent / 'macos' / 'dmgbuild-requirements.txt'
 ICON_SIZES = ((16, '16x16'), (32, '16x16@2x'), (32, '32x32'), (64, '32x32@2x'), (128, '128x128'), (256, '128x128@2x'),
               (256, '256x256'), (512, '256x256@2x'), (512, '512x512'), (1024, '512x512@2x'))
 
@@ -140,18 +141,27 @@ def build_app(staged_dir: Path, platform: str, version: str, out_parent: Path, r
     return app
 
 
-def ensure_dmgbuild() -> Path:
-    """The Python of a private environment that holds the pinned dmgbuild."""
-    cache = Path(os.environ.get('BFE_CACHE_DIR', Path(tempfile.gettempdir()) / 'bfe-cache'))
-    environment = cache / ('dmgbuild-' + '-'.join(requirement.split('==')[1] for requirement in DMGBUILD_REQUIREMENTS))
-    python = environment / 'bin' / 'python3'
-    if not (environment / '.ready').is_file():
-        shutil.rmtree(environment, ignore_errors=True)
-        environment.parent.mkdir(parents=True, exist_ok=True)
+@contextlib.contextmanager
+def dmgbuild_python():
+    """The Python that has the pinned dmgbuild.
+
+    BFE_DMGBUILD_PYTHON names one that was made beforehand: a machine that signs
+    provisions it once and nothing is fetched while a key is unlocked. Without
+    it (CI, a developer's Mac) an environment is made for this run alone, in a
+    folder of its own, from wheels checked against the hashes in
+    macos/dmgbuild-requirements.txt, and removed afterwards."""
+    provisioned = os.environ.get('BFE_DMGBUILD_PYTHON', '').strip()
+    if provisioned:
+        if not Path(provisioned).is_file():
+            raise FileNotFoundError(f'BFE_DMGBUILD_PYTHON names {provisioned}, which does not exist; nothing is fetched in its place')
+        yield Path(provisioned)
+        return
+    with tempfile.TemporaryDirectory(prefix='bfe-dmgbuild-') as environment:
+        python = Path(environment) / 'bin' / 'python3'
         run([sys.executable, '-m', 'venv', environment])
-        run([python, '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', '--no-deps', *DMGBUILD_REQUIREMENTS])
-        (environment / '.ready').write_text('')
-    return python
+        run([python, '-m', 'pip', 'install', '--quiet', '--disable-pip-version-check', '--no-deps', '--only-binary', ':all:',
+             '--require-hashes', '-r', DMGBUILD_REQUIREMENTS])
+        yield python
 
 
 def build_dmg(app: Path, platform: str, version: str, out_dir: Path) -> Path:
@@ -160,12 +170,13 @@ def build_dmg(app: Path, platform: str, version: str, out_dir: Path) -> Path:
     out_path.unlink(missing_ok=True)
     # Beside this script, wherever it is installed.
     native = Path(__file__).resolve().parent
-    run([ensure_dmgbuild(), '-m', 'dmgbuild',
-         '-s', native / 'macos' / 'dmg-settings.py',
-         '-D', f'app={app}',
-         '-D', f"icon={app / 'Contents' / 'Resources' / 'AppIcon.icns'}",
-         '-D', f"background={native / 'macos' / 'dmg-background.png'}",
-         'Battlefront Eternal', out_path])
+    with dmgbuild_python() as python:
+        run([python, '-m', 'dmgbuild',
+             '-s', native / 'macos' / 'dmg-settings.py',
+             '-D', f'app={app}',
+             '-D', f"icon={app / 'Contents' / 'Resources' / 'AppIcon.icns'}",
+             '-D', f"background={native / 'macos' / 'dmg-background.png'}",
+             'Battlefront Eternal', out_path])
     return out_path
 
 
