@@ -8,6 +8,7 @@ use bfe_client::{
     scene::{Scene, View},
 };
 use glow::HasContext;
+#[cfg(not(target_os = "macos"))]
 use glutin::{
     config::{ConfigSurfaceTypes, ConfigTemplateBuilder},
     context::{ContextApi, ContextAttributesBuilder, Version},
@@ -476,14 +477,17 @@ fn default_view(width: u32, height: u32) -> View {
 }
 
 /// Runs the complete shader compile/link sweep and the 6 representative family draws.
-fn run() -> Result<(), String> {
-    let args = parse_args()?;
-    let mut sink = JsonlSink::new(args.output.as_deref())?;
-    let families = load_shader_manifests()?;
+/// The windowless context of a run, current on this thread until dropped, and its symbol lookup.
+struct Headless {
+    kind: &'static str,
+    symbol: Box<dyn Fn(&str) -> *const std::ffi::c_void>,
+}
 
-    // Open a surfaceless EGL context via `EGL_EXT_device_enumeration` + `EGL_EXT_platform_device`.
-    // Under `LIBGL_ALWAYS_SOFTWARE=1`, Mesa enumerates the software `llvmpipe` device;
-    // when hardware GL is requested on a GPU VM, EGL selects the NVIDIA/DRI device.
+/// A surfaceless EGL context via `EGL_EXT_device_enumeration` + `EGL_EXT_platform_device`.
+/// Under `LIBGL_ALWAYS_SOFTWARE=1`, Mesa enumerates the software `llvmpipe` device;
+/// when hardware GL is requested on a GPU VM, EGL selects the NVIDIA/DRI device.
+#[cfg(not(target_os = "macos"))]
+fn headless() -> Result<Headless, String> {
     let device = glutin::api::egl::device::Device::query_devices()
         .map_err(|e| e.to_string())?
         .next()
@@ -509,16 +513,65 @@ fn run() -> Result<(), String> {
             .or_else(|_| display.create_context(&config, &gl_core_attrs))
             .map_err(|e| e.to_string())?
     };
-    let _context = not_current
+    let context = not_current
         .make_current_surfaceless()
         .map_err(|e| e.to_string())?;
-    let mut load = || unsafe {
-        glow::Context::from_loader_function(|name| {
-            display
-                .get_proc_address(&CString::new(name).unwrap())
-                .cast()
-        })
-    };
+    Ok(Headless {
+        kind: "egl-surfaceless",
+        symbol: Box::new(move |name| {
+            // The context lives as long as the lookup that needs it.
+            let _ = &context;
+            display.get_proc_address(&CString::new(name).unwrap()).cast()
+        }),
+    })
+}
+
+/// macOS has no EGL of its own: an offscreen context of the system's OpenGL, the 4.1 core
+/// profile the game's window gets there.
+#[cfg(target_os = "macos")]
+fn headless() -> Result<Headless, String> {
+    use std::ffi::c_void;
+    #[link(name = "OpenGL", kind = "framework")]
+    extern "C" {
+        fn CGLChoosePixelFormat(attributes: *const i32, format: *mut *mut c_void, count: *mut i32) -> i32;
+        fn CGLCreateContext(format: *mut c_void, share: *mut c_void, context: *mut *mut c_void) -> i32;
+        fn CGLDestroyPixelFormat(format: *mut c_void) -> i32;
+        fn CGLSetCurrentContext(context: *mut c_void) -> i32;
+    }
+    // kCGLPFAOpenGLProfile = kCGLOGLPVersion_GL4_Core, kCGLPFAAccelerated, kCGLPFAColorSize 24, kCGLPFADepthSize 24.
+    let attributes = [99, 0x4100, 73, 8, 24, 12, 24, 0];
+    let (mut format, mut count, mut context) = (std::ptr::null_mut(), 0, std::ptr::null_mut());
+    // SAFETY: CGL's C signatures; the context stays current on this thread for the whole run.
+    unsafe {
+        if CGLChoosePixelFormat(attributes.as_ptr(), &mut format, &mut count) != 0 || format.is_null() {
+            return Err("no accelerated OpenGL 4.1 pixel format (is there a desktop session?)".into());
+        }
+        let created = CGLCreateContext(format, std::ptr::null_mut(), &mut context);
+        CGLDestroyPixelFormat(format);
+        if created != 0 || CGLSetCurrentContext(context) != 0 {
+            return Err("cannot create an OpenGL context".into());
+        }
+    }
+    let library = unsafe { libloading::Library::new("/System/Library/Frameworks/OpenGL.framework/OpenGL") }
+        .map_err(|e| e.to_string())?;
+    Ok(Headless {
+        kind: "cgl-offscreen",
+        symbol: Box::new(move |name| {
+            let name = CString::new(name).unwrap();
+            // SAFETY: only the address is taken; glow gives each its real signature.
+            unsafe { library.get::<unsafe extern "C" fn()>(name.as_bytes_with_nul()) }
+                .map_or(std::ptr::null(), |symbol| *symbol as *const c_void)
+        }),
+    })
+}
+
+fn run() -> Result<(), String> {
+    let args = parse_args()?;
+    let mut sink = JsonlSink::new(args.output.as_deref())?;
+    let families = load_shader_manifests()?;
+
+    let headless = headless()?;
+    let mut load = || unsafe { glow::Context::from_loader_function(|name| (headless.symbol)(name)) };
 
     // Query the active OpenGL strings so the JSONL log records the exact
     // software (`llvmpipe`) or hardware (`NVIDIA ...`) driver under test.
@@ -530,7 +583,7 @@ fn run() -> Result<(), String> {
             gl_probe.get_parameter_string(glow::RENDERER),
         )
     };
-    let context_kind = "egl-surfaceless";
+    let context_kind = headless.kind;
 
     sink.emit(&json!({
         "stage": "runtime",
