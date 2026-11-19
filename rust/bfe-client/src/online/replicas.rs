@@ -1069,6 +1069,8 @@ impl Replicas {
                 if let Some(walker) = prediction.walker.filter(|_| kind == k::DROIDEKA) {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&walker.position);
                     input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&walker.velocity);
+                    input[i::YAW] = prediction.view[0];
+                    input[i::PITCH] = prediction.view[1];
                     input[i::WALKER_ROLL] = walker.pose[0];
                     input[i::WALKER_LEAN] = walker.pose[1];
                     input[i::WALKER_LEGS] = walker.pose[2];

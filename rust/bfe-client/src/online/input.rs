@@ -94,6 +94,24 @@ pub struct Sender {
     /// Commands the server ran after the tick they were stamped for, and by how many ticks in all.
     pub late: u64,
     pub late_ticks: f64,
+    // The previewed body's turn per mouse count, and every count taken so far (scaled as it was applied).
+    per_count: f64,
+    counted: f64,
+    walker: WalkerTurn,
+}
+/// The yaw of a droideka the player controls arrives with the server's corrections (its body is not
+/// predicted here). What a correction turns it by beyond the mouse's own motion (a turn made with the
+/// keys) is spread over the time to the next correction instead of reaching the view in one step.
+#[derive(Clone, Copy, Default)]
+struct WalkerTurn {
+    life: Option<[f64; 3]>,
+    // The previewed yaw, the counts and the correction tick of the frame before.
+    yaw: f64,
+    counted: f64,
+    tick: f64,
+    // The turn not shown yet, and how fast it is being shown.
+    left: f64,
+    rate: f64,
 }
 /// The furthest ahead of the server an online command may be stamped (the client's 24 ticks).
 const ONLINE_MAX_LEAD: f64 = 24.;
@@ -166,6 +184,9 @@ impl Default for Sender {
             lead_calm: 0.,
             late: 0,
             late_ticks: 0.,
+            per_count: 0.,
+            counted: 0.,
+            walker: WalkerTurn::default(),
             local_next: None,
             turns: Vec::new(),
         }
@@ -447,6 +468,7 @@ impl Sender {
         let mut fires = [bfe_presentation::network::outbound::Fire::default(); 128];
         let fc = self.owner.fires().len().min(128);
         fires[..fc].copy_from_slice(&self.owner.fires()[..fc]);
+        self.counted += look.x * self.mouse_scale / receiver.own.zoom.max(1.);
         if look.x != 0. || look.y != 0. {
             if self.pointer_count == 128 {
                 self.pointer_at = (self.pointer_at + 1) % 128;
@@ -531,6 +553,10 @@ impl Sender {
                 ..Default::default()
             }
         };
+        // What one mouse count turns this body by (on a copy: the body itself is only touched by real looks).
+        let mut one = body.clone();
+        one.look_raw(1., 0., 1., false);
+        self.per_count = one.aim_yaw - body.aim_yaw;
         for i in 0..self.pointer_count {
             let p = self.pointers[(self.pointer_at + i) % 128];
             body.look_raw(p.x / p.zoom, p.y / p.zoom, p.scale, p.invert);
@@ -540,6 +566,37 @@ impl Sender {
         self.history.loose.turn(&mut body, own.zoom);
         self.yaw = body.aim_yaw;
         self.pitch = body.aim_pitch;
+    }
+    /// Once a frame, after `preview`, for a droideka the player controls: the part of a correction's
+    /// turn that the mouse does not account for is shown over the time to the next correction (see
+    /// [`WalkerTurn`]). The mouse's own turn is never delayed. Anything else: nothing.
+    pub fn ease_walker_turn(&mut self, receiver: &Receiver, dt: f64) {
+        let own = &receiver.own;
+        let life = [receiver.epoch, own.id, own.generation];
+        let counted = self.counted + self.history.loose.x * self.history.loose.scale / own.zoom.max(1.);
+        let active = own.walker && own.alive && own.remote.is_none() && own.mount.is_none();
+        let w = &mut self.walker;
+        if !active || w.life != Some(life) {
+            w.left = 0.;
+            w.rate = 0.;
+        } else {
+            let turn = self.yaw - w.yaw - self.per_count * (counted - w.counted);
+            let step = turn.sin().atan2(turn.cos());
+            if step.abs() > 0.5 {
+                // A new facing (a spawn, a teleport): at once.
+                w.left = 0.;
+            } else if step.abs() > 1e-9 {
+                w.left -= step;
+                w.rate = w.left.abs() / ((own.tick - w.tick).clamp(1., 6.) / 60.);
+            }
+            let shown = w.rate * dt.max(0.);
+            w.left = if w.left.abs() <= shown { 0. } else { w.left - shown * w.left.signum() };
+        }
+        w.life = active.then_some(life);
+        w.yaw = self.yaw;
+        w.counted = counted;
+        w.tick = own.tick;
+        self.yaw += w.left;
     }
     /// The frame's loose look: the mouse counts `look` holds that the input
     /// clock, `alpha` of the way into its tick, has not put in a command,
@@ -825,6 +882,48 @@ mod tests {
         sender.online_lateness(60., 60.);
         assert_eq!(sender.extra, ONLINE_MAX_LEAD);
         assert_eq!(sender.late, 4);
+    }
+
+    // The player's droideka turns with the keys: each correction (one a tick, four frames a tick)
+    // brings 0.02 rad more yaw. The view must turn on every frame, by about a quarter of that, and
+    // the mouse's own turn must not be delayed by it.
+    #[test]
+    fn a_droidekas_key_turn_is_shown_over_the_tick_and_the_mouse_stays_immediate() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.own.walker = true;
+        receiver.own.alive = true;
+        receiver.own.generation = 1.;
+        receiver.own.zoom = 1.;
+        let mut sender = Sender::default();
+        sender.per_count = -0.001;
+        let mut shown = Vec::new();
+        for frame in 0..80 {
+            if frame % 4 == 0 {
+                receiver.own.tick += 1.;
+                receiver.own.yaw += 0.02;
+            }
+            sender.yaw = receiver.own.yaw;
+            sender.ease_walker_turn(&receiver, 1. / 240.);
+            shown.push(sender.yaw);
+        }
+        for pair in shown[8..].windows(2) {
+            assert!((pair[1] - pair[0] - 0.005).abs() < 1e-9, "{pair:?}");
+        }
+        // Three quarters of the turn are still to show when a correction arrives, none when the next is due.
+        assert!((receiver.own.yaw - shown[76] - 0.015).abs() < 1e-9);
+        assert!((receiver.own.yaw - shown[79]).abs() < 1e-9);
+        // Then the mouse turns, 3 counts in a frame: all of it shows in the frame it arrives.
+        let before = sender.yaw;
+        sender.history.loose = crate::online::replay::Loose { x: 3., scale: 1., ..Default::default() };
+        sender.yaw = receiver.own.yaw - 0.003;
+        sender.ease_walker_turn(&receiver, 1. / 240.);
+        assert!((sender.yaw - before + 0.003).abs() < 1e-9, "{}", sender.yaw - before);
+        // A respawn facing another way is shown at once.
+        receiver.own.generation = 2.;
+        receiver.own.yaw = 2.;
+        sender.yaw = 2.;
+        sender.ease_walker_turn(&receiver, 1. / 240.);
+        assert_eq!(sender.yaw, 2.);
     }
 
     // A pilot's take-off press and boost reach the server as they reach an

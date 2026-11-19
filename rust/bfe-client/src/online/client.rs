@@ -204,6 +204,7 @@ impl World for Client {
     fn present(&mut self, alpha: f64) -> &View {
         self.frames += 1;
         self.sender.preview(&self.receiver);
+        self.sender.ease_walker_turn(&self.receiver, self.dt);
         self.replay.frame(&self.receiver, &self.sender);
         self.replay.present(alpha, self.dt, &self.sender.history.loose, &self.receiver.own);
         crate::app::trace_own_aim(&self.receiver, &self.sender, &self.replay);
@@ -226,7 +227,7 @@ impl World for Client {
         if let Some(walker) = &self.replay.walker {
             own.position = walker.position;
         }
-        self.replay.heading = self.sender.yaw;
+        self.replay.view = [self.sender.yaw, self.sender.pitch];
         // AimView supplies the canonical first-person eye for posture/air.
         // Preview replays only uncorrected pointer deltas on the checkpoint.
         if self.receiver.corrections != 0 {

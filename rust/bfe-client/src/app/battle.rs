@@ -2109,6 +2109,7 @@ impl BattleController {
                 let mut own = receiver.own;
                 sender.set_loose(&loose, mouse_scale, invert_mouse, alpha_interp);
                 sender.preview(receiver);
+                sender.ease_walker_turn(receiver, dt);
                 replay.frame(receiver, sender);
                 replay.present(alpha_interp, dt, &sender.history.loose, &receiver.own);
                 crate::app::trace_own_aim(receiver, sender, replay);
@@ -2130,7 +2131,7 @@ impl BattleController {
                 if let Some(walker) = &replay.walker {
                     own.position = walker.position;
                 }
-                replay.heading = sender.yaw;
+                replay.view = [sender.yaw, sender.pitch];
                 if receiver.corrections != 0 {
                     let pos =
                         three::Vector3::new(own.position[0], own.position[1], own.position[2]);

@@ -253,8 +253,9 @@ pub struct Replay {
     walker_view: super::own_view::Walker,
     /// The player's own droideka as this frame draws it (see own_view::Walker).
     pub walker: Option<super::own_view::ShownWalker>,
-    /// The yaw of the player's view in this frame, whatever he controls: the minimap's heading.
-    pub heading: f64,
+    /// The yaw and pitch of the player's view in this frame, whatever he controls: the minimap's
+    /// heading, and the aim his own droideka is drawn with.
+    pub view: [f64; 2],
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
     props: super::props::Props,
@@ -346,7 +347,7 @@ impl Replay {
             class: usize::MAX,
             body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
             smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(),
-            walker_view: Default::default(), walker: None, heading: 0., life: [0.; 3],
+            walker_view: Default::default(), walker: None, view: [0.; 2], life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,

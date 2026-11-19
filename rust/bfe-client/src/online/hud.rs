@@ -1334,7 +1334,7 @@ impl Hud {
         };
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
         // The heading is the yaw of the view this frame shows (a pilot's seat aim replaces it later).
-        x[H::PLAYER_YAW] = prediction.heading;
+        x[H::PLAYER_YAW] = prediction.view[0];
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
         self.radar.publish(x, receiver, &self.teams);
         // Radar sensors originate at the controlled body or mounted hull.
