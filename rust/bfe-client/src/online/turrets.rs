@@ -98,6 +98,41 @@ pub struct Turrets {
     /// The aim of the turret the player mans as this frame shows it (the minimap's heading).
     pub gunner_yaw: Option<f64>,
 }
+/// The turret the player mans, as a frame shows it: the drum's yaw and pitch in the turret's own
+/// frame (what its rig and its camera are given; both add the turret's facing themselves), and
+/// the world yaw the gunner looks along, which is that yaw plus the facing (the minimap's heading).
+/// `values` are the mounted checkpoint's yaw, pitch and their two rates: the baseline every
+/// pending command, and then the look no command has yet, is replayed on.
+fn gunner_shown(
+    preview: &mut bfe_presentation::network::preview::Phase,
+    view: &super::seat_view::View,
+    facing: f64,
+    turret: (f64, f64),
+    values: &[f64],
+    history: &super::replay::History,
+) -> ([f64; 2], f64) {
+    use bfe_presentation::network_layout::{net_preview_frame as p, net_preview_output as o};
+    let a = &mut preview.frame;
+    a.fill(0.);
+    a[p::ENABLED] = 1.;
+    a[p::PREDICTED] = 1.;
+    a[p::SCALE] = 1.;
+    a[p::ZOOM] = 1.;
+    a[p::TURRET_ACTIVE] = 1.;
+    a[p::TURRET_ID] = turret.0;
+    a[p::TURRET_GENERATION] = turret.1;
+    a[p::TURRET_YAW] = values[0];
+    a[p::TURRET_PITCH] = values[1];
+    a[p::YAW_VEL] = values[2];
+    a[p::PITCH_VEL] = values[3];
+    view.preview(a, true);
+    // The commands, then the look no command has yet, at the input clock's
+    // fraction of the tick that look will drive.
+    history.preview(preview);
+    preview.present();
+    let shown = [preview.output[o::SHOWN_YAW], preview.output[o::SHOWN_PITCH]];
+    (shown, facing + shown[0])
+}
 pub(super) fn copy_nodes(tree: &three::TransformTree, node: three::NodeId, parent: i32, out: &mut Vec<Node>, ids: &mut [usize]) {
     let id = out.len();
     ids[node as usize] = id;
@@ -371,31 +406,13 @@ impl Turrets {
         if let Ok(Some(mount)) = bfe_sim::prediction::corrections::own_mounted(&receiver.checkpoint[..receiver.checkpoint_length]) {
             if mount.mode == 3 {
                 if let Some(index) = self.source(mount.id as f64, mount.generation as f64) {
-                    use bfe_presentation::network_layout::{net_preview_frame as p, net_preview_output as o};
                     let turret = &self.rows[index];
-                    let view = &turret.aim;
-                    let a = &mut self.preview.frame;
-                    a.fill(0.);
-                    a[p::ENABLED] = 1.;
-                    a[p::PREDICTED] = 1.;
-                    a[p::SCALE] = 1.;
-                    a[p::ZOOM] = 1.;
-                    a[p::TURRET_ACTIVE] = 1.;
-                    a[p::TURRET_ID] = mount.id as f64;
-                    a[p::TURRET_GENERATION] = mount.generation as f64;
-                    a[p::TURRET_YAW] = mount.values[0];
-                    a[p::TURRET_PITCH] = mount.values[1];
-                    a[p::YAW_VEL] = mount.values[2];
-                    a[p::PITCH_VEL] = mount.values[3];
-                    view.preview(a, true);
-                    // The commands, then the look no command has yet, at the
-                    // input clock's fraction of the tick that look will drive.
-                    history.preview(&mut self.preview);
-                    self.preview.present();
+                    let facing = turret.camera[bfe_presentation::layout::camera_frame::TURRET_FACING];
+                    let (shown, heading) = gunner_shown(&mut self.preview, &turret.aim, facing, (mount.id as f64, mount.generation as f64), &mount.values, history);
                     let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];
-                    input[t::YAW] = self.preview.output[o::SHOWN_YAW];
-                    input[t::PITCH] = self.preview.output[o::SHOWN_PITCH];
-                    self.gunner_yaw = Some(self.preview.output[o::SHOWN_YAW]);
+                    input[t::YAW] = shown[0];
+                    input[t::PITCH] = shown[1];
+                    self.gunner_yaw = Some(heading);
                     input[t::GUN_YAW] = mount.values[4];
                     input[t::GUN_PITCH] = mount.values[5];
                 }
@@ -520,6 +537,24 @@ impl Turrets {
             }
         }
         (records, bones)
+    }
+}
+
+#[cfg(test)]
+mod gunner_tests {
+    use super::gunner_shown;
+    use crate::online::{replay::History, seat_view::View};
+    use bfe_presentation::network::preview::Phase;
+
+    // A turret that faces south-west (2.2 rad from +Z) with its drum 0.3 rad off centre: the
+    // rig gets the drum's own angle, the minimap the direction the gunner really looks in.
+    #[test]
+    fn a_gunners_heading_is_the_turrets_facing_plus_its_drum() {
+        let view = View::new(&serde_json::json!({"turret": {}, "pitchLimits": [-0.5, 0.5], "turnRate": 2., "filter": 10.}));
+        let mut preview = Phase::new();
+        let (shown, heading) = gunner_shown(&mut preview, &view, 2.2, (14., 2.), &[0.3, 0.1, 0., 0., 0., 0.], &History::default());
+        assert!((shown[0] - 0.3).abs() < 1e-12 && (shown[1] - 0.1).abs() < 1e-12, "{shown:?}");
+        assert!((heading - 2.5).abs() < 1e-12, "{heading}");
     }
 }
 

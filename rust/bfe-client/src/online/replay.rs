@@ -811,6 +811,82 @@ mod loose_tests {
         assert_eq!((still.aim_yaw, still.aim_pitch), (0.3, 5.));
     }
 
+    // A turret held against its upper pitch stop with the mouse still pushing: every frame of
+    // the tick, and the next tick, shows it on the stop. (Unwinding the loose step by the
+    // servo's velocity drew it up to a tick's travel below the stop at the start of each tick.)
+    #[test]
+    fn a_turret_at_its_pitch_stop_stays_on_it_between_ticks() {
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let shown = |commands: usize, loose: f64, alpha: f64| {
+            let mut history = History::default();
+            for n in 0..commands {
+                history.push(&command, &ClientLook { x: 0., y: -60. }, &ClientFlightCommand::default(), n as f64, 1., n as f64 + 1.);
+            }
+            history.loose = Loose { x: 0., y: loose, scale: 1., invert: false, alpha };
+            let mut phase = Phase::new();
+            phase.frame[f::ENABLED] = 1.;
+            phase.frame[f::PREDICTED] = 1.;
+            phase.frame[f::TURRET_ACTIVE] = 1.;
+            phase.frame[f::TURN_RATE] = 2.;
+            phase.frame[f::FILTER] = 20.;
+            phase.frame[f::TURRET_PITCH_LOW] = -0.3;
+            phase.frame[f::TURRET_PITCH_HIGH] = 0.3;
+            history.preview(&mut phase);
+            phase.present();
+            (phase.output[o::SHOWN_PITCH], phase.output[o::TURRET_PITCH], phase.output[o::TURRET_PITCH_VEL])
+        };
+        // Forty ticks of pushing up put the servo on the stop, still with a rate.
+        let (_, servo, rate) = shown(40, 0., 1.);
+        assert_eq!(servo, 0.3);
+        assert!(rate > 0.5, "{rate}");
+        for (loose, alpha) in [(0., 0.), (-15., 0.25), (-30., 0.5), (-45., 0.75), (-60., 1.)] {
+            assert_eq!(shown(40, loose, alpha).0, 0.3, "at {alpha} of the tick");
+        }
+        assert_eq!(shown(41, 0., 0.).0, 0.3);
+        // On the way to the stop the last tick is still drawn part by part, and ends on it.
+        let rising: Vec<f64> = [0., 0.5, 1.].iter().map(|alpha| shown(5, -60. * alpha, *alpha).0).collect();
+        assert!(rising[0] < rising[1] && rising[1] < rising[2] && rising[2] <= 0.3, "{rising:?}");
+    }
+
+    // A turret with a yaw arc, turned into its stop: the tick that reaches the stop is drawn
+    // part by part too (the stop drops the servo's rate, so unwinding by it showed the stop at
+    // the first frame of the tick).
+    #[test]
+    fn a_turret_eases_into_its_yaw_stop() {
+        let command = ClientCommand { mouse_scale: 1., has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let shown = |commands: usize, loose: f64, alpha: f64| {
+            let mut history = History::default();
+            for n in 0..commands {
+                history.push(&command, &ClientLook { x: -60., y: 0. }, &ClientFlightCommand::default(), n as f64, 1., n as f64 + 1.);
+            }
+            history.loose = Loose { x: loose, y: 0., scale: 1., invert: false, alpha };
+            let mut phase = Phase::new();
+            phase.frame[f::ENABLED] = 1.;
+            phase.frame[f::PREDICTED] = 1.;
+            phase.frame[f::TURRET_ACTIVE] = 1.;
+            phase.frame[f::TURN_RATE] = 2.;
+            phase.frame[f::FILTER] = 20.;
+            phase.frame[f::HAS_YAW_ARC] = 1.;
+            phase.frame[f::ARC_LOW] = -0.2;
+            phase.frame[f::ARC_HIGH] = 0.2;
+            phase.frame[f::TURRET_PITCH_LOW] = -1.;
+            phase.frame[f::TURRET_PITCH_HIGH] = 1.;
+            history.preview(&mut phase);
+            phase.present();
+            (phase.output[o::SHOWN_YAW], phase.output[o::TURRET_YAW])
+        };
+        // (The stop is 0.2 to the last bit or one below it: the arc wraps the angle before it clamps.)
+        let on_stop = |yaw: f64| (yaw - 0.2).abs() < 1e-12;
+        assert!(on_stop(shown(40, 0., 1.).1));
+        // The tick whose step reaches the stop: the servo is short of it before the step, on it after.
+        let reaching = (1..60).find(|&n| shown(n, 0., 0.).0 < 0.2 - 1e-9 && on_stop(shown(n, -60., 1.).0)).expect("the stop is reached");
+        let before = shown(reaching, 0., 0.).0;
+        let frames: Vec<f64> = [0.25, 0.5, 0.75, 1.].iter().map(|alpha| shown(reaching, -60. * alpha, *alpha).0).collect();
+        assert!(before < frames[0] && frames.windows(2).all(|pair| pair[0] < pair[1]) && on_stop(frames[3]), "{before} {frames:?}");
+        assert!(frames[0] < 0.2 - (0.2 - before) * 0.5, "the first quarter of the tick is not the stop: {before} {frames:?}");
+        assert!(on_stop(shown(reaching + 1, 0., 0.).0));
+    }
+
     #[test]
     fn a_command_takes_the_loose_look_with_it() {
         let mut history = History::default();
