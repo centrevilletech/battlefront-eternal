@@ -339,6 +339,10 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         headless_audio,
         _audio_device: audio_device,
         audio_channels_asked: 2,
+        #[cfg(target_os = "macos")]
+        audio_followed: Instant::now(),
+        #[cfg(target_os = "macos")]
+        audio_lost: false,
         window_size: winit::dpi::PhysicalSize::new(0, 0),
         state: AppState::StartupLoader(startup_content),
         shell: None,
@@ -438,6 +442,12 @@ struct StandaloneWindowApp {
     audio_router: Arc<SharedAudioRouter>,
     /// Active hardware `cpal` stream handle when audio output is enabled and available.
     _audio_device: Option<AudioDevice>,
+    /// When the default output device was last looked at (macOS).
+    #[cfg(target_os = "macos")]
+    audio_followed: Instant,
+    /// The output device went away and none could be opened since (macOS).
+    #[cfg(target_os = "macos")]
+    audio_lost: bool,
     // The channel count last asked of the device (crate::audio::wanted_channels).
     audio_channels_asked: usize,
     /// The window's physical size from its last resize or scale event.
@@ -1884,6 +1894,40 @@ impl StandaloneWindowApp {
             self.display_mode.update(window, window.fullscreen().is_some(), self.focused, &choice);
         }
 
+        // A macOS stream stays on the device it was opened on. Once a second: when the
+        // system's default output is another device now (headphones plugged in or taken
+        // off), or the stream's own device went away, the stream is opened again there.
+        #[cfg(target_os = "macos")]
+        if self.audio_followed.elapsed().as_secs_f64() >= 1. {
+            self.audio_followed = Instant::now();
+            let current = crate::audio::default_output_name();
+            let reopen = match &self._audio_device {
+                Some(open) => current.as_ref().is_some_and(|name| *name != open.name) || open.check().is_err(),
+                None => self.audio_lost && current.is_some(),
+            };
+            if reopen {
+                let channels = self._audio_device.take().map_or(2, |open| open.channels);
+                match AudioDevice::open_dynamic(self.audio_router.clone(), channels)
+                    .or_else(|_| AudioDevice::open_dynamic(self.audio_router.clone(), 2))
+                {
+                    Ok(device) => {
+                        eprintln!("audio device: now {}", device.name);
+                        self.headless_audio = None;
+                        self.audio_lost = false;
+                        self._audio_device = Some(device);
+                    }
+                    Err(err) => {
+                        if !self.audio_lost {
+                            eprintln!("audio device: none after a change ({err})");
+                        }
+                        self.audio_lost = true;
+                        if self.headless_audio.is_none() {
+                            self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                        }
+                    }
+                }
+            }
+        }
         // A battle whose output layout wants another channel count (5.1,
         // 7.1, 7.1.4, or back to stereo) reopens the device that wide, once
         // per change; the battle's sounds keep playing through the router.
