@@ -1328,19 +1328,13 @@ impl Hud {
             receiver.own.remote_position
         } else {
             prediction.displayed.as_ref().map_or_else(
-                || prediction.fleet.shown_position().unwrap_or(receiver.own.position),
+                || prediction.walker.map(|walker| walker.position).or_else(|| prediction.fleet.shown_position()).unwrap_or(receiver.own.position),
                 |b| b.position,
             )
         };
         x[H::PLAYER_X] = position[0];x[H::PLAYER_Z] = position[2];
-        x[H::PLAYER_YAW] = if receiver.own.remote.is_some() {
-            receiver.own.remote_yaw
-        } else {
-            prediction.displayed.as_ref().map_or_else(
-                || if prediction.fleet.identity.is_some() { prediction.fleet.aim[0] } else { receiver.own.yaw },
-                |b| b.aim_yaw,
-            )
-        };
+        // The heading is the yaw of the view this frame shows (a pilot's seat aim replaces it later).
+        x[H::PLAYER_YAW] = prediction.heading;
         x[H::PLAYER_TEAM] = receiver.own.team as f64;
         self.radar.publish(x, receiver, &self.teams);
         // Radar sensors originate at the controlled body or mounted hull.

@@ -250,6 +250,11 @@ pub struct Replay {
     pub snaps: u64,
     pub correction_metres: f64,
     display: super::own_view::Display,
+    walker_view: super::own_view::Walker,
+    /// The player's own droideka as this frame draws it (see own_view::Walker).
+    pub walker: Option<super::own_view::ShownWalker>,
+    /// The yaw of the player's view in this frame, whatever he controls: the minimap's heading.
+    pub heading: f64,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
     props: super::props::Props,
@@ -340,7 +345,8 @@ impl Replay {
             words: Vec::with_capacity(16384),
             class: usize::MAX,
             body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
-            smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(), life: [0.; 3],
+            smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(),
+            walker_view: Default::default(), walker: None, heading: 0., life: [0.; 3],
             ticks: 0,
             weapon_at: 0,
             weapon_count: 0,
@@ -385,9 +391,18 @@ impl Replay {
     }
     /// The body as this frame draws it: between its last two ticks at
     /// `alpha`, and turned by the mouse motion no command has taken yet
-    /// (`loose`, at the weapon's `zoom`), so the view follows the mouse at
+    /// (`loose`, at the weapon's zoom), so the view follows the mouse at
     /// the frame rate while the body's ticks stay as the simulation ran them.
-    pub fn present(&mut self, alpha: f64, dt: f64, loose: &Loose, zoom: f64) {
+    /// A droideka, which is not replayed here, is drawn between the server's
+    /// corrections of `own`.
+    pub fn present(&mut self, alpha: f64, dt: f64, loose: &Loose, own: &super::receiver::Own) {
+        let zoom = own.zoom;
+        self.walker = None;
+        if own.alive && own.walker && own.mount.is_none() && self.body.is_none() {
+            self.walker = Some(self.walker_view.sample(own, self.life, dt));
+        } else {
+            self.walker_view.forget();
+        }
         self.fleet.alpha = alpha;
         self.fleet.decay(dt);
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));

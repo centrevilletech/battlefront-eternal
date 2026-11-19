@@ -1065,6 +1065,15 @@ impl Replicas {
                     input[i::WALKER_ROLL] = receiver.own.walker_roll;
                     input[i::WALKER_LEAN] = receiver.own.walker_lean;
                 }
+                // His own droideka between the server's corrections.
+                if let Some(walker) = prediction.walker.filter(|_| kind == k::DROIDEKA) {
+                    input[i::POSITION..i::POSITION + 3].copy_from_slice(&walker.position);
+                    input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&walker.velocity);
+                    input[i::WALKER_ROLL] = walker.pose[0];
+                    input[i::WALKER_LEAN] = walker.pose[1];
+                    input[i::WALKER_LEGS] = walker.pose[2];
+                    input[i::WALKER_TIME] = walker.pose[3];
+                }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
                     input[i::VELOCITY..i::VELOCITY + 3].copy_from_slice(&body.velocity);

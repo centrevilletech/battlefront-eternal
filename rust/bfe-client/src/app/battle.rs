@@ -2110,7 +2110,7 @@ impl BattleController {
                 sender.set_loose(&loose, mouse_scale, invert_mouse, alpha_interp);
                 sender.preview(receiver);
                 replay.frame(receiver, sender);
-                replay.present(alpha_interp, dt, &sender.history.loose, receiver.own.zoom);
+                replay.present(alpha_interp, dt, &sender.history.loose, &receiver.own);
                 crate::app::trace_own_aim(receiver, sender, replay);
                 if let Some(hull) = &replay.fleet.state {
                     let offset = replay.fleet.offset();
@@ -2127,6 +2127,10 @@ impl BattleController {
                     sender.yaw = body.aim_yaw;
                     sender.pitch = body.aim_pitch;
                 }
+                if let Some(walker) = &replay.walker {
+                    own.position = walker.position;
+                }
+                replay.heading = sender.yaw;
                 if receiver.corrections != 0 {
                     let pos =
                         three::Vector3::new(own.position[0], own.position[1], own.position[2]);
