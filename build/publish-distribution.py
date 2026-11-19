@@ -499,6 +499,8 @@ def publish_macos(source):
         raise ValueError(f"The Mac build record's update payloads are not those of a {image.get('arch')} image")
     image_file = named(image)
     store = downloads / 'updates' / 'blobs'
+    # As publish() does: a release that was published without update payloads has no store yet.
+    store.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.macos-', dir=downloads))
     incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=store.parent))
     try:
