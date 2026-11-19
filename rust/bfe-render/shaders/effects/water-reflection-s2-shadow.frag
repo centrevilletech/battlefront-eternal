@@ -166,9 +166,10 @@ float luminance( const in vec3 rgb ) {
       // Past the near scene there is nothing near to reflect or meet.
       vec3 glint = quality > 0.5 ? sunColor * spec : vec3(spec);
       gl_FragColor = vec4(mix(mirrored * reflectAmount + glint, fogColor, farFog(vSurfaceDepth)), F);
-      return;
     }
-    #endif
+    #else
+    // The rest is the near water's alone. It is compiled out of the far water, not left behind its
+    // return: not every compiler drops unreachable code, and one that keeps it keeps its uniforms.
     if (screenSpace > 0.5) {
       // High: the near scene comes from the opaque colour/depth copy the
       // water already takes, by a short march along the reflected ray in
@@ -209,4 +210,5 @@ float luminance( const in vec3 rgb ) {
       highlight *= meet;
     }
     gl_FragColor = vec4(mirrored * reflectAmount + highlight, F);
+    #endif
   }
