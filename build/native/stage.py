@@ -50,12 +50,20 @@ PLATFORM_ALIASES = {
     'win32-x64': 'win32-x64',
     'windows-x64': 'win32-x64',
     'win-x64': 'win32-x64',
+    'darwin-arm64': 'darwin-arm64',
+    'macos-arm64': 'darwin-arm64',
+    'mac-arm64': 'darwin-arm64',
+    'darwin-x64': 'darwin-x64',
+    'macos-x64': 'darwin-x64',
+    'mac-x64': 'darwin-x64',
 }
 
 TOOLCHAIN_DIR_NAMES = {
     'linux-x64': 'linux-x64',
     'linux-arm64': 'linux-arm64',
     'win32-x64': 'win-x64',
+    'darwin-arm64': 'mac-arm64',
+    'darwin-x64': 'mac-x64',
 }
 
 
@@ -198,6 +206,43 @@ def build_tree_index(root: Path, platform: str) -> dict:
     return manifest
 
 
+MACOS_APP_NAME = 'Battlefront Eternal.app'
+
+
+def build_bundle_tree_index(app: Path, platform: str) -> dict:
+    """Write Contents/Resources/bfe-tree.json of a macOS app bundle.
+
+    The programs live in Contents/MacOS and reach everything else through the
+    link Contents/MacOS/resources -> ../Resources, so the index names files as
+    the programs see them: `bfeserver`, `resources/...`. It is written after
+    the helper programs are signed and before the bundle is sealed, so every
+    hash in it is final. The client itself is left out: its signature covers
+    this file, and the signature's own files do not exist yet.
+    """
+    platform = normalize_platform(platform)
+    macos_dir = app / 'Contents' / 'MacOS'
+    resources = app / 'Contents' / 'Resources'
+    normalize_permissions(app)
+    files, links, dirs = walk_tree(resources, False, exclude_paths={'bfe-tree.json'})
+    files = [{**entry, 'path': f"resources/{entry['path']}"} for entry in files]
+    links = [{**entry, 'path': f"resources/{entry['path']}"} for entry in links]
+    dirs = [f'resources/{entry}' for entry in dirs]
+    manifest = {'schema': 1, 'platform': platform, 'executable': 'bfe-client'}
+    server = macos_dir / 'bfeserver'
+    if server.is_file():
+        manifest['server_executable'] = 'bfeserver'
+        files.insert(0, {'path': 'bfeserver', 'size': server.stat().st_size, 'sha256': sha256_file(server), 'mode': 0o755})
+    if not any(entry['path'] == 'resources/tools/content-version.json' for entry in files):
+        raise RuntimeError(f'{app} is missing Contents/Resources/tools/content-version.json')
+    manifest['files'] = files
+    manifest['links'] = links
+    manifest['dirs'] = dirs
+    tree_path = resources / 'bfe-tree.json'
+    tree_path.write_text(json.dumps(manifest) + '\n', encoding='utf-8')
+    tree_path.chmod(0o644)
+    return manifest
+
+
 def write_windows_ico(png_path: Path, ico_path: Path) -> None:
     """Wrap a 256x256 PNG icon into a valid Windows .ico container."""
     png_bytes = png_path.read_bytes()
@@ -243,6 +288,7 @@ def stage_tree(
 ) -> dict:
     platform = normalize_platform(platform)
     is_windows = platform.startswith('win32-')
+    is_linux = platform.startswith('linux-')
     if not client_bin.is_file():
         raise FileNotFoundError(f'Client binary not found: {client_bin}')
     if server_bin is not None and not server_bin.is_file():
@@ -268,7 +314,7 @@ def stage_tree(
     else:
         print(f'Note: no --server-bin provided for {platform}; staging client-only tree without {server_name}')
 
-    if not is_windows:
+    if is_linux:
         # Preserve the battlefront-eternal entrypoint name so existing desktop
         # files and ~/.local/bin launchers continue to work across updates.
         (out_dir / 'battlefront-eternal').symlink_to('bfe-client')
@@ -311,7 +357,7 @@ def stage_tree(
         shutil.copy2(rel_src, resources / 'bfe-release.json')
         (resources / 'bfe-release.json').chmod(0o644)
 
-    if server_bin is not None and not is_windows:
+    if server_bin is not None and is_linux:
         stage_host_runtime(resources / 'host-runtime', out_dir / server_name, repo_root)
 
     clean_bytecode(resources)
@@ -333,7 +379,7 @@ def stage_host_runtime(dst: Path, server: Path, repo_root: Path = REPO_ROOT) -> 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
+    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64, darwin-arm64, darwin-x64)')
     parser.add_argument('--client-bin', required=True, type=Path, help='Path to compiled bfe-client binary')
     parser.add_argument('--server-bin', default=None, type=Path, help='Optional path to compiled bfeserver binary')
     parser.add_argument('--toolchain-dir', default=None, type=Path, help='Path to toolchain/<platform> directory')

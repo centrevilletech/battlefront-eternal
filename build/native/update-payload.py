@@ -19,7 +19,7 @@ import tarfile
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stage import normalize_platform, sha256_file
+from stage import MACOS_APP_NAME, normalize_platform, sha256_file, walk_tree
 
 
 def compress_blob(src: Path, dst: Path) -> int:
@@ -45,6 +45,27 @@ def load_known_blobs(known_blobs_path: Path | None) -> dict[str, int]:
     return {}
 
 
+def bundle_tree(folder: Path, platform: str) -> dict:
+    """The update tree of a macOS build: the folder that holds the signed app bundle, every file of
+    the bundle as it is on disk. The bundle's own index cannot name the client or the signature's
+    files (the signature covers the index), and an installed copy must have all of them, byte for
+    byte, to keep its signature and its notarization ticket."""
+    app = folder / MACOS_APP_NAME
+    if not (app / 'Contents' / 'Info.plist').is_file():
+        raise FileNotFoundError(f'Missing {MACOS_APP_NAME} in {folder}')
+    if not (app / 'Contents' / '_CodeSignature' / 'CodeResources').is_file():
+        raise RuntimeError(f'{app} is not signed: an update made from it could not start on Apple silicon')
+    files, links, dirs = walk_tree(folder, False)
+    outside = [entry['path'] for entry in files + links if not entry['path'].startswith(MACOS_APP_NAME + '/')]
+    if outside:
+        raise RuntimeError(f'{folder} holds more than the app bundle: {outside[:5]}')
+    tree = {'schema': 1, 'platform': platform, 'executable': f'{MACOS_APP_NAME}/Contents/MacOS/bfe-client'}
+    if (app / 'Contents' / 'MacOS' / 'bfeserver').is_file():
+        tree['server_executable'] = f'{MACOS_APP_NAME}/Contents/MacOS/bfeserver'
+    tree.update(files=files, links=links, dirs=dirs)
+    return tree
+
+
 def build_update_payload(
     *,
     staged_dir: Path,
@@ -54,14 +75,17 @@ def build_update_payload(
     known_blobs_path: Path | None = None,
 ) -> dict:
     platform = normalize_platform(platform)
-    tree_path = staged_dir / 'resources' / 'bfe-tree.json'
-    if not tree_path.is_file():
-        raise FileNotFoundError(f'Missing resources/bfe-tree.json in {staged_dir}')
-    tree = json.loads(tree_path.read_text(encoding='utf-8'))
-    if tree.get('schema') != 1 or tree.get('platform') != platform:
-        raise ValueError(f'Invalid bfe-tree.json header for {platform}: {tree.get("platform")}')
-
-    content_path = staged_dir / 'resources' / 'tools' / 'content-version.json'
+    if platform.startswith('darwin-'):
+        tree = bundle_tree(staged_dir, platform)
+        content_path = staged_dir / MACOS_APP_NAME / 'Contents' / 'Resources' / 'tools' / 'content-version.json'
+    else:
+        tree_path = staged_dir / 'resources' / 'bfe-tree.json'
+        if not tree_path.is_file():
+            raise FileNotFoundError(f'Missing resources/bfe-tree.json in {staged_dir}')
+        tree = json.loads(tree_path.read_text(encoding='utf-8'))
+        if tree.get('schema') != 1 or tree.get('platform') != platform:
+            raise ValueError(f'Invalid bfe-tree.json header for {platform}: {tree.get("platform")}')
+        content_path = staged_dir / 'resources' / 'tools' / 'content-version.json'
     content_raw = json.loads(content_path.read_text(encoding='utf-8'))
     # Every generation (state, maps, sides, common): an installed client compares
     # all of them with its own, and one left out reads as changed, so the player
@@ -156,8 +180,9 @@ def build_update_payload(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Build native update-<platform>.tar payload.')
-    parser.add_argument('--tree', '--staged-dir', dest='staged_dir', required=True, type=Path, help='Staged app directory')
-    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
+    parser.add_argument('--tree', '--staged-dir', dest='staged_dir', required=True, type=Path,
+                        help='Staged app directory (macOS: the folder that holds the signed app bundle)')
+    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64, darwin-arm64, darwin-x64)')
     parser.add_argument('--version', required=True, help='Release version string')
     parser.add_argument('--out', required=True, type=Path, help='Output update-<platform>.tar path')
     parser.add_argument('--known', type=Path, default=None, help='Optional blobs.json path of already-published blobs')

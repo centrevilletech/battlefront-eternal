@@ -34,7 +34,12 @@ def server_archive(source, arch, entries=None, version='0.0.0', mode=0o755):
         archive.addfile(link)
     return path
 
+# The publisher and the Linux packagers drive the release host's own tools.
+RELEASE_TOOLS = unittest.skipUnless(shutil.which('gpg') and shutil.which('dpkg-deb'), 'needs gpg and dpkg-deb (Linux release tools)')
+
+
 class DistributionTest(unittest.TestCase):
+    @RELEASE_TOOLS
     def test_signed_repository_and_missing_asset_preserves_latest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -121,6 +126,7 @@ class DistributionTest(unittest.TestCase):
             self.assertNotIn('Version: 0.1.0~preview.1',packages)
             self.assertIn('Version: 0.1.0~preview.3',packages)
 
+    @RELEASE_TOOLS
     def test_signed_update_channel_store_and_collection(self):
         """Payloads from build/native/update-payload.py become a signed channel
         the client's update verifier accepts; blobs are checked by content,
@@ -317,6 +323,7 @@ class DistributionTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'must use host display library'):
                 checks.check_host_display_libraries(root)
 
+    @RELEASE_TOOLS
     def test_native_packaging_and_package_checks_end_to_end(self):
         """Exercise build/native/{stage,package-linux,server-archive,update-payload,check-packages}.py."""
         repo = Path(__file__).parents[1]

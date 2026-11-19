@@ -22,13 +22,23 @@ Checks performed:
      bfeserver.exe --help (when present), and bundled python.exe.
   6. Update payload (update-<platform>.tar): verifies update-<platform>.json and
      checks that every bundled .zst blob decompresses to its declared SHA-256.
-  7. Prints a human-readable size report for all verified artifacts.
+  7. macOS app bundle (.app): Info.plist, icon, the resources link, legal
+     notices, Contents/Resources/bfe-tree.json against the files on disk, and
+     on macOS the code signature of the bundle and of every program in it,
+     bfe-client --help, bfeserver --help and the bundled Python; the signature
+     must still hold after they ran. With --notarized: a Developer ID
+     signature with the hardened runtime, Gatekeeper's verdict and the stapled
+     ticket.
+  8. macOS disk image (.dmg, on macOS): mounts it read-only and checks the app
+     in it as above, the link to /Applications and the window layout files.
+  9. Prints a human-readable size report for all verified artifacts.
 """
 
 import argparse
 import hashlib
 import json
 import os
+import plistlib
 import re
 from pathlib import Path
 import shutil
@@ -38,7 +48,7 @@ import tarfile
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from stage import normalize_platform, sha256_file
+from stage import MACOS_APP_NAME, normalize_platform, sha256_file
 
 
 def format_mib(num_bytes: int) -> str:
@@ -109,13 +119,17 @@ def smoke_binary(binary: Path, label: str) -> None:
         raise RuntimeError(f'{label} binary missing: {binary}')
     env = os.environ.copy()
     env['BFE_SMOKE_TEST'] = '1'
-    proc = subprocess.run(
-        [str(binary), '--help'],
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=20,
-    )
+    with tempfile.TemporaryDirectory(prefix='bfe-check-state-') as state:
+        # The server keeps its state here instead of the home folder of whoever runs the check.
+        env['BFE_STATE_DIR'] = state
+        proc = subprocess.run(
+            [str(binary), '--help'],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
     combined = (proc.stdout or '') + '\n' + (proc.stderr or '')
     if proc.returncode < 0:
         raise RuntimeError(f'{label} crashed with signal {-proc.returncode}: {combined.strip()}')
@@ -145,6 +159,8 @@ def smoke_python(root: Path, platform: str, tools_subdir: str = 'resources/tools
     proc = subprocess.run(
         [
             str(python_bin),
+            # No bytecode files: they would change the tree that is being checked.
+            '-B',
             '-c',
             'import ast, pathlib, sys; '
             'ast.parse(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); '
@@ -386,6 +402,96 @@ def check_windows_installer(installer_path: Path, platform: str) -> None:
         verify_extracted_windows_tree(extracted_dir, platform)
 
 
+MACOS_BUNDLE_IDENTIFIER = 'com.battlefronteternal.client'
+
+
+def sign_macos(*args: str) -> None:
+    subprocess.run([sys.executable, str(Path(__file__).resolve().parent / 'sign-macos.py'), *args], check=True)
+
+
+def check_macos_app(app: Path, platform: str, notarized: bool = False, run_programs: bool = True) -> dict:
+    contents = app / 'Contents'
+    with (contents / 'Info.plist').open('rb') as handle:
+        info = plistlib.load(handle)
+    expected = {
+        'CFBundleIdentifier': MACOS_BUNDLE_IDENTIFIER,
+        'CFBundleExecutable': 'bfe-client',
+        'CFBundlePackageType': 'APPL',
+        'LSApplicationCategoryType': 'public.app-category.action-games',
+        'NSHighResolutionCapable': True,
+    }
+    for key, value in expected.items():
+        if info.get(key) != value:
+            raise RuntimeError(f'Info.plist {key} is {info.get(key)!r}, expected {value!r}')
+    # The client plays sound and never records it: asking for the microphone would be a defect.
+    for key in ('NSMicrophoneUsageDescription', 'NSCameraUsageDescription'):
+        if key in info:
+            raise RuntimeError(f'Info.plist asks for a permission the app does not use: {key}')
+    if not (contents / 'Resources' / f"{info.get('CFBundleIconFile')}.icns").is_file():
+        raise RuntimeError(f'{app.name} has no icon')
+    release_file = contents / 'Resources' / 'bfe-release.json'
+    if release_file.is_file():
+        release = json.loads(release_file.read_text(encoding='utf-8'))
+        if info.get('CFBundleShortVersionString') != release.get('version'):
+            raise RuntimeError(f"Info.plist version {info.get('CFBundleShortVersionString')!r} is not the release's {release.get('version')!r}")
+    link = contents / 'MacOS' / 'resources'
+    if not link.is_symlink() or os.readlink(link) != '../Resources':
+        raise RuntimeError(f'{app.name} lacks the Contents/MacOS/resources link the programs look through')
+    for legal in ('LICENSE', 'THIRD-PARTY-NOTICES.md'):
+        if not (contents / 'Resources' / 'legal' / legal).is_file():
+            raise RuntimeError(f'{app.name} lacks legal/{legal}')
+
+    # The index names files as the programs see them, from Contents/MacOS through the link.
+    manifest = verify_tree_manifest(contents / 'MacOS', contents / 'Resources' / 'bfe-tree.json')
+    if manifest.get('platform') != platform:
+        raise RuntimeError(f"bfe-tree.json platform is {manifest.get('platform')!r}, expected {platform!r}")
+    indexed = {entry['path'] for entry in manifest['files']} | {entry['path'] for entry in manifest.get('links', [])}
+    for dirpath, _, filenames in os.walk(contents / 'Resources'):
+        for name in filenames:
+            rel = 'resources/' + (Path(dirpath) / name).relative_to(contents / 'Resources').as_posix()
+            if rel not in indexed and rel != 'resources/bfe-tree.json':
+                raise RuntimeError(f'Unindexed file in {app.name}: {rel}')
+    has_server = 'server_executable' in manifest
+    if has_server != (contents / 'MacOS' / 'bfeserver').is_file():
+        raise RuntimeError(f'{app.name}: bfeserver and the index disagree')
+
+    if sys.platform != 'darwin':
+        print(f'[INFO] {app.name}: signature and program checks need macOS; skipped')
+        return manifest
+    sign_macos('verify', str(app), *(['--notarized'] if notarized else []))
+    if run_programs:
+        smoke_binary(contents / 'MacOS' / 'bfe-client', 'app bfe-client')
+        if has_server:
+            smoke_binary(contents / 'MacOS' / 'bfeserver', 'app bfeserver')
+        smoke_python(contents / 'MacOS', platform)
+        # Nothing the programs did may have changed the sealed bundle.
+        subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
+    return manifest
+
+
+def check_dmg(dmg: Path, platform: str, notarized: bool = False) -> None:
+    if sys.platform != 'darwin':
+        print(f'[INFO] {dmg.name}: a disk image is checked on macOS; skipped')
+        return
+    sign_macos('verify', str(dmg), *(['--notarized'] if notarized else []))
+    with tempfile.TemporaryDirectory(prefix='bfe-check-dmg-') as mount:
+        subprocess.run(['hdiutil', 'attach', '-quiet', '-nobrowse', '-readonly', '-mountpoint', mount, str(dmg)],
+                       check=True, stderr=subprocess.DEVNULL)
+        try:
+            volume = Path(mount)
+            applications = volume / 'Applications'
+            if not applications.is_symlink() or os.readlink(applications) != '/Applications':
+                raise RuntimeError(f'{dmg.name} has no link to /Applications')
+            if not (volume / '.DS_Store').is_file() or not any(volume.glob('.background*')):
+                raise RuntimeError(f'{dmg.name} lacks its window layout or background')
+            extra = sorted(entry.name for entry in volume.iterdir() if not entry.name.startswith('.') and entry.name not in (MACOS_APP_NAME, 'Applications'))
+            if extra:
+                raise RuntimeError(f'{dmg.name} holds unexpected entries: {extra}')
+            check_macos_app(volume / MACOS_APP_NAME, platform, notarized=notarized)
+        finally:
+            subprocess.run(['hdiutil', 'detach', '-quiet', mount], check=False, stderr=subprocess.DEVNULL)
+
+
 def check_update_payload(payload_path: Path, platform: str) -> None:
     manifest_name = f'update-{platform}.json'
     with tempfile.TemporaryDirectory(prefix='bfe-check-update-') as tmp:
@@ -417,6 +523,16 @@ def check_update_payload(payload_path: Path, platform: str) -> None:
         else:
             print(f'[INFO] server_executable absent in {manifest_name} (bfeserver crate not yet in workspace); skipping server payload check')
 
+        if platform.startswith('darwin-'):
+            # An installed update is the whole signed bundle, signature files included.
+            paths = {f.get('path') for f in manifest['files']}
+            for needed in ('Contents/Info.plist', 'Contents/_CodeSignature/CodeResources', 'Contents/Resources/bfe-tree.json'):
+                if f'{MACOS_APP_NAME}/{needed}' not in paths:
+                    raise RuntimeError(f'{manifest_name} lacks {MACOS_APP_NAME}/{needed}')
+            links = {link.get('path'): link.get('target') for link in manifest.get('links', [])}
+            if links.get(f'{MACOS_APP_NAME}/Contents/MacOS/resources') != '../Resources':
+                raise RuntimeError(f'{manifest_name} lacks the Contents/MacOS/resources link')
+
         blobs_dir = work / 'blobs'
         if blobs_dir.is_dir():
             for blob_path in sorted(blobs_dir.glob('*.zst')):
@@ -429,7 +545,7 @@ def check_update_payload(payload_path: Path, platform: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64)')
+    parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64, darwin-arm64, darwin-x64)')
     parser.add_argument('--staged-dir', type=Path, help='Staged unpacked directory to check')
     parser.add_argument('--deb', type=Path, help='Debian .deb package to check')
     parser.add_argument('--install-deb', action='store_true', help='Also install (apt) and remove (dpkg -r) the .deb package')
@@ -437,6 +553,9 @@ def main() -> None:
     parser.add_argument('--server-archive', type=Path, help='Dedicated server .tar.xz archive to check')
     parser.add_argument('--windows-installer', type=Path, help='Windows NSIS .exe installer to check')
     parser.add_argument('--update-payload', type=Path, help='Update payload update-<platform>.tar to check')
+    parser.add_argument('--macos-app', type=Path, help='macOS app bundle to check')
+    parser.add_argument('--dmg', type=Path, help='macOS disk image to check')
+    parser.add_argument('--notarized', action='store_true', help='Require the macOS app and disk image to be notarized Developer ID builds')
     parser.add_argument('--report-out', type=Path, help='Optional file path to write Markdown size report')
     args = parser.parse_args()
 
@@ -467,6 +586,13 @@ def main() -> None:
         check_windows_installer(args.windows_installer, platform)
         sizes.append(('Windows NSIS installer (.exe)', args.windows_installer))
         print(f'[OK] Windows NSIS installer verified: {args.windows_installer}')
+    if args.macos_app:
+        check_macos_app(args.macos_app, platform, notarized=args.notarized)
+        print(f'[OK] macOS app bundle verified: {args.macos_app}')
+    if args.dmg:
+        check_dmg(args.dmg, platform, notarized=args.notarized)
+        sizes.append(('macOS disk image (.dmg)', args.dmg))
+        print(f'[OK] macOS disk image verified: {args.dmg}')
     if args.update_payload:
         check_update_payload(args.update_payload, platform)
         sizes.append(('Update payload (.tar)', args.update_payload))
