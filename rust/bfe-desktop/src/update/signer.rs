@@ -4,12 +4,12 @@
 //! checked against that channel. This is the second wall, for the day the channel's key or
 //! the server that holds it is in other hands. macOS asks who signed a program only when a
 //! browser downloaded it, never for files this program writes, so the updater asks itself:
-//! before a downloaded version counts as installed, and before it takes the installed app's
-//! place, its bundle has to verify as a whole and satisfy the requirement that the app's own
-//! signature states for later versions of itself (its designated requirement). For a build
-//! signed with a Developer ID that reads "this bundle identifier, a Developer ID
-//! certificate issued by Apple, this team". Nothing about any team is written here: the
-//! installed app is the reference.
+//! before a downloaded version counts as installed, before a start hands off to it, and
+//! before it takes the installed app's place, its bundle has to verify as a whole and
+//! satisfy the requirement that the app's own signature states for later versions of itself
+//! (its designated requirement). For a build signed with a Developer ID that reads "this
+//! bundle identifier, a Developer ID certificate issued by Apple, this team". Nothing about
+//! any team is written here: the installed app is the reference.
 //!
 //! An app with no certificate behind its signature (a developer's own build, signed ad hoc)
 //! states no such requirement and takes whatever its channel offers, as the other systems

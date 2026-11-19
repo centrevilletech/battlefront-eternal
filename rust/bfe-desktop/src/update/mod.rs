@@ -459,6 +459,29 @@ mod tests {
         assert_eq!(fs::read_link(update.join("Contents/MacOS/resources")).unwrap(), Path::new("../Resources"));
         assert_eq!(read_state(&update_root).bad, ["0.1.0-preview.2", "0.1.0-preview.3"]);
 
+        // A version that reached the update folder some other way than through that check
+        // (here: put there by hand, with a record that says it is installed) is not started.
+        let planted = version_dir(6);
+        fs::create_dir_all(&planted).unwrap();
+        let theirs = build(6, THEIRS);
+        fs::rename(&theirs, planted.join("Battlefront Eternal.app")).unwrap();
+        fs::write(
+            planted.join(INSTALL_RECORD),
+            r#"{"version":"0.1.0-preview.6","platform":"darwin-arm64","executable":"Battlefront Eternal.app/Contents/MacOS/bfe-client","files":[]}"#,
+        )
+        .unwrap();
+        assert_eq!(installed_versions(&update_root, Some("darwin-arm64"))[0].version, "0.1.0-preview.6");
+        let outcome = hand_off(&signed_app);
+        let log = fs::read_to_string(update_root.join("update.log")).unwrap();
+        assert!(log.contains("not starting 0.1.0-preview.6: it is not a build signed by the developer of this app"), "{log}");
+        assert!(!planted.exists(), "and it is removed");
+        assert!(read_state(&update_root).bad.contains(&"0.1.0-preview.6".to_string()));
+        // The developer's own version 4 is next in line and passes the check: it is the one
+        // the hand-off goes on to start. (This test's stand-in program is no game, so the
+        // start itself fails, which is the launcher's business and not the check's.)
+        assert!(!log.contains("not starting 0.1.0-preview.4"), "{log}");
+        assert!(log.contains("handoff to 0.1.0-preview.4 failed") || outcome.handed_off, "{log}");
+
         // An app with no certificate behind its signature (this test's ad hoc one, read
         // from the app itself) takes what its channel offers, as before.
         publish_bundle(&http_root, &signing_key, &key_id, 5, &build(5, THEIRS));

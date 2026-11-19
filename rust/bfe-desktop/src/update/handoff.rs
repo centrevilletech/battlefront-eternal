@@ -22,7 +22,7 @@ use crate::update::install::{
     DEFAULT_CONCURRENCY, REFUSED,
 };
 use crate::update::keys::{default_keys, FEED};
-use crate::update::signer::{signer_of, Signer};
+use crate::update::signer::{check_bundle, signer_of, Signer};
 use crate::update::state::{
     choose_launch, installed_versions, platform_key, read_state, record_attempt, record_bad,
     resolve_update_root, InstalledVersion,
@@ -92,6 +92,17 @@ pub struct UpdaterContext {
 }
 
 impl UpdaterContext {
+    /// macOS: who has to have signed a build that updates the running app, read from the
+    /// app's own signature unless the context names it. An error means that signature could
+    /// not be read; no update is then fetched or started.
+    fn required_signer(&self, plat: &str) -> Result<Signer, String> {
+        match (&self.signer, bundle_of(&self.own_dir)) {
+            (Some(signer), _) => Ok(signer.clone()),
+            (None, Some(bundle)) if plat.starts_with("darwin-") => signer_of(&bundle),
+            (None, _) => Ok(Signer::Anyone),
+        }
+    }
+
     /// Captures [`UpdaterContext`] from the current process environment and executable location.
     pub fn from_current_process() -> Self {
         let env_map: BTreeMap<String, String> = env::vars().collect();
@@ -227,6 +238,33 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
         ) else {
             break;
         };
+
+        // macOS: whatever put this version into the folder, it is started only as a build
+        // signed by the developer of this app (update/signer.rs). The check at installation
+        // already refused anything else that came through the channel; this one costs a
+        // fraction of a second and also covers a folder that something else wrote into.
+        let checked = ctx.required_signer(resolved.plat).and_then(|signer| match signer {
+            Signer::Anyone => Ok(()),
+            Signer::Requirement(_) => candidate
+                .executable
+                .parent()
+                .and_then(bundle_of)
+                .ok_or_else(|| "its program is not inside an app bundle".to_string())
+                .and_then(|bundle| check_bundle(&bundle, &signer)),
+        });
+        if let Err(reason) = checked {
+            let _ = record_bad(&resolved.root, &candidate.version);
+            let _ = std::fs::remove_dir_all(&candidate.dir);
+            append_update_log(
+                &resolved.root,
+                Some(&resolved.own_version),
+                &format!(
+                    "not starting {}: it is not a build signed by the developer of this app ({reason}); removed",
+                    candidate.version
+                ),
+            );
+            continue;
+        }
 
         let _ = record_attempt(&resolved.root, &candidate.version);
         let result = launch_version(&LaunchOptions {
@@ -396,11 +434,7 @@ where
 
         // macOS: only a build signed by this app's developer may update it. Read before
         // anything is fetched: an app whose own signature cannot be read takes no update.
-        let signer = match (&ctx.signer, bundle_of(&ctx.own_dir)) {
-            (Some(signer), _) => signer.clone(),
-            (None, Some(bundle)) if resolved.plat.starts_with("darwin-") => signer_of(&bundle)?,
-            (None, _) => Signer::Anyone,
-        };
+        let signer = ctx.required_signer(resolved.plat)?;
 
         append_update_log(
             &resolved.root,

@@ -135,9 +135,12 @@ running app's own signature states for later versions of itself, which for a
 Developer ID build is "this bundle identifier, a Developer ID certificate
 issued by Apple, this team". Nothing about a team is written in the program;
 the installed app is the reference. The check runs after the files are
-fetched and before the folder counts as an installed version. A build that
-fails it is deleted, written to `update.log` and not fetched again; the
-running version stays, and the next release is looked at afresh. An app with
+fetched and before the folder counts as an installed version, and again
+each time a start hands off to a version in the update folder (it takes
+about a fifth of a second on an Apple silicon Mac), so a folder that
+something else wrote into is not started either. A build that fails it is
+deleted, written to `update.log` and not fetched again; the running version
+stays, and the next release is looked at afresh. An app with
 no certificate behind its signature (a developer's own ad hoc build) takes
 what its channel offers, as the other systems do. A consequence: if the
 project ever signs with another developer team, installed copies refuse
