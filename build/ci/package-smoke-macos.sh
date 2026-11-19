@@ -65,9 +65,8 @@ else
 fi
 
 bin="$app/Contents/MacOS"
-missing=$(otool -L "$bin/bfe-client" "$bin/bfeserver" | awk '/^\t/ {print $1}' | grep -v '^@' | while read -r lib; do
-  # System libraries live in the dyld shared cache, not on disk: ask the loader.
-  case "$lib" in /usr/lib/*|/System/*) ;; *) echo "$lib";; esac; done)
+# Anything that is not a system library (those live in the loader's shared cache) or beside the program.
+missing=$(otool -L "$bin/bfe-client" "$bin/bfeserver" | awk '/^\t/ {print $1}' | grep -v -E '^(@|/usr/lib/|/System/)' | sort -u | tr '\n' ' ')
 check "only system libraries linked" "$([ -z "$missing" ]; echo $?)" "${missing:-all from the system}"
 version=$("$bin/bfe-client" --version 2>&1 < /dev/null)
 check "client starts" $? "$version"
