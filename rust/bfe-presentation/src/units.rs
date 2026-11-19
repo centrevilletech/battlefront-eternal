@@ -644,18 +644,6 @@ impl Units {
             let mut position = vector(out, o::POSITION);
             if !lease_birth { position.add(&vector(input, i::CORRECTION)); }
             a.rig.tree.node_mut(a.rig.root).position = position;
-            // External owners sometimes change the root at a seat/release.
-            // Recopying an unchanged quaternion would spuriously synchronize
-            // its Euler (including signed zero), unlike the original frame.
-            let q = quaternion(input, i::ROOT_QUATERNION);
-            let root = a.rig.tree.node_mut(a.rig.root);
-            if root.quaternion.x != q.x
-                || root.quaternion.y != q.y
-                || root.quaternion.z != q.z
-                || root.quaternion.w != q.w
-            {
-                root.copy_quaternion(&q);
-            }
             // Distant animation uses accumulated visual dt. Interpolation and
             // birth/death edge recovery still run on every presented frame.
             a.pose_clock += dt;
@@ -675,6 +663,22 @@ impl Units {
                 };
             let posed = every == 1 || (self.input[f::FRAME] + input[i::ID]) % every as f64 == 0.0;
             if posed {
+                // The animator turns the root from the host's rotation (a
+                // seat or a hold may have left a tilt on it). A frame that
+                // skips the animation keeps the heading last drawn: taking
+                // the host's rotation there too would show a distant body
+                // facing the host's way on every frame between two poses.
+                // Recopying an unchanged quaternion would spuriously synchronize
+                // its Euler (including signed zero), unlike the original frame.
+                let q = quaternion(input, i::ROOT_QUATERNION);
+                let root = a.rig.tree.node_mut(a.rig.root);
+                if root.quaternion.x != q.x
+                    || root.quaternion.y != q.y
+                    || root.quaternion.z != q.z
+                    || root.quaternion.w != q.w
+                {
+                    root.copy_quaternion(&q);
+                }
                 if let (Some(anim), Some(w)) = (&mut a.walker, &content.walker) {
                     let clips = bfe_pose::rig::droideka::DroidekaClips {
                         by_mode: w.by_mode.map(|id| id.map(|i| &content.clips[i].sample)),
