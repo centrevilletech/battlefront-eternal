@@ -505,11 +505,13 @@ building it.
 pixels (4480 x 2520 on a 24-inch iMac). Its menu bar has the application menu
 (About, Hide, Quit with Command-Q), View > Enter Full Screen (Globe-F or
 Control-Command-F; F11 and the window's green button do the same) and
-Window > Minimize (Command-M) and Zoom. Full screen is the system's own: the
-window takes a Space of its own at the desktop's display mode, so Mission
-Control, Command-Tab and notifications behave as in any Mac application.
-VIDEO OPTIONS > RESOLUTION therefore offers DESKTOP only, as on Wayland;
-RENDER SCALE and DYNAMIC RESOLUTION draw the scene smaller instead.
+Window > Minimize (Command-M) and Zoom. Quit and Command-Q leave the way the
+window's close button does: while this computer hosts a server, the game
+first asks whether the server keeps running. Full screen is the system's
+own: the window takes a Space of its own at the desktop's display mode, so
+Mission Control, Command-Tab and notifications behave as in any Mac
+application. VIDEO OPTIONS > RESOLUTION therefore offers DESKTOP only, as on
+Wayland; RENDER SCALE and DYNAMIC RESOLUTION draw the scene smaller instead.
 
 **The first start** measures the GPU as on the other systems. A Mac's own
 display has two to three times the pixels of a common PC monitor, so when
