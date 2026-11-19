@@ -176,18 +176,28 @@ impl LocalDedicatedServer {
             }
             (port.udp, port.info)
         } else if game_port == 0 {
-            // Any port: take an ephemeral TCP port first and then the same UDP port, retrying when UDP refuses it.
-            // A UDP ephemeral port can fall in a range Windows reserves for TCP, which refuses the /info listener.
+            // Any port: one number that is free for the UDP game socket and for the TCP /info listener.
+            // Windows reserves ranges of ports per protocol (for Hyper-V and others). The system hands
+            // out its own choices one after the other, so twenty TCP ports in a row can all lie in a
+            // range reserved for UDP, and the other way round. The number is therefore taken from each
+            // protocol in turn: a port that UDP chose is never reserved for UDP, one that TCP chose
+            // never for TCP.
             let mut attempt = 0;
             loop {
                 attempt += 1;
-                let listener = bind_info_tcp(0, config.bind.as_deref())?;
-                let port = listener
-                    .local_addr()
-                    .map_err(|e| format!("/info listener address: {e}"))?
-                    .port();
-                match bind_udp(port) {
-                    Ok(udp) => break (Arc::new(Mutex::new(udp)), listener),
+                let pair = if attempt % 2 == 1 {
+                    let listener = bind_info_tcp(0, config.bind.as_deref())?;
+                    let port = listener
+                        .local_addr()
+                        .map_err(|e| format!("/info listener address: {e}"))?
+                        .port();
+                    bind_udp(port).map(|udp| (udp, listener))
+                } else {
+                    let udp = bind_udp(0)?;
+                    bind_info_tcp(udp.port, config.bind.as_deref()).map(|listener| (udp, listener))
+                };
+                match pair {
+                    Ok((udp, listener)) => break (Arc::new(Mutex::new(udp)), listener),
                     Err(e) if attempt >= 20 => return Err(e),
                     Err(_) => {}
                 }
