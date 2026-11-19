@@ -14,7 +14,7 @@ existing extraction without re-extracting it (see
 
 | Data | Source | Written to |
 | --- | --- | --- |
-| List art: `opaque_black` (16×16, black at alpha 119, the dimming), `listbox_cursor` (the selection's frame, 64×64, nine-sliced), `listbox_hilight` (the hovered row's), `small_arrow` (64×32, turned to point up or down), `backbutton_left`, `backbutton_mid`, `backbutton_right` (DETAILS' tab; 32×32, 64×32, 32×32) | `Common/ENG/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
+| List art: `opaque_black` (16×16, black at alpha 119, the dimming), `listbox_cursor` (the selection's frame, 64×64, nine-sliced), `listbox_hilight` (the hovered row's), `small_arrow` (64×32, turned to point up or down), `backbutton_left`, `backbutton_mid`, `backbutton_right` (DETAILS' tab; 32×32, 64×32, 32×32) | `Common/<language>/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
 | 4× lossless WebP atlases of the art above, and of `stats_kills`, `stats_deaths` and `stats_cpp` (the column icons and the popup's) | the PNGs, through `tools/upscale_hud.py` | `common/raster-hud/`, with `manifest.json` |
 | The text of the table, DETAILS and AWARDS | `core.lvl` `Locl`, English | `common.json` `strings` |
 | Bot name lists | `core.lvl` `Locl` (`common.sides.<side>.firstnames.NN`, `.lastnames.NN`, `level.<map>.local`) | `maps/<map>/ai-mission.json` `names` (tools/zero_ai_mission.py, unchanged) |

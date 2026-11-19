@@ -572,6 +572,15 @@ impl Setup {
                 }
             } else {
                 if check["ok"] == true {
+                    // The language the tools found the copy in, in their words.
+                    if let Some(language) = check["language"]["message"].as_str() {
+                        v.facts.push(SetupFact {
+                            name: "LANGUAGE".into(),
+                            value: language.into(),
+                            monospace: false,
+                            status: "",
+                        });
+                    }
                     let add_on_text = add_ons_text(&check["addOns"]);
                     v.facts.push(SetupFact {
                         name: "ADD-ON MAPS".into(),

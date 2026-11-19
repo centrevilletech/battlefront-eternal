@@ -272,6 +272,38 @@ fn discover_validates_classic_swbf1_installs_case_insensitively() {
     assert_eq!(inspect_install(&swbf2_install), None);
 }
 
+/// Verifies `inspect_install` accepts a copy in any language: the shared archive is in a
+/// folder named for the copy's language, which `tools/zero_language.py` chooses and names.
+#[test]
+fn discover_accepts_a_copy_in_any_language() {
+    let tmp = TempDir::new("discover-language");
+    // A copy with these files under `GameData/Data/_LVL_PC`, beside `SIDE`.
+    let copy = |name: &str, files: &[&str]| {
+        let root = tmp.path().join(name);
+        let lvl = root.join("GameData/Data/_LVL_PC");
+        fs::create_dir_all(lvl.join("SIDE")).unwrap();
+        for file in files {
+            fs::create_dir_all(lvl.join(file).parent().unwrap()).unwrap();
+            fs::write(lvl.join(file), "lvl").unwrap();
+        }
+        root
+    };
+
+    let french = copy("french", &["Common/FRE/common.lvl", "Shell/FRE/shell.lvl"]);
+    // One folder renamed to ENG by hand and the other not.
+    let half_renamed = copy("half", &["Common/ENG/common.lvl", "Shell/FRE/shell.lvl"]);
+    let small_letters = copy("small", &["Common/fre/COMMON.LVL", "Shell/fre/shell.lvl"]);
+    let several = copy("several", &["Common/GER/common.lvl", "Common/SPA/common.lvl"]);
+    // A language folder with nothing in it is not the game.
+    let empty = copy("empty", &["Shell/FRE/shell.lvl"]);
+    fs::create_dir_all(empty.join("GameData/Data/_LVL_PC/Common/FRE")).unwrap();
+
+    for root in [&french, &half_renamed, &small_letters, &several] {
+        assert_eq!(inspect_install(root).map(|found| found.dir), Some(root.clone()));
+    }
+    assert_eq!(inspect_install(&empty), None);
+}
+
 /// Verifies `installed_add_ons` returns sorted lowercase IDs for valid `AddOn/<id>` folders.
 ///
 /// Mirrors `installedAddOns` in the desktop host.

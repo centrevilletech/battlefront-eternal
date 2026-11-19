@@ -12,7 +12,7 @@ extraction without re-extracting it (see [Regenerating](#regenerating)).
 
 | Data | Source | Written to |
 | --- | --- | --- |
-| Window art: `border_3_pieces` (window background, a 9-slice), `headerbuttonleft`, `headerbuttonmid`, `headerbuttonright` (title bar), `cursor` (title intro sweep block), `opaque_rect` (SPAWN box), all 64×64; `mousecursor` (pointer, 32×32); `shell_cube` (the room's grid, 128×128) | `Common/ENG/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
+| Window art: `border_3_pieces` (window background, a 9-slice), `headerbuttonleft`, `headerbuttonmid`, `headerbuttonright` (title bar), `cursor` (title intro sweep block), `opaque_rect` (SPAWN box), all 64×64; `mousecursor` (pointer, 32×32); `shell_cube` (the room's grid, 128×128) | `Common/<language>/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
 | The background room, `shell_cube`: one part, 59 vertices, 71 triangles | `common.lvl` `modl` | appended to `common/holograms.bin` and `holograms_index.bin`; record in `common.json` `holograms` |
 | 4× lossless WebP atlases of the art above, and of `com_icon_controlzone` (the logos' texture) | the PNGs, through `tools/upscale_hud.py` | `common/raster-hud/`, with `manifest.json` |
 | The screen's text | `core.lvl` `Locl`, English | `common.json` `strings` |

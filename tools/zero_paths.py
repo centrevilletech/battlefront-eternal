@@ -17,6 +17,26 @@ GAME = INSTALL / "Data" / "_LVL_PC"
 PUBLIC = Path(os.environ["BFE_CONTENT_DIR"]) if os.environ.get("BFE_CONTENT_DIR") else ROOT / "public"
 
 
+def child(base, *parts):
+    """base/parts, each part matched without regard to case where the exact
+    spelling isn't there, and spelled as on disk; None when one is missing.
+    On disk because outputs record these paths (zero_addon.source_name):
+    Windows finds "_LVL_PC" and "SIDE" in AddOn/Tat3, which spells them
+    "_lvl_pc" and "Side", and must record what Linux does, or the content
+    fingerprint differs."""
+    at = Path(base)
+    for part in parts:
+        try:
+            names = [entry.name for entry in at.iterdir()]
+        except OSError:
+            return None
+        name = part if part in names else next((name for name in names if name.lower() == part.lower()), None)
+        if name is None:
+            return None
+        at = at / name
+    return at
+
+
 @contextmanager
 def shared_lock(name):
     """Holds <PUBLIC>/.locks/<name>.lock exclusively across processes, so

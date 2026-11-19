@@ -25,6 +25,7 @@ from zero_fx import effects, effect, textures as effect_textures
 from xform import mat4, mul
 from extract import write_meshes, write_textures
 import zero_addon
+import zero_language
 
 ROOT = Path(__file__).resolve().parents[1]
 from zero_paths import GAME, PUBLIC  # noqa: E402
@@ -53,7 +54,7 @@ def attachments(props):
 
 def export(name):
     data = zero_addon.map_archive(name, GAME).read_bytes()
-    common = (GAME / 'Common/ENG/common.lvl').read_bytes()
+    common = zero_language.common_archive(GAME).read_bytes()
     models, skeletons = {}, {}
     for archive in (data, common):
         collect_models(archive, models, skeletons)

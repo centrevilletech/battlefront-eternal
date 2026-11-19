@@ -2,7 +2,8 @@
 converted (tools/prepare.py --check), and the run around it: an add-on's
 map that can't be prepared is left out while the game's own content
 completes, the Enhanced sound can be left out by choice, and the game's own
-failures say what failed. A synthetic installation: the archives' headers,
+failures say what failed. A copy in another language is in
+tests/test_language.py. A synthetic installation: the archives' headers,
 scripts and text are made here, nothing retail."""
 import json
 import os
@@ -140,13 +141,6 @@ class CheckTests(unittest.TestCase):
         self.game.rename(self.game.parent / "_lvl_pc")
         self.assertEqual(self.problems(), [("misnamed", "GameData/Data/_LVL_PC")], "a missing folder stops the check")
 
-    def test_a_copy_without_the_english_files(self):
-        for folder in ("Common", "Shell"):
-            (self.game / folder / "ENG").rename(self.game / folder / "GER")
-        found = self.check()["problems"]
-        self.assertEqual([entry["code"] for entry in found], ["language"])
-        self.assertIn("It has GER only.", found[0]["message"])
-
     def test_the_program_the_foliage_is_placed_from(self):
         with mock.patch("zero_foliage.placement_table", side_effect=ValueError("Unsupported")):
             found = self.check()["problems"]
@@ -186,6 +180,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([entry["code"] for entry in events[0]["problems"]], ["program"])
         self.assertEqual(result.returncode, 1)
         self.assertGreaterEqual(events[0]["workers"], 1)
+        self.assertEqual(events[0]["language"]["message"], "This copy's game files are in English.")
         self.assertFalse(out.exists(), "a check writes nothing")
 
 

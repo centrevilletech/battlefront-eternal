@@ -108,7 +108,8 @@ class RetailHaze(unittest.TestCase):
         from zero_config import configs
         from zero_odf import entity_classes
         from zero_world import instance_records
-        shared = [(GAME / 'Common' / 'ENG' / 'common.lvl').read_bytes(), (GAME / 'core.lvl').read_bytes()]
+        from zero_language import common_archive
+        shared = [common_archive(GAME).read_bytes(), (GAME / 'core.lvl').read_bytes()]
         for name, expected in RETAIL.items():
             with self.subTest(map=name):
                 data = zero_addon.map_archive(name, GAME).read_bytes()

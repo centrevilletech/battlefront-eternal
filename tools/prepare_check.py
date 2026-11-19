@@ -6,10 +6,16 @@ It goes through the tools' own paths (tools/zero_paths.py, zero_shell.py's
 archives, zero_addon.py's maps, armies and add-ons), so it finds what a run
 would trip over, in plain words: a folder or archive that is missing, empty,
 not a game archive, or spelled otherwise than the tools spell it (on Linux
-names must match exactly), English files missing (the tools read ENG), and
-a game program the maps' painted foliage can't be placed from
-(tools/zero_foliage.py). It can't tell an edited archive from the original:
-that would take the originals' checksums, which this project doesn't keep.
+names must match exactly), no language folder holding the shared archive or
+the front end's, a front end archive without the game's list of maps, and a
+game program the maps' painted foliage can't be placed from
+(tools/zero_foliage.py). It can't tell an edited archive from
+the original: that would take the originals' checksums, which this project
+doesn't keep.
+
+A copy in any language passes: the tools read English where the copy has
+it and the copy's own language otherwise (tools/zero_language.py), and the
+report says which (language).
 
 Add-ons are looked at one by one. One whose own files can't be read is left
 out of a run altogether (zero_addon.skipped); a map of one that needs a file
@@ -23,11 +29,11 @@ import struct
 from pathlib import Path
 
 import zero_addon
+import zero_language
 from zero_locl import localization as read_localization
 from zero_lua import calls, load, mission_scripts, mission_setup
 from zero_paths import GAME
 
-LANGUAGE = "ENG"  # the tools read the English files (zero_shell.py, extract.py)
 ARCHIVE = b"ucfb"  # how every game archive starts (docs/formats.md)
 # Whatever reading an archive the tools can't make sense of raises: a broken
 # add-on (or a damaged archive) must not stop the check, only be reported.
@@ -168,19 +174,20 @@ def map_problems(map_id, game, scripts, roots, add_on=False):
     return tidy(found)
 
 
-def language_problem(game):
-    """None while the English files are there, else what this copy has
-    instead (a copy in another language only)."""
-    from zero_shell import archives
-    folders = [Path(archives(game)[key]).parent for key in ("common", "shell")]
-    if all(folder.is_dir() or spelled(folder) for folder in folders):
-        return None  # there (or spelled otherwise, which is reported as misnamed)
-    common = spelled(Path(game) / "Common")
-    languages = sorted(entry.name for entry in common.iterdir() if entry.is_dir()) if common and common.is_dir() else []
-    have = f" It has {', '.join(languages)} only." if languages else ""
-    return problem("language", Path(game) / "Common" / LANGUAGE, game,
-                   f"This copy has no English game files (Common/{LANGUAGE} and Shell/{LANGUAGE}).{have} "
-                   "Battlefront Eternal reads the English ones, which the Steam and GOG copies include.")
+def language_problems(game):
+    """What keeps the shared archive and the front end's from being read,
+    {key: problem}: Common or Shell missing or spelled otherwise, or no
+    language folder in it (ENG, FRE, whatever its name) holding its
+    archive. The archive found is looked at like any other."""
+    found = {}
+    for key, part, name in (("common", "Common", "common.lvl"), ("shell", "Shell", "shell.lvl")):
+        folder = Path(game) / part
+        if not folder.is_dir():
+            found[key] = archive_problem(folder, game)
+        elif zero_language.archive(folder, name) is None:
+            found[key] = problem("language", folder, game, f"{shown(folder, game)} has no language folder (such as ENG or FRE) "
+                                                           f"with {name} in it.")
+    return found
 
 
 def program_problem(game):
@@ -209,17 +216,23 @@ def stock_problems(game=GAME):
     for folder in (game.parents[1], game.parent, game):
         if not folder.is_dir():
             return [archive_problem(folder, game)]
-    found = [language_problem(game)]
-    for key, path in archives(game).items():
-        if not (found[0] and key in ("common", "shell")):
-            found.append(archive_problem(path, game))
-    found.append(archive_problem(game / "SIDE", game))
-    found.append(program_problem(game))
+    languages = language_problems(game)
+    found = {key: languages.get(key) or archive_problem(path, game) for key, path in archives(game).items()}
+    shell = archives(game)["shell"]
     try:
         scripts = mission_scripts((game / "mission.lvl").read_bytes())
-        maps = ia_maps(archives(game)["shell"].read_bytes())
     except UNREADABLE:
-        scripts, maps = {}, []  # reported above, as a missing or damaged archive
+        scripts = {}  # reported above, as a missing or damaged archive
+    try:
+        maps = ia_maps(shell.read_bytes())
+    except UNREADABLE:
+        maps = []
+        # An archive, but not the front end's whole one: the Steam copy's
+        # other language folders hold one picture each (tools/zero_language.py).
+        found["shell"] = found["shell"] or problem(
+            "incomplete", shell, game, f"{shown(shell, game)} has no list of the game's maps, so it isn't the whole front end "
+                                       "archive. Of a copy's language folders one must be complete, as ENG is in the Steam copy.")
+    found = [*found.values(), archive_problem(game / "SIDE", game), program_problem(game)]
     roots = mission_roots(game)
     for map_id in maps:
         found += map_problems(map_id, game, scripts, roots)
@@ -299,8 +312,9 @@ def add_on_report(game=GAME, stock=()):
 
 def check(game=GAME):
     """The installation's check: ok when nothing keeps the game itself from
-    preparing, with its problems, the stock maps' ids, and the add-ons
-    (add_on_report). Reads only; writes nothing."""
+    preparing, with its problems, the stock maps' ids, the add-ons
+    (add_on_report) and the language the copy is in (zero_language.found).
+    Reads only; writes nothing."""
     from zero_shell import archives, ia_maps
     game = Path(game)
     problems = stock_problems(game)
@@ -313,4 +327,5 @@ def check(game=GAME):
     except UNREADABLE as error:
         add_ons = []
         problems.append(problem("unreadable", game.parents[1] / "AddOn", game, f"The add-ons can't be read ({error})."))
-    return {"ok": not problems, "game": str(install_root(game)), "problems": problems, "maps": stock, "addOns": add_ons}
+    return {"ok": not problems, "game": str(install_root(game)), "problems": problems, "maps": stock, "addOns": add_ons,
+            "language": zero_language.found(game)}

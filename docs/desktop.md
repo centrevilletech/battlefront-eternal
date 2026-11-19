@@ -250,8 +250,10 @@ run would trip over, in plain words, with paths from `GameData` on:
 - a name spelled otherwise than the tools spell it (`_lvl_pc` for `_LVL_PC`,
   `Side` for `SIDE`): Linux matches names exactly, so such a copy would fail
   part way. Only the topmost folder is reported;
-- no English files (the tools read `Common/ENG` and `Shell/ENG`; a copy in
-  another language only is named as such);
+- a `Common` or `Shell` folder in which no language folder (`ENG`, `FRE`,
+  whatever its name) holds the archive, or a front end archive with no list
+  of the game's maps (a copy left with only the one-picture language
+  folders described below);
 - a `Battlefront.exe` the maps' painted foliage can't be placed from
   (`tools/zero_foliage.py` reads its placement table): missing, or modified
   or replaced.
@@ -262,9 +264,40 @@ stock archives were replaced by a mod passes it, and then fails (or prepares
 as modded) in the steps that read them; online it is spectator-only, as the
 content fingerprint differs from the server's.
 
+A copy in any language prepares as it is; nothing has to be renamed. The
+game keeps two archives per language, `Common/<language>/common.lvl` and
+`Shell/<language>/shell.lvl`, and `tools/zero_language.py` chooses the folder
+every tool reads:
+
+- English (`ENG`) where the copy has it, as the Steam and GOG copies do.
+  Nothing changes for such a copy.
+- Otherwise the copy's own language. Where a copy has several folders and no
+  English one, the folder whose archive is the largest is read (the Steam
+  copy's other folders hold one picture each, not a whole archive), the first
+  by name among equals.
+- `Common` and `Shell` are chosen each by itself, so a copy with one folder
+  renamed to `ENG` and the other not prepares too. Language folders and their
+  archives match without regard to case, on Linux as well.
+- The prepared files record the shared archive by one name whatever its
+  folder is called, with its checksum. So a copy whose archives are the same
+  as an English copy's prepares the same content, with the same content
+  fingerprint.
+
+The text (menus, names, messages) comes from `core.lvl`, which holds a table
+per language. It is read in English where `core.lvl` has English, so that
+every player prepares the same text: the bots' names and the labels are part
+of the content fingerprint, and a different text would keep a player off the
+servers. A `core.lvl` without English text is read in the copy's own
+language. Voices, sounds and movies are whatever the copy's `Sound` and
+`Movies` archives hold. The check's report names the language found
+(`language`), the confirm screen shows it (LANGUAGE), and a run's log starts
+with it, for example "This copy's game files are in French (Common/FRE and
+Shell/FRE). Menus and messages are shown in English."
+
 The confirm screen shows the folder, where it was found ("your Steam library",
 "your GOG library", "the folder you chose", "a copy in ... that Steam didn't
-install"), the check's result, the add-on maps the copy has (and any that will
+install"), the check's result, the language the copy is in, the add-on maps
+the copy has (and any that will
 be left out, with why), and why the app prepares at all: it converts the game's
 maps, armies and sound into formats it can read, once, taking about as
 long as the estimate says (from the check's counts of maps, armies and sound
