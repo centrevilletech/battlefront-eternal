@@ -27,21 +27,29 @@ pub const INSTALL_RECORD: &str = ".bfe-install.json";
 /// Mirrors `MAX_ATTEMPTS` in the desktop host.
 pub const MAX_ATTEMPTS: u32 = 2;
 
-/// Platforms supported by the built-in auto-updater (`linux-x64`, `linux-arm64`, `win32-x64`).
+/// Platforms supported by the built-in auto-updater (`linux-x64`, `linux-arm64`, `win32-x64`,
+/// `darwin-arm64`, `darwin-x64`).
 ///
 /// Mirrors `SUPPORTED_PLATFORMS` in the desktop host.
-pub const SUPPORTED_PLATFORMS: &[&str] = &["linux-x64", "linux-arm64", "win32-x64"];
+pub const SUPPORTED_PLATFORMS: &[&str] = &[
+    "linux-x64",
+    "linux-arm64",
+    "win32-x64",
+    "darwin-arm64",
+    "darwin-x64",
+];
 
 /// Maps an OS and CPU architecture identifier to one of [`SUPPORTED_PLATFORMS`].
 ///
-/// Accepts both platform names (`"win32"`, `"x64"`, `"arm64"`) and Rust
-/// `std::env::consts` names (`"windows"`, `"x86_64"`, `"aarch64"`).
+/// Accepts both platform names (`"win32"`, `"darwin"`, `"x64"`, `"arm64"`) and Rust
+/// `std::env::consts` names (`"windows"`, `"macos"`, `"x86_64"`, `"aarch64"`).
 ///
 /// Mirrors `platformKey` in the desktop host.
 pub fn platform_key(platform: &str, arch: &str) -> Option<&'static str> {
     let norm_plat = match platform {
         "linux" => "linux",
         "win32" | "windows" => "win32",
+        "darwin" | "macos" => "darwin",
         _ => return None,
     };
     let norm_arch = match arch {
@@ -53,6 +61,8 @@ pub fn platform_key(platform: &str, arch: &str) -> Option<&'static str> {
         ("linux", "x64") => Some("linux-x64"),
         ("linux", "arm64") => Some("linux-arm64"),
         ("win32", "x64") => Some("win32-x64"),
+        ("darwin", "arm64") => Some("darwin-arm64"),
+        ("darwin", "x64") => Some("darwin-x64"),
         _ => None,
     }
 }

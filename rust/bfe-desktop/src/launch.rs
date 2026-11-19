@@ -500,7 +500,7 @@ pub struct SettleOptions {
     pub root: Option<PathBuf>,
     /// Optional explicit bootstrap version to preserve during `collect`.
     pub bootstrap_version: Option<String>,
-    /// Target OS name (`"linux"` or `"win32"`).
+    /// Target OS name (`"linux"`, `"win32"` or `"darwin"`).
     pub platform: String,
     /// Target CPU architecture (`"x64"` or `"arm64"`).
     pub arch: String,
@@ -550,8 +550,8 @@ pub struct SettleOutcome {
 }
 
 /// Records the running version as healthy in `<root>/state.json`, updates `<root>/current`
-/// on Linux when running from `<root>/versions/<version>`, and garbage-collects superseded
-/// version directories.
+/// on Linux when running from `<root>/versions/<version>`, garbage-collects superseded
+/// version directories, and on macOS makes the installed app bundle this version.
 ///
 /// Mirrors `updater.settle()` in the desktop host.
 pub fn settle_with(opts: &SettleOptions) -> SettleOutcome {
@@ -635,6 +635,32 @@ pub fn settle_with(opts: &SettleOptions) -> SettleOutcome {
             Some(&version),
             &format!("pruned old versions: {}", removed.join(", ")),
         );
+    }
+
+    // macOS: this version works, so the app the player installed becomes it (update/bundle.rs).
+    if plat_key.starts_with("darwin-") {
+        if let Some(installed_dir) = opts.env.get("BFE_BOOTSTRAP_DIR").filter(|s| !s.is_empty()) {
+            use crate::update::bundle::{replace_installed_bundle, ReplaceOptions, ReplaceOutcome};
+            match replace_installed_bundle(&ReplaceOptions {
+                root: root_dir.clone(),
+                own_dir: opts.own_dir.clone(),
+                own_version: version.clone(),
+                installed_dir: PathBuf::from(installed_dir),
+                verify_signature: true,
+            }) {
+                ReplaceOutcome::Replaced(bundle) => append_update_log(
+                    &root_dir,
+                    Some(&version),
+                    &format!("the installed app {} is now {version}", bundle.display()),
+                ),
+                ReplaceOutcome::Failed(reason) => append_update_log(
+                    &root_dir,
+                    Some(&version),
+                    &format!("the installed app stays as it is ({reason}); this version starts through it"),
+                ),
+                ReplaceOutcome::Skipped(_) => {}
+            }
+        }
     }
 
     SettleOutcome {

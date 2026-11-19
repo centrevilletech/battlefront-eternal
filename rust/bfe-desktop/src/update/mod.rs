@@ -4,6 +4,7 @@
 //!
 //! Mirrors the desktop host{version,keys,state,tree,feed,install,launch,index}.js`.
 
+pub mod bundle;
 pub mod feed;
 pub mod handoff;
 pub mod install;

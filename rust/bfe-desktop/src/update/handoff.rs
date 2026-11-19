@@ -64,7 +64,7 @@ pub struct UpdaterContext {
     pub feed_url: Option<String>,
     /// Trusted Ed25519 public keys (`key_id -> PEM`).
     pub keys: BTreeMap<String, String>,
-    /// Target OS (`"linux"` or `"win32"`).
+    /// Target OS (`"linux"`, `"win32"` or `"darwin"`).
     pub platform: String,
     /// Target CPU architecture (`"x64"` or `"arm64"`).
     pub arch: String,
@@ -300,6 +300,12 @@ pub enum CheckOutcome {
         /// Installed target version.
         version: String,
     },
+    /// The channel's newest release has no build for this platform (a platform's build can
+    /// follow the others); nothing to do until it has.
+    NoBuildYet {
+        /// The release that lacks this platform's build.
+        version: String,
+    },
     /// Channel release was previously marked `bad` after failing launch attempts.
     SkippedBad {
         /// Skipped version string.
@@ -344,6 +350,12 @@ where
         if !is_newer(&release.version, &resolved.own_version) {
             return Ok(CheckOutcome::UpToDate {
                 version: resolved.own_version.clone(),
+            });
+        }
+
+        if !release.platforms.contains_key(resolved.plat) {
+            return Ok(CheckOutcome::NoBuildYet {
+                version: release.version.clone(),
             });
         }
 

@@ -141,8 +141,29 @@ pub fn place_from_local(
     }
 
     fs::copy(source, dest).map_err(|e| e.to_string())?;
+    clear_quarantine(dest);
     apply_file_mode(dest, mode);
     Ok(())
+}
+
+/// macOS marks every file of a downloaded app as quarantined, and a copy made by the system
+/// carries the mark along. A file reused from the installed app must not bring it into the new
+/// version: Gatekeeper would then question programs the player already accepted.
+pub(crate) fn clear_quarantine(path: &Path) {
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        if let Ok(c_path) = std::ffi::CString::new(path.as_os_str().as_bytes()) {
+            // SAFETY: both pointers are valid NUL-terminated strings for the duration of the call.
+            unsafe {
+                libc::removexattr(c_path.as_ptr(), c"com.apple.quarantine".as_ptr(), libc::XATTR_NOFOLLOW);
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+    }
 }
 
 /// Streams a Zstandard-compressed blob from `url`, decompresses it on the fly while
