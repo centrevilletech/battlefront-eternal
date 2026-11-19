@@ -65,6 +65,8 @@ pub struct StandaloneOptions {
     pub desktop_gl: bool,
     /// Initial physical window dimensions `[width, height]` in pixels (`1280x720` by default).
     pub size: [i32; 2],
+    /// Whether `--width` or `--height` named that size (macOS opens the default one in points).
+    pub size_given: bool,
     /// Whether to start the window in borderless fullscreen mode (`--fullscreen`).
     pub fullscreen: bool,
     /// Whether to skip the bounded startup update check (`--skip-update-check`).
@@ -85,6 +87,7 @@ impl Default for StandaloneOptions {
             audio: true,
             desktop_gl: false,
             size: [1280, 720],
+            size_given: false,
             fullscreen: false,
             skip_update_check: false,
             script: None,
@@ -186,6 +189,7 @@ where
                     return Err("--width must be between 320 and 8192".into());
                 }
                 opts.size[0] = w;
+                opts.size_given = true;
             }
             "--height" => {
                 // Parse and validate vertical window resolution in physical pixels (`240..=8192`).
@@ -198,6 +202,7 @@ where
                     return Err("--height must be between 240 and 8192".into());
                 }
                 opts.size[1] = h;
+                opts.size_given = true;
             }
             "--script" => {
                 // A scripted run (`ia:<MAP>` or `platform-smoke`).

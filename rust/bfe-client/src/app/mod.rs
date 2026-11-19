@@ -1043,6 +1043,15 @@ impl ApplicationHandler for StandaloneWindowApp {
                     self.opts.size[1] as u32,
                 ))
                 .with_visible(true);
+            // A Mac's display has two device pixels to the point. The window nobody sized is
+            // 1280x720 points there, the size it has to the eye elsewhere, not a quarter of it.
+            #[cfg(target_os = "macos")]
+            if !self.opts.size_given {
+                attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(
+                    self.opts.size[0] as f64,
+                    self.opts.size[1] as f64,
+                ));
+            }
             // Launchers match the window to the desktop entry (StartupWMClass, app id) by this name.
             #[cfg(target_os = "linux")]
             {
