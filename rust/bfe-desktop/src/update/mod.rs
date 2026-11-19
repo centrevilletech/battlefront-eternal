@@ -335,19 +335,29 @@ mod tests {
         let _ = fs::remove_dir_all(&work);
     }
 
+    /// Where the client of a Mac release is.
+    #[cfg(target_os = "macos")]
+    const MAC_PROGRAM: &str = "Battlefront Eternal.app/Contents/MacOS/bfe-client";
+
     /// Publishes the app bundle `bundle` as it is on disk (files, modes and links) as a Mac
     /// release.
     #[cfg(target_os = "macos")]
     fn publish_bundle(http_root: &Path, signing_key: &SigningKey, key_id: &str, number: u32, bundle: &Path) {
+        publish_tree(http_root, signing_key, key_id, number, bundle.parent().unwrap(), MAC_PROGRAM);
+    }
+
+    /// Publishes everything in the folder `tree` as a Mac release whose program is `program`.
+    #[cfg(target_os = "macos")]
+    fn publish_tree(http_root: &Path, signing_key: &SigningKey, key_id: &str, number: u32, tree: &Path, program: &str) {
         use std::os::unix::fs::PermissionsExt;
         fn walk(dir: &Path, at: &str, files: &mut Vec<(String, Vec<u8>, u32)>, links: &mut Vec<(String, String)>) {
             for entry in fs::read_dir(dir).unwrap().flatten() {
-                let path = format!("{at}/{}", entry.file_name().to_string_lossy());
+                let path = format!("{at}{}", entry.file_name().to_string_lossy());
                 let kind = entry.file_type().unwrap();
                 if kind.is_symlink() {
                     links.push((path, fs::read_link(entry.path()).unwrap().to_string_lossy().into_owned()));
                 } else if kind.is_dir() {
-                    walk(&entry.path(), &path, files, links);
+                    walk(&entry.path(), &format!("{path}/"), files, links);
                 } else {
                     let mode = entry.metadata().unwrap().permissions().mode() & 0o777;
                     files.push((path, fs::read(entry.path()).unwrap(), mode));
@@ -355,9 +365,10 @@ mod tests {
             }
         }
         let (mut files, mut links) = (Vec::new(), Vec::new());
-        walk(bundle, "Battlefront Eternal.app", &mut files, &mut links);
+        walk(tree, "", &mut files, &mut links);
         // The manifest names its first file as the program to start.
-        files.sort_by_key(|(path, _, _)| !path.ends_with("/Contents/MacOS/bfe-client"));
+        files.sort_by_key(|(path, _, _)| path != program);
+        assert_eq!(files[0].0, program);
         let files: Vec<(&str, &[u8], u32)> = files.iter().map(|(p, b, m)| (p.as_str(), b.as_slice(), *m)).collect();
         let links: Vec<(&str, &str)> = links.iter().map(|(p, t)| (p.as_str(), t.as_str())).collect();
         write_published_release(
@@ -487,6 +498,96 @@ mod tests {
         publish_bundle(&http_root, &signing_key, &key_id, 5, &build(5, THEIRS));
         assert!(matches!(check(&context(None)), CheckOutcome::Installed { .. }));
         assert!(version_dir(5).join(INSTALL_RECORD).exists());
+
+        let _ = fs::remove_dir_all(&work);
+    }
+
+    /// A signed Mac app takes a release only when it is one app bundle with its program
+    /// directly inside: then the bundle whose signature is checked is all the release holds.
+    /// A program in a bundle nested inside another one would have only the inner bundle
+    /// checked, and the files around it would be nobody's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_signed_mac_app_refuses_a_release_whose_program_is_in_a_nested_bundle() {
+        use crate::update::signer::testing::{signed_bundle, unsigned_bundle};
+        use crate::update::signer::Signer;
+        const OURS: &str = "com.battlefronteternal.test";
+        const NESTED_PROGRAM: &str =
+            "Battlefront Eternal.app/Contents/Resources/Battlefront Eternal.app/Contents/MacOS/bfe-client";
+
+        let work = make_temp_dir("nested");
+        let (http_root, update_root) = (work.join("http"), work.join("root"));
+        let signing_key = SigningKey::from_bytes(&[0x42u8; 32]);
+        let key_id = sha256_key_id_for_test(&signing_key.verifying_key());
+        let mut keys = BTreeMap::new();
+        keys.insert(key_id.clone(), encode_spki_pem(&signing_key.verifying_key()));
+        let installed = signed_bundle(&work.join("Applications"), "0.1.0-preview.1", OURS);
+        let signed_app = UpdaterContext {
+            own_dir: installed.join("Contents/MacOS"),
+            own_version: None,
+            own_channel: None,
+            root: Some(update_root.clone()),
+            feed_url: Some(format!("file://{}", http_root.display())),
+            keys,
+            platform: "macos".to_string(),
+            arch: "aarch64".to_string(),
+            argv: vec!["bfe-client".to_string()],
+            is_packaged: true,
+            env: BTreeMap::new(),
+            home: work.clone(),
+            launch_timeout_ms: 5000,
+            fetch_timeout_ms: 5000,
+            blob_timeout_ms: 5000,
+            concurrency: 2,
+            signer: Some(Signer::Requirement(format!("identifier \"{OURS}\""))),
+        };
+        let version_dir = |number: u32| versions_dir(&update_root).join(format!("0.1.0-preview.{number}"));
+        // A bundle nobody signed, and in its resources a build that the developer did sign.
+        let nested = |folder: &Path, number: u32| {
+            let version = format!("0.1.0-preview.{number}");
+            let outer = unsigned_bundle(folder, &version, "org.example.someone-else");
+            fs::write(outer.join("Contents/Resources/anything.txt"), "sealed by nobody").unwrap();
+            signed_bundle(&outer.join("Contents/Resources"), &version, OURS);
+        };
+        let refused = |number: u32, why: &str| {
+            let CheckOutcome::Refused { version, reason } = check_and_install::<fn(InstallProgress)>(&signed_app, None) else {
+                panic!("release {number} must be refused");
+            };
+            assert_eq!(version, format!("0.1.0-preview.{number}"));
+            assert!(reason.contains(why), "{reason}");
+            assert!(!version_dir(number).exists());
+            // Refused by its shape, before anything of it was fetched.
+            assert!(!update_root.join("staging").exists());
+        };
+
+        // Through the channel: the manifest names the inner bundle's program.
+        nested(&work.join("build-2"), 2);
+        publish_tree(&http_root, &signing_key, &key_id, 2, &work.join("build-2"), NESTED_PROGRAM);
+        refused(2, "is not directly in the MacOS folder of the release's own app bundle");
+
+        // The developer's own bundle, whole, with one more file beside it.
+        signed_bundle(&work.join("build-3"), "0.1.0-preview.3", OURS);
+        fs::write(work.join("build-3/beside.txt"), "sealed by nobody").unwrap();
+        publish_tree(&http_root, &signing_key, &key_id, 3, &work.join("build-3"), MAC_PROGRAM);
+        refused(3, "beside.txt, which is not inside its app bundle");
+        assert_eq!(read_state(&update_root).bad, ["0.1.0-preview.2", "0.1.0-preview.3"]);
+
+        // Put into the update folder by hand, with a record that names the inner program: the
+        // hand-off does not start it.
+        nested(&version_dir(4), 4);
+        fs::write(
+            version_dir(4).join(INSTALL_RECORD),
+            format!(r#"{{"version":"0.1.0-preview.4","platform":"darwin-arm64","executable":"{NESTED_PROGRAM}","files":[]}}"#),
+        )
+        .unwrap();
+        assert_eq!(installed_versions(&update_root, Some("darwin-arm64"))[0].version, "0.1.0-preview.4");
+        assert!(!hand_off(&signed_app).handed_off);
+        let log = fs::read_to_string(update_root.join("update.log")).unwrap();
+        assert!(
+            log.contains("not starting 0.1.0-preview.4: it is not a build signed by the developer of this app (its program is not directly in the MacOS folder of the version's own app bundle)"),
+            "{log}"
+        );
+        assert!(!version_dir(4).exists());
 
         let _ = fs::remove_dir_all(&work);
     }

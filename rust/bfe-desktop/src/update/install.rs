@@ -23,7 +23,7 @@ use crate::update::feed::{
     decompress_zstd_stream, join_url, open_url_reader, validate_link_target, ManifestFileEntry,
     PlatformManifest,
 };
-use crate::update::bundle::bundle_of;
+use crate::update::bundle::top_level_app;
 use crate::update::signer::{check_bundle, Signer};
 use crate::update::state::{
     versions_dir, InstallFileEntry, InstallRecord, INSTALL_RECORD,
@@ -320,6 +320,31 @@ pub struct InstallOutcome {
     pub downloaded: usize,
 }
 
+/// The folder name of the one app bundle `manifest` consists of: its program is
+/// `<Name>.app/Contents/MacOS/<program>` and every file, link and folder it lists is inside
+/// `<Name>.app`. An error says what is not.
+fn release_app(manifest: &PlatformManifest, exe_rel: &str) -> Result<String, String> {
+    let app = top_level_app(Path::new(exe_rel))
+        .and_then(|app| app.to_str())
+        .ok_or_else(|| format!("its program {exe_rel} is not directly in the MacOS folder of the release's own app bundle"))?;
+    let listed = manifest
+        .files
+        .iter()
+        .map(|file| &file.path)
+        .chain(manifest.links.iter().map(|link| &link.path))
+        .chain(manifest.dirs.iter());
+    for path in listed {
+        let inside = safe_relative_path(path).is_some_and(|rel| {
+            let rel = Path::new(&rel);
+            rel.starts_with(app) && rel != Path::new(app)
+        });
+        if !inside {
+            return Err(format!("it holds {path}, which is not inside its app bundle {app}"));
+        }
+    }
+    Ok(app.to_string())
+}
+
 /// Installs a verified [`PlatformManifest`] into `<root>/versions/<version>`.
 pub fn install_release<F>(
     opts: &InstallReleaseOptions,
@@ -338,6 +363,26 @@ where
         .ok_or_else(|| "Invalid update executable".to_string())?;
 
     let final_dir = versions_dir(&opts.root).join(&opts.manifest.version);
+    // macOS, for an app that states who signs its updates: the release has to be one app
+    // bundle and nothing beside it, with its program directly in that bundle, so that the
+    // check of the bundle's signature further down is a check of everything the release
+    // holds. Anything else is refused before a single file is fetched.
+    let signed_app = match &opts.signer {
+        Signer::Anyone => None,
+        Signer::Requirement(_) => match release_app(&opts.manifest, &exe_rel) {
+            Ok(app) => Some(app),
+            Err(why) => {
+                return Ok(InstallOutcome {
+                    installed: false,
+                    reason: REFUSED.to_string(),
+                    detail: Some(why),
+                    dir: final_dir,
+                    reused: 0,
+                    downloaded: 0,
+                })
+            }
+        },
+    };
     if final_dir.join(INSTALL_RECORD).exists() {
         return Ok(InstallOutcome {
             installed: false,
@@ -553,13 +598,8 @@ where
     // macOS: the build is here as the app's own developer sealed it, or it is no update of
     // this app. Checked before the record below makes the folder an installed version, so
     // nothing ever starts a build that was not checked.
-    if let Signer::Requirement(_) = &opts.signer {
-        let checked = exe_path
-            .parent()
-            .and_then(bundle_of)
-            .ok_or_else(|| "its program is not inside an app bundle".to_string())
-            .and_then(|bundle| check_bundle(&bundle, &opts.signer));
-        if let Err(why) = checked {
+    if let Some(app) = &signed_app {
+        if let Err(why) = check_bundle(&stage_dir.join(app), &opts.signer) {
             let _ = fs::remove_dir_all(&stage_dir);
             return Ok(InstallOutcome {
                 installed: false,

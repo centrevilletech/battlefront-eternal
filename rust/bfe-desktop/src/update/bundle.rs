@@ -17,7 +17,7 @@
 //! from it) nothing changes and the hand-off keeps working at every start.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::launch::read_release_info;
 use crate::paths::normalize_lexical;
@@ -87,14 +87,42 @@ fn bundle_identifier(bundle: &Path) -> Option<String> {
     (!value.is_empty()).then(|| value.to_string())
 }
 
+/// The one app bundle a version may consist of, from the path of its program inside the
+/// version folder: `<Name>.app` when that path is `<Name>.app/Contents/MacOS/<program>` and
+/// nothing else.
+///
+/// [`bundle_of`] finds the bundle around a program wherever it is, which is right for the
+/// app a player installed. For a version that arrived as an update it is not: a program
+/// inside a bundle that is nested in another bundle's resources would have only that inner
+/// bundle around it, and a check of the inner bundle's signature says nothing about the
+/// files of the outer one.
+pub fn top_level_app(program: &Path) -> Option<&std::ffi::OsStr> {
+    let mut parts = program.components();
+    let shape = (parts.next()?, parts.next()?, parts.next()?, parts.next()?, parts.next());
+    let (Component::Normal(app), Component::Normal(contents), Component::Normal(macos), Component::Normal(_), None) = shape
+    else {
+        return None;
+    };
+    (Path::new(app).extension()? == "app" && contents == "Contents" && macos == "MacOS").then_some(app)
+}
+
+/// The app bundle of an installed version: the version folder's own `<Name>.app`, with the
+/// version's program directly in its `Contents/MacOS` ([`top_level_app`]).
+pub fn version_bundle(version_dir: &Path, executable: &Path) -> Option<PathBuf> {
+    let dir = normalize_lexical(version_dir);
+    let program = normalize_lexical(executable);
+    Some(dir.join(top_level_app(program.strip_prefix(&dir).ok()?)?))
+}
+
 /// Replaces the installed app bundle with the running, healthy version from the update
 /// folder. See the module documentation.
 pub fn replace_installed_bundle(opts: &ReplaceOptions) -> ReplaceOutcome {
     let Some(own_bundle) = bundle_of(&opts.own_dir) else {
         return ReplaceOutcome::Skipped("not running from an app bundle");
     };
+    // This version's own bundle, directly in its version folder, and nothing nested in it.
     let version_dir = normalize_lexical(&versions_dir(&opts.root).join(&opts.own_version));
-    if !normalize_lexical(&own_bundle).starts_with(&version_dir) {
+    if normalize_lexical(&own_bundle).parent() != Some(version_dir.as_path()) {
         return ReplaceOutcome::Skipped("not running from the update folder");
     }
     let Some(installed) = bundle_of(&opts.installed_dir) else {
@@ -381,6 +409,29 @@ mod tests {
         assert_eq!(bundle_of(&work), None);
         assert_eq!(bundle_of(Path::new("/opt/Battlefront Eternal")), None);
 
+        // A version that arrived as an update is one bundle, with its program directly in it.
+        let version = work.join("versions/0.1.0-preview.2");
+        let app = version.join("Battlefront Eternal.app");
+        assert_eq!(version_bundle(&version, &app.join("Contents/MacOS/bfe-client")), Some(app.clone()));
+        assert_eq!(version_bundle(&version, &app.join("Contents/MacOS/bfeserver")), Some(app.clone()));
+        for elsewhere in [
+            // In a bundle nested in the app's resources: the bundle around it is not the version's.
+            "Battlefront Eternal.app/Contents/Resources/Inner.app/Contents/MacOS/bfe-client",
+            "Battlefront Eternal.app/Contents/MacOS/Inner.app/Contents/MacOS/bfe-client",
+            "folder/Battlefront Eternal.app/Contents/MacOS/bfe-client",
+            "Battlefront Eternal.app/Contents/MacOS/folder/bfe-client",
+            "Battlefront Eternal.app/Contents/Resources/bfe-client",
+            "Battlefront Eternal/Contents/MacOS/bfe-client",
+            "Battlefront Eternal.app/Contents/MacOS",
+            "bfe-client",
+        ] {
+            assert_eq!(version_bundle(&version, &version.join(elsewhere)), None, "{elsewhere}");
+        }
+        // Nor a program of another version's folder, or one reached by stepping out of this one.
+        assert_eq!(version_bundle(&version, &work.join("versions/0.1.0-preview.3/Battlefront Eternal.app/Contents/MacOS/bfe-client")), None);
+        assert_eq!(version_bundle(&version, &version.join("../0.1.0-preview.2/Battlefront Eternal.app/Contents/MacOS/bfe-client")), Some(app));
+        assert_eq!(version_bundle(&version, &version.join("Battlefront Eternal.app/Contents/MacOS/../../../x.app/Contents/MacOS/y")), Some(version.join("x.app")));
+
         let copy = work.join("b.app");
         copy_tree(&bundle, &copy).unwrap();
         assert_eq!(fs::read_link(copy.join("Contents/MacOS/resources")).unwrap(), Path::new("../Resources"));
@@ -425,6 +476,9 @@ mod tests {
         assert_eq!(replace_installed_bundle(&opts), ReplaceOutcome::Skipped("the installed app is not older"));
         // The installed app itself never replaces anything.
         opts.own_dir = newer.clone();
+        assert_eq!(replace_installed_bundle(&opts), ReplaceOutcome::Skipped("not running from the update folder"));
+        // Nor does a program from a bundle nested inside the version's bundle.
+        opts.own_dir = write_bundle(&own.join("../Resources"), "0.1.0-preview.2");
         assert_eq!(replace_installed_bundle(&opts), ReplaceOutcome::Skipped("not running from the update folder"));
         assert_eq!(fs::read_to_string(newer.join("bfe-client")).unwrap(), "client 0.1.0-preview.3");
         let _ = fs::remove_dir_all(&work);

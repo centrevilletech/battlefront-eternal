@@ -16,7 +16,7 @@ use crate::launch::{
 };
 use crate::paths::{home_dir_from_env, normalize_lexical};
 use crate::update::feed::{fetch_channel, fetch_manifest, DEFAULT_TIMEOUT_MS};
-use crate::update::bundle::bundle_of;
+use crate::update::bundle::{bundle_of, version_bundle};
 use crate::update::install::{
     install_release, InstallProgress, InstallReleaseOptions, DEFAULT_BLOB_TIMEOUT_MS,
     DEFAULT_CONCURRENCY, REFUSED,
@@ -258,11 +258,10 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
         };
         let checked = match &signer {
             Signer::Anyone => Ok(()),
-            Signer::Requirement(_) => candidate
-                .executable
-                .parent()
-                .and_then(bundle_of)
-                .ok_or_else(|| "its program is not inside an app bundle".to_string())
+            // The version's own bundle, never one nested inside it: the signature that is
+            // checked has to seal everything the version runs from.
+            Signer::Requirement(_) => version_bundle(&candidate.dir, &candidate.executable)
+                .ok_or_else(|| "its program is not directly in the MacOS folder of the version's own app bundle".to_string())
                 .and_then(|bundle| check_bundle(&bundle, &signer)),
         };
         if let Err(reason) = checked {

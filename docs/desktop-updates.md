@@ -134,7 +134,12 @@ whole (`codesign --verify --deep --strict`) and satisfies the requirement the
 running app's own signature states for later versions of itself, which for a
 Developer ID build is "this bundle identifier, a Developer ID certificate
 issued by Apple, this team". Nothing about a team is written in the program;
-the installed app is the reference. The check runs after the files are
+the installed app is the reference. The bundle that is checked is the
+version's own, the one folder at the top of the version: for such an app a
+release has to be exactly one app bundle, with its program directly in
+`Contents/MacOS` and no file beside the bundle, so the signature that is
+checked seals everything the release holds (a program in a bundle nested
+inside another one is refused). The check runs after the files are
 fetched and before the folder counts as an installed version, and again
 each time a start hands off to a version in the update folder (it takes
 about a fifth of a second on an Apple silicon Mac), so a folder that
