@@ -100,10 +100,10 @@ pub fn key_name(code: &str) -> String {
         "NumpadEnter" => "KP_ENTER".to_string(),
         "Escape" => "ESC".to_string(),
         "Tab" => "TAB".to_string(),
-        // Left/Right modifier keys collapse to `"SHIFT"`, `"CONTROL"`, `"ALT"`.
+        // Left/Right modifier keys collapse to `"SHIFT"`, `"CONTROL"`, `"ALT"` (a Mac keyboard's Option key).
         "ShiftLeft" | "ShiftRight" => "SHIFT".to_string(),
         "ControlLeft" | "ControlRight" => "CONTROL".to_string(),
-        "AltLeft" | "AltRight" => "ALT".to_string(),
+        "AltLeft" | "AltRight" => if cfg!(target_os = "macos") { "OPTION" } else { "ALT" }.to_string(),
         // Lock & editing keys
         "Backquote" => "`".to_string(),
         "Backspace" => "BACKSPACE".to_string(),
@@ -691,7 +691,9 @@ mod tests {
     // This covers order, fixed text and the action keys the input dispatcher uses.
     #[test]
     fn all_control_rows_match_the_reference_snapshot() {
+        // The snapshot is a PC keyboard's: a Mac names the key in the Alt place OPTION.
         let expected = include_str!("../tests/fixtures/control-rows.tsv");
+        let expected = if cfg!(target_os = "macos") { expected.replace("ALT", "OPTION") } else { expected.to_owned() };
         let mut actual = String::new();
         for tab in ["infantry", "vehicle", "starfighter"] {
             let bindings = if tab == "starfighter" {
@@ -730,6 +732,7 @@ mod tests {
         assert_eq!(DEFAULT_FLAT_BINDINGS.len(), 24);
 
         assert_eq!(key_name("KeyW"), "W");
+        assert_eq!(key_name("AltLeft"), if cfg!(target_os = "macos") { "OPTION" } else { "ALT" });
         assert_eq!(key_name("Digit4"), "4");
         assert_eq!(key_name("Numpad0"), "KP_INSERT");
         assert_eq!(key_name("Numpad7"), "KP_7");
