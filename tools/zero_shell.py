@@ -45,6 +45,7 @@ from array import array
 from pathlib import Path
 
 import zero_addon
+import zero_language
 from ucfb import child, chunks, cstr_at, iter_archives
 from zero_ai_mission import faction_of
 from zero_config import parse as parse_config
@@ -60,15 +61,15 @@ from zero_texture import decode_texture, safe_name
 ROOT = Path(__file__).resolve().parents[1]
 from zero_paths import GAME  # noqa: E402
 from zero_paths import PUBLIC  # noqa: E402
-LANGUAGE = "ENG"
 
 
 def archives(game=GAME):
-    """The archives the front end reads."""
+    """The archives the front end reads; common and shell in the copy's
+    language (tools/zero_language.py)."""
     return {
-        "common": game / "Common" / LANGUAGE / "common.lvl",
+        "common": zero_language.common_archive(game),
         "core": game / "core.lvl",
-        "shell": game / "Shell" / LANGUAGE / "shell.lvl",
+        "shell": zero_language.shell_archive(game),
         "load": game / "Load" / "load.lvl",
         "sound": game / "Sound" / "shell.lvl",
         "bank": game / "Sound" / "common.bnk",
@@ -412,7 +413,7 @@ def movie_sources(game=GAME):
     with open(paths["movies"], "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
         index = movie_index(data)
     catalog = movie_catalog(index, config, movie_names(words))
-    for movies, add_on_shell in zero_addon.movie_archives(game, LANGUAGE):
+    for movies, add_on_shell in zero_addon.movie_archives(game):
         try:
             with open(movies, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
                 index = movie_index(data)

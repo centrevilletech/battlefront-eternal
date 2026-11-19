@@ -30,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from extract import (FOLIAGE_BASES, GAME, catalog_map_archives, class_prop, first_person_archive, map_archive,  # noqa: E402
-                     mission_sides_of, playable_units, side_archive)
+from extract import (FOLIAGE_BASES, GAME, catalog_map_archives, class_prop, common_archive, first_person_archive,  # noqa: E402
+                     map_archive, mission_sides_of, playable_units, side_archive)
 from ucfb import chunks, cstr_at, iter_archives, nodes  # noqa: E402
 from zero_fx import effect, effects  # noqa: E402
 from zero_hash import fnv1a  # noqa: E402
@@ -151,7 +151,7 @@ def relative(path):
 
 
 def audit(map_ids, archives):
-    shared_paths = [p for p in (GAME / "Common" / "ENG" / "common.lvl", GAME / "core.lvl") if p.exists()]
+    shared_paths = [p for p in (common_archive(), GAME / "core.lvl") if p.exists()]
     all_maps = catalog_map_archives()
     all_sides = sorted(GAME.glob("SIDE/*.lvl"))
     everywhere = [*shared_paths, *all_sides, *all_maps]

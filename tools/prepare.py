@@ -62,6 +62,10 @@ them again.
 "check" event (tools/prepare_check.py), with how much a run would prepare
 (counts) for the desktop app's estimate.
 
+A copy in any language prepares as it is: the tools read English where the
+copy has it and the copy's own language otherwise (tools/zero_language.py).
+The check's event says which (language), and a run's first line does.
+
 Progress goes to stdout as lines starting with "@@" followed by JSON; the
 tools' own output passes through between them.
 """
@@ -82,6 +86,7 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import zero_addon
+import zero_language
 from zero_addon import add_ons, missions
 from zero_paths import GAME, PUBLIC
 
@@ -726,6 +731,7 @@ def main():
 
 def prepare_all(args):
     """The run itself, the output folder locked."""
+    say(zero_language.found(GAME)["message"])
     # The add-ons first: what reads them must not see one left out whole.
     RUN.reset()
     ANNOUNCED.clear()

@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ucfb import chunks, cstr_at, nodes  # noqa: E402
 from zero_addon import side_archive, source_name  # noqa: E402
+from zero_language import common_archive  # noqa: E402
 from zero_hash import fnv1a  # noqa: E402
 import zero_odf  # noqa: E402
 import zero_weapons  # noqa: E402
@@ -49,7 +50,7 @@ GENERATOR = "tools/zero_ai_classes.py 1"
 SCHEMA = 1
 ROOT = Path(__file__).resolve().parents[1]
 from zero_paths import GAME  # noqa: E402
-SHARED = [GAME / "Common" / "ENG" / "common.lvl", GAME / "core.lvl"]
+SHARED = [common_archive(GAME), GAME / "core.lvl"]
 from zero_paths import PUBLIC  # noqa: E402
 
 # ---------------------------------------------------------------------------

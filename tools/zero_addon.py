@@ -29,34 +29,15 @@ import struct
 from collections import namedtuple
 from pathlib import Path
 
+import zero_language
 from zero_locl import localization as archive_localization
 from zero_lua import calls, getn, global_tables, load, mission_scripts
-from zero_paths import GAME
+from zero_paths import GAME, child
 
 AddOn = namedtuple("AddOn", "name folder root script")
 # The shell's lists of maps an addme script appends to: Instant Action's
 # (and the singleplayer screens'), and multiplayer's.
 LISTS = ("sp_missionselect_listbox_contents", "mp_missionselect_listbox_contents")
-
-
-def child(base, *parts):
-    """base/parts, each part matched without regard to case where the exact
-    spelling isn't there, and spelled as on disk; None when one is missing.
-    On disk because outputs record these paths (source_name): Windows finds
-    "_LVL_PC" and "SIDE" in AddOn/Tat3, which spells them "_lvl_pc" and
-    "Side", and must record what Linux does, or the content fingerprint
-    differs."""
-    at = Path(base)
-    for part in parts:
-        try:
-            names = [entry.name for entry in at.iterdir()]
-        except OSError:
-            return None
-        name = part if part in names else next((name for name in names if name.lower() == part.lower()), None)
-        if name is None:
-            return None
-        at = at / name
-    return at
 
 
 def skipped():
@@ -187,14 +168,18 @@ def mission_root(mission, game=GAME):
     return None
 
 
-def localization(game=GAME, language="english"):
+def localization(game=GAME, language=None):
     """The game's text (core.lvl's Locl) with what each add-on's core.lvl
     adds: Jabba's Palace's command post names and objectives
-    (level.tat3.*). A key the game's has keeps the game's text."""
+    (level.tat3.*). A key the game's has keeps the game's text. In English
+    where the game's core.lvl has it (tools/zero_language.py text), and
+    every archive in the same language."""
     table = {}
     for path in [Path(game) / "core.lvl"] + [child(add_on.root, "core.lvl") for add_on in add_ons(game)]:
         if path and path.exists():
-            for key, text in archive_localization(path.read_bytes(), language).items():
+            data = path.read_bytes()
+            language = language or zero_language.text(data, game)
+            for key, text in archive_localization(data, language).items():
                 table.setdefault(key, text)
     return table
 
@@ -224,14 +209,15 @@ def listed_maps(game=GAME, key=LISTS[0]):
     return out
 
 
-def movie_archives(game=GAME, language="ENG"):
+def movie_archives(game=GAME):
     """Each add-on's movies (its maps' Instant Action flyovers) with the
     movie config naming them: [(Movies/<name>.mvs, Shell/<language>/shell.lvl
-    or None)]."""
+    or None)], the language chosen as the game's is, among the add-on's own
+    (tools/zero_language.py)."""
     found = []
     for add_on in add_ons(game):
         movies = child(add_on.root, "Movies")
-        shell = child(add_on.root, "Shell", language, "shell.lvl")
+        shell = zero_language.archive(child(add_on.root, "Shell"), "shell.lvl")
         for path in sorted(movies.iterdir()) if movies and movies.is_dir() else []:
             if path.suffix.lower() == ".mvs":
                 found.append((path, shell))
@@ -241,7 +227,11 @@ def movie_archives(game=GAME, language="ENG"):
 def source_name(path, game=GAME):
     """An archive's path as outputs record it: under the game's
     Data/_LVL_PC ("TAT/tat2.lvl"), else under GameData
-    ("AddOn/Tat3/Data/_lvl_pc/TAT/tat3.lvl"), else its name."""
+    ("AddOn/Tat3/Data/_lvl_pc/TAT/tat3.lvl"), else its name. The shared
+    archive, in the folder of the copy's language, as
+    tools/zero_language.py's recorded spells it ("Common/ENG/common.lvl")."""
+    if Path(path) == zero_language.common_archive(game):
+        return zero_language.recorded(path)
     for base in (Path(game), Path(game).parents[1]):
         try:
             return Path(path).relative_to(base).as_posix()

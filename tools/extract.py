@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 import zero_addon
+import zero_language
 from portable_math import cos, sin
 from ucfb import child, chunks, cstr_at, iter_archives
 from xform import IDENTITY, mat4, mul, transform_dir, transform_point
@@ -74,12 +75,12 @@ ROOT = Path(__file__).resolve().parents[1]
 # GameData (the game program, and Data/_LVL_PC with the archives) and Manuals.
 # BFE_GAME_DIR reads an installation in place instead (tools/zero_paths.py).
 from zero_paths import GAME, shared_lock  # noqa: E402
-LANGUAGE = "ENG"  # common.lvl comes per language
 from zero_paths import PUBLIC  # noqa: E402
 
 
 def common_archive():
-    return GAME / "Common" / LANGUAGE / "common.lvl"
+    """common.lvl, which comes per language (tools/zero_language.py)."""
+    return zero_language.common_archive(GAME)
 
 
 def map_archive(name):
@@ -2357,7 +2358,7 @@ def extract_common(skeleton, shared, wanted_effects, fp_skeleton=None, maps=None
     textures = {}
     for archive in shared:
         collect_textures(archive, textures)
-    # The front end's art, from common.lvl, Shell/ENG/shell.lvl and Load/load.lvl.
+    # The front end's art, from common.lvl, Shell/<language>/shell.lvl and Load/load.lvl.
     for name, image in shell_textures().items():
         textures.setdefault(name, image)
     used = {part["texture"] for parts in holograms.values() for part in parts}

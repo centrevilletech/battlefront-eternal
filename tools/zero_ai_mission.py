@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 import zero_addon
+import zero_language
 from portable_math import atan2
 from ucfb import chunks, cstr_at, iter_archives, nodes
 from xform import mat4, transform_point
@@ -537,7 +538,7 @@ def build(name, side="rep", game=GAME, public=PUBLIC):
     # The game's archives, or an add-on's for its map, armies and missions
     # (tools/zero_addon.py).
     map_path = zero_addon.map_archive(name, game)
-    common_path = game / "Common" / "ENG" / "common.lvl"
+    common_path = zero_language.common_archive(game)
     core_path = game / "core.lvl"
     if not map_path.exists():
         raise FileNotFoundError(f"no archive for {name}: expected {map_path}")

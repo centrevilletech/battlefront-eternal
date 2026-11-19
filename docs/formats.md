@@ -9,9 +9,11 @@ The Steam release is copied whole into `data/game/install/`: `installscript.vdf`
 | `BES`, `END`, `GEO`, `HOT`, `KAM`, `KAS`, `NAB`, `RHN`, `TAT`, `YAV` | One folder per planet: each map's `<map>.lvl`, and for some a historical campaign version (`nab2_h.lvl`, `tat1h.lvl`) |
 | `SIDE/<side>.lvl` | The sides' units, weapons, and vehicles: `all`, `cis`, `imp`, `rep`, and `des`, `ewk`, `gar`, `geo`, `gun`, `wok` for locals |
 | `FPM/<side>/` | First-person models: arms rigs and cockpits |
-| `Common/<language>/common.lvl` | Shared models, effects, animations, and scripts, one per language (`ENG`, `FRE`, `GER`, `ITA`, `SPA`) |
+| `Common/<language>/common.lvl` | Shared models, effects, animations, and scripts, in a folder per language (`ENG`, `FRE`, `GER`, `ITA`, `SPA`). The Steam copy's `ENG` archive is complete; each of the others holds one picture, the victory and defeat banner |
 | `core.lvl`, `mission.lvl` | Shared HUD art, fonts, and localization; every battle's setup script |
-| `Load/`, `Shell/<language>/`, `Sound/`, `Movies/` | Loading screens, the front end, sound banks, and the shell's movies |
+| `Load/`, `Shell/<language>/`, `Sound/`, `Movies/` | Loading screens, the front end, sound banks, and the shell's movies. `Shell/ENG/shell.lvl` is complete; each other language's holds one picture, the legal screen |
+
+Only those two archives come per language. The tools read the English folder where a copy has it and the copy's own otherwise (`tools/zero_language.py`; docs/desktop.md says what a player then sees), so `Common/ENG/common.lvl` and `Shell/ENG/shell.lvl` below stand for the folder of the copy's language.
 
 The PC archives are `ucfb` chunk trees. A chunk is a 4-byte tag, a little-endian size, and a body aligned to 4 bytes. `lvl_` nodes are a hash and an inner size, then more chunks.
 
@@ -293,7 +295,7 @@ A map's battles are the scripts named for it: the map, an era letter (`r` and `c
 
 ## Localization (`Locl`)
 
-`core.lvl` holds a `Locl` per language: `NAME` (such as `english`) and `BODY`. The body is a run of entries: a u32 key hash, a u16 entry size including this 6-byte header, then UTF-16 text. Keys the port uses:
+`core.lvl` holds a `Locl` per language: `NAME` and `BODY`. The Steam copy's has `english`, `spanish`, `italian`, `french`, `german` and `uk_english`, and its fonts have every letter those use. The tools read `english` where the archive has it (`tools/zero_language.py`). The body is a run of entries: a u32 key hash, a u16 entry size including this 6-byte header, then UTF-16 text. Keys the port uses:
 
 - A command post's display name is `level.<world>.<Label>`, so `level.bespin2.CP1` is "COURTYARD".
 - A weapon class's name is `weapons.` and the class name with its first two underscores as dots: `rep_weap_inf_rifle` is `weapons.rep.weap.inf_rifle`, "BLASTER RIFLE".

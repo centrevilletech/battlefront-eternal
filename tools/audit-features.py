@@ -39,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ucfb import chunks, cstr_at, iter_archives, nodes  # noqa: E402
 from zero_addon import add_ons, child, missions as all_missions  # noqa: E402
 from zero_hash import fnv1a  # noqa: E402
+from zero_language import common_archive  # noqa: E402
 from zero_lua import calls as lua_calls, load as lua_load, mission_scripts  # noqa: E402,F401
 from zero_odf import NAMES as ODF_NAMES  # noqa: E402
 from zero_paths import GAME, PUBLIC, ROOT  # noqa: E402
@@ -546,7 +547,7 @@ def map_gaps(inventory, prepared, sides_prepared, eras=None):
 
 
 def build(game=GAME, public=PUBLIC, only=None, root=ROOT):
-    shared = {"core": (game / "core.lvl"), "common": (game / "Common" / "ENG" / "common.lvl")}
+    shared = {"core": (game / "core.lvl"), "common": common_archive(game)}
     shared_data = {k: p.read_bytes() for k, p in shared.items() if p.exists()}
     sides = {p.stem: p.read_bytes() for p in sorted((game / "SIDE").glob("*.lvl"))}
     maps = []

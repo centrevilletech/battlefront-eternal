@@ -14,12 +14,12 @@ sound) comes only from `zero_shell.py` (see [Regenerating](#regenerating)).
 
 | Data | Source | Written to |
 | --- | --- | --- |
-| Menu art: 17 textures (menu-row bars, the window hover skin, slider parts, `white`, ...) | `Common/ENG/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
-| Screen art (22) and pictures (36): Instant Action's backdrop, the multiplayer backdrop, the movies' stills, ... | `Shell/ENG/shell.lvl` `tex_` | the same |
+| Menu art: 17 textures (menu-row bars, the window hover skin, slider parts, `white`, ...) | `Common/<language>/common.lvl` `tex_` | `common/textures/<name>.png` and `.ktx2`, `common.json` `textures` |
+| Screen art (22) and pictures (36): Instant Action's backdrop, the multiplayer backdrop, the movies' stills, ... | `Shell/<language>/shell.lvl` `tex_` | the same |
 | The loading screen's sprites (18) and tiled patterns (7) | `Load/load.lvl` `tex_` | the same |
 | 4× lossless WebP atlases of the 57 sprites | the PNGs, through `tools/upscale_hud.py` | `common/raster-hud/`, with `manifest.json` |
 | Every string the shell's and common's scripts use (637), and `common.loading` | `core.lvl` `Locl`, English; keys from the scripts in `shell.lvl` and `common.lvl` | `common.json` `strings` |
-| The 55 Bink movies, and each add-on's (Jabba's Palace's flyover) | `Movies/shell.mvs`; an add-on's `Movies/*.mvs`, named by its `Shell/ENG/shell.lvl` | `common/shell/movies/manifest.json`: each movie's name and where it is (the client plays the Bink files from the game folder) |
+| The 55 Bink movies, and each add-on's (Jabba's Palace's flyover) | `Movies/shell.mvs`; an add-on's `Movies/*.mvs`, named by its `Shell/<language>/shell.lvl` | `common/shell/movies/manifest.json`: each movie's name and where it is (the client plays the Bink files from the game folder) |
 | Each screen's intro and loop, and their fades | the movie config (`shell.lvl` `mcfg`) and the screens' `movieIntro` / `movieBackground` | `common/shell/shell.json` `movies` |
 | The Instant Action catalog | `shell.lvl`'s `missionlist` script (`sp_missionselect_listbox_contents`), then what each add-on's `addme.script` appends to it (`tools/zero_addon.py`), the mission scripts in `mission.lvl` and the add-ons', `public/maps/*/map.json` | `shell.json` `maps` |
 | The loading screen's config | `Load/load.lvl` `load` chunk | `shell.json` `load` and `maps[].load` |

@@ -31,7 +31,7 @@ Every random draw goes through the AI's generator A
 ## `ai-mission.json`
 
 `python3 tools/zero_ai_mission.py <map> [--side rep]` reads `mission.lvl`, the
-map's world archive, `Common/ENG/common.lvl`, `core.lvl` and the side archives
+map's world archive, `Common/<language>/common.lvl`, `core.lvl` and the side archives
 the map's scripts load. It writes only `public/maps/<map>/ai-mission.json`.
 
 ```text

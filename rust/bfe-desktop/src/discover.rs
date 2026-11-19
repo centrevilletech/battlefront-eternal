@@ -341,8 +341,9 @@ pub fn inspect_install(dir: &Path) -> Option<ValidatedInstall> {
     if !side.exists() || !common.exists() {
         return None;
     }
-    // Classic SWBF1 places `common.lvl` inside a language subfolder (`Common/ENG/common.lvl`),
-    // whereas SWBF2 places `common.lvl` directly under `Common/common.lvl`.
+    // Classic SWBF1 places `common.lvl` inside a language subfolder (`Common/ENG/common.lvl`,
+    // or `Common/FRE` in a French copy: any name will do, and `tools/zero_language.py` chooses
+    // the one to read), whereas SWBF2 places `common.lvl` directly under `Common/common.lvl`.
     let entries = fs::read_dir(&common).ok()?;
     let mut has_common_lvl = false;
     for entry in entries.flatten() {
