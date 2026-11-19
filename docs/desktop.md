@@ -251,7 +251,9 @@ run would trip over, in plain words, with paths from `GameData` on:
   `Side` for `SIDE`): Linux matches names exactly, so such a copy would fail
   part way. Only the topmost folder is reported;
 - a `Common` or `Shell` folder in which no language folder (`ENG`, `FRE`,
-  whatever its name) holds the archive;
+  whatever its name) holds the archive, or a front end archive with no list
+  of the game's maps (a copy left with only the one-picture language
+  folders described below);
 - a `Battlefront.exe` the maps' painted foliage can't be placed from
   (`tools/zero_foliage.py` reads its placement table): missing, or modified
   or replaced.
@@ -276,6 +278,10 @@ every tool reads:
 - `Common` and `Shell` are chosen each by itself, so a copy with one folder
   renamed to `ENG` and the other not prepares too. Language folders and their
   archives match without regard to case, on Linux as well.
+- The prepared files record the shared archive by one name whatever its
+  folder is called, with its checksum. So a copy whose archives are the same
+  as an English copy's prepares the same content, with the same content
+  fingerprint.
 
 The text (menus, names, messages) comes from `core.lvl`, which holds a table
 per language. It is read in English where `core.lvl` has English, so that

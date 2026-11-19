@@ -228,8 +228,8 @@ def source_name(path, game=GAME):
     """An archive's path as outputs record it: under the game's
     Data/_LVL_PC ("TAT/tat2.lvl"), else under GameData
     ("AddOn/Tat3/Data/_lvl_pc/TAT/tat3.lvl"), else its name. The shared
-    archive, in the folder of the copy's language, as
-    tools/zero_language.py's recorded spells it ("Common/ENG/common.lvl")."""
+    archive, in the folder of the copy's language, by one name in every
+    copy ("Common/ENG/common.lvl"; tools/zero_language.py recorded)."""
     if Path(path) == zero_language.common_archive(game):
         return zero_language.recorded(path)
     for base in (Path(game), Path(game).parents[1]):

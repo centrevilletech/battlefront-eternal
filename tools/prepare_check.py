@@ -7,8 +7,9 @@ archives, zero_addon.py's maps, armies and add-ons), so it finds what a run
 would trip over, in plain words: a folder or archive that is missing, empty,
 not a game archive, or spelled otherwise than the tools spell it (on Linux
 names must match exactly), no language folder holding the shared archive or
-the front end's, and a game program the maps' painted foliage can't be
-placed from (tools/zero_foliage.py). It can't tell an edited archive from
+the front end's, a front end archive without the game's list of maps, and a
+game program the maps' painted foliage can't be placed from
+(tools/zero_foliage.py). It can't tell an edited archive from
 the original: that would take the originals' checksums, which this project
 doesn't keep.
 
@@ -216,14 +217,22 @@ def stock_problems(game=GAME):
         if not folder.is_dir():
             return [archive_problem(folder, game)]
     languages = language_problems(game)
-    found = [languages.get(key) or archive_problem(path, game) for key, path in archives(game).items()]
-    found.append(archive_problem(game / "SIDE", game))
-    found.append(program_problem(game))
+    found = {key: languages.get(key) or archive_problem(path, game) for key, path in archives(game).items()}
+    shell = archives(game)["shell"]
     try:
         scripts = mission_scripts((game / "mission.lvl").read_bytes())
-        maps = ia_maps(archives(game)["shell"].read_bytes())
     except UNREADABLE:
-        scripts, maps = {}, []  # reported above, as a missing or damaged archive
+        scripts = {}  # reported above, as a missing or damaged archive
+    try:
+        maps = ia_maps(shell.read_bytes())
+    except UNREADABLE:
+        maps = []
+        # An archive, but not the front end's whole one: the Steam copy's
+        # other language folders hold one picture each (tools/zero_language.py).
+        found["shell"] = found["shell"] or problem(
+            "incomplete", shell, game, f"{shown(shell, game)} has no list of the game's maps, so it isn't the whole front end "
+                                       "archive. Of a copy's language folders one must be complete, as ENG is in the Steam copy.")
+    found = [*found.values(), archive_problem(game / "SIDE", game), program_problem(game)]
     roots = mission_roots(game)
     for map_id in maps:
         found += map_problems(map_id, game, scripts, roots)

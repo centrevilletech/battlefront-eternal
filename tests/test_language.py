@@ -69,7 +69,8 @@ class Folders(Tree):
         found = zero_language.found(self.game)
         self.assertEqual((found["common"], found["shell"]), ("FRE", "FRE"))
         self.assertEqual(found["message"], "This copy's game files are in French (Common/FRE and Shell/FRE).")
-        self.assertEqual(zero_addon.source_name(self.chosen()[0], self.game), "Common/FRE/common.lvl")
+        self.assertEqual(zero_addon.source_name(self.chosen()[0], self.game), "Common/ENG/common.lvl",
+                         "recorded by one name, so the same archive prepares the same content in any folder")
 
     def test_several_languages_and_no_english_reads_the_complete_one(self):
         for folder, size in (("FRE", 40), ("GER", 4000), ("SPA", 4000)):
@@ -100,7 +101,7 @@ class Folders(Tree):
         self.assertEqual(zero_language.recorded(common), "Common/ENG/common.lvl", "recorded as every copy records it")
         self.assertEqual(zero_addon.source_name(common, self.game), "Common/ENG/common.lvl")
         self.assertEqual((shell.parent.name, shell.name), ("fre", "Shell.lvl"), "spelled as on disk")
-        self.assertEqual(zero_language.recorded(shell), "Shell/FRE/shell.lvl")
+        self.assertEqual(zero_language.recorded(shell), "Shell/ENG/shell.lvl")
         self.assertEqual(zero_language.found(self.game)["message"],
                          "This copy's game files are in English (Common/eng) and French (Shell/fre)."
                          if EXACT_NAMES else "This copy's game files are in English (Common/ENG) and French (Shell/fre).")
@@ -212,6 +213,15 @@ class Check(unittest.TestCase):
         found = prepare_check.check(self.game)["problems"]
         self.assertEqual([(entry["code"], entry["path"]) for entry in found], [("language", "GameData/Data/_LVL_PC/Common")])
         self.assertEqual(found[0]["message"], "GameData/Data/_LVL_PC/Common has no language folder (such as ENG or FRE) with common.lvl in it.")
+
+    def test_only_one_picture_folders_is_named(self):
+        # The Steam copy without its ENG folders: what is left holds no map list.
+        self.rename("Shell", "FRE")
+        write(self.game / "Shell" / "FRE" / "shell.lvl", ucfb(chunk(b"tex_", bytes(40))))
+        write(self.game / "Shell" / "GER" / "shell.lvl", ucfb(chunk(b"tex_", bytes(40))))
+        found = prepare_check.check(self.game)["problems"]
+        self.assertEqual([(entry["code"], entry["path"]) for entry in found], [("incomplete", "GameData/Data/_LVL_PC/Shell/FRE/shell.lvl")])
+        self.assertIn("has no list of the game's maps", found[0]["message"])
 
     def test_a_damaged_archive_in_the_copys_language_is_named(self):
         self.rename("Shell", "GER")

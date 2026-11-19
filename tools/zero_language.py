@@ -20,7 +20,9 @@ such a copy. Otherwise they read the folder whose archive is the largest (a
 complete one rather than a one-picture one), the first by name among
 equals. Common and Shell are chosen each by itself, so a copy with one
 folder renamed to ENG and the other not prepares too. Folder and archive
-names match without regard to case (child in tools/zero_paths.py).
+names match without regard to case (child in tools/zero_paths.py). What is
+prepared doesn't say which folder it came from (recorded), so the same
+archives give the same content whatever their folder is called.
 
 The text is read in English as well where core.lvl has it, as the Steam
 copy's does: the bots' names and the labels are part of what players must
@@ -78,12 +80,14 @@ def shell_archive(game=GAME):
 
 
 def recorded(path):
-    """A language archive as outputs record it: its folder in capitals and
-    its name in small letters ("Common/ENG/common.lvl" for
-    Common/eng/COMMON.LVL), so a copy prepares the same on every file
-    system."""
+    """A language archive as outputs record it: under the English folder's
+    name whatever the copy's is and however it is spelled
+    ("Common/ENG/common.lvl" for Common/FRE/common.lvl and for
+    Common/eng/COMMON.LVL). The record is in the content fingerprint, so
+    the same archive must give the same record: a folder's name is not
+    content, and the archive's checksum beside the name says which it is."""
     path = Path(path)
-    return f"{path.parent.parent.name}/{path.parent.name.upper()}/{path.name.lower()}"
+    return f"{path.parent.parent.name}/{ENGLISH}/{path.name.lower()}"
 
 
 def text(core, game=GAME):
