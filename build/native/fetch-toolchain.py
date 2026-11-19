@@ -27,6 +27,11 @@ CACHE = ROOT / "toolchain" / ".downloads"
 
 PYTHON = {"version": "3.13.16", "release": "20261009"}
 KTX = "4.4.2"
+# The macOS FFmpeg builds are static, signed and notarized; each build has its
+# own folder name on the download site.
+FFMPEG_MAC = {"x64": "1789931006_9.0.2", "arm64": "1789931890_9.0.2"}
+# Some download sites refuse urllib's default client name.
+USER_AGENT = "battlefront-eternal-toolchain"
 CORE_WHEELS = ["pillow>=10"]
 AUDIO_WHEELS = ["numpy==2.5.3", "scipy==1.18.1", "soundfile==0.14.0", "soxr==1.1.0"]
 
@@ -59,7 +64,7 @@ TARGETS = {
             "macosx_13_0_x86_64",
             "macosx_14_0_x86_64",
         ],
-        "ffmpeg": "https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/ffmpeg.zip",
+        "ffmpeg": f"https://ffmpeg.martin-riedl.de/download/macos/amd64/{FFMPEG_MAC['x64']}/ffmpeg.zip",
         "ktx": f"https://github.com/KhronosGroup/KTX-Software/releases/download/v{KTX}/KTX-Software-{KTX}-Darwin-x86_64.pkg",
     },
     "mac-arm64": {
@@ -71,7 +76,7 @@ TARGETS = {
             "macosx_14_0_arm64",
             "macosx_15_0_arm64",
         ],
-        "ffmpeg": "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip",
+        "ffmpeg": f"https://ffmpeg.martin-riedl.de/download/macos/arm64/{FFMPEG_MAC['arm64']}/ffmpeg.zip",
         "ktx": f"https://github.com/KhronosGroup/KTX-Software/releases/download/v{KTX}/KTX-Software-{KTX}-Darwin-arm64.pkg",
     },
 }
@@ -113,7 +118,9 @@ def download(url: str, attempts: int = 6) -> Path:
         have = part.stat().st_size if part.is_file() else 0
         try:
             print(f"download {url}" + (f" (resuming at {have} bytes)" if have else ""))
-            headers = {"Range": f"bytes={have}-"} if have else {}
+            headers = {"User-Agent": USER_AGENT}
+            if have:
+                headers["Range"] = f"bytes={have}-"
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=60) as resp:
                 status = getattr(resp, "status", 200)
@@ -278,11 +285,17 @@ def fetch_ktx(target: dict, out: Path, key: str) -> None:
     (dest / "bin").mkdir(parents=True, exist_ok=True)
     shutil.copy2(binary, dest / "bin" / exe)
     (dest / "bin" / exe).chmod(0o755)
-    for lib_dir in (base / "lib", binary.parent):
+    lib_dirs = [base / "lib", binary.parent]
+    if arch_str.endswith(".pkg"):
+        # The macOS installer keeps the library in a component package of its own.
+        lib_dirs = sorted({found.parent for found in work.rglob("libktx*.dylib")})
+    for lib_dir in lib_dirs:
         if not lib_dir.is_dir():
             continue
         for entry in lib_dir.iterdir():
             if not re.search(r"^(lib)?ktx(\.|-?\d)", entry.name, re.IGNORECASE) or re.search(r"jni", entry.name, re.IGNORECASE):
+                continue
+            if arch_str.endswith(".pkg") and not entry.name.endswith(".dylib"):
                 continue
             into = dest / ("bin" if key.startswith("win") else "lib")
             into.mkdir(parents=True, exist_ok=True)
