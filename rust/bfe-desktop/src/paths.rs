@@ -456,8 +456,15 @@ pub fn timings_file(user_data: &Path) -> PathBuf {
 }
 
 /// Returns `<userData>/logs/prepare.log`, the log file path passed to
-/// `new Preparer` in the desktop host.
+/// `new Preparer` in the desktop host. On macOS, where the user data folder is the
+/// standard one in `~/Library/Application Support`, the log goes where the system keeps
+/// logs and Console lists them: `~/Library/Logs/Battlefront Eternal/prepare.log`.
 pub fn prepare_log_file(user_data: &Path) -> PathBuf {
+    if user_data.ends_with("Library/Application Support/Battlefront Eternal") {
+        if let Some(library) = user_data.parent().and_then(Path::parent) {
+            return library.join("Logs").join("Battlefront Eternal").join("prepare.log");
+        }
+    }
     user_data.join("logs").join("prepare.log")
 }
 
