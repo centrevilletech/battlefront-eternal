@@ -65,7 +65,9 @@ preparation produces. See [desktop-updates.md](desktop-updates.md).
 ## Installing on macOS
 
 The Mac build is `Battlefront Eternal.app` in a disk image: open the image and
-drag the app to Applications. It needs Apple silicon and macOS 11 or later,
+drag the app to Applications. It needs Apple silicon and macOS 12.3 or later
+(the newest minimum among the programs it bundles, read from them when the app
+is built; the client itself starts on macOS 11). It
 holds the client, the dedicated server and the preparation tools, and keeps
 its settings, prepared game data and updates in
 `~/Library/Application Support/Battlefront Eternal`. Removing the app is

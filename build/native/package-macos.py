@@ -61,13 +61,22 @@ def bundle_versions(version: str) -> tuple[str, str]:
     return version, preview or f'{major}.{minor}.{patch}'
 
 
-def minimum_macos(binary: Path) -> str:
-    """The oldest macOS the program was built to start on."""
-    text = subprocess.run(['otool', '-l', str(binary)], check=True, capture_output=True, text=True).stdout
-    found = re.search(r'LC_BUILD_VERSION.*?minos (\d+\.\d+)', text, re.S) or re.search(r'LC_VERSION_MIN_MACOSX.*?version (\d+\.\d+)', text, re.S)
-    if not found:
-        raise RuntimeError(f'{binary} names no minimum macOS version')
-    return found.group(1)
+def minimum_macos(app: Path) -> str:
+    """The oldest macOS on which every program in the bundle starts: the newest of the minimum
+    versions they were built for (the client, the server, Python and its modules, FFmpeg, ktx)."""
+    newest = (0, 0)
+    for path in app.rglob('*'):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open('rb') as handle:
+            if handle.read(4) not in (b'\xcf\xfa\xed\xfe', b'\xca\xfe\xba\xbe'):
+                continue
+        text = subprocess.run(['otool', '-l', str(path)], check=True, capture_output=True, text=True).stdout
+        for found in re.finditer(r'(?:LC_BUILD_VERSION.*?minos|LC_VERSION_MIN_MACOSX.*?version) (\d+)\.(\d+)', text, re.S):
+            newest = max(newest, (int(found.group(1)), int(found.group(2))))
+    if newest == (0, 0):
+        raise RuntimeError(f'No program in {app} names a minimum macOS version')
+    return f'{newest[0]}.{newest[1]}'
 
 
 def make_icns(png: Path, icns: Path) -> None:
@@ -117,7 +126,7 @@ def build_app(staged_dir: Path, platform: str, version: str, out_parent: Path, r
         'CFBundleSupportedPlatforms': ['MacOSX'],
         'CFBundleVersion': build,
         'LSApplicationCategoryType': 'public.app-category.action-games',
-        'LSMinimumSystemVersion': minimum_macos(macos_dir / 'bfe-client'),
+        'LSMinimumSystemVersion': minimum_macos(app),
         'LSSupportsGameMode': True,
         'GCSupportsGameMode': True,
         'NSHighResolutionCapable': True,
