@@ -115,6 +115,8 @@ def sign_file(path: Path, identity: str, cache: Path | None) -> bool:
             mode = path.stat().st_mode
             shutil.copyfile(cached, path)
             path.chmod(mode)
+            # Its date says when the copy was last of use, for whoever prunes the cache.
+            os.utime(cached)
             return True
     run(command + [path], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     if cached is not None:
