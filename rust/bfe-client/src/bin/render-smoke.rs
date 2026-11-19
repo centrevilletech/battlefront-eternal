@@ -1,6 +1,10 @@
 //! Native renderer smoke binary (`render-smoke`).
+//!
+//! It draws without a window through a surfaceless EGL context. macOS has no EGL, so there
+//! the program only says so: the smoke runs on Linux, and the crate still builds everywhere.
 
 #![deny(warnings, clippy::all)]
+#![cfg_attr(target_os = "macos", allow(dead_code, unused_imports))]
 
 use bfe_client::{
     render_bridge::Bridge,
@@ -475,7 +479,13 @@ fn default_view(width: u32, height: u32) -> View {
     View { values }
 }
 
+#[cfg(target_os = "macos")]
+fn run() -> Result<(), String> {
+    Err("render-smoke needs a surfaceless EGL context, which macOS does not have".to_string())
+}
+
 /// Runs the complete shader compile/link sweep and the 6 representative family draws.
+#[cfg(not(target_os = "macos"))]
 fn run() -> Result<(), String> {
     let args = parse_args()?;
     let mut sink = JsonlSink::new(args.output.as_deref())?;
