@@ -1,6 +1,8 @@
 """The parts of the macOS packaging and signing scripts that need no Mac to test:
 where the disk image tool comes from, which earlier signatures may be reused,
-and what an update payload refuses to be made from."""
+what an update payload refuses to be made from, and that nothing is fetched for a
+Mac build without a pinned digest."""
+import hashlib
 import importlib.util
 import os
 from pathlib import Path
@@ -19,6 +21,7 @@ def load(name):
     return module
 
 
+fetch_toolchain = load('fetch-toolchain')
 package_macos = load('package-macos')
 sign_macos = load('sign-macos')
 update_payload = load('update-payload')
@@ -123,6 +126,75 @@ class SealedBundleTest(unittest.TestCase):
             with self.assertRaises(RuntimeError) as refused:
                 update_payload.bundle_tree(folder, 'darwin-arm64')
             self.assertIn('bytecode', str(refused.exception))
+
+
+class ToolchainPinsTest(unittest.TestCase):
+    def test_every_macos_download_has_a_pinned_digest(self):
+        for key in ('mac-arm64', 'mac-x64'):
+            target = fetch_toolchain.TARGETS[key]
+            self.assertTrue(fetch_toolchain.is_mac(target))
+            for url in (fetch_toolchain.python_url(target['python']), target['ffmpeg'], target['ktx']):
+                self.assertRegex(fetch_toolchain.SHA256.get(url, ''), r'^[0-9a-f]{64}$', url)
+        self.assertFalse(fetch_toolchain.is_mac(fetch_toolchain.TARGETS['linux-x64']))
+
+    def test_a_download_is_only_ever_the_pinned_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            served = root / 'served' / 'tool.zip'
+            served.parent.mkdir()
+            served.write_bytes(b'the published archive')
+            url = served.as_uri()
+            good = hashlib.sha256(b'the published archive').hexdigest()
+            cache = root / 'cache'
+            with mock.patch.object(fetch_toolchain, 'CACHE', cache), mock.patch.object(fetch_toolchain, 'SHA256', {url: good}):
+                fetched = fetch_toolchain.download(url, require_digest=True)
+                self.assertEqual(fetched.read_bytes(), b'the published archive')
+                # The site now serves something else under the same name.
+                served.write_bytes(b'another archive, same name')
+                fetched.unlink()
+                with self.assertRaises(fetch_toolchain.DigestMismatch) as refused:
+                    fetch_toolchain.download(url, attempts=1, require_digest=True)
+                self.assertIn(good, str(refused.exception))
+                self.assertEqual(list(cache.iterdir()), [], 'nothing of it is kept')
+                # A cached copy that is not the pinned file is not used either.
+                fetched.write_bytes(b'left by an earlier pin')
+                with self.assertRaises(fetch_toolchain.DigestMismatch):
+                    fetch_toolchain.download(url, attempts=1, require_digest=True)
+            # A macOS download with no pin is refused before anything is fetched.
+            with mock.patch.object(fetch_toolchain, 'CACHE', cache), mock.patch.object(fetch_toolchain, 'SHA256', {}), \
+                    mock.patch.object(fetch_toolchain.urllib.request, 'urlopen') as urlopen:
+                with self.assertRaises(fetch_toolchain.DigestMismatch):
+                    fetch_toolchain.download(url, require_digest=True)
+                urlopen.assert_not_called()
+
+    def test_macos_python_packages_are_installed_by_hash(self):
+        def pip_command(key):
+            commands = []
+            with tempfile.TemporaryDirectory() as temporary, \
+                    mock.patch.object(fetch_toolchain, 'download', return_value=Path('archive')), \
+                    mock.patch.object(fetch_toolchain, 'ensure_host_python', return_value=Path('python3')), \
+                    mock.patch.object(fetch_toolchain, 'prune_python'), \
+                    mock.patch.object(fetch_toolchain, 'run', lambda command, args, **kwargs: commands.append([command, *args])):
+                fetch_toolchain.fetch_python(fetch_toolchain.TARGETS[key], Path(temporary))
+            return [command for command in commands if 'pip' in command]
+
+        for key in ('mac-arm64', 'mac-x64'):
+            installs = pip_command(key)
+            self.assertEqual(len(installs), 1)
+            self.assertIn('--require-hashes', installs[0])
+            self.assertEqual(installs[0][installs[0].index('-r') + 1], str(fetch_toolchain.MAC_REQUIREMENTS))
+        self.assertFalse(any('--require-hashes' in command for command in pip_command('linux-x64')))
+        requirements = fetch_toolchain.MAC_REQUIREMENTS.read_text().replace('\\\n', ' ')
+        pinned = [line.split() for line in requirements.splitlines() if line and not line.startswith('#')]
+        names = set()
+        for name, *hashes in pinned:
+            self.assertRegex(name, r'^[a-z-]+==[0-9.]+$')
+            self.assertIn(len(hashes), (1, 2))
+            for value in hashes:
+                self.assertRegex(value, r'^--hash=sha256:[0-9a-f]{64}$')
+            names.add(name.split('==')[0])
+        # What the preparation tools import, and what those need.
+        self.assertEqual(names, {'pillow', 'numpy', 'scipy', 'soundfile', 'soxr', 'cffi', 'pycparser', 'typing-extensions'})
 
 
 if __name__ == '__main__':

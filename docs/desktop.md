@@ -479,6 +479,12 @@ menus applies the next time the loader opens.
   silicon and Intel);
 - KTX-Software's `ktx` and its library.
 
+On macOS every download is checked against a SHA-256 written in the script,
+and the Python packages are installed with `pip --require-hashes` from
+`build/native/macos/toolchain-requirements.txt`, because what a Mac build
+fetches is signed with it as well as shipped. The Windows and Linux
+downloads are not pinned to digests yet.
+
 `mac arm64` and `mac x64` both fetch and run. The programs themselves start
 on macOS 11 (Apple silicon) and 10.12 (Intel); the fetched tools need more
 (FFmpeg 12.0, the scipy wheel 12.3), so preparation needs macOS 12.3.
