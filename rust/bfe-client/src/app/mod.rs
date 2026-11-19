@@ -314,7 +314,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let gate = opts
         .script
         .as_deref()
-        .and_then(|name| name.strip_prefix("ia:"))
+        .and_then(|name| name.strip_prefix("ia:").or((name == "online").then_some("online")))
         .filter(|map| !map.trim().is_empty())
         .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
@@ -2063,6 +2063,33 @@ impl StandaloneWindowApp {
                 battle.resize(self.opts.size, window.scale_factor(), || unsafe {
                     glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
                 })?;
+            }
+            // A scripted run answers the first run's confirm screen itself: its lit action once the
+            // copy is checked (PREPARE), as a player pressing Enter does, pictured before and during.
+            if let (Some(gate), Some(shell)) = (&mut self.gate, &self.shell) {
+                let mut press = None;
+                match &self.state {
+                    AppState::StartupLoader(StartupContentState::FirstRun(model)) if !gate.confirmed => {
+                        let primary = model.primary_action();
+                        if matches!(model.actions().get(primary), Some((_, first_run::Action::Prepare))) {
+                            if gate.confirm_seen.get_or_insert_with(Instant::now).elapsed().as_secs_f64() >= 2. {
+                                gate.save_shell_shot(shell, "00-first-run-confirm.png")?;
+                                gate.confirmed = true;
+                                press = Some(primary);
+                            }
+                        }
+                    }
+                    AppState::StartupLoader(StartupContentState::Preparing { started_at, .. })
+                        if !gate.preparing_shot && started_at.elapsed().as_secs_f64() >= 20. =>
+                    {
+                        gate.save_shell_shot(shell, "00-first-run-preparing.png")?;
+                        gate.preparing_shot = true;
+                    }
+                    _ => {}
+                }
+                if let Some(index) = press {
+                    self.first_run_action(index);
+                }
             }
             match &mut self.state {
                 AppState::StartupLoader(loader_state) => {

@@ -3,6 +3,11 @@
 //! combat have elapsed, then quits through the pause menu and writes
 //! `gate-summary.json` (GL errors, frame times, world tick times) beside the
 //! screenshots (startup loader, gate, loading, spawn, battle, pause, quit).
+//! On a first run either script answers the confirm screen itself (PREPARE, two
+//! seconds after the copy is checked) and waits for the preparation.
+//! `--script online`: the same on a server from MULTIPLAYER > INTERNET (the one
+//! `--server` names, else the first listed): opens the list, joins as the list's
+//! JOIN does, plays that long and leaves through the pause menu.
 //! `BFE_GATE_HUNT` (`droideka` or `soldier`) walks the player to the nearest
 //! enemy of that kind and fires instead.
 
@@ -72,6 +77,15 @@ pub struct GateDriver {
     pub battle_duration_s: f64,
     /// The map of `--script ia:<MAP>`.
     pub target_map: String,
+    /// `--script online`: join a listed internet server in place of an Instant Action battle.
+    online: bool,
+    /// The frame of the launch phase the internet list arrived on.
+    listed_at: Option<u64>,
+    /// When the first run's confirm screen first offered PREPARE, and whether the script
+    /// has pressed it and pictured the preparation.
+    pub confirm_seen: Option<Instant>,
+    pub confirmed: bool,
+    pub preparing_shot: bool,
     /// Combat seconds from completed rounds, excluding admission and shell time.
     target_combat_seconds: f64,
     /// Output directory where PNG screenshots and `gate-summary.json` are written.
@@ -124,6 +138,11 @@ impl GateDriver {
             phase_started: Instant::now(),
             phase_frames: 0,
             battle_duration_s,
+            online: target_map == "online",
+            listed_at: None,
+            confirm_seen: None,
+            confirmed: false,
+            preparing_shot: false,
             target_map,
             target_combat_seconds: 0.0,
             screenshot_dir: dir,
@@ -244,7 +263,9 @@ impl GateDriver {
     /// The normal scoreboard auto-advances after thirty seconds; restart through
     /// the native mission transition before it can strand the driver in menus.
     fn repeat_target_round(&self, match_over: bool, elapsed: f64) -> bool {
+        // A server's battle is not this client's to restart.
         match_over
+            && !self.online
             && self.target_combat_seconds + elapsed < self.battle_duration_s
     }
 
@@ -439,6 +460,47 @@ impl GateDriver {
                     self.save_shell_shot(shell, "02-gate.png")?;
                     shell.app.unlock_gate();
                     self.transition_to(GatePhase::Launch);
+                }
+            }
+            GatePhase::Launch if self.online => {
+                use bfe_shell::screens::{MultiplayerKind, ScreenId};
+                if self.phase_frames == 4 {
+                    // MULTIPLAYER > INTERNET, as the menu opens it.
+                    shell.app.refresh_multiplayer_list(MultiplayerKind::Online, &mut shell.browser);
+                    shell.app.push_screen(ScreenId::MultiplayerList(MultiplayerKind::Online));
+                    if !shell.browser.is_refresh_in_flight() {
+                        shell.browser.trigger_refresh();
+                    }
+                } else if self.phase_frames > 4 && !shell.browser.is_refresh_in_flight() {
+                    if shell.browser.inner.servers().is_empty() {
+                        if elapsed > 30. {
+                            return Err("the internet list has no server".into());
+                        }
+                        if self.phase_frames % 600 == 0 {
+                            shell.browser.trigger_refresh();
+                        }
+                        return Ok(None);
+                    }
+                    // A second of the list on screen for its picture, then JOIN.
+                    let listed = *self.listed_at.get_or_insert(self.phase_frames);
+                    if self.phase_frames >= listed + 60 {
+                        let target = shell.browser.server_target().map(str::to_owned);
+                        let servers = shell.browser.inner.servers();
+                        for server in servers {
+                            eprintln!("[gate] internet list: {} ({}/{} players)", server.name, server.players, server.max_players);
+                        }
+                        let named = target.as_deref().and_then(|target| {
+                            servers.iter().find(|server| {
+                                server.endpoints.iter().any(|e| format!("{}:{}", e.address, e.port) == target)
+                                    || server.address.as_deref().zip(server.port).is_some_and(|(a, p)| format!("{a}:{p}") == target)
+                            })
+                        });
+                        let server = named.unwrap_or(&servers[0]).clone();
+                        self.save_shell_shot(shell, "03-online-list.png")?;
+                        eprintln!("[gate] joining {}", server.name);
+                        shell.app.join_browser_server(server, MultiplayerKind::Online, &mut shell.browser);
+                        self.transition_to(GatePhase::Spawn);
+                    }
                 }
             }
             GatePhase::Launch => {

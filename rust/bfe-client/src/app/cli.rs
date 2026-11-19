@@ -45,7 +45,8 @@ STANDALONE OPTIONS:
     --height <PX>             Initial window height in pixels (default: 720)
     --fullscreen              Start in borderless fullscreen mode
     --skip-update-check       Skip the startup check for a newer release
-    --script <MODE>           Scripted run: ia:<MAP> (one map, BFE_GATE_BATTLE_SECONDS) or platform-smoke
+    --script <MODE>           Scripted run: ia:<MAP> (one map, BFE_GATE_BATTLE_SECONDS), online (a listed
+                              internet server, the same length) or platform-smoke
     --shots-dir <DIR>         Output directory for scripted screenshots
     --server <HOST:PORT>      Remote bfeserver address for scripted online join
 ";
