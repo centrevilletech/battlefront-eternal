@@ -1125,6 +1125,9 @@ mod tests {
             if client.ready() {
                 break;
             }
+            // These are real sockets: a datagram sent on loopback is not readable at once on every
+            // system (on macOS it can take a moment), so each tick leaves the system time to deliver.
+            std::thread::sleep(std::time::Duration::from_millis(2));
         }
         assert!(client.ready());
         assert_eq!(server.live_sessions(), 1);
