@@ -243,7 +243,20 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
         // signed by the developer of this app (update/signer.rs). The check at installation
         // already refused anything else that came through the channel; this one costs a
         // fraction of a second and also covers a folder that something else wrote into.
-        let checked = ctx.required_signer(resolved.plat).and_then(|signer| match signer {
+        let signer = match ctx.required_signer(resolved.plat) {
+            Ok(signer) => signer,
+            Err(reason) => {
+                // This app's own signature cannot be read: nothing is wrong with the
+                // candidate, and nothing can be checked. This copy starts as it is.
+                append_update_log(
+                    &resolved.root,
+                    Some(&resolved.own_version),
+                    &format!("no hand-off to {}: {reason}", candidate.version),
+                );
+                break;
+            }
+        };
+        let checked = match &signer {
             Signer::Anyone => Ok(()),
             Signer::Requirement(_) => candidate
                 .executable
@@ -251,7 +264,7 @@ pub fn hand_off(ctx: &UpdaterContext) -> HandoffOutcome {
                 .and_then(bundle_of)
                 .ok_or_else(|| "its program is not inside an app bundle".to_string())
                 .and_then(|bundle| check_bundle(&bundle, &signer)),
-        });
+        };
         if let Err(reason) = checked {
             let _ = record_bad(&resolved.root, &candidate.version);
             let _ = std::fs::remove_dir_all(&candidate.dir);
