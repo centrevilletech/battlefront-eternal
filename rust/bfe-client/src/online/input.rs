@@ -471,6 +471,9 @@ impl Sender {
         self.counted += look.x * self.mouse_scale / receiver.own.zoom.max(1.);
         if look.x != 0. || look.y != 0. {
             if self.pointer_count == 128 {
+                // The oldest look leaves the preview: its counts leave the count with it.
+                let dropped = self.pointers[self.pointer_at];
+                self.counted -= dropped.x * dropped.scale / dropped.zoom;
                 self.pointer_at = (self.pointer_at + 1) % 128;
                 self.pointer_count -= 1;
                 self.refused += 1;

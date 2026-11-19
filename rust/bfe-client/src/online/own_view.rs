@@ -139,7 +139,19 @@ impl Walker {
             self.len += 1;
         }
         let (oldest, newest) = (self.ticks[0], self.ticks[self.len - 1]);
-        let interval = if self.len > 1 { newest - self.ticks[self.len - 2] } else { 1. };
+        // The usual time between corrections: the middle one of the gaps held (the shorter of
+        // two), so one long gap after a stall is not taken for the rhythm. Taken for it, the
+        // clock was let fall a whole stall behind, and then snapped when the rhythm came back.
+        let gap = |n: usize| self.ticks[n + 1] - self.ticks[n];
+        let interval = match self.len {
+            0 | 1 => 1.,
+            2 => gap(0),
+            3 => gap(0).min(gap(1)),
+            _ => {
+                let (a, b, c) = (gap(0), gap(1), gap(2));
+                a.max(b).min(a.min(b).max(c))
+            }
+        };
         // A correction and a quarter behind the newest on average: the clock
         // then ends each interval three quarters of one short of the newest,
         // so a correction that comes most of an interval late does not stop
@@ -266,6 +278,25 @@ mod tests {
         let rolls: Vec<f64> = frames(&own, 16).iter().map(|shown| shown.pose[0]).collect();
         assert!(rolls.windows(2).all(|pair| pair[1] >= pair[0] || pair[1] == 0.), "{rolls:?}");
         assert_eq!(rolls[15], 0.);
+        // The corrections stall for 15 ticks, then come again every tick: the body is where the
+        // newest correction puts it, less the usual delay, as soon as that correction is drawn
+        // from; it is not left a whole stall behind for a tick first.
+        let mut frames = |own: &Own, count: usize| -> Vec<ShownWalker> { (0..count).map(|_| walker.sample(own, life, 1. / 240.)).collect() };
+        own.walker_mode = 12;
+        for _ in 0..8 {
+            own.tick += 1.;
+            own.position[0] += 0.1;
+            frames(&own, 4);
+        }
+        own.tick += 15.;
+        own.position[0] += 1.5;
+        let after_stall = frames(&own, 4)[3].position[0];
+        assert!(own.position[0] - after_stall < 0.25, "{} m behind after the stall", own.position[0] - after_stall);
+        own.tick += 1.;
+        own.position[0] += 0.1;
+        let next = frames(&own, 4);
+        assert!(next.windows(2).all(|pair| pair[1].position[0] >= pair[0].position[0]) && next[0].position[0] >= after_stall);
+        assert!(own.position[0] - next[3].position[0] < 0.25);
         // Spawned again 50 m away: there at once.
         own.tick += 1.;
         own.position = [50., 0., 0.];

@@ -27,7 +27,9 @@ struct AimHistory {
     len: usize,
 }
 impl AimHistory {
-    const SAMPLES: usize = 8;
+    // The playout clock can run ten ticks behind the newest snapshot after a hitch, and Instant
+    // Action hears one a tick.
+    const SAMPLES: usize = 16;
     /// The aim heard at `tick`, for the turret's life `life` (another life starts afresh).
     fn push(&mut self, life: (f64, f64), tick: f64, aim: [f64; 4]) {
         if self.life != life || self.len != 0 && tick < self.ticks[self.len - 1] {
