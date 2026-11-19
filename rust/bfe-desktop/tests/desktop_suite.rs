@@ -384,6 +384,22 @@ fn discover_finds_steam_install_across_secondary_libraries() {
     assert_eq!(found.source, "steam");
 }
 
+/// The preparation log sits in the user data folder, except in macOS's standard one: there it
+/// goes to the system's log folder. A user data folder set by hand keeps its own.
+#[test]
+fn paths_put_the_preparation_log_in_the_macos_log_folder() {
+    use bfe_desktop::paths::prepare_log_file;
+    assert_eq!(
+        prepare_log_file(Path::new("/Users/player/Library/Application Support/Battlefront Eternal")),
+        Path::new("/Users/player/Library/Logs/Battlefront Eternal/prepare.log")
+    );
+    assert_eq!(
+        prepare_log_file(Path::new("/var/player/.config/Battlefront Eternal")),
+        Path::new("/var/player/.config/Battlefront Eternal/logs/prepare.log")
+    );
+    assert_eq!(prepare_log_file(Path::new("/opt/own-folder")), Path::new("/opt/own-folder/logs/prepare.log"));
+}
+
 /// A Mac player's Steam copy is the Windows client's inside a Wine bottle: CrossOver's, Whisky's, or
 /// the prefix Heroic gives a game.
 #[test]
