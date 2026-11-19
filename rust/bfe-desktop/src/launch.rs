@@ -639,8 +639,14 @@ pub fn settle_with(opts: &SettleOptions) -> SettleOutcome {
 
     // macOS: this version works, so the app the player installed becomes it (update/bundle.rs).
     if plat_key.starts_with("darwin-") {
+        use crate::update::bundle::{
+            remove_replaced_bundles, replace_installed_bundle, ReplaceOptions, ReplaceOutcome,
+        };
+        // What an earlier replacement put aside beside this app is not needed any more.
+        for path in remove_replaced_bundles(&opts.own_dir) {
+            append_update_log(&root_dir, Some(&version), &format!("removed {}", path.display()));
+        }
         if let Some(installed_dir) = opts.env.get("BFE_BOOTSTRAP_DIR").filter(|s| !s.is_empty()) {
-            use crate::update::bundle::{replace_installed_bundle, ReplaceOptions, ReplaceOutcome};
             match replace_installed_bundle(&ReplaceOptions {
                 root: root_dir.clone(),
                 own_dir: opts.own_dir.clone(),

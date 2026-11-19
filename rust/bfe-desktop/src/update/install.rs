@@ -23,6 +23,8 @@ use crate::update::feed::{
     decompress_zstd_stream, join_url, open_url_reader, validate_link_target, ManifestFileEntry,
     PlatformManifest,
 };
+use crate::update::bundle::bundle_of;
+use crate::update::signer::{check_bundle, Signer};
 use crate::update::state::{
     versions_dir, InstallFileEntry, InstallRecord, INSTALL_RECORD,
 };
@@ -290,17 +292,26 @@ pub struct InstallReleaseOptions {
     pub concurrency: usize,
     /// Per-blob download timeout in milliseconds (`DEFAULT_BLOB_TIMEOUT_MS`).
     pub timeout_ms: u64,
+    /// macOS: who has to have signed the app bundle of this release
+    /// (`update/signer.rs`). [`Signer::Anyone`] on the other systems.
+    pub signer: Signer,
 }
+
+/// [`InstallOutcome::reason`] of a release that was fetched whole and then not installed
+/// because its app bundle is not signed by [`InstallReleaseOptions::signer`].
+pub const REFUSED: &str = "refused";
 
 /// Outcome returned by [`install_release`].
 ///
 /// Mirrors the return value of `installRelease` in the desktop host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallOutcome {
-    /// True if the version was newly installed; false if already present.
+    /// True if the version was newly installed; false if already present or refused.
     pub installed: bool,
-    /// Status code: `"installed"` or `"already-installed"`.
+    /// Status code: `"installed"`, `"already-installed"` or [`REFUSED`].
     pub reason: String,
+    /// Why, for a refused release.
+    pub detail: Option<String>,
     /// Path to `<root>/versions/<version>`.
     pub dir: PathBuf,
     /// Number of files reused from local trees.
@@ -331,6 +342,7 @@ where
         return Ok(InstallOutcome {
             installed: false,
             reason: "already-installed".to_string(),
+            detail: None,
             dir: final_dir,
             reused: 0,
             downloaded: 0,
@@ -538,6 +550,28 @@ where
         let _ = fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755));
     }
 
+    // macOS: the build is here as the app's own developer sealed it, or it is no update of
+    // this app. Checked before the record below makes the folder an installed version, so
+    // nothing ever starts a build that was not checked.
+    if let Signer::Requirement(_) = &opts.signer {
+        let checked = exe_path
+            .parent()
+            .and_then(bundle_of)
+            .ok_or_else(|| "its program is not inside an app bundle".to_string())
+            .and_then(|bundle| check_bundle(&bundle, &opts.signer));
+        if let Err(why) = checked {
+            let _ = fs::remove_dir_all(&stage_dir);
+            return Ok(InstallOutcome {
+                installed: false,
+                reason: REFUSED.to_string(),
+                detail: Some(why),
+                dir: final_dir,
+                reused,
+                downloaded,
+            });
+        }
+    }
+
     let record = InstallRecord {
         version: opts.manifest.version.clone(),
         release_id: opts.manifest.release_id.clone(),
@@ -590,6 +624,7 @@ where
     Ok(InstallOutcome {
         installed: true,
         reason: "installed".to_string(),
+        detail: None,
         dir: final_dir,
         reused,
         downloaded,

@@ -1650,6 +1650,7 @@ fn update_versions_feed_signatures_payload_slots_and_rollback_work() {
         fetch_timeout_ms: 5000,
         blob_timeout_ms: 5000,
         concurrency: 2,
+        signer: None,
     };
 
     let res_332 = check_and_install::<fn(InstallProgress)>(&ctx, None);

@@ -383,6 +383,17 @@ pub fn record_attempt(root: &Path, version: &str) -> Result<State, String> {
     write_state(root, &state)
 }
 
+/// Marks `version` in `<root>/state.json` as one this installation neither fetches nor starts
+/// again: a build that was refused as it arrived. Later versions are not affected.
+pub fn record_bad(root: &Path, version: &str) -> Result<State, String> {
+    let mut state = read_state(root);
+    state.attempts.remove(version);
+    if !state.bad.iter().any(|v| v == version) {
+        state.bad.push(version.to_string());
+    }
+    write_state(root, &state)
+}
+
 /// Records `version` as healthy in `<root>/state.json`, clearing any failed attempt
 /// counter or `bad` marker and placing `version` at the front of `healthy` (capped at 10).
 ///

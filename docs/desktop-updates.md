@@ -126,16 +126,37 @@ bundle (`Contents/Resources/bfe-tree.json`) lists the files as the programs
 see them and leaves out the client and the signature's files, whose hashes
 only exist once the bundle is sealed.
 
+macOS asks who signed a program only when a browser downloaded it, never for
+files an updater writes. So the updater asks itself
+(`rust/bfe-desktop/src/update/signer.rs`): an app signed with a developer
+certificate takes an update only when the downloaded bundle verifies as a
+whole (`codesign --verify --deep --strict`) and satisfies the requirement the
+running app's own signature states for later versions of itself, which for a
+Developer ID build is "this bundle identifier, a Developer ID certificate
+issued by Apple, this team". Nothing about a team is written in the program;
+the installed app is the reference. The check runs after the files are
+fetched and before the folder counts as an installed version. A build that
+fails it is deleted, written to `update.log` and not fetched again; the
+running version stays, and the next release is looked at afresh. An app with
+no certificate behind its signature (a developer's own ad hoc build) takes
+what its channel offers, as the other systems do. A consequence: if the
+project ever signs with another developer team, installed copies refuse
+those builds and have to be installed again from the download.
+
 The hand-off starts the new version's program from the update folder. When
 that version counts as healthy, it replaces the installed app: a copy is made
-beside it, checked with `codesign --verify --deep --strict`, and exchanged
-with the installed bundle in one step. From then on the app in Applications
-is the current version and starts without a hand-off. The installed app stays
-as it is, and the hand-off keeps taking the newest version at every start,
-when its folder is not writable for this user, when it runs from a read-only
-place (the disk image, or the copy macOS makes of a download that was never
-moved), or while another copy of it is running. A refusal is written to
-`update.log` once per version.
+beside it, checked in the same way against the installed app's signature,
+written to the disk, and exchanged with the installed bundle in one step.
+From then on the app in Applications is the current version and starts
+without a hand-off. The bundle that was replaced is put aside under a hidden
+name beside the app (`.Battlefront Eternal.app.bfe-old`) and removed at a
+later start, so a copy of the game started from it at that moment keeps its
+files. The installed app stays as it is, and the hand-off keeps taking the
+newest version at every start, when its folder is not writable for this
+user, when it runs from a read-only place (the disk image, or the copy macOS
+makes of a download that was never moved), when the app at that path is not
+Battlefront Eternal, or while another copy of it is running. A refusal is
+written to `update.log` once per version.
 
 ## Trust
 
@@ -223,7 +244,13 @@ The scripts involved:
   (`build/native/sign-macos.py`), makes the disk image
   (`build/native/package-macos.py`) and `update-darwin-arm64.tar` from the
   stapled app, and hands them to the release host with `macos-notarized.json`,
-  a record of their sizes and hashes. The
+  a record of their sizes and hashes, and that record's signature
+  (`macos-notarized.json.sig`), made with a key that exists only on the
+  signing Mac. The release host holds the public key and takes a Mac build
+  only when the signature verifies, the record names the live release and
+  its commit, and the payload is for the architecture the record's disk
+  image names (`build/publish-distribution.py`); what can write to the place
+  the files are handed over can therefore not publish a build. The
   release host then adds the Mac build to the live release and signs the
   channel file again with the `darwin-arm64` entry. A release is published
   for Windows and Linux without waiting for this; until the Mac build

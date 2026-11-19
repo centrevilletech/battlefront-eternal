@@ -16,13 +16,15 @@ use crate::launch::{
 };
 use crate::paths::{home_dir_from_env, normalize_lexical};
 use crate::update::feed::{fetch_channel, fetch_manifest, DEFAULT_TIMEOUT_MS};
+use crate::update::bundle::bundle_of;
 use crate::update::install::{
     install_release, InstallProgress, InstallReleaseOptions, DEFAULT_BLOB_TIMEOUT_MS,
-    DEFAULT_CONCURRENCY,
+    DEFAULT_CONCURRENCY, REFUSED,
 };
 use crate::update::keys::{default_keys, FEED};
+use crate::update::signer::{signer_of, Signer};
 use crate::update::state::{
-    choose_launch, installed_versions, platform_key, read_state, record_attempt,
+    choose_launch, installed_versions, platform_key, read_state, record_attempt, record_bad,
     resolve_update_root, InstalledVersion,
 };
 use crate::update::version::{is_newer, parse_version};
@@ -84,6 +86,9 @@ pub struct UpdaterContext {
     pub blob_timeout_ms: u64,
     /// Maximum concurrent blob downloads (`DEFAULT_CONCURRENCY`).
     pub concurrency: usize,
+    /// macOS: who has to have signed an update. `None` reads it from the running app's own
+    /// signature (`update/signer.rs`), which is what every real start does.
+    pub signer: Option<Signer>,
 }
 
 impl UpdaterContext {
@@ -117,6 +122,7 @@ impl UpdaterContext {
             fetch_timeout_ms: DEFAULT_TIMEOUT_MS,
             blob_timeout_ms: DEFAULT_BLOB_TIMEOUT_MS,
             concurrency: DEFAULT_CONCURRENCY,
+            signer: None,
         }
     }
 
@@ -306,10 +312,19 @@ pub enum CheckOutcome {
         /// The release that lacks this platform's build.
         version: String,
     },
-    /// Channel release was previously marked `bad` after failing launch attempts.
+    /// Channel release was previously marked `bad`: it failed its launch attempts or was
+    /// refused as it arrived.
     SkippedBad {
         /// Skipped version string.
         version: String,
+    },
+    /// macOS: the release was fetched, and its app bundle is not a build signed by the
+    /// developer of the running app. Nothing of it is kept and it is not fetched again.
+    Refused {
+        /// Refused version string.
+        version: String,
+        /// What the signature check said.
+        reason: String,
     },
     /// Channel release was downloaded, verified, and installed into `<root>/versions/<version>`.
     Installed {
@@ -379,6 +394,14 @@ where
             });
         }
 
+        // macOS: only a build signed by this app's developer may update it. Read before
+        // anything is fetched: an app whose own signature cannot be read takes no update.
+        let signer = match (&ctx.signer, bundle_of(&ctx.own_dir)) {
+            (Some(signer), _) => signer.clone(),
+            (None, Some(bundle)) if resolved.plat.starts_with("darwin-") => signer_of(&bundle)?,
+            (None, _) => Signer::Anyone,
+        };
+
         append_update_log(
             &resolved.root,
             Some(&resolved.own_version),
@@ -408,9 +431,29 @@ where
                 local_trees,
                 concurrency: ctx.concurrency,
                 timeout_ms: ctx.blob_timeout_ms,
+                signer,
             },
             on_progress,
         )?;
+
+        if result.reason == REFUSED {
+            let reason = result.detail.unwrap_or_default();
+            // Marked so that the next start does not fetch it again; a later release is
+            // looked at afresh.
+            let _ = record_bad(&resolved.root, &release.version);
+            append_update_log(
+                &resolved.root,
+                Some(&resolved.own_version),
+                &format!(
+                    "refused {}: it is not a build signed by the developer of this app ({reason}); nothing of it is kept",
+                    release.version
+                ),
+            );
+            return Ok(CheckOutcome::Refused {
+                version: release.version.clone(),
+                reason,
+            });
+        }
 
         append_update_log(
             &resolved.root,
