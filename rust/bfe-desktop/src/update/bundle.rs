@@ -270,6 +270,20 @@ mod tests {
     }
 
     #[test]
+    fn a_mac_follows_its_own_channel_entry_and_keeps_updates_beside_its_settings() {
+        use crate::update::state::{platform_key, resolve_update_root};
+        use std::collections::HashMap;
+        // What the running program reports (std::env::consts) and the release feed's names.
+        assert_eq!(platform_key("macos", "aarch64"), Some("darwin-arm64"));
+        assert_eq!(platform_key("darwin", "x64"), Some("darwin-x64"));
+        let home = Path::new("/Users/player");
+        assert_eq!(
+            resolve_update_root("macos", &HashMap::new(), home),
+            Some(home.join("Library/Application Support/Battlefront Eternal/updates"))
+        );
+    }
+
+    #[test]
     fn leaves_the_installed_app_alone_unless_it_is_older_and_the_update_is_running() {
         let work = temp_dir("skip");
         let root = work.join("updates");
