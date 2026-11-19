@@ -63,10 +63,26 @@ pub fn fill_ms_per_mpix(gl: &glow::Context) -> Option<f64> {
                 // The first draw pays for compiling and first use.
                 gl.draw_arrays(glow::TRIANGLES, 0, 3);
                 gl.finish();
-                let start = Instant::now();
-                for _ in 0..PASSES { gl.draw_arrays(glow::TRIANGLES, 0, 3); }
-                gl.finish();
-                let ms = start.elapsed().as_secs_f64() * 1000.;
+                let timed = |passes: u32| {
+                    let start = Instant::now();
+                    for _ in 0..passes { gl.draw_arrays(glow::TRIANGLES, 0, 3); }
+                    gl.finish();
+                    start.elapsed().as_secs_f64() * 1000.
+                };
+                let mut ms = timed(PASSES);
+                // An Apple GPU clocks up only under load, and macOS's OpenGL adds a wait of its own to
+                // every finish: one cold batch read an M4 anywhere from 0.07 to 0.47 ms per megapixel,
+                // either side of the Performance line. There the batches repeat for a quarter second, the
+                // quickest of each size counts, and the two sizes' difference leaves the wait out.
+                if cfg!(target_os = "macos") {
+                    let (mut one, mut three) = (ms, f64::MAX);
+                    let begun = Instant::now();
+                    while begun.elapsed().as_secs_f64() < 0.25 {
+                        one = one.min(timed(PASSES));
+                        three = three.min(timed(PASSES * 3));
+                    }
+                    ms = ((three - one) / 2.).max(0.);
+                }
                 if gl.get_error() == glow::NO_ERROR {
                     result = Some(ms / (PASSES as f64 * WIDTH as f64 * HEIGHT as f64 / 1e6));
                 }

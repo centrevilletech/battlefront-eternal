@@ -314,7 +314,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
     let gate = opts
         .script
         .as_deref()
-        .and_then(|name| name.strip_prefix("ia:"))
+        .and_then(|name| name.strip_prefix("ia:").or((name == "online").then_some("online")))
         .filter(|map| !map.trim().is_empty())
         .map(|map| GateDriver::new(map, opts.shots_dir.clone()));
 
@@ -339,6 +339,10 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         headless_audio,
         _audio_device: audio_device,
         audio_channels_asked: 2,
+        #[cfg(target_os = "macos")]
+        audio_followed: Instant::now(),
+        #[cfg(target_os = "macos")]
+        audio_lost: false,
         window_size: winit::dpi::PhysicalSize::new(0, 0),
         state: AppState::StartupLoader(startup_content),
         shell: None,
@@ -438,6 +442,12 @@ struct StandaloneWindowApp {
     audio_router: Arc<SharedAudioRouter>,
     /// Active hardware `cpal` stream handle when audio output is enabled and available.
     _audio_device: Option<AudioDevice>,
+    /// When the default output device was last looked at (macOS).
+    #[cfg(target_os = "macos")]
+    audio_followed: Instant,
+    /// The output device went away and none could be opened since (macOS).
+    #[cfg(target_os = "macos")]
+    audio_lost: bool,
     // The channel count last asked of the device (crate::audio::wanted_channels).
     audio_channels_asked: usize,
     /// The window's physical size from its last resize or scale event.
@@ -1033,6 +1043,15 @@ impl ApplicationHandler for StandaloneWindowApp {
                     self.opts.size[1] as u32,
                 ))
                 .with_visible(true);
+            // A Mac's display has two device pixels to the point. The window nobody sized is
+            // 1280x720 points there, the size it has to the eye elsewhere, not a quarter of it.
+            #[cfg(target_os = "macos")]
+            if !self.opts.size_given {
+                attrs = attrs.with_inner_size(winit::dpi::LogicalSize::new(
+                    self.opts.size[0] as f64,
+                    self.opts.size[1] as f64,
+                ));
+            }
             // Launchers match the window to the desktop entry (StartupWMClass, app id) by this name.
             #[cfg(target_os = "linux")]
             {
@@ -1884,6 +1903,40 @@ impl StandaloneWindowApp {
             self.display_mode.update(window, window.fullscreen().is_some(), self.focused, &choice);
         }
 
+        // A macOS stream stays on the device it was opened on. Once a second: when the
+        // system's default output is another device now (headphones plugged in or taken
+        // off), or the stream's own device went away, the stream is opened again there.
+        #[cfg(target_os = "macos")]
+        if self.audio_followed.elapsed().as_secs_f64() >= 1. {
+            self.audio_followed = Instant::now();
+            let current = crate::audio::default_output_name();
+            let reopen = match &self._audio_device {
+                Some(open) => current.as_ref().is_some_and(|name| *name != open.name) || open.check().is_err(),
+                None => self.audio_lost && current.is_some(),
+            };
+            if reopen {
+                let channels = self._audio_device.take().map_or(2, |open| open.channels);
+                match AudioDevice::open_dynamic(self.audio_router.clone(), channels)
+                    .or_else(|_| AudioDevice::open_dynamic(self.audio_router.clone(), 2))
+                {
+                    Ok(device) => {
+                        eprintln!("audio device: now {}", device.name);
+                        self.headless_audio = None;
+                        self.audio_lost = false;
+                        self._audio_device = Some(device);
+                    }
+                    Err(err) => {
+                        if !self.audio_lost {
+                            eprintln!("audio device: none after a change ({err})");
+                        }
+                        self.audio_lost = true;
+                        if self.headless_audio.is_none() {
+                            self.headless_audio = Some(HeadlessAudio::start(self.audio_router.clone(), self.audio_status.clone()));
+                        }
+                    }
+                }
+            }
+        }
         // A battle whose output layout wants another channel count (5.1,
         // 7.1, 7.1.4, or back to stereo) reopens the device that wide, once
         // per change; the battle's sounds keep playing through the router.
@@ -2019,6 +2072,33 @@ impl StandaloneWindowApp {
                 battle.resize(self.opts.size, window.scale_factor(), || unsafe {
                     glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
                 })?;
+            }
+            // A scripted run answers the first run's confirm screen itself: its lit action once the
+            // copy is checked (PREPARE), as a player pressing Enter does, pictured before and during.
+            if let (Some(gate), Some(shell)) = (&mut self.gate, &self.shell) {
+                let mut press = None;
+                match &self.state {
+                    AppState::StartupLoader(StartupContentState::FirstRun(model)) if !gate.confirmed => {
+                        let primary = model.primary_action();
+                        if matches!(model.actions().get(primary), Some((_, first_run::Action::Prepare))) {
+                            if gate.confirm_seen.get_or_insert_with(Instant::now).elapsed().as_secs_f64() >= 2. {
+                                gate.save_shell_shot(shell, "00-first-run-confirm.png")?;
+                                gate.confirmed = true;
+                                press = Some(primary);
+                            }
+                        }
+                    }
+                    AppState::StartupLoader(StartupContentState::Preparing { started_at, .. })
+                        if !gate.preparing_shot && started_at.elapsed().as_secs_f64() >= 20. =>
+                    {
+                        gate.save_shell_shot(shell, "00-first-run-preparing.png")?;
+                        gate.preparing_shot = true;
+                    }
+                    _ => {}
+                }
+                if let Some(index) = press {
+                    self.first_run_action(index);
+                }
             }
             match &mut self.state {
                 AppState::StartupLoader(loader_state) => {

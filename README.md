@@ -79,7 +79,10 @@ Download the app from <https://battlefronteternal.com>:
 - **macOS (Apple silicon):** no download yet. The app and its disk image are
   built and checked with every change, but macOS only opens an app without a
   warning when it is signed and notarized with an Apple developer
-  certificate, and the project does not publish such a build yet.
+  certificate, and the project does not publish such a build yet. The game
+  builds from source and plays on Apple silicon Macs
+  ([docs/development.md](docs/development.md), "Building and running on
+  macOS").
 
 On first launch the app looks for the game in Steam, GOG Galaxy and Heroic,
 asks before preparing anything, and then prepares the maps, armies, interface
