@@ -217,6 +217,29 @@ pub struct ToolEnvOptions {
     pub platform: String,
 }
 
+/// Takes a variable out of `env` and returns its value. Windows names its variables without
+/// regard to case and spells the search path `Path`, so there every spelling goes.
+fn take_var(env: &mut BTreeMap<String, String>, is_win: bool, key: &str) -> Option<String> {
+    let mut taken = env.remove(key);
+    if is_win {
+        let others: Vec<String> = env.keys().filter(|name| name.eq_ignore_ascii_case(key)).cloned().collect();
+        for name in others {
+            let value = env.remove(&name);
+            taken = taken.or(value);
+        }
+    }
+    taken
+}
+
+/// Sets a variable for the tools, in place of every spelling of it. On Windows a second spelling
+/// left in the map reaches the child after this one and replaces it: the system's `Path` beside
+/// this `PATH` took the bundled tools out of the search path again, and the tools did not find
+/// the bundled FFmpeg.
+fn set_var(env: &mut BTreeMap<String, String>, is_win: bool, key: &str, value: String) {
+    take_var(env, is_win, key);
+    env.insert(key.to_string(), value);
+}
+
 /// Builds the environment variable map for running `prepare.py`.
 pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     let is_win = opts.platform == "win32" || opts.platform == "windows";
@@ -236,43 +259,30 @@ pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     }
 
     let mut next = opts.env.clone();
-    let existing_path = next
-        .get("PATH")
-        .or_else(|| next.get("Path"))
-        .cloned()
-        .unwrap_or_default();
+    let existing_path = take_var(&mut next, is_win, "PATH").unwrap_or_default();
     if !existing_path.is_empty() {
         bins.push(existing_path);
     }
-    next.insert("PATH".to_string(), bins.join(sep));
+    set_var(&mut next, is_win, "PATH", bins.join(sep));
 
     if let Some(game) = &opts.game {
-        next.insert(
-            "BFE_GAME_DIR".to_string(),
-            game.to_string_lossy().into_owned(),
-        );
+        set_var(&mut next, is_win, "BFE_GAME_DIR", game.to_string_lossy().into_owned());
     }
     if let Some(content) = &opts.content {
-        next.insert(
-            "BFE_CONTENT_DIR".to_string(),
-            content.to_string_lossy().into_owned(),
-        );
+        set_var(&mut next, is_win, "BFE_CONTENT_DIR", content.to_string_lossy().into_owned());
     }
 
-    next.insert("PYTHONUNBUFFERED".to_string(), "1".to_string());
-    next.insert("PYTHONDONTWRITEBYTECODE".to_string(), "1".to_string());
-    next.insert("PYTHONIOENCODING".to_string(), "utf-8".to_string());
+    set_var(&mut next, is_win, "PYTHONUNBUFFERED", "1".to_string());
+    set_var(&mut next, is_win, "PYTHONDONTWRITEBYTECODE", "1".to_string());
+    set_var(&mut next, is_win, "PYTHONIOENCODING", "utf-8".to_string());
 
     // Strip ambient Python variables that could hijack the bundled interpreter.
-    next.remove("PYTHONHOME");
-    next.remove("PYTHONPATH");
+    take_var(&mut next, is_win, "PYTHONHOME");
+    take_var(&mut next, is_win, "PYTHONPATH");
 
     let ktx_exe = ktx_bin.join(if is_win { "ktx.exe" } else { "ktx" });
     if ktx_exe.exists() {
-        next.insert(
-            "KTX2_ENCODER".to_string(),
-            ktx_exe.to_string_lossy().into_owned(),
-        );
+        set_var(&mut next, is_win, "KTX2_ENCODER", ktx_exe.to_string_lossy().into_owned());
     }
 
     // Add bundled KTX shared libraries to the platform loader path when present.
