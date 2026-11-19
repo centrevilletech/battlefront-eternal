@@ -136,16 +136,14 @@ impl History {
         self.flights[at] = flight.clone();
         self.count += 1;
     }
-    // The native display borrows the same acknowledged command tail as
-    // movement replay. Shared Preview owns servo integration and angle arcs.
-    pub fn preview(&self, phase: &mut bfe_presentation::network::preview::Phase) {
-        use bfe_presentation::network_layout::{net_preview_command as c, net_preview_frame as f, net_preview_look as l};
-        // The last look row is the loose group's: the counts no command has
-        // yet, with the settings the next command will carry, at the input
-        // clock's fraction of its tick (a turret's servo is drawn that far
-        // into the step those counts will drive).
+    /// The look no command has yet, alone: for a view whose commands the
+    /// prediction has already replayed (a pilot's seat). It goes in the last
+    /// look row, the owner's loose group, with the settings the next command
+    /// will carry, at the input clock's fraction of its tick (a turret's
+    /// servo is drawn that far into the step those counts will drive).
+    pub fn preview_loose(&self, phase: &mut bfe_presentation::network::preview::Phase) {
+        use bfe_presentation::network_layout::{net_preview_frame as f, net_preview_look as l};
         let last = phase.looks.len() / l::STRIDE - 1;
-        let count = self.count.min(phase.commands.len() / c::STRIDE).min(last);
         phase.looks[last * l::STRIDE + l::X] = self.loose.x;
         phase.looks[last * l::STRIDE + l::Y] = self.loose.y;
         phase.frame[f::LOOKS] = 1.;
@@ -154,6 +152,15 @@ impl History {
         phase.frame[f::INVERT] = self.loose.invert as u8 as f64;
         phase.frame[f::INPUT_ALPHA] = self.loose.alpha;
         phase.frame[f::PRESENT_ALPHA] = self.loose.alpha;
+        phase.frame[f::COMMANDS] = 0.;
+    }
+    // The native display borrows the same acknowledged command tail as
+    // movement replay. Shared Preview owns servo integration and angle arcs.
+    pub fn preview(&self, phase: &mut bfe_presentation::network::preview::Phase) {
+        use bfe_presentation::network_layout::{net_preview_command as c, net_preview_frame as f, net_preview_look as l};
+        self.preview_loose(phase);
+        // The last look row is the loose group's.
+        let count = self.count.min(phase.commands.len() / c::STRIDE).min(phase.looks.len() / l::STRIDE - 1);
         phase.frame[f::COMMANDS] = count as f64;
         for n in 0..count {
             let index = (self.at + n) % COMMANDS;

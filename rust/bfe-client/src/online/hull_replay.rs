@@ -62,6 +62,14 @@ impl Fleet {
             self.smoother.reset();
         }
     }
+    /// Where the piloted hull is drawn this frame: between its last two
+    /// ticks at the input clock's fraction, with the smoothing offset.
+    pub fn shown_position(&self) -> Option<[f64; 3]> {
+        let hull = self.state.as_ref()?;
+        let from = hull.tick_from.unwrap_or(hull.position);
+        let offset = self.offset();
+        Some(std::array::from_fn(|k| from[k] + (hull.position[k] - from[k]) * self.alpha.clamp(0., 1.) + offset[k]))
+    }
     pub fn vehicle_motion(&self)->(f64,f64){
         let Some(index)=self.active.filter(|_|self.identity.is_some())else{return(0.,0.);};
         let Some(state)=self.state.as_ref()else{return(0.,0.);};let hull=&self.hulls[index];

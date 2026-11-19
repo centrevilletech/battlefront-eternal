@@ -124,6 +124,8 @@ pub struct Hulls {
     pub hidden: Option<usize>,
     mounts: Box<bfe_presentation::network::mounts::Phase>,
     preview: Box<bfe_presentation::network::preview::Phase>,
+    /// The piloted hull's seat aim as this frame shows it (the minimap's heading).
+    pub pilot_yaw: Option<f64>,
     epoch: f64,
     models: Vec<Model>,
     classes: Vec<Option<usize>>,
@@ -437,6 +439,7 @@ impl Hulls {
             hidden: None,
             mounts: Box::new(Default::default()),
             preview: Box::new(Default::default()),
+            pilot_yaw: None,
             epoch: 0.,
             models,
             classes,
@@ -627,6 +630,7 @@ impl Hulls {
             eprintln!("vehicles census t={}s world={world} bound={bound} unmapped={unmapped} unlinked={unlinked} refused={}", tick as u64 / 60, self.refused);
         }
         self.visible = 0;
+        self.pilot_yaw = None;
         let blank_mount = [0.; mo::STRIDE];
         let mut mount_index = 0;
         for row in receiver.active().filter(|r| r[r::KIND] == k::VEHICLE as f64 && r[r::STATE] != 4.) {
@@ -760,9 +764,30 @@ impl Hulls {
                 }
             }
             if prediction.identity == Some((row[r::ID], row[r::GENERATION])) && m.seats > 0 {
+                let mut aim = prediction.aim;
+                // A ground pilot's look is his seat's aim, and the replay has
+                // taken every command's: the counts no command has yet turn
+                // the shown aim the same way (a craft's stick has no preview).
+                if let (Some(view), Some(hull), false) = (m.views.first(), &prediction.state, m.flying) {
+                    use bfe_presentation::network_layout::{net_preview_frame as p, net_preview_output as po};
+                    let a = &mut self.preview.frame;
+                    a.fill(0.);
+                    a[p::ENABLED] = 1.;
+                    a[p::PREDICTED] = 1.;
+                    a[p::ZOOM] = 1.;
+                    a[p::VEHICLE_ACTIVE] = 1.;
+                    a[p::HULL_YAW] = hull.yaw;
+                    a[p::SEAT_YAW] = aim[0];
+                    a[p::SEAT_PITCH] = aim[1];
+                    view.preview(a, false);
+                    history.preview_loose(&mut self.preview);
+                    self.preview.present();
+                    aim = [self.preview.output[po::VEHICLE_YAW], self.preview.output[po::VEHICLE_PITCH]];
+                }
+                self.pilot_yaw = Some(aim[0]);
                 let x = &mut self.owner.stream_in[start..][..seat::STRIDE];
-                x[seat::AIM_YAW] = prediction.aim[0];
-                x[seat::PITCH] = prediction.aim[1];
+                x[seat::AIM_YAW] = aim[0];
+                x[seat::PITCH] = aim[1];
             }
             // Passenger look belongs to its current qualified lease. The
             // pilot's lean and every other seat remain on the sampled clock.

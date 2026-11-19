@@ -1328,7 +1328,7 @@ impl Hud {
             receiver.own.remote_position
         } else {
             prediction.displayed.as_ref().map_or_else(
-                || prediction.fleet.state.as_ref().map_or(receiver.own.position, |h| h.position),
+                || prediction.fleet.shown_position().unwrap_or(receiver.own.position),
                 |b| b.position,
             )
         };
