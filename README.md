@@ -76,7 +76,9 @@ Download the app from <https://battlefronteternal.com>:
   Windows SmartScreen warns before it first starts.
 - **Linux (x64 and ARM64):** the AppImage (runs from any folder and adds
   itself to your app launcher) or the Debian/Ubuntu package.
-- **macOS:** not yet; it is next on the list.
+- **macOS:** no download yet. The game builds from source and plays on
+  Apple silicon Macs ([docs/development.md](docs/development.md),
+  "Building and running on macOS").
 
 On first launch the app looks for the game in Steam, GOG Galaxy and Heroic,
 asks before preparing anything, and then prepares the maps, armies, interface

@@ -171,7 +171,8 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    chose: used as it is.
 2. The Steam copy of Star Wars: Battlefront (2004), app 1058020, found by
    discovering the platform's Steam roots (the registry on
-   Windows; native, Flatpak and Snap installs on Linux), every library in
+   Windows; native, Flatpak and Snap installs on Linux; on macOS also the
+   Windows Steam client's folder inside Wine bottles, see "macOS" below), every library in
    `libraryfolders.vdf` (`steamapps/` and `config/`), and the folder the app
    manifest names in any of them. A `steamapps/common` folder that only looks
    like the game counts only after the GOG copy (below, "Asking first").
@@ -192,7 +193,8 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    a folder whose name says Battlefront where GOG games usually go:
    `GOG Games` and `GOG Galaxy\Games` on each Windows drive,
    `~/Games/Heroic`, and those Windows folders inside Wine prefixes
-   (`~/.wine`, Lutris's in `~/Games`, CrossOver's bottles). Steam's copy wins
+   (`~/.wine`, Lutris's in `~/Games`, CrossOver's and Whisky's bottles, the
+   prefixes Heroic gives its games). Steam's copy wins
    when there are both, as the project's reference edition.
 4. With no copy to prepare from: the app's `game-data` folder if it has data,
    then extracted data elsewhere (a checkout's `public/`, a `game-data`
@@ -453,8 +455,13 @@ menus applies the next time the loader opens.
 - CPython 3.13 from python-build-standalone, with Pillow, numpy, scipy,
   soundfile and soxr installed for the target by pip, test suites pruned;
 - a static ffmpeg (BtbN's GPL builds for Linux and Windows,
-  martin-riedl.de's for macOS);
+  martin-riedl.de's signed builds for macOS, one named build each for Apple
+  silicon and Intel);
 - KTX-Software's `ktx` and its library.
+
+`mac arm64` and `mac x64` both fetch and run. The programs themselves start
+on macOS 11 (Apple silicon) and 10.12 (Intel); the fetched tools need more
+(FFmpeg 12.0, the scipy wheel 12.3), so preparation needs macOS 12.3.
 
 Without a toolchain (a plain checkout), the system `python3` runs the tools
 and steps whose dependencies are missing are skipped.
@@ -485,6 +492,79 @@ updates them on the next launch. A `battlefront` command the app did not
 create is left alone. `BFE_NO_DESKTOP_INTEGRATION=1` turns this off. The
 launchers start the newest installed update directly when there is one
 ([desktop-updates.md](desktop-updates.md)).
+
+## macOS
+
+The client runs on macOS with the system's OpenGL (the 4.1 core profile,
+which an Apple silicon Mac draws through Metal). It is built and tested on
+Apple silicon; the Intel build also runs there through Rosetta and has not
+been tried on an Intel Mac. See [development.md](development.md) for
+building it.
+
+**Window, full screen and the menu bar.** The game draws at the display's own
+pixels (4480 x 2520 on a 24-inch iMac). Its menu bar has the application menu
+(About, Hide, Quit with Command-Q), View > Enter Full Screen (Globe-F or
+Control-Command-F; F11 and the window's green button do the same) and
+Window > Minimize (Command-M) and Zoom. Full screen is the system's own: the
+window takes a Space of its own at the desktop's display mode, so Mission
+Control, Command-Tab and notifications behave as in any Mac application.
+VIDEO OPTIONS > RESOLUTION therefore offers DESKTOP only, as on Wayland;
+RENDER SCALE and DYNAMIC RESOLUTION draw the scene smaller instead.
+
+**The first start** measures the GPU as on the other systems. A Mac's own
+display has two to three times the pixels of a common PC monitor, so when
+the full preset is kept the first start also turns DYNAMIC RESOLUTION to
+60 FPS: the scene is drawn smaller whenever the full size would miss 60
+frames a second, and sharpened back up. On a 24-inch iMac (M4, 4480 x 2520)
+that holds 60 frames a second where the full size draws about 40. macOS's
+OpenGL has no GPU timers, so there the adaptive resolution reads the GPU's
+load from whether its last frame was finished in time.
+
+**Where things are kept.** Settings and the prepared game data are in
+`~/Library/Application Support/Battlefront Eternal` (the data in `game-data`
+inside it). The preparation log is `~/Library/Logs/Battlefront
+Eternal/prepare.log`, which Console lists under Log Reports.
+
+**Sound** goes to the system's default output through CoreAudio and moves
+with it: when headphones are plugged in or another output is chosen, the
+game reopens its stream there within a second.
+
+**Finding your copy.** The original is a Windows game. Steam's and GOG's Mac
+clients do not install it, so on a Mac the first launch looks where a
+Windows copy can be:
+
+- the Steam folder of the Windows Steam client inside CrossOver bottles
+  (`~/Library/Application Support/CrossOver/Bottles`), Whisky bottles and
+  the prefixes Heroic Games Launcher gives its games;
+- GOG installs recorded by Heroic or by the installer inside those bottles;
+- a folder you choose: CHOOSE GAME FOLDER opens the system's folder panel,
+  and takes the folder holding `GameData` (or `GameData` itself) wherever it
+  is, for example a copy brought over from a PC or an external drive.
+
+When nothing is found the loader says so and offers CHOOSE GAME FOLDER and
+IMPORT CONTENT EXPORT (data prepared on another computer, see "Moving
+prepared content to another computer").
+
+**Downloading the copy you own, without a PC.** Valve's SteamCMD downloads
+the Windows files of a game your account owns on any system. It is an Intel
+program, so an Apple silicon Mac runs it through Rosetta:
+
+```bash
+mkdir ~/steamcmd && cd ~/steamcmd
+curl -L https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz | tar -xz
+./steamcmd.sh +@sSteamCmdForcePlatformType windows \
+  +force_install_dir "$HOME/Games/Star Wars Battlefront (Classic 2004)" \
+  +login YOUR_STEAM_NAME +app_update 1058020 validate +quit
+```
+
+SteamCMD asks for the account's password and Steam Guard code itself. Then
+choose `~/Games/Star Wars Battlefront (Classic 2004)` with CHOOSE GAME
+FOLDER. A GOG copy installed with Heroic Games Launcher is found through
+Heroic's records.
+
+**Not done on macOS yet.** Aim uses the pointer movement macOS reports, which
+includes the system's pointer acceleration; unaccelerated mouse input is not
+implemented. There is no game controller support (on any platform).
 
 ## Steam and Discord
 
