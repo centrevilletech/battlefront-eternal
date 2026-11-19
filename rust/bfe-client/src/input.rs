@@ -783,6 +783,13 @@ impl Input {
         }
     }
 
+    /// Mouse motion received since a command last took it. The picture turns
+    /// by it on the next drawn frame; the simulation gets it, unchanged, with
+    /// the next 60 Hz command.
+    pub fn loose_look(&self) -> ClientLook {
+        ClientLook { x: self.look[0], y: self.look[1] }
+    }
+
     // Controls.look accumulates raw relative pixels; scaling belongs to the
     // game, not the OS cursor. Saturate stalled-device input without infinity.
     pub fn motion(&mut self, x: f64, y: f64) {

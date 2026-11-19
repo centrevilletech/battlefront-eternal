@@ -205,7 +205,7 @@ impl World for Client {
         self.frames += 1;
         self.sender.preview(&self.receiver);
         self.replay.frame(&self.receiver, &self.sender);
-        self.replay.present(alpha, self.dt);
+        self.replay.present(alpha, self.dt, &self.sender.history.loose, self.receiver.own.zoom);
         crate::app::trace_own_aim(&self.receiver, &self.sender, &self.replay);
         let mut own = self.receiver.own;
         if let Some(hull) = &self.replay.fleet.state {

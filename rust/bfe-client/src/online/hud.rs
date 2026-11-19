@@ -1322,10 +1322,12 @@ impl Hud {
         x[H::CAPTURE_POST] = -1.;
         x[H::FOV] = 60.;
         x[H::ASPECT] = self.size[0] as f64 / self.size[1] as f64;
+        // The minimap's player is the body as this frame draws it (between
+        // its ticks, turned by the newest mouse motion), as the camera is.
         let position = if receiver.own.remote.is_some() {
             receiver.own.remote_position
         } else {
-            prediction.body.as_ref().map_or_else(
+            prediction.displayed.as_ref().map_or_else(
                 || prediction.fleet.state.as_ref().map_or(receiver.own.position, |h| h.position),
                 |b| b.position,
             )
@@ -1334,7 +1336,7 @@ impl Hud {
         x[H::PLAYER_YAW] = if receiver.own.remote.is_some() {
             receiver.own.remote_yaw
         } else {
-            prediction.body.as_ref().map_or_else(
+            prediction.displayed.as_ref().map_or_else(
                 || if prediction.fleet.identity.is_some() { prediction.fleet.aim[0] } else { receiver.own.yaw },
                 |b| b.aim_yaw,
             )

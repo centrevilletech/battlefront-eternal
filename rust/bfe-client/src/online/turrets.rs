@@ -329,8 +329,8 @@ impl Turrets {
                     a[p::YAW_VEL] = mount.values[2];
                     a[p::PITCH_VEL] = mount.values[3];
                     view.preview(a, true);
-                    a[p::INPUT_ALPHA] = 1.;
-                    a[p::PRESENT_ALPHA] = 1.;
+                    // The commands, then the look no command has yet, at the
+                    // input clock's fraction of the tick that look will drive.
                     history.preview(&mut self.preview);
                     self.preview.present();
                     let input = &mut self.owner.turret_input[index * t::STRIDE..][..t::STRIDE];

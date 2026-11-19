@@ -95,4 +95,25 @@ mod tests {
         assert_eq!(spawned.position, body.position);
         assert_eq!(spawned.aim_yaw, body.aim_yaw);
     }
+
+    // A keyboard turn across the +-pi seam is drawn along the short arc, and
+    // a body that moved more than ten metres in a tick (a teleport) is drawn
+    // where it is, never smeared across the gap.
+    #[test]
+    fn display_turns_the_short_way_and_cuts_on_a_teleport() {
+        let life = [1., 2., 3.];
+        let before = Soldier { aim_yaw: 3.1, ..Default::default() };
+        let body = Soldier { position: [0.2, 0., 0.], aim_yaw: -3.1, ..Default::default() };
+        let mut display = Display::default();
+        display.sample(&before, None, 0., life, 1., 0.);
+        // The tick turned by 2 pi - 6.2 (about 0.083) through the seam.
+        let shown = display.sample(&body, Some(&before), 0., life, 0.5, 1. / 240.);
+        let turn = std::f64::consts::TAU - 6.2;
+        assert!((shown.aim_yaw - (-3.1 - turn / 2.)).abs() < 1e-12, "{}", shown.aim_yaw);
+        assert!((shown.position[0] - 0.1).abs() < 1e-12);
+        let far = Soldier { position: [30., 0., 0.], aim_yaw: -3.1, ..Default::default() };
+        let shown = display.sample(&far, Some(&body), 0., life, 0.25, 1. / 240.);
+        assert_eq!(shown.position, far.position);
+        assert_eq!(shown.aim_yaw, far.aim_yaw);
+    }
 }

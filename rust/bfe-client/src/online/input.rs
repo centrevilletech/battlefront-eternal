@@ -535,8 +535,18 @@ impl Sender {
             let p = self.pointers[(self.pointer_at + i) % 128];
             body.look_raw(p.x / p.zoom, p.y / p.zoom, p.scale, p.invert);
         }
+        // And the counts no command has taken yet (none while a command is
+        // being made: its own look is the newest pointer above).
+        self.history.loose.turn(&mut body, own.zoom);
         self.yaw = body.aim_yaw;
         self.pitch = body.aim_pitch;
+    }
+    /// The frame's loose look: the mouse counts `look` holds that the input
+    /// clock, `alpha` of the way into its tick, has not put in a command,
+    /// with the mouse settings the next command will carry.
+    pub fn set_loose(&mut self, look: &ClientLook, mouse_scale: f64, invert: bool, alpha: f64) {
+        let scale = if mouse_scale.is_finite() && mouse_scale > 0. { mouse_scale.min(2.) } else { 1. };
+        self.history.loose = super::replay::Loose { x: look.x, y: look.y, scale, invert, alpha };
     }
     pub fn spawn(&mut self, receiver: &Receiver) {
         if !self.auto_spawn || self.spawned || !receiver.complete || receiver.corrections == 0 || receiver.spectator {
