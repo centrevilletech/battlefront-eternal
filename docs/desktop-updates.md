@@ -222,7 +222,8 @@ The scripts involved:
   release whose commit is on `main`, signs and notarizes the app
   (`build/native/sign-macos.py`), makes the disk image
   (`build/native/package-macos.py`) and `update-darwin-arm64.tar` from the
-  stapled app, and adds them to the release with `macos-notarized.json`. The
+  stapled app, and hands them to the release host with `macos-notarized.json`,
+  a record of their sizes and hashes. The
   release host then adds the Mac build to the live release and signs the
   channel file again with the `darwin-arm64` entry. A release is published
   for Windows and Linux without waiting for this; until the Mac build
