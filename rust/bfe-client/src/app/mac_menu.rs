@@ -1,13 +1,44 @@
 //! The macOS menu bar. winit's own default menu names its items after the program file and has
 //! the application menu only; this one carries the game's name and adds the two menus a Mac
 //! player reaches for: View (Enter Full Screen, Control-Command-F) and Window (Minimize, Zoom).
-//! Every item sends a standard AppKit action, so the window and the application answer them
-//! as any Mac window does (and winit reports the result as its usual events).
+//! Every item but Quit sends a standard AppKit action, so the window and the application answer
+//! them as any Mac window does (and winit reports the result as its usual events). Quit is the
+//! game's own: AppKit's `terminate:` ends the process at once, and the game asks first while it
+//! hosts a server, as it does when its window is closed.
 use objc2::rc::Retained;
-use objc2::runtime::Sel;
-use objc2::sel;
+use objc2::runtime::{AnyObject, NSObject, Sel};
+use objc2::{declare_class, msg_send_id, mutability, sel, ClassType, DeclaredClass};
 use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
 use objc2_foundation::{ns_string, MainThreadMarker, NSString};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Quit was chosen in the menu bar (or Command-Q pressed) and the application has not taken it yet.
+static QUIT_ASKED: AtomicBool = AtomicBool::new(false);
+
+declare_class!(
+    /// The Quit item's target: it only notes the wish, the application's loop does the rest.
+    struct QuitTarget;
+
+    unsafe impl ClassType for QuitTarget {
+        type Super = NSObject;
+        type Mutability = mutability::MainThreadOnly;
+        const NAME: &'static str = "BattlefrontEternalQuitTarget";
+    }
+
+    impl DeclaredClass for QuitTarget {}
+
+    unsafe impl QuitTarget {
+        #[method(quit:)]
+        fn quit(&self, _sender: Option<&AnyObject>) {
+            QUIT_ASKED.store(true, Ordering::Relaxed);
+        }
+    }
+);
+
+/// Whether Quit was chosen since the last call.
+pub fn quit_asked() -> bool {
+    QUIT_ASKED.swap(false, Ordering::Relaxed)
+}
 
 fn item(mtm: MainThreadMarker, title: &NSString, action: Option<Sel>, key: &NSString, mask: Option<NSEventModifierFlags>) -> Retained<NSMenuItem> {
     // SAFETY: a plain menu item; the action is looked up along the responder chain when chosen.
@@ -47,7 +78,15 @@ pub fn install() {
         Some(command | NSEventModifierFlags::NSEventModifierFlagOption)));
     game.addItem(&item(mtm, ns_string!("Show All"), Some(sel!(unhideAllApplications:)), ns_string!(""), None));
     game.addItem(&NSMenuItem::separatorItem(mtm));
-    game.addItem(&item(mtm, ns_string!("Quit Battlefront Eternal"), Some(sel!(terminate:)), ns_string!("q"), None));
+    let quit = item(mtm, ns_string!("Quit Battlefront Eternal"), Some(sel!(quit:)), ns_string!("q"), None);
+    // SAFETY: a menu item does not keep its target, so this one is never released: it lives as
+    // long as the menu bar does, which is the application's life.
+    unsafe {
+        let target: Retained<QuitTarget> = msg_send_id![mtm.alloc::<QuitTarget>(), init];
+        let target: &AnyObject = Retained::into_raw(target).cast::<AnyObject>().as_ref().expect("a new object");
+        quit.setTarget(Some(target));
+    }
+    game.addItem(&quit);
 
     // AppKit renames this item to Exit Full Screen while the window is full screen.
     let view = submenu(mtm, &bar, ns_string!("View"));

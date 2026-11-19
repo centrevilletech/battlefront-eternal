@@ -1525,6 +1525,17 @@ impl ApplicationHandler for StandaloneWindowApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Quit in the menu bar and Command-Q leave the way the window's close button does:
+        // with the question first while this computer hosts a server, shown in a window
+        // the player can see.
+        #[cfg(target_os = "macos")]
+        if mac_menu::quit_asked() {
+            if let Some(window) = &self.window {
+                window.set_minimized(false);
+                window.focus_window();
+            }
+            self.request_app_close(event_loop);
+        }
         let Some(window) = &self.window else {
             return;
         };

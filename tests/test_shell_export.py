@@ -12,7 +12,9 @@ import sys
 import tempfile
 import unittest
 import zlib
+from array import array
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from zero_hash import fnv1a
@@ -24,6 +26,7 @@ from zero_shell import (
     write_movie_index,
     write_picture,
 )
+import zero_shell
 from zero_sound import hexname
 from zero_spawn_screen import RASTER_HUD
 
@@ -299,6 +302,56 @@ def probe(path):
                           '-show_entries', 'format=duration', '-of', 'json', str(path)], capture_output=True, text=True, check=True)
     found = json.loads(run.stdout)
     return found.get('streams', []), found.get('format', {})
+
+
+def has_soxr():
+    try:
+        import numpy  # noqa: F401
+        import soxr  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+class ResampleTests(unittest.TestCase):
+    """The whooshes' resampler: ffmpeg's soxr, and the soxr module only where
+    ffmpeg says it was built without that resampler."""
+
+    PCM = array('h', [0, 1000, 0, -1000] * 64)
+
+    def setUp(self):
+        zero_shell.FFMPEG_SOXR = True
+        self.addCleanup(setattr, zero_shell, 'FFMPEG_SOXR', True)
+
+    def ffmpeg(self, code, stdout=b'', stderr=b''):
+        """ffmpeg ending with this exit code and output."""
+        done = subprocess.CompletedProcess(['ffmpeg'], code, stdout, stderr)
+        return mock.patch.object(zero_shell.subprocess, 'run', return_value=done)
+
+    def test_ffmpegs_soxr_output_is_taken_as_it_is(self):
+        with self.ffmpeg(0, array('h', [1, -2, 3]).tobytes()) as run:
+            self.assertEqual(list(zero_shell.resample(self.PCM, 22050, 1.0, 44100)), [1, -2, 3])
+        command = run.call_args.args[0]
+        self.assertIn('aresample=44100:resampler=soxr:precision=28', command)
+        self.assertEqual(command[command.index('-ar') + 1], '22050')
+
+    def test_an_ffmpeg_failure_that_is_not_a_missing_soxr_is_an_error(self):
+        with self.ffmpeg(1, stderr=b'pipe:0: Invalid data found when processing input\n'):
+            with self.assertRaises(subprocess.CalledProcessError):
+                zero_shell.resample(self.PCM, 22050, 1.0, 44100)
+        self.assertTrue(zero_shell.FFMPEG_SOXR)
+
+    @unittest.skipUnless(has_soxr(), 'requires the numpy and soxr modules')
+    def test_an_ffmpeg_without_soxr_hands_over_to_the_soxr_module(self):
+        refusal = b'[SWR @ 0x600000] Requested resampling engine is unavailable\n'
+        with self.ffmpeg(234, stderr=refusal) as run:
+            first = zero_shell.resample(self.PCM, 22050, 1.0, 44100)
+            second = zero_shell.resample(self.PCM, 22050, 1.0, 44100)
+        # ffmpeg is asked once; twice the rate is twice the samples.
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual(len(first), 2 * len(self.PCM))
+        self.assertEqual(first, second)
+        self.assertGreater(max(first), 500)
 
 
 @unittest.skipUnless(extracted(), 'requires an extraction with the front end data (tools/zero_shell.py)')
