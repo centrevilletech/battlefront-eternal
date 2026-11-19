@@ -423,6 +423,8 @@ pub struct Scene {
     resolution_scene_ms:f64,
     resolution_cpu_ms:f64,
     resolution_cpu_sample:Option<CpuSample>,
+    /// Whether the context's timestamp queries work, once asked.
+    resolution_timestamps:Option<bool>,
     render_size: [i32; 2],
     reduced_far_terrain: bool,
     shadows_enabled: bool,
@@ -1373,7 +1375,7 @@ impl Scene {
                 far_target,
                 depth_target,
                 depth_source, depth_color_source, depth_sample, depth_color,
-                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_scene_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,
+                render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_scene_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,resolution_timestamps:None,
                 profile_start: None, profile_rss_after: false, direct: false,
                 post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
                 reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
@@ -1594,7 +1596,8 @@ impl Scene {
     fn resolution_gpu_begin(&mut self){
         if !self.resolution_enabled(){return;}
         let gl=&self.bridge.r.core.gl;
-        if self.resolution_queries.is_none()&&(!gl.version().is_embedded||gl.supported_extensions().iter().any(|e|e.contains("disjoint_timer_query"))){unsafe{
+        // Without a working timer the controller reads the GPU from its fences instead (adapt_resolution).
+        if self.resolution_queries.is_none()&&*self.resolution_timestamps.get_or_insert_with(||bfe_render::profile::gpu_timestamps(gl)){unsafe{
             let mut made=vec![];
             for _ in 0..3{if let Ok(q)=gl.create_query(){made.push(q);}}
             match <[glow::Query;3]>::try_from(made){Ok(q)=>self.resolution_queries=Some((q,false,false)),Err(made)=>for q in made{gl.delete_query(q);}}
