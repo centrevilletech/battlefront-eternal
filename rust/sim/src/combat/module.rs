@@ -851,6 +851,35 @@ impl CombatWorld for JsWorld<'_, '_> {
         }
     }
 
+    // The shooter is out of the slab here, so the unit ray passes over him
+    // without a separate exclusion. Soldiers are met where the network
+    // player's screen showed them, as his bolts are.
+    fn aim_reach(&mut self, unit: &Unit, origin: &Vector3, direction: &Vector3, far: f64, channel: f64) -> f64 {
+        let wall = self.cast(origin, direction, far, false).map_or(far, |hit| hit.distance);
+        let tick = crate::units::f3_sensors::view_tick_in(self.w, self.r, unit.generation,
+            unit.network_human == Some(true), unit.alive, unit.seat.is_some(), channel);
+        crate::units::f3_sensors::ordnance_raycast_in(self.w, a3(origin), a3(direction), wall,
+            OrdnanceOwner::Unit(self.r), tick, None, None).map_or(wall, |hit| hit.distance)
+    }
+
+    fn turn_guns(&mut self, unit: &mut Unit, target: Option<&Vector3>, dt: f64) {
+        if !crate::units::muzzles::turn_guns_in(&mut self.w.units, self.r.slot, unit, target, dt) {
+            crate::units::f3::fail_in(&mut self.w.units);
+        }
+    }
+
+    fn gun_along(&mut self, selected: (f64, f64)) -> Option<Vector3> {
+        match crate::units::muzzles::gun_along_in(&mut self.w.units, self.r.slot, selected) {
+            Some(along) => along,
+            None => { crate::units::f3::fail_in(&mut self.w.units); None }
+        }
+    }
+
+    fn bot_target_point(&mut self) -> Option<Vector3> {
+        let target = crate::units::f3::bot_target_in(&self.w.units, self.r.slot).flatten()?;
+        Some(crate::units::f3_fleet::aim_in(self.w, target))
+    }
+
     fn shield_hit(&mut self, taken: f64, left: f64, _source: Option<Vector3>, explosion: bool) {
         F3ShieldNotice {
             key: self.key(),

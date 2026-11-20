@@ -64,12 +64,15 @@ fn class_registers_weapons_first_and_references_them_by_identity() {
     rows.class(&class, &mut strings).unwrap();
     assert_eq!(rows.calls.iter().map(|c| c.name).collect::<Vec<_>>(), ["cmb_weapon","cmb_weapon","cmb_class"]);
     let row = &rows.calls[2].call.row;
-    assert_eq!((row[0], row[1]), (7.0,3.0));
+    assert_eq!((row[0], row[1]), (7.0,4.0));
     assert_eq!(text(&strings,row[2]), "AddHealth");
     assert_eq!(row[3], 0.0);
     assert_eq!(text(&strings,row[4]), "base");
     assert_eq!(text(&strings,row[7]), "weapons");
-    assert_eq!(&row[8..], [6.0,2.0,8.0,0.0,8.0,1.0]);
+    assert_eq!(&row[8..14], [6.0,2.0,8.0,0.0,8.0,1.0]);
+    // Six default camera sections: eye, centre, offset and tilt each.
+    assert_eq!(text(&strings,row[14]), "cameras");
+    assert_eq!((row[15], row[16], row[17], row[18]), (6.0, 60.0, 4.0, 0.0));
     rows.class(&class, &mut strings).unwrap();
     assert_eq!(rows.calls.len(), 3);
     // Sending call rows may be drained between construction seams.

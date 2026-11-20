@@ -590,25 +590,21 @@ pub(crate) fn shot_tick_in(world_ctx: &mut crate::world::owner::World,
         return crate::store::Nullable::Null;
     };
     let u = world_ctx.sim.store.unit.get(r).expect("shot owner");
+    let (life, network, alive, seated) = (u.generation, u.network_human == Some(true), u.alive, u.seat.is_some());
+    view_tick_in(world_ctx, r, life, network, alive, seated, channel)
+        .map_or(crate::store::Nullable::Null, crate::store::Nullable::Value)
+}
+/// The tick a network player's press (or his view, between presses) saw the
+/// battle at, for a body given by its facts: combat asks it while the body
+/// is out of the slab. None for bots, the local player and riders.
+pub(crate) fn view_tick_in(world_ctx: &mut crate::world::owner::World, r: Ref<Unit>,
+    life: f64, network: bool, alive: bool, seated: bool, channel: f64) -> Option<f64> {
     // A present empty networkShots list suppresses the legacy single edge.
     // The coordinator already preserved that distinction in these fixed rows.
     let net = f3::network_in(&world_ctx.units, r.slot);
     let edge = if channel == 0.0 { net.view0 } else { net.view1 };
-    let view = edge.or(net.view).unwrap_or(f64::NAN);
-    let (lead, playout) = (net.lead, net.playout);
-    let tick = {
-        f3::history_in(&mut world_ctx.units).shot_tick(
-            Member::Unit(r),
-            u.generation,
-            u.network_human == Some(true),
-            u.alive,
-            u.seat.is_some(),
-            view,
-            lead,
-            playout,
-        )
-    };
-    tick.map_or(crate::store::Nullable::Null, crate::store::Nullable::Value)
+    let (view, lead, playout) = (edge.or(net.view).unwrap_or(f64::NAN), net.lead, net.playout);
+    f3::history_in(&mut world_ctx.units).shot_tick(Member::Unit(r), life, network, alive, seated, view, lead, playout)
 }
 // OrdnanceWorld.shooter carries the press id for wire attribution; subsequent
 // automatic rounds use zero once the input owner retires that press edge.

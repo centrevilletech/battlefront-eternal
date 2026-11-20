@@ -127,9 +127,45 @@ pub fn soldier_body(def: &Value, max_fly_height: f64, getup: f64, dive: f64) -> 
     }
 }
 
+/// A class's chase and eye cameras: STAND, CROUCH and PRONE, then their
+/// ZOOM sections (each falling back to its posture's, then to STAND), and
+/// the two fields of view. The drawn camera and a droideka's aim line read
+/// the same numbers.
+pub fn camera_def(class: &Value) -> bfe_presentation::cameras::soldier::Def {
+    use bfe_presentation::cameras::soldier::{Def, Section};
+    let source = class.get("cameras");
+    let vector = |value: Option<&Value>, default: [f64; 3]| {
+        value
+            .and_then(Value::as_array)
+            .filter(|v| v.len() >= 3)
+            .map_or(default, |v| std::array::from_fn(|i| bfe_content::js::to_number(Some(&v[i]))))
+    };
+    let sections = std::array::from_fn(|index| {
+        let name = ["STAND", "CROUCH", "PRONE"][index % 3];
+        let zoom = format!("{name}ZOOM");
+        let section = source
+            .and_then(|s| if index >= 3 { s.get(&zoom).filter(|v| v.truthy()) } else { None })
+            .or_else(|| source.and_then(|s| s.get(name)).filter(|v| v.truthy()))
+            .or_else(|| source.and_then(|s| s.get("STAND")));
+        let get = |key: &str| section.and_then(|s| s.get(key));
+        Section {
+            eye: vector(get("EyePointOffset").or_else(|| get("TrackCenter")), [0., 1.8, 0.]),
+            center: vector(get("TrackCenter").or_else(|| get("EyePointOffset")), [0., 1.8, 0.]),
+            offset: vector(get("TrackOffset"), [0., 0., 3.5]),
+            tilt: bfe_content::odf::num(get("TiltValue"), 5.) * std::f64::consts::PI / 180.,
+        }
+    });
+    Def {
+        first: bfe_content::odf::num(class.get("FirstPersonFOV"), 70.) * std::f64::consts::PI / 180.,
+        third: bfe_content::odf::num(class.get("ThirdPersonFOV"), 65.) * std::f64::consts::PI / 180.,
+        sections,
+    }
+}
+
 /// A new droideka's numbers for a class (the Droideka constructor): its
-/// turn, pitch range, clips' speed, turn threshold, ball and eye, its
-/// collision rule, DummyRoot's index (`root_index`, -1 without one).
+/// turn, pitch range, clips' speed, turn threshold, ball and eye, the chase
+/// camera its aim line starts from (the STAND section), its collision rule,
+/// DummyRoot's index (`root_index`, -1 without one).
 pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droideka {
     // `(def.PitchLimits || [-28.6, 28.6])`, in degrees.
     let pitch = match def.get("PitchLimits").filter(|v| v.truthy()) {
@@ -145,6 +181,8 @@ pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droid
         .and_then(|a| a.get(1))
         .and_then(|v| v.as_f64())
         .unwrap_or(1.8);
+    let stand = camera_def(def).sections[0];
+    let aimer = crate::rig::droideka_guns::aimer_of(def);
     Droideka {
         max_turn: num_or(def, "MaxTurnSpeed", 2.0),
         pitch_limits: [(pitch[0] * std::f64::consts::PI) / 180.0, (pitch[1] * std::f64::consts::PI) / 180.0],
@@ -154,10 +192,38 @@ pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droid
         max_spin: num_or(def, "BallMoveSpeed", 10.0) * num_or(def, "BallSpinScale", 2.0),
         max_ball_slope: v8math::cos((num_or(def, "MaxBallAngle", 35.0) * std::f64::consts::PI) / 180.0),
         eye_height: eye,
+        track_center: stand.center,
+        track_offset: stand.offset,
+        track_tilt: stand.tilt,
+        gun_rates: [aimer.yaw_rate, aimer.pitch_rate],
+        gun_yaw_limits: aimer.yaw,
+        gun_pitch_limits: aimer.pitch,
         root_index,
         max_fly_height,
         collision_rule: collision_rule(def, &DROIDEKA_COLLISION),
         grounded: true,
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A droideka's aim line starts from its STAND camera (the 2004 game's
+    // rest place for it), whatever its other sections say.
+    #[test]
+    fn a_droideka_takes_its_aim_cameras_stand_section() {
+        let class = bfe_content::json::parse_bytes(br#"{"base":"walkerdroid","cameras":{
+            "CROUCH":{"TrackCenter":[0,1.0,0],"TrackOffset":[0,0.2,2.0],"TiltValue":9},
+            "STAND":{"TrackCenter":[0,1.8,0.1],"TrackOffset":[0,0.5,4.5],"TiltValue":5},
+            "STANDZOOM":{"TrackCenter":[0,1.6,0],"TrackOffset":[0.4,0,2.8],"TiltValue":3.5}}}"#).unwrap();
+        let d = droideka_body(&class, 0.0, 0.0);
+        assert_eq!((d.track_center, d.track_offset), ([0.0, 1.8, 0.1], [0.0, 0.5, 4.5]));
+        assert_eq!(d.track_tilt, 5.0 * std::f64::consts::PI / 180.0);
+        // No cameras: the defaults (TrackCenter the eye's 1.8 m, 3.5 m back, 5 degrees).
+        let bare = droideka_body(&bfe_content::json::parse_bytes(br#"{"base":"walkerdroid"}"#).unwrap(), 0.0, 0.0);
+        assert_eq!((bare.track_center, bare.track_offset), ([0.0, 1.8, 0.0], [0.0, 0.0, 3.5]));
+        assert_eq!(bare.track_tilt, 5.0 * std::f64::consts::PI / 180.0);
     }
 }

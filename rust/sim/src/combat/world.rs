@@ -213,6 +213,27 @@ pub trait CombatWorld: WeaponDraws {
     fn next_gun(&mut self, unit: &mut Unit, combat: &mut Combat) -> Option<Vector3>;
     /// gunAt(out, selected).
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3>;
+    /// How far along a player's aim line the first thing his shots can meet
+    /// lies: terrain, buildings, props and hulls, then soldiers and droids
+    /// where his screen showed them (at the view of the weapon's `channel`),
+    /// his own body left out; `far` when nothing is in the way. A world
+    /// without collision has nothing.
+    fn aim_reach(&mut self, _unit: &Unit, _origin: &Vector3, _direction: &Vector3, far: f64, _channel: f64) -> f64 {
+        far
+    }
+    /// A bot droideka's quarry's aim point (its weapon's target), if any.
+    fn bot_target_point(&mut self) -> Option<Vector3> {
+        None
+    }
+    /// A droideka's guns a tick (`dt`) on toward `target`, on its hidden gun
+    /// rig (None: back to their line in the clip). A world without the rig
+    /// turns nothing.
+    fn turn_guns(&mut self, _unit: &mut Unit, _target: Option<&Vector3>, _dt: f64) {}
+    /// The direction the gun `selected` (gunAt's) points along now; None in
+    /// a world without the rig's guns, whose rounds go straight at the target.
+    fn gun_along(&mut self, _selected: (f64, f64)) -> Option<Vector3> {
+        None
+    }
     /// (`left`: the shield's value after it took `taken`, as the hook finds it.)
     fn shield_hit(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
 

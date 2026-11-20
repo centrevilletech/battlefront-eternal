@@ -8,7 +8,7 @@ use crate::collision::{
     State, MISS, TERRAIN,
 };
 use crate::combat::combat::update_kick;
-use crate::gen::{Air, Combat, Kick, MoveInput, Posture, Soldier, Unit, UnitBody};
+use crate::gen::{Air, Combat, Droideka, Kick, MoveInput, Posture, Soldier, Unit, UnitBody};
 use crate::movement::{
     scene::{GroundCache, Scene},
     soldier::{Air as MAir, Input, Mover, Posture as MPosture, Trig, PART_CACHES, V3},
@@ -76,6 +76,37 @@ impl<'a> Reader<'a> {
             Err(INVALID)
         }
     }
+}
+
+/// A soldier's body row as the host sends it. Its enum words are checked
+/// before decoding (a word out of range would decode to the first value);
+/// a body riding on another (a pass-through body) is not predicted.
+fn soldier_row(row: &[f64]) -> Result<Soldier, &'static str> {
+    let posture = |at: usize| [0., 1., 2.].contains(&row[at]);
+    // `air` is a nullable enum: its presence word (0 a value, 1 null, 2
+    // undefined), then the value.
+    let air = row[Soldier::AIR];
+    if !posture(Soldier::POSTURE) || !posture(Soldier::DIVE_FROM) || ![0., 1., 2.].contains(&air)
+        || air == 0.0 && ![0., 1., 2., 3.].contains(&row[Soldier::AIR + 1])
+    {
+        return Err(INVALID);
+    }
+    let soldier = Soldier::take(row, &[]);
+    if soldier.pass_through.is_some() {
+        return Err(INVALID);
+    }
+    Ok(soldier)
+}
+
+/// A droideka's body row as the host sends it: its mode must be one of its
+/// fourteen, and a predicted body carries no gun rig's animator.
+fn droideka_row(row: &[f64]) -> Result<Droideka, &'static str> {
+    let droideka = Droideka::take(row, &[]);
+    let mode = droideka.mode;
+    if !mode.is_finite() || !(0.0..=13.0).contains(&mode) || mode.fract() != 0.0 || droideka.muzzle_animator.is_some() {
+        return Err(INVALID);
+    }
+    Ok(droideka)
 }
 
 fn clip(r: &mut Reader<'_>) -> Result<Option<Rc<Clip>>, &'static str> {
@@ -235,27 +266,9 @@ impl Session {
             .map(|_| r.flag().map(u8::from))
             .collect::<Result<Vec<_>, _>>()?;
         let soldier = if kind == 0 {
-            let row = r.slice(Soldier::WORDS)?;
-            if ![0., 1., 2.].contains(&row[43])
-                || ![0., 1., 2.].contains(&row[47])
-                || ![0., 1., 2.].contains(&row[44])
-                || row[44] == 0.0 && ![0., 1., 2., 3.].contains(&row[45])
-                || row[58] == 0.0
-            {
-                return Err(INVALID);
-            }
-            UnitBody::Soldier(Soldier::take(row, &[]))
+            UnitBody::Soldier(soldier_row(r.slice(Soldier::WORDS)?)?)
         } else {
-            let row = r.slice(crate::gen::Droideka::WORDS)?;
-            if !row[40].is_finite()
-                || row[40] < 0.0
-                || row[40] > 13.0
-                || row[40].fract() != 0.0
-                || row[62] == 0.0
-            {
-                return Err(INVALID);
-            }
-            UnitBody::Droideka(crate::gen::Droideka::take(row, &[]))
+            UnitBody::Droideka(droideka_row(r.slice(Droideka::WORDS)?)?)
         };
         let (scratch, movement_backend) = if kind == 0 {
             (
@@ -637,5 +650,55 @@ impl UnitsWorld for ActorWorld<'_> {
     }
     fn release(&mut self, _: u32, _: &Unit) {
         unreachable!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gen::{RigAnimator, Shield};
+
+    fn row_of<T>(words: usize, put: impl Fn(&T, &mut [f64], &mut Vec<f64>), value: &T) -> Vec<f64> {
+        let (mut row, mut heap) = (vec![0.0; words], Vec::new());
+        put(value, &mut row, &mut heap);
+        row
+    }
+
+    // A droideka row as the client sends it is accepted whatever its other
+    // fields hold (a wall's push with a fraction in it, no shield); its mode
+    // and its rig's animator are what decide.
+    #[test]
+    fn a_droideka_row_is_judged_by_its_mode_and_its_rig() {
+        let mut d = Droideka { mode: 7.0, avoidance: [0.25, 0.0, 0.625], shield: None, ..Default::default() };
+        assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok());
+        d.shield = Some(Shield { max: 0.0, ..Default::default() });
+        assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok());
+        for mode in [13.0, 0.0] {
+            d.mode = mode;
+            assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok(), "mode {mode}");
+        }
+        for mode in [2.5, 14.0, -1.0, f64::NAN] {
+            d.mode = mode;
+            assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_err(), "mode {mode}");
+        }
+        d.mode = 7.0;
+        d.muzzle_animator = Some(RigAnimator::default());
+        let (mut row, mut heap) = (vec![0.0; Droideka::WORDS], Vec::new());
+        d.put(&mut row, &mut heap);
+        assert!(droideka_row(&row).is_err(), "a rig's animator");
+    }
+
+    #[test]
+    fn a_soldier_row_is_judged_by_its_postures_and_air() {
+        let mut s = Soldier { posture: Posture::Crouch, air: Some(Air::Jump), avoidance: [0.25, 0.0, 0.625], ..Default::default() };
+        let row = row_of(Soldier::WORDS, Soldier::put, &s);
+        assert!(soldier_row(&row).is_ok());
+        for (at, word) in [(Soldier::POSTURE, 3.0), (Soldier::DIVE_FROM, 1.5), (Soldier::AIR, 3.0), (Soldier::AIR + 1, 4.0)] {
+            let mut broken = row.clone();
+            broken[at] = word;
+            assert!(soldier_row(&broken).is_err(), "word {at} = {word}");
+        }
+        s.air = None;
+        assert!(soldier_row(&row_of(Soldier::WORDS, Soldier::put, &s)).is_ok());
     }
 }

@@ -86,7 +86,7 @@ impl Cameras {
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
                 definitions[id as usize] = cameras.definitions.len();
-                let def = definition(&class.record);
+                let def = bfe_sim::units::class::camera_def(&class.record);
                 first_fovs.push(def.first);
                 // Droideka.eyeHeight: the standing camera section's EyePointOffset.
                 let eye_h = class
@@ -514,41 +514,6 @@ fn remote_definition(def: &bfe_content::Value) -> (bfe_presentation::cameras::so
         .map_or(1., |v| bfe_content::js::to_number(Some(v)))
         .max(1.);
     (Def { first, third, sections: [section; 6] }, eye, zoom_min)
-}
-
-// Cameras.definition resolves the class's six posture/zoom sections once.
-// SoldierCamera owns horizontal FOV conversion, zoom and eye/chase behavior;
-// entering or leaving a seat selects another branch of that same phase.
-fn definition(class: &bfe_content::Value) -> bfe_presentation::cameras::soldier::Def {
-    use bfe_content::Value;
-    use bfe_presentation::cameras::soldier::{Def, Section};
-    let source = class.get("cameras");
-    let vector = |value: Option<&Value>, default: [f64; 3]| {
-        value
-            .and_then(Value::as_array)
-            .filter(|v| v.len() >= 3)
-            .map_or(default, |v| std::array::from_fn(|i| bfe_content::js::to_number(Some(&v[i]))))
-    };
-    let sections = std::array::from_fn(|index| {
-        let name = ["STAND", "CROUCH", "PRONE"][index % 3];
-        let zoom = format!("{name}ZOOM");
-        let section = source
-            .and_then(|s| if index >= 3 { s.get(&zoom).filter(|v| v.truthy()) } else { None })
-            .or_else(|| source.and_then(|s| s.get(name)).filter(|v| v.truthy()))
-            .or_else(|| source.and_then(|s| s.get("STAND")));
-        let get = |key: &str| section.and_then(|s| s.get(key));
-        Section {
-            eye: vector(get("EyePointOffset").or_else(|| get("TrackCenter")), [0., 1.8, 0.]),
-            center: vector(get("TrackCenter").or_else(|| get("EyePointOffset")), [0., 1.8, 0.]),
-            offset: vector(get("TrackOffset"), [0., 0., 3.5]),
-            tilt: bfe_content::odf::num(get("TiltValue"), 5.) * std::f64::consts::PI / 180.,
-        }
-    });
-    Def {
-        first: bfe_content::odf::num(class.get("FirstPersonFOV"), 70.) * std::f64::consts::PI / 180.,
-        third: bfe_content::odf::num(class.get("ThirdPersonFOV"), 65.) * std::f64::consts::PI / 180.,
-        sections,
-    }
 }
 
 /// How far a droideka's chase camera has gone from its standing section to its rolled one (CROUCH), 0 to 1, at

@@ -200,6 +200,9 @@ impl Droideka {
         self.legs = 0.0;
         self.spin = 0.0;
         self.dead = false;
+        // Its guns start each life on their line in the clip.
+        self.gun_yaw = [0.0; 2];
+        self.gun_pitch = [0.0; 2];
         // Each life's shield starts full and down.
         if let Some(shield) = &mut self.shield {
             shield.on = false;

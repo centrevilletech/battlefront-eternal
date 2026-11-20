@@ -53,6 +53,13 @@ pub struct WalkerInput {
     pub by_mode: [Option<usize>; 14],
     pub pivot: [f64; 3],
     pub roll_center: [f64; 3],
+    /// Each gun's blaster bone (its aimer's parent), which turns toward the
+    /// aim, and the guns' aimer: yaw and pitch rates (rad/s), yaw and pitch
+    /// limits (rad). None: the guns stay on the clip's line.
+    #[serde(default)]
+    pub blasters: Vec<usize>,
+    #[serde(default)]
+    pub aimer: [f64; 6],
 }
 
 pub struct Content {
@@ -113,6 +120,11 @@ pub struct FirstPersonInput {
     pub sets: Vec<[Option<usize>; 9]>,
     pub forced_set: Option<usize>,
     pub offset: [f64; 16],
+    /// A droideka's first person guns (the bones its arms hang on, left
+    /// first), which turn as its world guns turn. None: they keep the
+    /// clip's pose.
+    #[serde(default)]
+    pub guns: Vec<usize>,
 }
 impl ClipInput {
     pub fn load(self) -> DisplayClip {

@@ -195,6 +195,8 @@ pub struct DroidekaRig {
     /// The barrel clones (`physicalBarrels`), by gun and barrel.
     pub barrels: Vec<Vec<NodeId>>,
     pub animator: DroidekaAnimator,
+    /// The guns' blasters, which turn toward the aim (`find_guns`).
+    pub guns: super::droideka_guns::Guns,
 }
 
 impl DroidekaRig {
@@ -295,13 +297,31 @@ impl DroidekaRig {
             roll_center,
             unfold_turn: 0.0,
         };
-        DroidekaRig {
+        let mut rig = DroidekaRig {
             tree,
             root,
             bones,
             barrels,
             animator,
-        }
+            guns: Default::default(),
+        };
+        rig.find_guns();
+        rig
+    }
+
+    /// Each gun's blaster (the bone its barrels hang on) and its aimer's
+    /// frame there, from the bones' bind turns; no guns turn unless every gun
+    /// has one. Bones are the tree's nodes 1 to n, under the root (node 0).
+    pub fn find_guns(&mut self) {
+        let bone_of = |node: Option<NodeId>| node.and_then(|p| (p as usize).checked_sub(1));
+        let parents: Vec<i32> = self.bones.iter().map(|&b| bone_of(self.tree.node(b).parent).map_or(-1, |p| p as i32)).collect();
+        let blasters: Vec<usize> = self.barrels.iter().filter_map(|list| bone_of(self.tree.node(*list.first()?).parent)).collect();
+        let mounts = super::droideka_guns::mounts(&blasters, &parents, &self.animator.bind_q);
+        self.guns = if mounts.len() == self.barrels.len() {
+            super::droideka_guns::Guns::new(mounts)
+        } else {
+            Default::default()
+        };
     }
 
     /// `muzzleAnimator.reset(yaw)` (Droideka.spawn): `roll` is the
@@ -323,8 +343,11 @@ impl DroidekaRig {
         self.tree.update_matrix_world(self.root, true);
     }
 
-    /// DroidekaAnimator.update(dt, droideka) on the hidden rig.
+    /// DroidekaAnimator.update(dt, droideka) on the hidden rig. The guns'
+    /// turn, laid on after the pose (`pose_guns`, `aim_guns`), comes off
+    /// first, so the fold's blend starts from the clip's pose alone.
     pub fn update(&mut self, dt: f64, d: &DroidekaState, clips: &DroidekaClips) {
+        self.guns.unturn(&mut self.tree, &self.bones);
         update_display(
             &mut self.animator,
             &mut self.tree,
@@ -334,6 +357,24 @@ impl DroidekaRig {
             d,
             clips,
         );
+    }
+
+    /// Turn the guns by `aims` (yaw and pitch a gun, from each blaster's line
+    /// in the clip) on the pose `sample_muzzles` just made.
+    pub fn pose_guns(&mut self, aims: &[[f64; 2]]) {
+        self.guns.pose(&mut self.tree, &self.bones, aims);
+    }
+
+    /// Step the guns' aimers `dt` toward `target` (None: back to the clip's
+    /// line) and turn them; `aims` in and out.
+    pub fn aim_guns(&mut self, aims: &mut [[f64; 2]], target: Option<&Vector3>, dt: f64, aimer: &super::droideka_guns::Aimer) {
+        self.guns.aim(&mut self.tree, &self.bones, aims, target, dt, aimer);
+    }
+
+    /// The direction gun `index` points along now, None where the guns do
+    /// not turn.
+    pub fn gun_along(&mut self, index: usize) -> Option<Vector3> {
+        self.guns.along(&mut self.tree, &self.bones, index)
     }
 
     /// `gunAt(out, { index, barrel })`: the barrel's place in the world
@@ -768,5 +809,65 @@ mod tests {
         assert!((clip_time(&clip, length, length) * clip.fps - 30.0).abs() < 1e-12);
         assert!((clip_time(&clip, length / 2.0, length) * clip.fps - 15.0).abs() < 1e-12);
         assert_eq!(clip_time(&clip, 2.0 * length, length), clip_time(&clip, length, length));
+    }
+
+    // The guns' turn is laid on after the pose, and the fold's blend starts
+    // from the pose drawn last. As the fold begins a turned gun goes on from
+    // where it was, back toward its line at its aimer's pace; it does not
+    // swing out by its turn a second time.
+    #[test]
+    fn a_turned_gun_does_not_swing_as_the_fold_begins() {
+        use super::super::droideka_guns::{mounts, Aimer, Guns};
+        // A blaster as the model has it (X along its barrels, Y down) on a
+        // body bone; the walking step's clip and the fold's hold it as bound.
+        let mut basis = Matrix4::default();
+        basis.make_basis(&Vector3::new(0.0, 0.0, 1.0), &Vector3::new(0.0, -1.0, 0.0), &Vector3::new(1.0, 0.0, 0.0));
+        let mut blaster = Quaternion::default();
+        blaster.set_from_rotation_matrix(&basis);
+        let place = Vector3::new(0.5, 0.8, 0.72);
+        let mut tree = TransformTree::new();
+        let root = tree.add_node(TransformNode::default());
+        let body = tree.add_node(TransformNode::default());
+        tree.add_child(root, body);
+        let gun = tree.add_node(TransformNode::placed(place, Vector3::new(1.0, 1.0, 1.0)));
+        tree.add_child(body, gun);
+        let bind_q = vec![Quaternion::default(), blaster];
+        let bind_p = vec![Vector3::default(), place];
+        let frame = [blaster.x as f32, blaster.y as f32, blaster.z as f32, blaster.w as f32, 0.5, 0.8, 0.72];
+        let clip = Clip { frames: 2, fps: 30.0, root_motion: false, tracks: vec![1], data: [frame, frame].concat() };
+        let mut by_mode = [None; 14];
+        by_mode[7] = Some(&clip);
+        by_mode[FOLD as usize] = Some(&clip);
+        let clips = DroidekaClips { by_mode };
+        let animator = DroidekaAnimator {
+            root: -1, ball: -1, spine: vec![], pose: Pose::new(2, -1),
+            bind_q: bind_q.clone(), bind_p: bind_p.clone(), from_q: bind_q.clone(), from_p: bind_p.clone(),
+            facing: 0.0, legs: 0.0, mode: -1, went_up_rolled: false, roll_origin: 0.0, transition: 0.0,
+            pivot: Vector3::default(), roll_center: Vector3::default(), unfold_turn: 0.0,
+        };
+        let guns = Guns::new(mounts(&[1], &[-1, 0], &bind_q));
+        let mut rig = DroidekaRig { tree, root, bones: vec![body, gun], barrels: vec![], animator, guns };
+        let (dt, aimer) = (1.0 / 60.0, Aimer::default());
+        let state = |mode: i32, k: usize| DroidekaState { mode, time: k as f64 * dt, speed: 2.0, ..Default::default() };
+        // Walking, the gun turned 0.3 rad across and 0.2 up onto its point.
+        let mut aims = [[0.3, 0.2]];
+        let mut along = Vector3::default();
+        for k in 0..4 {
+            rig.sample_muzzles(dt, &state(7, k), &clips);
+            rig.pose_guns(&aims);
+            along = rig.gun_along(0).unwrap();
+        }
+        // Folding, a tick at a time as the world steps it.
+        let most = aimer.yaw_rate.hypot(aimer.pitch_rate) * dt;
+        for k in 0..20 {
+            rig.sample_muzzles(dt, &state(FOLD, k), &clips);
+            rig.pose_guns(&aims);
+            rig.aim_guns(&mut aims, None, dt, &aimer);
+            let now = rig.gun_along(0).unwrap();
+            let step = now.angle_to(&along);
+            assert!(step <= most + 1e-9, "fold tick {k}: the gun swung {step} rad (at most {most})");
+            along = now;
+        }
+        assert_eq!(aims, [[0.0, 0.0]]);
     }
 }

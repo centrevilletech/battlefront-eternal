@@ -22,11 +22,21 @@ pub struct Attachment {
     pub pose: [f64; 10],
 }
 
+/// A drawn droideka's guns, turning toward the point its aim is on by the
+/// world's aimer (the client gives each frame's point: `aim_walker`).
+struct WalkerGuns {
+    guns: bfe_pose::rig::droideka_guns::Guns,
+    aims: [[f64; 2]; 2],
+    aimer: bfe_pose::rig::droideka_guns::Aimer,
+    target: Option<Vector3>,
+}
+
 struct Actor {
     content: usize,
     rig: DisplayRig,
     animator: Animator,
     walker: Option<bfe_pose::rig::droideka::DroidekaAnimator>,
+    guns: Option<WalkerGuns>,
     pelvis: Option<usize>,
     chest: Option<usize>,
     generation: f64,
@@ -63,11 +73,17 @@ struct View {
     tables: FirstTables,
     clips: Vec<bfe_pose::display::DisplayClip>,
     node_start: usize,
+    /// A droideka's first person guns (its arms), turned as the player's
+    /// own droideka's guns are turned (`own_gun_aims`).
+    guns: Option<bfe_pose::rig::droideka_guns::Guns>,
 }
 
 /// Fixed exchange storage. Resource registration may allocate; frame() never
 /// grows a collection, including when all actors change pose in one frame.
 pub struct Units {
+    /// The player's own droideka's gun turns as last posed, which its first
+    /// person arms take.
+    own_gun_aims: [[f64; 2]; 2],
     pub scene_pose:crate::scene_pose::Publisher,
     pub collision:crate::unit_collision::Collision,
     pub rider_sources:crate::rider_sources::Bindings,
@@ -106,6 +122,7 @@ impl Units {
     }
     fn with_capacity(actors: usize, nodes: usize, commands: usize, weapons: usize) -> Self {
         Self {
+            own_gun_aims: [[0.0; 2]; 2],
             scene_pose:crate::scene_pose::Publisher::new(nodes),
             network:Default::default(),
             rider_sources:Default::default(),
@@ -161,6 +178,19 @@ impl Units {
         assert_eq!(inverses.len(), rig.bones.len(), "bone inverse count");
         let pelvis = data.skeleton.by_name("bone_pelvis");
         let chest = data.skeleton.by_name("bone_ribcage");
+        let guns = data.walker.as_ref().filter(|w| !w.blasters.is_empty()).and_then(|w| {
+            let bind: Vec<_> = data.skeleton.bind.iter().map(|b| b.quaternion).collect();
+            let mounts = bfe_pose::rig::droideka_guns::mounts(&w.blasters, &data.skeleton.parents, &bind);
+            let [yaw_rate, pitch_rate, yaw_low, yaw_high, pitch_low, pitch_high] = w.aimer;
+            (mounts.len() == w.blasters.len()).then(|| WalkerGuns {
+                guns: bfe_pose::rig::droideka_guns::Guns::new(mounts),
+                aims: [[0.0; 2]; 2],
+                aimer: bfe_pose::rig::droideka_guns::Aimer {
+                    yaw_rate, pitch_rate, yaw: [yaw_low, yaw_high], pitch: [pitch_low, pitch_high],
+                },
+                target: None,
+            })
+        });
         let walker = data.walker.as_ref().map(|w| {
             let mut rig = bfe_pose::rig::droideka::DroidekaRig::new(
                 &data.skeleton,
@@ -185,6 +215,7 @@ impl Units {
             rig,
             animator,
             walker,
+            guns,
             pelvis,
             chest,
             generation: -1.0,
@@ -255,7 +286,16 @@ impl Units {
         );
     }
     pub fn view(&mut self, input: FirstPersonInput) -> usize {
+        let gun_bones = input.guns.clone();
         let (rig, tables, clips) = input.load();
+        // Its arms' frames rest on the model's own at bind (Z ahead, Y up).
+        let guns = (!gun_bones.is_empty()).then(|| {
+            let parents: Vec<i32> = rig.bones.iter()
+                .map(|&b| rig.tree.node(b).parent.and_then(|p| rig.bones.iter().position(|&x| x == p)).map_or(-1, |p| p as i32))
+                .collect();
+            let bind: Vec<_> = rig.bones.iter().map(|&b| rig.tree.node(b).quaternion).collect();
+            bfe_pose::rig::droideka_guns::Guns::new(bfe_pose::rig::droideka_guns::body_mounts(&gun_bones, &parents, &bind))
+        });
         let animator = FirstPerson::new(&rig);
         let node_start = self.node_count;
         self.node_count += rig.tree.nodes.len();
@@ -270,6 +310,7 @@ impl Units {
             clips,
             animator,
             node_start,
+            guns,
         });
         id
     }
@@ -293,6 +334,14 @@ impl Units {
     /// Inspect the retained animator without sampling or advancing the rig.
     pub fn actor_animation(&self, id: usize) -> Option<&Animator> {
         self.actors.get(id).map(|actor| &actor.animator)
+    }
+
+    /// The point a drawn droideka's guns turn toward from its next pose
+    /// (None: back to the clip's line).
+    pub fn aim_walker(&mut self, id: usize, target: Option<[f64; 3]>) {
+        if let Some(g) = self.actors.get_mut(id).and_then(|a| a.guns.as_mut()) {
+            g.target = target.map(|t| Vector3::new(t[0], t[1], t[2]));
+        }
     }
 
     pub fn actor_node_start(&self, id: usize) -> usize {
@@ -703,6 +752,12 @@ impl Units {
                         speed: input[i::WALKER_SPEED],
                         position,
                     };
+                    // The guns' turn comes off before the pose and goes on
+                    // again after it, so the fold's blend from the pose drawn
+                    // last does not carry it twice.
+                    if let Some(g) = &a.guns {
+                        g.guns.unturn(&mut a.rig.tree, &a.rig.bones);
+                    }
                     bfe_pose::rig::droideka::update_display(
                         anim,
                         &mut a.rig.tree,
@@ -712,6 +767,16 @@ impl Units {
                         &d,
                         &clips,
                     );
+                    // Its guns turn toward the point its aim is on, back to
+                    // the clip's line while it folds, rolls, unfolds or dies.
+                    if let Some(g) = &mut a.guns {
+                        g.guns.pose(&mut a.rig.tree, &a.rig.bones, &g.aims);
+                        let target = g.target.filter(|_| d.mode < bfe_pose::rig::droideka::FOLD && !d.dead);
+                        g.guns.aim(&mut a.rig.tree, &a.rig.bones, &mut g.aims, target.as_ref(), a.pose_clock, &g.aimer);
+                        if input[i::OWN] != 0.0 {
+                            self.own_gun_aims = g.aims;
+                        }
+                    }
                 } else {
                     a.animator.update(
                         a.pose_clock,
@@ -806,6 +871,13 @@ impl Units {
                 &v.clips,
                 &self.weapons,
             );
+            // A droideka's first person arms turn as its world guns turn:
+            // the model is drawn below the view, not where those guns are,
+            // so it takes their turn rather than aiming at the point itself.
+            if let Some(guns) = &mut v.guns {
+                let aims = if self.input[f::FIRST_PERSON_ACTIVE] != 0.0 { self.own_gun_aims } else { [[0.0; 2]; 2] };
+                guns.pose(&mut v.rig.tree, &v.rig.bones, &aims);
+            }
             let a = &v.animator;
             self.header[h::FIRST_PERSON_HOLDING] = number(a.holding);
             self.header[h::FIRST_PERSON_MODEL] = number(a.model);
