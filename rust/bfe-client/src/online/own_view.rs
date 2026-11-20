@@ -88,6 +88,12 @@ pub struct ShownWalker {
 /// correction and a quarter behind the newest (21 ms in Instant Action), at
 /// the speed of the display, and the body is drawn between the two
 /// corrections around it. His view angles do not wait: they follow the mouse.
+///
+/// As in the 2004 game, a droideka that unfolds against a wall it rolled up
+/// to is pushed out of it in the unfold's first tick (up to a metre). The
+/// part of that step its speed does not explain is drawn over a quarter of a
+/// second instead, the body and so the camera that follows it; nothing is
+/// hit or fired from the drawn body while it unfolds.
 #[derive(Default)]
 pub(super) struct Walker {
     life: Option<[f64; 3]>,
@@ -96,9 +102,14 @@ pub(super) struct Walker {
     // Corrections held, oldest first.
     len: usize,
     clock: f64,
+    // An unfold's push still being drawn: the ticks its step began and ended
+    // at, and the push (the step less what the speed explains).
+    push: Option<(f64, f64, [f64; 3])>,
 }
 impl Walker {
     const SAMPLES: usize = 4;
+    /// Ticks over which an unfold's push out of a wall is drawn.
+    const PUSH_TICKS: f64 = 15.;
     /// Nothing is drawn from what was heard before (the player left the droideka).
     pub fn forget(&mut self) {
         self.len = 0;
@@ -121,9 +132,20 @@ impl Walker {
             });
         if cut {
             self.len = 0;
+            self.push = None;
         }
         self.life = Some(life);
         if self.len == 0 || own.tick > self.ticks[self.len - 1] {
+            // Out of the ball into the unfold: its push out of a wall.
+            if let Some(last) = self.len.checked_sub(1) {
+                let (a, from) = (&self.rows[last], self.ticks[last]);
+                if a.mode == bfe_pose::rig::droideka::BALL as u8 && heard.mode == bfe_pose::rig::droideka::UNFOLD as u8 {
+                    let seconds = (own.tick - from) / 60.;
+                    let push: [f64; 3] = std::array::from_fn(|k| heard.position[k] - a.position[k] - (a.velocity[k] + heard.velocity[k]) * 0.5 * seconds);
+                    let length = push.iter().map(|v| v * v).sum::<f64>().sqrt();
+                    self.push = (length > 0.02 && length < 3.).then_some((from, own.tick, push));
+                }
+            }
             if self.len == Self::SAMPLES {
                 self.ticks.copy_within(1.., 0);
                 self.rows.copy_within(1.., 0);
@@ -161,27 +183,43 @@ impl Walker {
         }
         self.clock = self.clock.clamp(oldest, newest);
         let after = self.ticks[..self.len].iter().position(|t| *t > self.clock).unwrap_or(self.len);
-        if after == 0 || after == self.len {
-            return self.rows[after.min(self.len - 1)];
+        let mut shown = if after == 0 || after == self.len {
+            self.rows[after.min(self.len - 1)]
+        } else {
+            let (a, b) = (&self.rows[after - 1], &self.rows[after]);
+            let f = (self.clock - self.ticks[after - 1]) / (self.ticks[after] - self.ticks[after - 1]);
+            let mix = |a: f64, b: f64| if a.is_finite() && b.is_finite() { a + (b - a) * f } else { b };
+            // The clip runs on across a change of mode, as for any droideka drawn
+            // between two samples (roll is an angle that is never wrapped).
+            let (mode, time, reverse) = bfe_pose::rig::droideka::between(
+                (a.mode as i32, a.pose[3], a.reverse),
+                (b.mode as i32, b.pose[3], b.reverse),
+                (self.clock - self.ticks[after - 1]) / 60.,
+                (self.ticks[after] - self.clock) / 60.,
+            );
+            ShownWalker {
+                position: std::array::from_fn(|k| mix(a.position[k], b.position[k])),
+                velocity: std::array::from_fn(|k| mix(a.velocity[k], b.velocity[k])),
+                pose: [mix(a.pose[0], b.pose[0]), mix(a.pose[1], b.pose[1]), mix(a.pose[2], b.pose[2]), time],
+                mode: mode as u8,
+                reverse,
+            }
+        };
+        // Of the push, the part its step has drawn already is held back but
+        // for what a quarter second's ease shows of it by now.
+        if let Some((from, to, push)) = self.push {
+            let since = self.clock - from;
+            if since >= Self::PUSH_TICKS {
+                self.push = None;
+            } else if since > 0. {
+                let x = since / Self::PUSH_TICKS;
+                let (ease, done) = (x * x * (3. - 2. * x), (since / (to - from)).min(1.));
+                for k in 0..3 {
+                    shown.position[k] += push[k] * (ease - done);
+                }
+            }
         }
-        let (a, b) = (&self.rows[after - 1], &self.rows[after]);
-        let f = (self.clock - self.ticks[after - 1]) / (self.ticks[after] - self.ticks[after - 1]);
-        let mix = |a: f64, b: f64| if a.is_finite() && b.is_finite() { a + (b - a) * f } else { b };
-        // The clip runs on across a change of mode, as for any droideka drawn
-        // between two samples (roll is an angle that is never wrapped).
-        let (mode, time, reverse) = bfe_pose::rig::droideka::between(
-            (a.mode as i32, a.pose[3], a.reverse),
-            (b.mode as i32, b.pose[3], b.reverse),
-            (self.clock - self.ticks[after - 1]) / 60.,
-            (self.ticks[after] - self.clock) / 60.,
-        );
-        ShownWalker {
-            position: std::array::from_fn(|k| mix(a.position[k], b.position[k])),
-            velocity: std::array::from_fn(|k| mix(a.velocity[k], b.velocity[k])),
-            pose: [mix(a.pose[0], b.pose[0]), mix(a.pose[1], b.pose[1]), mix(a.pose[2], b.pose[2]), time],
-            mode: mode as u8,
-            reverse,
-        }
+        shown
     }
 }
 
@@ -305,5 +343,34 @@ mod tests {
         own.tick += 1.;
         own.position = [0., 0., 50.];
         assert_eq!(walker.sample(&own, [1., 9., 2.], 1. / 240.).position, [0., 0., 50.]);
+    }
+
+    // Unfolding against a wall, the world pushes the droideka 0.9 m out of it
+    // in one tick. Drawn four frames a tick, the body takes a quarter second
+    // over it (never more than 0.09 m a tick: smoothstep's steepest part),
+    // where the step drawn as it came took 0.23 m a frame, and ends where the
+    // world has it.
+    #[test]
+    fn an_unfold_out_of_a_wall_is_drawn_over_a_quarter_second() {
+        use crate::online::receiver::Own;
+        let life = [1., 9., 1.];
+        let mut walker = Walker::default();
+        let mut own = Own { walker: true, alive: true, walker_mode: 12, ..Default::default() };
+        let mut drawn = Vec::new();
+        for frame in 0..400 {
+            if frame % 4 == 0 {
+                own.tick += 1.;
+                if own.tick == 30. {
+                    own.walker_mode = 13;
+                    own.position[2] = -0.9;
+                }
+            }
+            drawn.push(walker.sample(&own, life, 1. / 240.).position[2]);
+        }
+        let steps: Vec<f64> = drawn.windows(2).map(|pair| (pair[1] - pair[0]).abs()).collect();
+        let most = steps.iter().fold(0., |most: f64, step| most.max(*step));
+        assert!(most < 1.5 * 0.9 / 15. * 0.3, "{most} m in a frame");
+        assert!(steps.iter().filter(|step| **step > 1e-9).count() >= 4 * 14);
+        assert_eq!(drawn.last(), Some(&-0.9));
     }
 }
