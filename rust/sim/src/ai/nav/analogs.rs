@@ -9,7 +9,9 @@ use super::executor::near_radius;
 use super::math::{near_waypoint, tiny, Vec3};
 use super::units::{kind, Air, NavUnit, Posture};
 
-/// Class coefficients.
+/// Class coefficients. A droideka's strafe is 0, as the 2004 game passes it
+/// for that class: its strafe keys turn it, so a bot that strafed toward its
+/// route while turning toward its aim would turn both ways at once.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Coefficients {
     pub forward: f64,
@@ -23,7 +25,11 @@ pub fn coefficients(unit: &NavUnit) -> Coefficients {
     let s = unit.soldier.as_ref();
     Coefficients {
         forward: def.and_then(|d| d.max_speed).or_else(|| s.and_then(|s| s.max_speed)).unwrap_or(9.0),
-        strafe: def.and_then(|d| d.max_strafe_speed).or_else(|| s.and_then(|s| s.max_strafe)).unwrap_or(7.0),
+        strafe: if unit.kind == kind::DROIDEKA {
+            0.0
+        } else {
+            def.and_then(|d| d.max_strafe_speed).or_else(|| s.and_then(|s| s.max_strafe)).unwrap_or(7.0)
+        },
         yaw: def.and_then(|d| d.max_turn_speed).or_else(|| s.and_then(|s| s.max_turn)).unwrap_or(2.0),
         pitch: def.and_then(|d| d.max_pitch_speed).or_else(|| s.and_then(|s| s.max_pitch)).unwrap_or(0.5),
     }
