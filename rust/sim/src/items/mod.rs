@@ -402,18 +402,24 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         // A mine meets soldiers and droids too, team mates included, and
         // bounces off them rather than sticking, as the 2004 game's do. Its
         // thrower is left out only for the first 0.5 s of an item with a
-        // LifeSpan (a time bomb); a land mine meets him too. A body the mine
-        // is still inside of as the step starts (its thrower's, as it leaves
-        // his hand) or is moving away from does not turn it.
+        // LifeSpan (a time bomb); a land mine meets him too, but not while it
+        // is still inside him as the step starts (leaving his hand). A body
+        // the mine is moving away from does not turn it; one it starts
+        // inside of and moves into (a team mate point blank) does.
         if mine {
-            let thrower = match owner {
+            let left_out = match owner {
                 ItemOwner::Unit(unit) if young => OrdnanceOwner::Unit(unit),
                 ItemOwner::Player if young => OrdnanceOwner::Player,
                 _ => OrdnanceOwner::Null,
             };
-            if let Some(body) = self.w.raycast_units(start, ray, length + 0.1, thrower, None, None, None) {
-                if body.distance > 0.0 && hit.as_ref().is_none_or(|h| body.distance < h.distance)
-                    && self.bounce_off_body(r, body.point, body.normal) {
+            let mut met = self.w.raycast_units(start, ray, length + 0.1, left_out, None, None, None);
+            if let (Some(body), ItemOwner::Unit(thrower)) = (&met, owner) {
+                if body.distance <= 0.0 && body.unit == thrower {
+                    met = self.w.raycast_units(start, ray, length + 0.1, OrdnanceOwner::Unit(thrower), None, None, None);
+                }
+            }
+            if let Some(body) = met {
+                if hit.as_ref().is_none_or(|h| body.distance < h.distance) && self.bounce_off_body(r, body.point, body.normal) {
                     return;
                 }
             }
@@ -792,14 +798,21 @@ mod tests {
         let mut w = stand(true, false);
         let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
         assert!(at(&w, mine).landed && at(&w, mine).position[0] > 1.0 && at(&w, mine).position[0] < 1.2, "{:?}", at(&w, mine).position);
-        // Thrown from inside a body (its thrower's), it leaves it, even
-        // heading down and on through the body's middle.
+        // Thrown from inside its thrower's body, it leaves him, even heading
+        // down and on through his middle.
         let mut w = stand(true, false);
-        let mine = throw(&mut w, [2.1, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let mine = throw_as(&mut w, MINE, thrower, [2.1, 1.5, 0.0], [4.0, 0.0, 0.0]);
         assert!(at(&w, mine).position[0] > 4.2 && at(&w, mine).position[0] < 4.4, "{:?}", at(&w, mine).position);
         let mut w = stand(true, false);
-        let mine = throw(&mut w, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let mine = throw_as(&mut w, MINE, thrower, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
         assert!(at(&w, mine).landed && at(&w, mine).position[0] > 3.0, "{:?}", at(&w, mine).position);
+        // Thrown point blank into a team mate (someone else's mine starting
+        // inside him): it does not fly through him, it drops at his feet.
+        let mut w = stand(true, false);
+        let mine = throw(&mut w, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
+        assert!(at(&w, mine).landed && at(&w, mine).position[0] < 2.6, "{:?}", at(&w, mine).position);
         // A power-up passes him.
         let mut w = stand(true, false);
         let powerup = throw_as(&mut w, POWERUP, ItemOwner::Null, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
