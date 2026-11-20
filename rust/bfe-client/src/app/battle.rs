@@ -84,7 +84,7 @@
 //!   Confirming spawn (`Enter`, `Space`, or clicking `SPAWN`) records a
 //!   [`PendingSpawnChoice`] on [`LiveSpawnPort`], which [`BattleController::flush_spawn_requests`]
 //!   sends as `WorldMessage::Spawn { team, class_name, post_name }` in Instant Action
-//!   or `Sender::request_spawn(class_reg_id, post_reg_id)` in Online mode.
+//!   or `Sender::request_spawn(team, class_reg_id, post_reg_id)` in Online mode.
 //!
 //! ## Escape Pause Menu (`PauseMenu`)
 //! - **Instant Action Mode**: Exposes `RESUME`, `RESPAWN`, `RESTART MISSION`
@@ -1602,7 +1602,7 @@ impl BattleController {
     /// - In `BattleAuthority::InstantAction`, sends `WorldMessage::Spawn { team, class_name, post_name }`
     ///   or `WorldMessage::Respawn` over the non-blocking channel to `"bfe-world-60hz"`.
     /// - In `BattleAuthority::Online`, sends `request_team` (if changing teams) and
-    ///   `request_spawn(class_reg_id, post_reg_id)` or `request_suicide` via `client.sender`.
+    ///   `request_spawn(team, class_reg_id, post_reg_id)` or `request_suicide` via `client.sender`.
     pub fn flush_spawn_requests(&mut self) {
         if let Some(choice) = self.spawn_port.pending_spawn.take() {
             eprintln!("spawn requested: team={} class={} post={}", choice.team, choice.class_name, choice.post_name);
@@ -1624,7 +1624,7 @@ impl BattleController {
                     // SpawnModel.commit names the selected authored class and
                     // post. Index zero is a real first class, not an instruction
                     // to discard its post and ask the server to pick another.
-                    client.sender.request_spawn(&client.receiver, choice.class_reg_id as usize, choice.post_reg_id as usize);
+                    client.sender.request_spawn(&client.receiver, choice.team, choice.class_reg_id as usize, choice.post_reg_id as usize);
                 }
             }
         }
