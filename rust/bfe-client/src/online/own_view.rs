@@ -264,7 +264,8 @@ mod tests {
         let mut frames = |own: &Own, count: usize| -> Vec<ShownWalker> { (0..count).map(|_| walker.sample(own, life, 1. / 240.)).collect() };
         let tick = 1. / 60.;
         let mut shown = Vec::new();
-        for (mode, time) in [(7, 0.2), (7, 0.2 + tick), (7, 0.25), (7, 0.25 + tick), (7, tick), (7, 2. * tick), (8, tick), (8, 2. * tick), (8, 3. * tick)] {
+        // The second change happens three quarters of a tick after the sample before it.
+        for (mode, time) in [(7, 0.2), (7, 0.2 + tick), (7, 0.25), (7, 0.25 + tick), (7, tick), (7, 2. * tick), (8, 0.25 * tick), (8, 1.25 * tick), (8, 2.25 * tick)] {
             own.tick += 1.;
             own.walker_mode = mode;
             own.walker_time = time;
@@ -275,6 +276,8 @@ mod tests {
         let changes = shown.windows(2).filter(|pair| pair[1].mode != pair[0].mode).count();
         assert!(falls.len() == 2 && falls.iter().all(|pair| pair[1].pose[3] <= tick + 1e-12), "{shown:?}");
         assert!(changes == 1 && shown.last().is_some_and(|last| last.mode == 8), "{shown:?}");
+        // Until then the old step is still drawn, its clip running on past its last sample.
+        assert!(shown.iter().any(|walker| walker.mode == 7 && walker.pose[3] > 2. * tick + 1e-9), "{shown:?}");
         // The corrections stall for 15 ticks, then come again every tick: the body is where the
         // newest correction puts it, less the usual delay, as soon as that correction is drawn
         // from; it is not left a whole stall behind for a tick first.

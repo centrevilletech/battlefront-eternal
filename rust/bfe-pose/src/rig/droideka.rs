@@ -17,7 +17,7 @@
 //! begins the shell, rolled to any angle in the ball (and the unfold's first
 //! frame has it turned a further 138 degrees), turns about its axle the
 //! short way round from where it was drawn into the unfold. While it does,
-//! `roll_origin` holds that turn and the shell bone's `from` place the
+//! `unfold_turn` holds that turn and the shell bone's `from` place the
 //! distance it had left to go.
 
 use super::math;
@@ -179,6 +179,10 @@ pub struct DroidekaAnimator {
     pub from_p: Vec<Vector3>,
     pub pivot: Vector3,
     pub roll_center: Vector3,
+    /// rad, the shell's turn about its axle still to undo as an unfold
+    /// begins (kept apart from `roll_origin`, which a droideka killed while
+    /// unfolding still needs for its rolled corpse).
+    pub unfold_turn: f64,
 }
 
 /// The hidden rig: the tree (its root, a clone of each bone, a clone of each
@@ -289,6 +293,7 @@ impl DroidekaRig {
             transition: 0.0,
             pivot,
             roll_center,
+            unfold_turn: 0.0,
         };
         DroidekaRig {
             tree,
@@ -493,8 +498,7 @@ pub fn roll_axle(
 }
 
 /// DroidekaAnimator.update on either the visible actor or the hidden world
-/// rig. Both hosts share the same pose and fold/unfold state, including the
-/// original self-targeting quaternion blend during unfold.
+/// rig. Both hosts share the same pose and fold/unfold state.
 pub fn update_display(
     a: &mut DroidekaAnimator,
     tree: &mut TransformTree,
@@ -642,14 +646,14 @@ pub fn update_display(
             turn.invert().premultiply(&a.from_q[k]);
             let tau = std::f64::consts::TAU;
             let angle = 2.0 * v8math::atan2(turn.x, turn.w);
-            a.roll_origin = angle - tau * ((angle + tau / 2.0) / tau).floor();
+            a.unfold_turn = angle - tau * ((angle + tau / 2.0) / tau).floor();
         }
         // Rolled, the shell turns and leans about its axle; unfolding, it
         // turns from where it was drawn into the clip.
         let turn = if mode == BALL {
             Some((d.lean, d.roll - a.roll_origin))
         } else if mode == UNFOLD && a.transition > 0.0 {
-            Some((d.lean * (1.0 - blend), a.roll_origin * (1.0 - blend)))
+            Some((d.lean * (1.0 - blend), a.unfold_turn * (1.0 - blend)))
         } else {
             None
         };
@@ -725,6 +729,34 @@ mod tests {
         // Out of a backward step into the next one, also played backward.
         close(between((9, 0.01, true), (7, 0.25, true), 0.005, 0.045), (9, 0.005, true));
         close(between((9, 0.01, true), (7, 0.25, true), 0.02, 0.03), (7, 0.28, true));
+    }
+
+    // The corner cases: backward into forward, one clip starting again
+    // (either way round), dying, dead and the ball.
+    #[test]
+    fn the_clip_runs_on_in_the_corner_cases() {
+        let close = |got: (i32, f64, bool), want: (i32, f64, bool)| {
+            assert!(got.0 == want.0 && got.2 == want.2 && (got.1 - want.1).abs() < 1e-12, "{got:?} against {want:?}");
+        };
+        // A backward step ends (time 0) and idle begins 0.01 s before the newer sample.
+        close(between((9, 0.02, true), (0, 0.01, false), 0.005, 0.025), (9, 0.015, true));
+        close(between((9, 0.02, true), (0, 0.01, false), 0.04, 0.01), (0, 0.0, false));
+        // Idle starting again: the old run runs on, then the new run from its start.
+        close(between((0, 0.7, false), (0, 0.01, false), 0.01, 0.03), (0, 0.71, false));
+        close(between((0, 0.7, false), (0, 0.01, false), 0.03, 0.01), (0, 0.0, false));
+        // A backward step starting again (its time jumps back up to the clip's end).
+        close(between((9, 0.01, true), (9, 0.39, true), 0.005, 0.045), (9, 0.005, true));
+        close(between((9, 0.01, true), (9, 0.39, true), 0.03, 0.02), (9, 0.41, true));
+        // Death begins at the newer sample (time 0): the old clip runs on to it; dead the same.
+        close(between((7, 0.1, false), (3, 0.0, false), 0.02, 0.03), (7, 0.12, false));
+        close(between((7, 0.1, false), (3, 0.0, false), 0.05, 0.0), (3, 0.0, false));
+        close(between((3, 0.5, false), (4, 0.0, false), 0.02, 0.01), (3, 0.52, false));
+        // Into the ball and out of it: the change shows when it happened.
+        close(between((11, 0.5, false), (12, 0.02, false), 0.01, 0.04), (11, 0.51, false));
+        close(between((11, 0.5, false), (12, 0.02, false), 0.04, 0.01), (12, 0.01, false));
+        close(between((12, 0.0, false), (13, 0.01, false), 0.04, 0.01), (13, 0.0, false));
+        // The ball's time does not run: it stays where the samples have it.
+        close(between((12, 0.0, false), (12, 0.0, false), 0.02, 0.03), (12, 0.0, false));
     }
 
     // The clip's last frame shows as its mode ends, its first as it begins.

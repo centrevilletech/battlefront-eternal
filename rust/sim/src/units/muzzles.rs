@@ -95,7 +95,7 @@ impl MuzzleRigs {
             root, ball, spine, pose: Pose::new(n, root),
             from_q: bind_q.clone(), from_p: bind_p.clone(), bind_q, bind_p,
             facing: 0.0, legs: 0.0, mode: -1, went_up_rolled: false,
-            roll_origin: 0.0, transition: 0.0, pivot: Vector3::default(), roll_center: Vector3::default(),
+            roll_origin: 0.0, transition: 0.0, pivot: Vector3::default(), roll_center: Vector3::default(), unfold_turn: 0.0,
         };
         for v in &mut animator.pose.q { *v = r.number() as f32; }
         for v in &mut animator.pose.t { *v = r.number() as f32; }
