@@ -553,11 +553,11 @@ fn definition(class: &bfe_content::Value) -> bfe_presentation::cameras::soldier:
 
 /// How far a droideka's chase camera has gone from its standing section to its rolled one (CROUCH), 0 to 1, at
 /// `time` into its drawn mode. The 2004 game takes the rolled section for the fold and the ball and the standing
-/// one again as the unfold begins, its camera following each change at 15/s; here each change is also spread over
-/// the first half second of the fold or of the unfold, so the camera sets off without a jolt.
+/// one again as the unfold begins, its camera place following at 27/s (as ours does); here each change of section
+/// is also spread over a tenth of a second, so the camera does not set off with a jolt.
 fn rolled_share(mode: u8, time: f64) -> f64 {
     let ease = |x: f64| {
-        let x = (x / 0.5).clamp(0., 1.);
+        let x = (x / 0.1).clamp(0., 1.);
         x * x * (3. - 2. * x)
     };
     match mode {

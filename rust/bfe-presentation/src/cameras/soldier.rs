@@ -181,10 +181,14 @@ impl Soldier {
             // The player's look is already timed by prediction. Follow only
             // changes in the local stance and recovery from an obstruction.
             let fresh = self.fresh || cam.p.distance_to(&input.feet) > 80.0;
-            if fresh {
+            if fresh || input.follow > 0.0 {
+                // A following camera eases its place instead (below), as
+                // the 2004 tracker does: once, not on top of this.
                 self.center = v(section.center);
                 self.offset = v(section.offset);
-                self.reach = 1.0;
+                if fresh {
+                    self.reach = 1.0;
+                }
             } else {
                 let k = 1.0 - M::exp(-15.0 * if input.posture == 2 { 0.5 } else { 1.0 } * dt);
                 self.center = mix(self.center, v(section.center), k);
