@@ -452,6 +452,7 @@ impl Phase {
                         }
                     }),
                     crouch: 0.0,
+                    follow: 0.0,
                 },
                 def,
                 &motion::Motion::new(),
@@ -725,6 +726,8 @@ impl Phase {
                     }),
                     // A droideka's camera eases between its standing and rolled sections.
                     crouch: if a[f::EYE_KIND] as u32 == eyes::DROIDEKA { a[f::EYE_ROLLED].clamp(0.0, 1.0) } else { 0.0 },
+                    // The 2004 droideka's tracker: its sections' default tension, 30/s, times 0.9.
+                    follow: if a[f::EYE_KIND] as u32 == eyes::DROIDEKA { 27.0 } else { 0.0 },
                 },
                 def,
                 &self.motion,

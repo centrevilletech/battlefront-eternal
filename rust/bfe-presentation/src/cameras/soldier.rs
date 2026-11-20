@@ -72,6 +72,10 @@ pub struct Soldier {
     pub center: V,
     pub offset: V,
     pub definition: usize,
+    /// The place the chase camera would take this frame, and how far the
+    /// drawn camera trails it (`Input::follow`).
+    pub rest: V,
+    pub lag: V,
 }
 pub struct Input {
     pub feet: V,
@@ -85,6 +89,9 @@ pub struct Input {
     /// 0 to 1: how far the camera has gone from the posture's section to the
     /// crouched one (a droideka going down into its ball and up again).
     pub crouch: f64,
+    /// 1/s: the rate at which the chase camera's place follows its rest place
+    /// along the aim and up and down (0: it keeps up at once).
+    pub follow: f64,
 }
 pub fn v(a: [f64; 3]) -> V {
     V::new(a[0], a[1], a[2])
@@ -193,6 +200,26 @@ impl Soldier {
                 self.reach += (clear - self.reach) * (1.0 - M::exp(-6.0 * dt));
             }
             cam.p = plus(pivot, boom, self.reach);
+            // The 2004 tracker eases the camera's place toward this rest
+            // place, so it glides to rest when the body stops dead (a
+            // droideka unfolding at speed). Sideways it keeps up at once: the
+            // reticle stays in the middle across, on the shot's line.
+            let rest = cam.p;
+            self.lag = if fresh || input.follow <= 0.0 {
+                V::new(0.0, 0.0, 0.0)
+            } else {
+                let (sin, cos) = (M::sin(input.yaw), M::cos(input.yaw));
+                let left = add(self.lag, sub(self.rest, rest));
+                let k = M::exp(-input.follow * dt);
+                let along = (left.x * sin + left.z * cos) * k;
+                V::new(along * sin, left.y * k, along * cos)
+            };
+            self.rest = rest;
+            if self.lag.length_sq() > 1e-8 {
+                let boom = sub(add(rest, self.lag), pivot);
+                let clear = clearance(world, pivot, boom, cam.q, 0.08, false);
+                cam.p = plus(pivot, boom, clear.min(1.0));
+            }
             self.fresh = false;
             return;
         }
