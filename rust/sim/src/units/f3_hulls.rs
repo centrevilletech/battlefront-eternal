@@ -173,14 +173,14 @@ pub(crate) fn body_index_in(world_ctx: &mut crate::world::owner::World, body: Re
     world_ctx.sim.store.vehicles.vehicles.iter().position(|&v| v == r)
 }
 
-/// OrdnanceWorld.riderMount resolves the collision owner without a facade.
-/// Only an occupied animal exposes riders through its hull's collision shape.
 /// The hull whose collision body this is, whether anyone rides it or not.
 pub(crate) fn hull_of_in(world_ctx: &mut crate::world::owner::World, body: Ref<Body>) -> Option<Ref<Vehicle>> {
     let r = world_ctx.units.hulls.as_ref()?.bodies.get(body.slot as usize).copied().flatten()?;
     (world_ctx.sim.store.vehicle.get(r)?.body == body).then_some(r)
 }
 
+/// OrdnanceWorld.riderMount resolves the collision owner without a facade.
+/// Only an occupied animal exposes riders through its hull's collision shape.
 pub(crate) fn rider_mount_in(world_ctx: &mut crate::world::owner::World, body: Ref<Body>) -> Option<crate::ordnance::world::RiderMount> {
     let r=world_ctx.units.hulls.get_or_insert_with(Hulls::default).bodies.get(body.slot as usize).copied().flatten()?;
     let hull=world_ctx.sim.store.vehicle.get(r)?;
