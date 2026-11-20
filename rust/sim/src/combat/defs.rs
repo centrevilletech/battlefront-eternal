@@ -240,9 +240,10 @@ pub enum K {
     Swings,
     Strike,
     LockOnRange,
+    ZoomFirstPerson,
 }
 
-const KEYS: [&str; 55] = [
+const KEYS: [&str; 56] = [
     "class",
     "base",
     "channel",
@@ -298,6 +299,7 @@ const KEYS: [&str; 55] = [
     "swings",
     "strike",
     "LockOnRange",
+    "ZoomFirstPerson",
 ];
 
 /// PlayerCombat.arc's immutable emitter fields. Resolve names and numeric

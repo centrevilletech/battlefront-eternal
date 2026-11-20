@@ -208,7 +208,7 @@ impl Replicas {
         // definitions as the server. Numeric handles resolve before frames.
         let defs = content.defs()?;
         let registry = &defs.registry;
-        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.,walker:None}; registry.classes.len()+1];
+        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.,walker:None,sections:None}; registry.classes.len()+1];
         for class in &defs.classes {
             let Some(id)=class.registry_id else {continue};
             let cameras=class.record.get("cameras");
@@ -221,7 +221,8 @@ impl Replicas {
                 let body=bfe_sim::units::class::droideka_body(&class.record,-1.,0.);
                 (body.eye_height,bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:body.track_center,offset:body.track_offset,tilt:body.track_tilt})
             });
-            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.),walker};
+            let sections=Some(bfe_sim::units::class::camera_def(&class.record).sections);
+            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.),walker,sections};
         }
 
         let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();

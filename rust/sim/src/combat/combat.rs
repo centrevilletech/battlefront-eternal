@@ -11,6 +11,7 @@ use super::world::{ArcTarget, CombatWorld, DamageInfo, LockPick, Presentation};
 use crate::gen::{Air, Attacker, Combat, Kick, PendingShot, Posture, Seen, Unit, UnitBody};
 use crate::store::{DefId, Nullable};
 use jsrt::conv::{js_max, js_min};
+use bfe_presentation::cameras::soldier::Section;
 use std::rc::Rc;
 use three::Vector3;
 
@@ -65,7 +66,7 @@ pub struct CombatDefs {
 }
 
 #[derive(Clone, Debug, Default)]
-struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId> }
+struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId>, cameras: Option<[Section; 6]> }
 
 #[derive(Default)]
 pub struct Scratch {
@@ -103,8 +104,15 @@ impl CombatDefs {
         // Resolve its handles now instead of collecting a Vec on each spawn.
         let list = obj.get("weapons");
         let loadout = (0..list.len()).filter_map(|i| list.at(i).obj().and_then(|o| o.def).map(|(_,d)| d)).collect();
+        // The class's cameras as admission parsed them (units::class::camera_def):
+        // STAND, CROUCH, PRONE, then their ZOOM sections, ten numbers each.
+        let numbers = obj.get("cameras");
+        let cameras = (numbers.len() == 60).then(|| std::array::from_fn(|k| {
+            let n = |j: usize| numbers.at(k * 10 + j).num();
+            Section { eye: [n(0), n(1), n(2)], center: [n(3), n(4), n(5)], offset: [n(6), n(7), n(8)], tilt: n(9) }
+        }));
         self.facts[i] = ClassFacts {
-            add_health:obj.get("AddHealth").num(),walkerdroid:obj.get("base").is_str("walkerdroid"),loadout,
+            add_health:obj.get("AddHealth").num(),walkerdroid:obj.get("base").is_str("walkerdroid"),loadout,cameras,
         };
         self.classes[i] = Some(obj);
     }
@@ -468,7 +476,7 @@ fn gun_line(gun: &Vector3, target: &Vector3, forward: &Vector3) -> Vector3 {
 /// The point a droideka's guns converge on, and the aim it lies along, as
 /// the 2004 game finds it after the droideka moved. A player's: the first
 /// thing within 512 m along the line his reticle sits on (see
-/// `bfe_presentation::aim::walker_line`: the chase camera's line from its
+/// `bfe_presentation::aim::camera_line`: the chase camera's line from its
 /// rest place, level with the eye; the eye's own line in first person or
 /// zoomed), soldiers met where his screen showed them; the point 512 m out
 /// when nothing is there. A bot's: along its aim as far as its quarry's aim
@@ -486,11 +494,36 @@ fn droideka_target(c: &Combat, u: &Unit, edges: &Edges, channel: f64, world: &mu
     let (yaw, pitch) = edge_aim(u, edges, channel).unwrap_or((d.aim_yaw, d.aim_pitch));
     let stand = bfe_presentation::cameras::soldier::Section { eye: [0.0; 3], center: d.track_center, offset: d.track_offset, tilt: d.track_tilt };
     let eyes = c.first_person || c.zoom_step > 0.0;
-    let (origin, direction) = bfe_presentation::aim::walker_line::<crate::cameras::HostMath>(v(d.position), yaw, pitch, eye, (!eyes).then_some(&stand));
+    let (origin, direction) = bfe_presentation::aim::camera_line::<crate::cameras::HostMath>(v(d.position), yaw, pitch, eye, (!eyes).then_some(&stand));
     let reach = world.aim_reach(u, &origin, &direction, DROIDEKA_REACH);
     let mut target = origin;
     target.add_scaled_vector(&direction, reach);
     (target, direction)
+}
+
+/// A soldier player's shot converged on his crosshair's point, as the 2004
+/// game converges every round he fires in third person: the first thing
+/// within 60 m along the ray from `crosshair_start` (the posture's camera,
+/// its ZOOM section when zoomed), soldiers met where his screen showed them;
+/// the ray's end when nothing is there. None in first person, through a
+/// first person zoom, for bots and for a class without cameras: those fire
+/// along the aim.
+fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, weapon: usize, world: &mut dyn CombatWorld) -> Option<Vector3> {
+    let UnitBody::Soldier(s) = &u.soldier else { return None };
+    let zoomed = c.zoom_step > 0.0;
+    if !u.human || matches!(c.aim_override, Nullable::Value(_)) || c.first_person
+        || zoomed && c.weapons[weapon].level(class_of(c, defs, weapon)).get(K::ZoomFirstPerson).truthy() {
+        return None;
+    }
+    let cameras = defs.facts.get(u.class_def.0 as usize)?.cameras.as_ref()?;
+    let posture = if s.air.is_some() { Posture::Stand } else { s.posture };
+    let section = &cameras[posture as usize + if zoomed { 3 } else { 0 }];
+    let (start, direction) = bfe_presentation::aim::crosshair_start::<crate::cameras::HostMath>(v(s.position), s.aim_yaw, s.aim_pitch, section);
+    let mut target = start;
+    target.add_scaled_vector(&direction, world.aim_reach(u, &start, &direction, AIM_REACH));
+    let mut dir = Vector3::default();
+    dir.sub_vectors(&target, &v(c.origin)).normalize();
+    (dir.dot(&direction) > 0.0).then_some(dir)
 }
 
 /// regenerate(combat, dt).
@@ -848,9 +881,15 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
             emit_gun_round(c, u, defs, &payload, world);
         }
     } else {
-        // Collision starts at the gameplay gun origin.
+        // Collision starts at the gameplay gun origin. A press flies along
+        // the aim its player's screen converged; a soldier's held round
+        // converges here on his crosshair's point.
         let mut dir = v(c.shot_dir);
-        network_shot_direction(u, edges, &mut dir, channel);
+        if edge_aim(u, edges, channel).is_some() {
+            network_shot_direction(u, edges, &mut dir, channel);
+        } else if let Some(converged) = crosshair_aim(c, u, defs, i, world) {
+            dir = converged;
+        }
         // The spread (and a pattern's offset, and the kick): turn about the
         // vertical, then tip about the horizontal.
         dir.apply_axis_angle(&UP, yaw);

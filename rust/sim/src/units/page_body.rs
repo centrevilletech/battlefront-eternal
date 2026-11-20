@@ -38,7 +38,7 @@ pub fn aim<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame) {
     let view=View{position:V::new(f.position[0],f.position[1],f.position[2]),feet:V::new(f.feet[0],f.feet[1],f.feet[2]),
         yaw:f.aim_yaw,pitch:f.aim_pitch,posture:f.posture as usize,air:f.air.is_some(),walker:f.walker,rolled:f.rolled,
         eye_height:f.eye_height,zoom:f.zoom,camera:f.has_camera.then(||V::new(f.camera[0],f.camera[1],f.camera[2])),
-        uses_eye:f.uses_eye,track_offsets:f.track_offsets};
+        uses_eye:f.uses_eye,track_offsets:f.track_offsets,sections:None};
     let aim=view.sample::<M>();f.basis=aim.basis.words();f.eye=[aim.eye.x,aim.eye.y,aim.eye.z];
     f.shot_yaw=aim.yaw;f.shot_pitch=aim.pitch;f.needs_reach=aim.needs_reach;
     if aim.needs_reach{f.from=[aim.from.x,aim.from.y,aim.from.z];}

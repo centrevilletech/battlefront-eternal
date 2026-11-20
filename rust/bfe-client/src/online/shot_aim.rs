@@ -11,8 +11,10 @@ pub struct Class {
     pub track: [f64; 3],
     pub scale: f64,
     /// A droideka class's eye height and STAND camera, which its aim line
-    /// starts from (`bfe_presentation::aim::walker_line`).
+    /// starts from (`bfe_presentation::aim::camera_line`).
     pub walker: Option<(f64, bfe_presentation::cameras::soldier::Section)>,
+    /// The class's cameras, which a soldier's crosshair ray starts from.
+    pub sections: Option<[bfe_presentation::cameras::soldier::Section; 6]>,
 }
 pub struct Scene {
     collision: Collision,
@@ -30,12 +32,12 @@ impl Scene {
             position: [0.;3], targets: Vec::with_capacity(4096) }))
     }
     pub fn sample(&self, own: &Own, yaw: f64, pitch: f64, first: bool) -> (CommandAim, f64, Option<u32>) {
-        let class = self.classes.get(own.class).copied().unwrap_or(Class {track: [3.5;3], scale: 1., walker: None});
+        let class = self.classes.get(own.class).copied().unwrap_or(Class {track: [3.5;3], scale: 1., walker: None, sections: None});
         let position = Vector3::new(self.position[0],self.position[1],self.position[2]);
         let mut aim = View { position, feet: position, yaw, pitch, posture: own.posture,
             air: own.air != 0, zoom: own.zoom, camera: Some(Vector3::new(self.camera[0],self.camera[1],self.camera[2])),
             uses_eye: first || (self.eye_view && own.zoom>1.) || own.walker || own.mount.is_some() || own.remote.is_some(),
-            track_offsets: class.track, ..Default::default() }.sample::<V8>();
+            track_offsets: class.track, sections: class.sections, ..Default::default() }.sample::<V8>();
         if !aim.needs_reach {aim.from=aim.eye;}
         let from = aim.from; let dir = aim.basis.direction;
         let ray = Ray {ox:from.x,oy:from.y,oz:from.z,dx:dir.x,dy:dir.y,dz:dir.z};
@@ -58,7 +60,7 @@ impl Scene {
         let (height, stand) = self.classes.get(own.class)?.walker?;
         let feet = Vector3::new(feet[0], feet[1], feet[2]);
         let eye = Vector3::new(feet.x, feet.y + height, feet.z);
-        let (from, dir) = bfe_presentation::aim::walker_line::<V8>(feet, yaw, pitch, eye, (!eyes).then_some(&stand));
+        let (from, dir) = bfe_presentation::aim::camera_line::<V8>(feet, yaw, pitch, eye, (!eyes).then_some(&stand));
         let ray = Ray {ox:from.x,oy:from.y,oz:from.z,dx:dir.x,dy:dir.y,dz:dir.z};
         let mut reach = self.collision.borrow_mut().ray_hit(self.world, ray, REACH, -1).map_or(REACH, |(_, hit)| hit.distance);
         for (id, shape) in &self.targets {

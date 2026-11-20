@@ -188,7 +188,7 @@ fn a_droideka_players_bolts_cross_the_point_under_its_reticle() {
         for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
         let feet=Vector3::new(3.,1.,-2.);let eye=Vector3::new(3.,1.+1.8,-2.);
         let stand=bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:[0.,1.8,0.],offset:[0.,0.5,4.5],tilt:5f64.to_radians()};
-        let (start,direction)=bfe_presentation::aim::walker_line::<bfe_presentation::cameras::math::V8>(feet,yaw,pitch,eye,(!first).then_some(&stand));
+        let (start,direction)=bfe_presentation::aim::camera_line::<bfe_presentation::cameras::math::V8>(feet,yaw,pitch,eye,(!first).then_some(&stand));
         let mut point=start;point.add_scaled_vector(&direction,20.);
         assert!(world.fired.len()>=2,"the held trigger fires both guns: {} rounds",world.fired.len());
         for (n,(from,dir)) in world.fired.iter().enumerate() {
@@ -201,5 +201,51 @@ fn a_droideka_players_bolts_cross_the_point_under_its_reticle() {
         // the 2004 game starts it (0.5 cos 5 + 4.5 sin 5 for this camera).
         let mut rise=start;rise.sub(&eye);
         assert!((rise.length()-if first {0.} else {0.5*5f64.to_radians().cos()+4.5*5f64.to_radians().sin()}).abs()<1e-12);
+    }
+}
+
+// A soldier player's held rounds converge on his crosshair's point as the
+// 2004 game converges them, the same point his own screen aims a press at:
+// the ray from the camera's line, level with his eye, TrackOffset.z + 2 m
+// on, meets a wall 20 m further here. In first person they fly along the aim.
+#[test]
+fn a_soldier_players_held_rounds_cross_his_crosshairs_point() {
+    use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
+    use bfe_presentation::cameras::soldier::Section;
+    let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
+    let stand=Section {eye:[0.,1.8,0.],center:[0.,1.8,0.],offset:[0.,0.,3.5],tilt:7.5f64.to_radians()};
+    let crouch=Section {eye:[0.,1.3,0.],center:[0.,1.3,0.],offset:[0.,0.15,3.5],tilt:7.5f64.to_radians()};
+    let zoom=Section {eye:[0.,1.8,0.],center:[0.,1.8,0.],offset:[0.4,0.05,2.8],tilt:3.5f64.to_radians()};
+    let sections=[stand,crouch,crouch,zoom,zoom,zoom];
+    let cameras=sections.iter().flat_map(|s| s.eye.into_iter().chain(s.center).chain(s.offset).chain([s.tilt])).map(Js::Num).collect();
+    let mut world=World::new();
+    world.defs.weapons.set(DefId(1),WeaponClass::new(object(vec![("base",Js::Str("cannon".into())),("channel",Js::Num(0.)),
+        ("ShotDelay",Js::Num(0.1)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+        ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(300.))])))])));
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("soldier".into())),("weapons",Js::Arr(Rc::new(vec![
+        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))]))),("cameras",Js::Arr(Rc::new(cameras)))]));
+    world.reach=Some(20.);
+    let (yaw,pitch)=(-0.6,-0.12);
+    for (first,posture) in [(false,Posture::Stand),(false,Posture::Crouch),(true,Posture::Stand)] {
+        let mut unit=soldier();unit.human=true;unit.class_def=DefId(0);unit.controls.pressed=vec![true,false];
+        if let UnitBody::Soldier(s)=&mut unit.soldier {s.position=[4.,2.,-3.];s.aim_yaw=yaw;s.aim_pitch=pitch;s.posture=posture;}
+        unit.combat=Combat {health:300.,max_health:300.,player:true,first_person:first,
+            weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
+        unit.intent.buttons=[1.,0.];
+        world.fired.clear();
+        for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+        assert!(world.fired.len()>=3,"the held trigger fires: {} rounds",world.fired.len());
+        let section=&sections[posture as usize];
+        let (start,direction)=bfe_presentation::aim::crosshair_start::<bfe_presentation::cameras::math::V8>(Vector3::new(4.,2.,-3.),yaw,pitch,section);
+        let mut point=start;point.add_scaled_vector(&direction,20.);
+        for (n,(from,dir)) in world.fired.iter().enumerate() {
+            if first {
+                assert!((dir.dot(&direction)-1.).abs()<1e-12,"round {n} leaves along the aim in first person");
+                continue;
+            }
+            let mut to=point;to.sub(from);
+            let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
+            assert!(miss.distance_to(&point)<1e-9,"round {n} misses the crosshair's point by {}",miss.distance_to(&point));
+        }
     }
 }

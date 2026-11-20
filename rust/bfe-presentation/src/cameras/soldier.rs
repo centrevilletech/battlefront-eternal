@@ -31,7 +31,7 @@ use super::{math::*, motion::Motion, Camera, Cast};
 use serde::Deserialize;
 use three::Vector3 as V;
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default)]
 pub struct Section {
     pub eye: [f64; 3],

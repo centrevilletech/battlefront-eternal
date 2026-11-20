@@ -268,7 +268,7 @@ impl Phase {
             let aim=View{position,feet:V::new(facts[f::FEET],facts[f::FEET+1],facts[f::FEET+2]),yaw,pitch,posture,air,
                 walker:facts[f::WALKER]!=0.,rolled:facts[f::ROLLED]!=0.,eye_height:facts[f::EYE_HEIGHT],zoom:facts[f::ZOOM],
                 camera:(facts[f::HAS_CAMERA]!=0.).then(||V::new(facts[f::CAMERA],facts[f::CAMERA+1],facts[f::CAMERA+2])),
-                uses_eye:facts[f::USES_EYE]!=0.,track_offsets:facts[f::TRACK_OFFSETS..f::TRACK_OFFSETS+3].try_into().unwrap()}.sample::<V8>();
+                uses_eye:facts[f::USES_EYE]!=0.,track_offsets:facts[f::TRACK_OFFSETS..f::TRACK_OFFSETS+3].try_into().unwrap(),sections:None}.sample::<V8>();
             numbers[out::SOURCE_BASIS..out::SOURCE_BASIS+15].copy_from_slice(&source.words());
             numbers[out::AIM_ORIGIN..out::AIM_ORIGIN+3].copy_from_slice(&[aim.basis.origin.x,aim.basis.origin.y,aim.basis.origin.z]);
             numbers[out::AIM_DIRECTION..out::AIM_DIRECTION+3].copy_from_slice(&[aim.basis.direction.x,aim.basis.direction.y,aim.basis.direction.z]);
