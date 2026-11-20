@@ -406,3 +406,18 @@ fn a_destroyed_post_is_lost_by_the_team_that_held_it() {
     // Nobody held it.
     assert_eq!(post_change(Some((0, true)), 0, false, true), None);
 }
+
+// A unit state summary names its unit and that unit's Character; one whose
+// record is another unit's, or that is cut short, names none.
+#[test]
+fn a_unit_state_names_its_unit_and_its_character() {
+    let mut bytes = vec![0; 21];
+    bytes[..4].copy_from_slice(&7u32.to_le_bytes());
+    bytes[UNIT_STATE_SLOT..UNIT_STATE_SLOT + 2].copy_from_slice(&3u16.to_le_bytes());
+    let mut row = [0.; r::STRIDE];
+    row[r::ID] = UNIT_STATE_ID + 7.;
+    assert_eq!(unit_slot(&row, &bytes), Some((7, 3)));
+    assert_eq!(unit_slot(&row, &bytes[..UNIT_STATE_SLOT + 1]), None);
+    row[r::ID] = UNIT_STATE_ID + 8.;
+    assert_eq!(unit_slot(&row, &bytes), None);
+}

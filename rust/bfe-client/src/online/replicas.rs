@@ -204,6 +204,9 @@ pub struct Replicas {
     // bone whose frame holds its barrel tips, and the tips (one at the
     // bone's own place for a gun with no tips found). By registry class id.
     walker_guns: Vec<Vec<(usize, Vec<[f64; 3]>)>>,
+    // Each unit's Character (its roster slot) by unit id, with the life the
+    // unit's state summary named it for: whose droideka is a human's.
+    characters: std::collections::HashMap<u32, (u32, u16)>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -773,6 +776,7 @@ impl Replicas {
             dive_times,
             walker_rates,
             walker_guns,
+            characters: std::collections::HashMap::with_capacity(256),
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -1166,13 +1170,22 @@ impl Replicas {
             }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
         }
+        for field in receiver.publications.iter() {
+            if field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 6. {
+                if let Some((id, slot)) = super::hud_feed::unit_slot(&field.row, &field.bytes[..field.length]) {
+                    self.characters.insert(id, (field.row[r::GENERATION] as u32, slot));
+                }
+            }
+        }
         // Each drawn droideka's guns turn toward the point its aim is on: the
-        // player's own as the world finds it (the reticle's line); another's
-        // along its eye's line from its published aim, to the first surface
-        // or body (a bot's guns meet at its quarry, on that same line).
+        // player's own as the world finds it (the reticle's line); another
+        // player's by the same rule along his camera's line in third person
+        // (his view is not known here); a bot's along its eye's line from its
+        // published aim. Each to the first surface or body on that line (a
+        // bot's guns meet at its quarry, on its line).
         {
             let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
-            let (slots, units, scene) = (&self.slots, &mut self.units, self.shot_aim.borrow());
+            let (slots, units, scene, characters) = (&self.slots, &mut self.units, self.shot_aim.borrow(), &self.characters);
             for slot in slots.iter().filter(|slot| slot.active && slot.walker) {
                 let input = &units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
                 let feet = [input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]];
@@ -1181,7 +1194,10 @@ impl Replicas {
                 let target = if own {
                     scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
                 } else {
-                    slot.identity.and_then(|(id, _)| scene.walker_point(slot.class, id, feet, yaw, pitch, true))
+                    slot.identity.and_then(|(id, life)| {
+                        let eyes = !human(characters, &receiver.roster, id, life);
+                        scene.walker_point(slot.class, id, feet, yaw, pitch, eyes)
+                    })
                 };
                 // The player's own guns bring the barrel each fires next onto
                 // the point, as the world's do (the client's gun counter).
@@ -2373,4 +2389,39 @@ fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, held_na
         at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
         weapon,
     })
+}
+
+/// Whether unit `id`'s life `life` is a human's: the Character its state
+/// summary named for that life is a human on the roster.
+fn human(characters: &std::collections::HashMap<u32, (u32, u16)>, roster: &super::roster::Roster, id: u32, life: u32) -> bool {
+    characters
+        .get(&id)
+        .filter(|&&(named, _)| named == life)
+        .and_then(|&(_, character)| roster.rows().nth(character as usize))
+        .is_some_and(|(_, c)| c.human)
+}
+
+#[cfg(test)]
+mod walker_aim_tests {
+    use super::*;
+
+    // A droideka aims as a human's only for the life its state named a
+    // human's Character: a bot's, another life's, a unit without a
+    // Character (65535) or one never named keep a bot's eye line.
+    #[test]
+    fn a_droideka_is_a_humans_for_the_life_its_state_named() {
+        // The roster's frozen schema-4 publication: a human, then a bot.
+        let bytes = [
+            2, 0, 0, 0, 2, 1, 1, 7, 0, 1, 0, 3, 0, 4, 0, 1, 0, 1, 6, b'P', b'l', b'a', b'y', b'e',
+            b'r', 2, 0, 2, 0, 0, 0, 5, 0, 1, 0, 255, 255, 0, 3, b'B', b'o', b't',
+        ];
+        let mut roster = super::super::roster::Roster::default();
+        assert_eq!(roster.receive(4, 70000, &bytes), Some(()));
+        let characters = std::collections::HashMap::from([(7, (2, 0)), (8, (2, 1)), (9, (2, 65535))]);
+        assert!(human(&characters, &roster, 7, 2));
+        assert!(!human(&characters, &roster, 7, 3));
+        assert!(!human(&characters, &roster, 8, 2));
+        assert!(!human(&characters, &roster, 9, 2));
+        assert!(!human(&characters, &roster, 10, 2));
+    }
 }
