@@ -367,9 +367,9 @@ impl Replay {
         }
         let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
-        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        owner.configure_actor(&[0.]).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
-        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        owner.configure_actor(&[0.]).map_err(str::to_string)?;
         owner.prepare_actor_collision(&collision.borrow().state, installed.world);
         let arsenal = Box::new(super::checkpoint::Arsenal::new(&defs, &mut owner)?);
         let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
@@ -586,7 +586,7 @@ impl Replay {
         };
         let mut collision = self.collision.borrow_mut();
         if self.class != r.own.class {
-            self.owner.configure_actor(&[0.], &mut collision.state)?;
+            self.owner.configure_actor(&[0.])?;
             self.class = r.own.class;
         }
         let x = &mut self.words;

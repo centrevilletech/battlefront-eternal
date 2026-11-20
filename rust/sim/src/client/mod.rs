@@ -28,7 +28,6 @@ const SOLDIER: u32 = ClientActorKind::Soldier as u32;
 const DROIDEKA: u32 = ClientActorKind::Droideka as u32;
 // The internal proven kernels predate this frame ABI. Name their commands so
 // the client operation codes cannot be confused with a weapon restore or tick.
-const ACTOR_CONFIGURE: u32 = 0;
 const WEAPON_CONFIGURE: u32 = 0;
 const WEAPON_RESTORE: u32 = 1;
 const WEAPON_STEP: u32 = 2;
@@ -104,11 +103,10 @@ pub struct ClientPrediction {
 impl ClientPrediction {
     /// InfantryPrediction / DroidekaPrediction constructors resolved class
     /// clips once per body. Load them here, never while pending ticks replay.
-    pub fn configure_actor(&mut self, input: &[f64], collision: &mut State) -> Result<(), &'static str> {
+    pub fn configure_actor(&mut self, input: &[f64]) -> Result<(), &'static str> {
         commands::reserve(&mut self.command_rows);
         self.kind = match input.first() { Some(n) if *n == f64::from(SOLDIER) => SOLDIER, Some(n) if *n == f64::from(DROIDEKA) => DROIDEKA, _ => return Err(INVALID) };
-        self.actor.input.clear(); self.actor.input.extend_from_slice(input);
-        self.actor.run(ACTOR_CONFIGURE, collision)?;
+        self.actor.configure(input)?;
         self.configured = true; self.life = None;
         if let Some(h) = &mut self.hull { h.reset(); }
         Ok(())
