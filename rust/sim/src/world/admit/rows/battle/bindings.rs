@@ -202,7 +202,7 @@ pub fn hulls(world: &World, cx: &Cx) -> Result<Vec<units::HullBinding>, AdmitErr
         let model = def.get("model").and_then(Value::as_str).unwrap_or("");
         let sphere = cx.content.vehicle_templates.iter().find(|t| t.name == model).and_then(|t| t.rig.get("sphere")).and_then(Value::as_array);
         let (blast_center, blast_radius) = match sphere {
-            Some(s) => ([to_number(s.first()), to_number(s.get(1)), to_number(s.get(2))], to_number(s.get(3)).max(radius)),
+            Some(s) => hull_sphere(s, def.get("springs").and_then(Value::as_array).unwrap_or(&[])),
             None => (vehicle.center, radius),
         };
         let kernel = collision.kernel_slot(vehicle.body.slot).ok_or_else(|| error("a hull's body is outside the collision world"))? as u32;
@@ -220,4 +220,37 @@ pub fn fill(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
     if cx.ids.props.is_empty() { cx.ids.props = buildings(world, cx)?; }
     if cx.ids.hulls.is_empty() { cx.ids.hulls = hulls(world, cx)?; }
     Ok(())
+}
+
+/// A hull's sphere from its model's bounding sphere (`sphere`: centre and
+/// radius) and its hover springs: the original game widens the radius to
+/// take in each `AddSpringBody` sphere's reach from that centre, never to
+/// the hull's collision box. A blast and a mine's trigger measure to it.
+fn hull_sphere(sphere: &[Value], springs: &[Value]) -> ([f64; 3], f64) {
+    let center = [to_number(sphere.first()), to_number(sphere.get(1)), to_number(sphere.get(2))];
+    let reach = springs.iter().fold(0.0, |most: f64, spring| {
+        let at = spring.get("at").and_then(Value::as_array);
+        let axis = |i: usize| to_number(at.and_then(|a| a.get(i))) - center[i];
+        v8math::max(most, (axis(0) * axis(0) + axis(1) * axis(1) + axis(2) * axis(2)).sqrt() + to_number(spring.get("radius")))
+    });
+    (center, v8math::max(to_number(sphere.get(3)), reach))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hulls_sphere_takes_in_its_springs_and_never_its_box() {
+        let value = |text: &str| bfe_content::json::parse(text).expect("synthetic JSON");
+        let tank = value("[0, 0, -0.5, 4.8]");
+        let springs = value(r#"[{"at": [-1.8, 1.4, 1.7], "radius": 2.5}, {"at": [1.8, 1.4, 1.7], "radius": 2.5}, {"at": [0, 2.4, -2], "radius": 3.5}]"#);
+        let (center, radius) = hull_sphere(tank.as_array().unwrap(), springs.as_array().unwrap());
+        assert_eq!(center, [0.0, 0.0, -0.5]);
+        // The rear spring reaches |(0, 2.4, -1.5)| + 3.5 from the centre.
+        assert!((radius - ((2.4f64 * 2.4 + 1.5 * 1.5).sqrt() + 3.5)).abs() < 1e-12, "{radius}");
+        // A walker has no springs: the model's own radius.
+        let walker = value("[0, 4.2, 2.3, 10.97]");
+        assert_eq!(hull_sphere(walker.as_array().unwrap(), &[]), ([0.0, 4.2, 2.3], 10.97));
+    }
 }
