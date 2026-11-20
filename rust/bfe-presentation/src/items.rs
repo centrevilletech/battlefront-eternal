@@ -456,7 +456,7 @@ fn settle(b: &mut Body, normal: &Vector3) {
 }
 
 /// place: the model upright on its surface, facing its way.
-fn place(up: &Vector3, yaw: f64) -> Quaternion {
+pub fn place(up: &Vector3, yaw: f64) -> Quaternion {
     // The facing is the yaw's heading made level with the surface: the part along the normal
     // is taken out, and a heading straight up the normal falls back to +z.
     let mut forward = Vector3::new(v8math::sin(yaw), 0.0, v8math::cos(yaw));

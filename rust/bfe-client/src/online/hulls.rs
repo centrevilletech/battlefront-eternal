@@ -522,6 +522,23 @@ impl Hulls {
         let rider = self.models[slot.model].rider.get(seat)?;
         Some((rider.0.as_deref().unwrap_or(""), rider.1.as_deref().unwrap_or(""), rider.2))
     }
+    /// Whether a hull in the records is drawn this frame, and flies.
+    pub fn flies(&self, key: (u32, u32)) -> Option<bool> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        slot.active.then_some(self.models[slot.model].flying)
+    }
+    /// A hull's frame as this frame draws it (its root: the player's own
+    /// predicted hull, a hover's bob and lean).
+    pub fn drawn(&self, key: (u32, u32)) -> Option<Matrix4> {
+        let slot = &self.slots[*self.bound.get(&key)?];
+        if !slot.active {
+            return None;
+        }
+        let nodes = self.owner.slot_nodes(slot.rig, 0)?;
+        let mut frame = Matrix4::default();
+        frame.elements.copy_from_slice(&nodes[n::WORLD..n::WORLD + 16]);
+        Some(frame)
+    }
     pub fn rig(&self, id: f64, generation: f64) -> Option<usize> {
         self.bound.get(&(id as u32, generation as u32)).map(|i| self.slots[*i].rig)
     }

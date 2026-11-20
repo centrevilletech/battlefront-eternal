@@ -790,6 +790,7 @@ impl Replicas {
         }
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
+        self.items.ride(receiver, &self.hulls, dt);
         self.items.light(&mut self.lights);
         let own = (receiver.own.alive && receiver.own.mount.is_none()).then_some(receiver.own.position);
         self.combat.map_effects.wake(dt, own);
