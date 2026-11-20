@@ -563,7 +563,7 @@ impl UnitsWorld for ActorWorld<'_> {
         c: &Vector3,
         radius: f64,
         cache: usize,
-        visit: &mut dyn FnMut(bool, &[Vector3; 3]),
+        visit: &mut dyn FnMut(bool, f64, &[Vector3; 3]),
     ) {
         spheres::gather(
             self.collision,
@@ -578,9 +578,12 @@ impl UnitsWorld for ActorWorld<'_> {
         );
         for p in self.gathered.list() {
             for t in &p.tris {
-                visit(p.moving, &[t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])));
+                visit(p.moving, p.id, &[t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])));
             }
         }
+    }
+    fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<(f64, Vector3)> {
+        spheres::ground(self.collision, self.world, x, z, top).map(|(height, n)| (height, Vector3::new(n[0], n[1], n[2])))
     }
     fn death_blast(&mut self, _: u32, _: &mut Unit) {}
     fn blow_apart(&mut self, _: u32, _: &mut Unit, _: f64) {}

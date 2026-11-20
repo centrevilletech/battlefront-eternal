@@ -20,7 +20,8 @@ impl World {
 impl UnitsWorld for World {
     fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64) -> Option<CastHit> { None }
     fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
-        _: &mut dyn FnMut(bool, &[Vector3; 3])) {}
+        _: &mut dyn FnMut(bool, f64, &[Vector3; 3])) {}
+    fn ground(&mut self, _: f64, _: f64, _: f64) -> Option<(f64, Vector3)> { None }
     fn seat_exposed(&mut self, _: u32, _: &Unit) -> bool { self.exposed }
     fn rider_shapes(&mut self, _: u32, _: &Unit, out: &mut [HitShape]) -> usize { self.rider_samples += 1; self.shapes(out) }
     fn held_shapes(&mut self, _: u32, _: &Unit, out: &mut [HitShape]) -> usize { self.held_samples += 1; self.shapes(out) }

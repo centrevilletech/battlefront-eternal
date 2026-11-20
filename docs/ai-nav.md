@@ -341,7 +341,13 @@ the unit's executor (or null) so the end-of-path slowdown is right.
 
 Coefficients: forward MaxSpeed, strafe MaxStrafeSpeed, yaw MaxTurnSpeed and
 pitch MaxPitchSpeed, the port's `classDef` fields of the same names (falling
-back to the Soldier's `maxSpeed`, `maxStrafe`, `maxTurn`, `maxPitch`). Signs:
+back to the Soldier's `maxSpeed`, `maxStrafe`, `maxTurn`, `maxPitch`). A
+droideka's strafe coefficient is 0, as the original game passes it for that
+class: it walks forward only, as far as it faces its steering target, and
+turns to face that target. (Its strafe keys turn it; given the class's
+MaxStrafeSpeed, a droideka bot strafed toward its route while turning toward
+an enemy to the other side, the two cancelled, and it walked back and forth
+on the spot.) Signs:
 the original game's strafe and yaw analogs map straight onto the port's
 `right` (moves along (−cos yaw, 0, sin yaw)) and `turn` (positive decreases
 aimYaw), and its pitch analog onto `pitch` (positive raises the aim).

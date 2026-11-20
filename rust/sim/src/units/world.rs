@@ -23,11 +23,17 @@ pub trait UnitsWorld {
 
     /// cast(origin, direction, far, hit): the first hit within `far`.
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64) -> Option<CastHit>;
-    /// CollisionWorld.gather visits triangles in polygon order. Consumers
-    /// borrow each triangle during the visit; retained native gathers need no
-    /// second polygon list or copied triangle buffers for touchPolygons.
+    /// CollisionWorld.gather visits triangles in polygon order, each with
+    /// whether its polygon belongs to a moving body and the polygon's id
+    /// (unique in a gather). Consumers borrow each triangle during the
+    /// visit; retained native gathers need no second polygon list or copied
+    /// triangle buffers for touchPolygons.
     fn visit_gathered(&mut self, id: u32, center: &Vector3, radius: f64, cache: usize,
-        visit: &mut dyn FnMut(bool, &[Vector3; 3]));
+        visit: &mut dyn FnMut(bool, f64, &[Vector3; 3]));
+    /// ground(x, z, top): the terrain's height and face normal (turned up)
+    /// straight under (x, z), searched down from `top`; None without
+    /// terrain there.
+    fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<(f64, Vector3)>;
 
     // ---- Hit shapes on a seat or in a creature's hold.
 
