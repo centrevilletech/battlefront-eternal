@@ -127,9 +127,13 @@ impl Authority {
 
     /// `F3Items.flush`: a unit whose life changed
     /// gets a dispenser binding for every weapon level that dispenses an
-    /// item, keyed `NAME:body:SLOT:GENERATION:LIFE` where NAME is the
-    /// level's class; the native dispenser later asks for that key. The
-    /// first call only learns the lives the admission bound.
+    /// item, keyed `NAME:character:SLOT:GENERATION` by the character playing
+    /// it (or `NAME:body:SLOT:GENERATION:LIFE` for a body nobody plays),
+    /// where NAME is the level's class; the native dispenser later asks for
+    /// that key. One list per character and dispenser class, as the 2004
+    /// game keeps them: MaxItems counts a character's items across his
+    /// lives, and they outlive him. The first call only learns the lives the
+    /// admission bound.
     pub(super) fn bind_dispensers(&mut self, context: &Context) -> Result<(), String> {
         self.units.refresh(context, false)?;
         let mut changed = std::mem::take(&mut self.changed_lives);
@@ -167,7 +171,7 @@ impl Authority {
     fn bind_changed(&self, context: &Context, changed: &[usize]) -> Result<(), String> {
         for &i in changed {
             let unit = &self.units.rows()[i];
-            let (slot, generation, life) = (unit.slot, unit.gen, unit.life);
+            let (slot, generation, life, character) = (unit.slot, unit.gen, unit.life, unit.character);
             for weapon in self.units.weapons(unit) {
                 let levels = context
                     .weapon_levels(weapon.0)
@@ -180,13 +184,7 @@ impl Authority {
                     let name = context
                         .intern(&class)
                         .map_err(|e| e.message().to_string())?;
-                    let text = format!(
-                        "{}:body:{}:{}:{}",
-                        String::from_utf16_lossy(&class),
-                        slot,
-                        generation,
-                        jsrt::numfmt::number_to_string(life)
-                    );
+                    let text = owned_key_text(&String::from_utf16_lossy(&class), character, slot, generation, life);
                     let owned_key = intern(context, &text)?;
                     let binding = gen::F3DispenserBinding {
                         key: gen::F3UnitKey {
@@ -264,5 +262,33 @@ impl Authority {
             }
         }
         Ok(())
+    }
+}
+
+/// The name of the list a dispenser's items are counted in: the character
+/// playing the unit and the dispenser's class, whichever body and life he
+/// throws from; a body nobody plays keeps a list of its own life.
+pub(super) fn owned_key_text(class: &str, character: Option<crate::store::Ref<gen::Character>>, slot: u32, generation: u32, life: f64) -> String {
+    match character {
+        Some(c) => format!("{class}:character:{}:{}", c.slot, c.gen),
+        None => format!("{class}:body:{slot}:{generation}:{}", jsrt::numfmt::number_to_string(life)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::owned_key_text;
+    use crate::store::Ref;
+
+    #[test]
+    fn a_characters_dispenser_list_outlives_his_body() {
+        let character = Some(Ref::new(3, 1));
+        // Two lives in two bodies: one list, so MaxItems counts across them.
+        assert_eq!(owned_key_text("mines", character, 7, 2, 4.0), owned_key_text("mines", character, 11, 1, 5.0));
+        // Another character, or another dispenser class, keeps its own.
+        assert_ne!(owned_key_text("mines", character, 7, 2, 4.0), owned_key_text("mines", Some(Ref::new(4, 1)), 7, 2, 4.0));
+        assert_ne!(owned_key_text("mines", character, 7, 2, 4.0), owned_key_text("bombs", character, 7, 2, 4.0));
+        // A body nobody plays keeps one list a life.
+        assert_ne!(owned_key_text("mines", None, 7, 2, 4.0), owned_key_text("mines", None, 7, 2, 5.0));
     }
 }

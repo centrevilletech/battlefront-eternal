@@ -746,6 +746,24 @@ mod tests {
     }
 
     #[test]
+    fn a_characters_fifth_mine_pops_his_first_after_a_death() {
+        // One character's list, named the same for each of his lives: four
+        // mines out (MaxItems 4), a death, and the new life's first throw.
+        let mut w = stand(false, false);
+        let key = w.strings.intern_str("mines:character:3:1");
+        let mut cx = Cx::new(&mut w);
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let mines: Vec<_> = (0..4)
+            .map(|n| cx.dispense_prepared(key, &mut work, &mut spare, 4.0, DefId(0), [n as f64, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap())
+            .collect();
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let fifth = cx.dispense_prepared(key, &mut work, &mut spare, 4.0, DefId(0), [5.0, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap();
+        assert_eq!(cx.s().item.get(mines[0]).unwrap().gone, Some(true));
+        assert!(mines[1..].iter().chain([&fifth]).all(|&m| cx.s().item.get(m).unwrap().gone != Some(true)));
+        assert_eq!(cx.s().items.owned.get(key).unwrap().as_slice(), &[mines[1], mines[2], mines[3], fifth]);
+    }
+
+    #[test]
     fn a_mine_rides_the_hull_it_sticks_to() {
         let mut w = stand(false, true);
         let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);

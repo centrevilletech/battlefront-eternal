@@ -382,8 +382,8 @@ fn lease_rows(context: &Context) -> Result<Vec<(u32, gen::SeatLease)>, String> {
 
 /// What the host reads of the units, straight from the store
 /// (`store.unit`, slot order): each unit's slot, its reference's generation,
-/// its life, its team and its weapons' definitions. Kept on the authority
-/// and refilled in place, so reading it allocates nothing.
+/// its life, its team, its character and its weapons' definitions. Kept on
+/// the authority and refilled in place, so reading it allocates nothing.
 #[derive(Default)]
 pub(crate) struct UnitTable {
     rows: Vec<UnitFacts>,
@@ -397,6 +397,8 @@ pub(crate) struct UnitFacts {
     /// `unit.generation`, the life.
     pub life: f64,
     pub team: f64,
+    /// The character playing it, if any.
+    pub character: Option<crate::store::Ref<gen::Character>>,
     first: u32,
     count: u32,
 }
@@ -420,6 +422,7 @@ impl UnitTable {
                         gen: r.gen,
                         life: unit.generation,
                         team: unit.team,
+                        character: unit.character,
                         first,
                         count: if with_weapons { unit.combat.weapons.len() as u32 } else { 0 },
                     });
