@@ -82,6 +82,9 @@ pub struct Input {
     pub first: bool,
     pub responsive: bool,
     pub eye: Option<V>,
+    /// 0 to 1: how far the camera has gone from the posture's section to the
+    /// crouched one (a droideka going down into its ball and up again).
+    pub crouch: f64,
 }
 pub fn v(a: [f64; 3]) -> V {
     V::new(a[0], a[1], a[2])
@@ -138,7 +141,17 @@ impl Soldier {
         cam: &mut Camera,
         world: &mut C,
     ) {
-        let section = def.sections[input.posture.min(2) + if input.zoom > 1.0 { 3 } else { 0 }];
+        let mut section = def.sections[input.posture.min(2) + if input.zoom > 1.0 { 3 } else { 0 }];
+        if input.crouch > 0.0 {
+            let (low, k) = (def.sections[1], input.crouch.min(1.0));
+            let mix = |a: [f64; 3], b: [f64; 3]| -> [f64; 3] { std::array::from_fn(|i| a[i] + (b[i] - a[i]) * k) };
+            section = Section {
+                eye: mix(section.eye, low.eye),
+                center: mix(section.center, low.center),
+                offset: mix(section.offset, low.offset),
+                tilt: section.tilt + (low.tilt - section.tilt) * k,
+            };
+        }
         let base = if input.first || input.zoom > 1.0 {
             def.first
         } else {

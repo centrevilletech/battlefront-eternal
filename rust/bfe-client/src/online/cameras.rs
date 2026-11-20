@@ -180,7 +180,12 @@ impl Cameras {
                 .copied()
                 .unwrap_or(false);
         self.scoped_eye = scoped_eye;
-        self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye);
+        // The droideka's clip as it is drawn (the newest correction's without a drawn sample).
+        let walker = receiver.own.walker.then(|| prediction.walker.map_or((receiver.own.walker_mode, receiver.own.walker_time), |w| (w.mode, w.pose[3])));
+        // As in the 2004 game, a droideka hands its own eyes to the chase camera while it folds, rolls and
+        // unfolds, and takes them back once it stands; the player's choice of view is kept for then.
+        let rolled = walker.is_some_and(|(mode, _)| mode >= 11);
+        self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye) && !rolled;
         hulls.hidden = None;
         turrets.hidden = None;
         let body = (receiver.own.id, receiver.own.generation, receiver.own.class);
@@ -222,7 +227,7 @@ impl Cameras {
         x.fill(0.);
         x[f::VERSION] = VERSION as f64;
         x[f::DT] = dt;
-        x[f::FIRST_PERSON] = camera.first_person as u8 as f64;
+        x[f::FIRST_PERSON] = (camera.first_person && !rolled) as u8 as f64;
         x[f::OWN_EYES] = (self.eye_view && lease.is_none()) as u8 as f64;
         x[f::ZOOM] = receiver.own.zoom.max(1.);
         x[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
@@ -263,9 +268,11 @@ impl Cameras {
             x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&walker.velocity);
         }
         x.copy_within(f::FEET..f::FEET + 3, f::BODY_POSITION);
-        if receiver.own.walker {
+        if let Some((mode, time)) = walker {
             x[f::EYE_KIND] = eyes::DROIDEKA as f64;
-            x[f::EYE_ROLLED] = (receiver.own.walker_mode >= 11) as u8 as f64;
+            // Its camera takes the standing section, eased into the rolled one (CROUCH) by this share.
+            x[f::POSTURE] = 0.;
+            x[f::EYE_ROLLED] = rolled_share(mode, time);
             x[f::EYE_HEIGHT] = self.eye_heights.get(def_idx).copied().unwrap_or(1.8);
         } else {
             x[f::EYE_KIND] = eyes::INFANTRY as f64;
@@ -541,6 +548,23 @@ fn definition(class: &bfe_content::Value) -> bfe_presentation::cameras::soldier:
         first: bfe_content::odf::num(class.get("FirstPersonFOV"), 70.) * std::f64::consts::PI / 180.,
         third: bfe_content::odf::num(class.get("ThirdPersonFOV"), 65.) * std::f64::consts::PI / 180.,
         sections,
+    }
+}
+
+/// How far a droideka's chase camera has gone from its standing section to its rolled one (CROUCH), 0 to 1, at
+/// `time` into its drawn mode. The 2004 game takes the rolled section for the fold and the ball and the standing
+/// one again as the unfold begins, its camera following each change at 15/s; here each change is also spread over
+/// the first half second of the fold or of the unfold, so the camera sets off without a jolt.
+fn rolled_share(mode: u8, time: f64) -> f64 {
+    let ease = |x: f64| {
+        let x = (x / 0.5).clamp(0., 1.);
+        x * x * (3. - 2. * x)
+    };
+    match mode {
+        11 => ease(time),
+        12 => 1.,
+        13 => 1. - ease(time),
+        _ => 0.,
     }
 }
 
