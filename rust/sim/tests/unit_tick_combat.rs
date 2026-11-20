@@ -11,6 +11,9 @@ use three::Vector3;
 struct World {
     defs:CombatDefs,scratch:Scratch,order:u8,updates:usize,aims:usize,
     releases:usize,respawns:usize,draws:usize,
+    // A droideka's guns, what its aim line meets (None: nothing), and the
+    // rounds fired (from, direction).
+    guns:Vec<Vector3>,next:usize,reach:Option<f64>,fired:Vec<(Vector3,Vector3)>,
 }
 impl World {
     fn new() -> Self {
@@ -41,7 +44,7 @@ impl CombatWorld for World {
     fn lock_key(&mut self,_:Option<RepairTarget>)->StrId {StrId(0)}
     fn repair(&mut self,_:u32,_:Option<RepairTarget>,_:f64,_:&mut Unit,_:&mut Combat)->bool {false}
     fn lock_pick(&mut self,_:u32,_:&Weapon,_:&Vector3,_:&Vector3)->LockPick {LockPick::Nothing}
-    fn fire_round(&mut self,_:&Vector3,_:&Vector3,_:&Shot,_:bool,_:Option<(f64,f64)>,_:&mut Unit,_:&mut Combat) {}
+    fn fire_round(&mut self,from:&Vector3,dir:&Vector3,_:&Shot,_:bool,_:Option<(f64,f64)>,_:&mut Unit,_:&mut Combat) {self.fired.push((*from,*dir));}
     fn dispense(&mut self,_:u32,_:f64,_:&Vector3,_:&Vector3,_:f64,_:f64,_:&mut Unit,_:&mut Combat)->bool {false}
     fn melee_strike(&mut self,_:&mut Unit,_:&mut Combat) {}
     fn arc_targets(&mut self)->Vec<ArcTarget> {Vec::new()}
@@ -53,8 +56,14 @@ impl CombatWorld for World {
     fn blown_apart(&mut self,_:f64,_:&mut Unit,_:&mut Combat) {}
     fn respawn(&mut self,_:&mut Unit,_:&mut Combat) {self.respawns+=1;}
     fn presentation(&mut self,_:&Presentation) {}
-    fn next_gun(&mut self,_:&mut Unit,_:&mut Combat)->Option<Vector3> {None}
-    fn gun_at(&mut self,_:(f64,f64))->Option<Vector3> {None}
+    fn next_gun(&mut self,u:&mut Unit,_:&mut Combat)->Option<Vector3> {
+        if self.guns.is_empty() {return None;}
+        let index=self.next%self.guns.len();self.next+=1;
+        if let UnitBody::Droideka(d)=&mut u.soldier {d.last_gun=Some(LastGun {index:index as f64,barrel:0.});}
+        Some(self.guns[index])
+    }
+    fn gun_at(&mut self,(index,_):(f64,f64))->Option<Vector3> {self.guns.get(index as usize).copied()}
+    fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64)->f64 {self.reach.unwrap_or(far)}
     fn shield_hit(&mut self,_:f64,_:f64,_:Option<Vector3>,_:bool) {}
     fn draw_combat(&mut self,_:bool)->f64 {self.draw(0)}
     fn text(&self,_:StrId)->String {String::new()}
@@ -98,7 +107,7 @@ impl UnitsWorld for World {
         let defs=std::mem::take(&mut self.defs);
         let mut pending=std::mem::take(&mut self.scratch.pending);
         let mut c=std::mem::take(&mut u.combat);
-        combat::flush_muzzles_buffered(&mut c,u,&defs,&Edges::default(),self,&mut pending);
+        combat::flush_muzzles_buffered(&mut c,u,&defs,self,&mut pending);
         u.combat=c;self.defs=defs;self.scratch.pending=pending;
     }
     fn clear_charge(&mut self,_:u32,_:&mut Unit) {}
@@ -147,4 +156,50 @@ fn corpse_updates_real_combat_until_its_ordered_removal() {
     assert!(unit.removed);assert_eq!(world.releases,1);assert_eq!(world.respawns,1);
     assert_eq!(world.updates,241);assert_eq!(world.aims,0);assert_eq!(world.draws,0);
     assert_eq!(unit.combat.health,0.);
+}
+
+// A droideka player's two guns take turns, and each bolt crosses the point
+// its reticle is on: in third person the first thing along the chase
+// camera's line (a wall 20 m out here), level with its eye; in first person
+// the first thing along its eye's line. Before, they met 512 m out along the
+// eye's line and passed 2 m from what the reticle was on at 20 m.
+#[test]
+fn a_droideka_players_bolts_cross_the_point_under_its_reticle() {
+    use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
+    let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
+    let mut world=World::new();
+    world.defs.weapons.set(DefId(1),WeaponClass::new(object(vec![("base",Js::Str("cannon".into())),("channel",Js::Num(0.)),
+        ("ShotDelay",Js::Num(0.11)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+        ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(80.))])))])));
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("walkerdroid".into())),("weapons",Js::Arr(Rc::new(vec![
+        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))])))]));
+    world.guns=vec![Vector3::new(0.7,0.8,1.04),Vector3::new(-0.7,0.8,1.04)];
+    world.reach=Some(20.);
+    let (yaw,pitch)=(0.3,-0.05);
+    let droideka=Droideka {position:[3.,1.,-2.],aim_yaw:yaw,aim_pitch:pitch,eye_height:1.8,pitch_limits:[-0.44,0.44],
+        track_center:[0.,1.8,0.],track_offset:[0.,0.5,4.5],track_tilt:5f64.to_radians(),grounded:true,..Default::default()};
+    for first in [false,true] {
+        let mut unit=Unit {class_def:DefId(0),alive:true,human:true,soldier:UnitBody::Droideka(droideka.clone()),
+            controls:Controls {was:[0.;2],pressed:vec![true,false]},..Default::default()};
+        unit.combat=Combat {health:450.,max_health:450.,player:true,first_person:first,defer_muzzles:true,
+            weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
+        unit.intent.buttons=[1.,0.];
+        world.fired.clear();world.next=0;
+        for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+        let feet=Vector3::new(3.,1.,-2.);let eye=Vector3::new(3.,1.+1.8,-2.);
+        let stand=bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:[0.,1.8,0.],offset:[0.,0.5,4.5],tilt:5f64.to_radians()};
+        let (start,direction)=bfe_presentation::aim::walker_line::<bfe_presentation::cameras::math::V8>(feet,yaw,pitch,eye,(!first).then_some(&stand));
+        let mut point=start;point.add_scaled_vector(&direction,20.);
+        assert!(world.fired.len()>=2,"the held trigger fires both guns: {} rounds",world.fired.len());
+        for (n,(from,dir)) in world.fired.iter().enumerate() {
+            assert_eq!(*from,world.guns[n%2],"the guns take turns");
+            let mut to=point;to.sub(from);
+            let along=to.dot(dir);let mut miss=*from;miss.add_scaled_vector(dir,along);
+            assert!(miss.distance_to(&point)<1e-9,"bolt {n} misses the reticle's point by {}",miss.distance_to(&point));
+        }
+        // Third person, the reticle's line runs 0.89 m above the eye, where
+        // the 2004 game starts it (0.5 cos 5 + 4.5 sin 5 for this camera).
+        let mut rise=start;rise.sub(&eye);
+        assert!((rise.length()-if first {0.} else {0.5*5f64.to_radians().cos()+4.5*5f64.to_radians().sin()}).abs()<1e-12);
+    }
 }

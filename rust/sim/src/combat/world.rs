@@ -213,6 +213,17 @@ pub trait CombatWorld: WeaponDraws {
     fn next_gun(&mut self, unit: &mut Unit, combat: &mut Combat) -> Option<Vector3>;
     /// gunAt(out, selected).
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3>;
+    /// How far along a droideka player's aim line the first thing his shots
+    /// can meet lies: terrain, buildings, props and hulls, then soldiers and
+    /// droids where his screen showed them, his own body left out; `far`
+    /// when nothing is in the way. A world without collision has nothing.
+    fn aim_reach(&mut self, _unit: &Unit, _origin: &Vector3, _direction: &Vector3, far: f64) -> f64 {
+        far
+    }
+    /// A bot droideka's quarry's aim point (its weapon's target), if any.
+    fn bot_target_point(&mut self) -> Option<Vector3> {
+        None
+    }
     /// (`left`: the shield's value after it took `taken`, as the hook finds it.)
     fn shield_hit(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
 

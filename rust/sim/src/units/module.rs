@@ -439,7 +439,7 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
         if unit.combat.pending_muzzles.is_empty() { return; }
 
             let mut pending = std::mem::take(&mut self.scratch.pending);
-            self.on_combat(id, unit, |c, u, defs, edges, w| cb::flush_muzzles_buffered(c, u, defs, edges, w, &mut pending));
+            self.on_combat(id, unit, |c, u, defs, _, w| cb::flush_muzzles_buffered(c, u, defs, w, &mut pending));
             self.scratch.pending = pending;
 
     }

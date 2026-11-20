@@ -167,6 +167,10 @@ pub struct Replicas {
     dive_times: Vec<f64>,
     // By class: a droideka's AnimationSpeed, the rate its mode clips play at.
     walker_rates: Vec<f64>,
+    // A droideka class's guns, as its world rig hangs them: for each gun the
+    // bone whose frame holds its barrel tips, and the tips (one at the
+    // bone's own place for a gun with no tips found). By registry class id.
+    walker_guns: Vec<Vec<(usize, Vec<[f64; 3]>)>>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -204,14 +208,20 @@ impl Replicas {
         // definitions as the server. Numeric handles resolve before frames.
         let defs = content.defs()?;
         let registry = &defs.registry;
-        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.}; registry.classes.len()+1];
+        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.,walker:None}; registry.classes.len()+1];
         for class in &defs.classes {
             let Some(id)=class.registry_id else {continue};
             let cameras=class.record.get("cameras");
             let track=std::array::from_fn(|i| cameras.and_then(|c| c.get(["STAND","CROUCH","PRONE"][i]).or_else(||c.get("STAND")))
                 .and_then(|s|s.get("TrackOffset")).and_then(bfe_content::Value::as_array)
                 .and_then(|a|a.get(2)).and_then(bfe_content::Value::as_f64).unwrap_or(3.5));
-            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.)};
+            // A droideka aims from its eye height and its STAND camera, as
+            // the world's droideka does (units::class::droideka_body).
+            let walker=class.walker_clips.is_some().then(|| {
+                let body=bfe_sim::units::class::droideka_body(&class.record,-1.,0.);
+                (body.eye_height,bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:body.track_center,offset:body.track_offset,tilt:body.track_tilt})
+            });
+            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.),walker};
         }
 
         let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
@@ -387,6 +397,17 @@ impl Replicas {
                 content.content.actors[body].0.clone()
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
+        }
+        let mut walker_guns = vec![Vec::new(); classes.len()];
+        for class in &defs.classes {
+            let (Some(id), Some(model)) = (class.registry_id, class.registry_id.and_then(|id| classes[id as usize])) else { continue };
+            walker_guns[id as usize] = class.droideka_guns.iter().map(|gun| {
+                let parent = models[model].parents.get(gun.bone).copied().filter(|&p| p >= 0 && gun.bone != 0);
+                match (&gun.tips, parent) {
+                    (Some(tips), Some(parent)) => (parent as usize, tips.iter().map(|t| [t.x, t.y, t.z]).collect()),
+                    _ => (gun.bone, vec![[0.; 3]]),
+                }
+            }).collect();
         }
         // buildBody: a class's OverrideTexture re-skins its body.
         // A class the world can field but no body draws would fight unseen.
@@ -713,6 +734,7 @@ impl Replicas {
             sun_seen: 1.,
             dive_times,
             walker_rates,
+            walker_guns,
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -758,16 +780,33 @@ impl Replicas {
                 shot.posture,
                 shot.air,
             );
-            let (collision, world) = (&self.collision, self.world);
             let [yaw, pitch] = shot.fire;
-            let origin = if shot.walker { [shot.position[0], shot.position[1] + 1., shot.position[2]] } else { [basis.origin.x, basis.origin.y, basis.origin.z] };
+            let mut origin = [basis.origin.x, basis.origin.y, basis.origin.z];
+            let mut aim = [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()];
+            if shot.walker {
+                // As the world fires it: from the gun its counter names, to
+                // the point under the reticle (combat's droideka_target).
+                let (muzzle, feet) = self.walker_muzzle(receiver, shot.gun);
+                let feet = feet.unwrap_or(shot.position);
+                origin = muzzle.unwrap_or([feet[0], feet[1] + 1., feet[2]]);
+                let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
+                if let Some(target) = self.shot_aim.borrow().walker_target(&receiver.own, feet, yaw, pitch, eyes) {
+                    let d: [f64; 3] = std::array::from_fn(|k| target[k] - origin[k]);
+                    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+                    // Never back through the droideka (combat's gun_line).
+                    if length > 1e-9 && d[0] * aim[0] + d[1] * aim[1] + d[2] * aim[2] > 0. {
+                        aim = d.map(|x| x / length);
+                    }
+                }
+            }
+            let (collision, world) = (&self.collision, self.world);
             self.combat.predict(
                 shot.weapon,
                 shot.level,
                 shot.tick,
                 shot.button,
                 origin,
-                [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
+                aim,
                 shot.spread,
                 &mut |from, direction, far| {
                     let ray = bfe_sim::collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
@@ -2063,6 +2102,29 @@ impl Replicas {
 }
 
 impl Replicas {
+    /// Where the player's droideka's gun `gun` (its gun counter) is drawn,
+    /// barrels alternating as the world's nextGun takes them, and where its
+    /// feet are drawn. None before its body is drawn.
+    fn walker_muzzle(&mut self, receiver: &Receiver, gun: f64) -> (Option<[f64; 3]>, Option<[f64; 3]>) {
+        use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let Some(slot) = self.bound.get(&own).map(|&at| &self.slots[at]).filter(|slot| slot.active && slot.walker) else { return (None, None) };
+        let row = &self.units.output[slot.actor * o::STRIDE..];
+        let feet = [row[o::POSITION], row[o::POSITION + 1], row[o::POSITION + 2]];
+        let Some(guns) = self.walker_guns.get(slot.class).filter(|guns| !guns.is_empty()) else { return (None, Some(feet)) };
+        let count = guns.len() as f64;
+        let (bone, tips) = &guns[(gun % count) as usize];
+        let tip = tips[((gun / count).floor() % tips.len() as f64) as usize];
+        let actor = slot.actor;
+        self.units.refresh_actor(actor);
+        let node = (self.units.actor_node_start(actor) + bone + 2) * STRIDE + WORLD;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+        let mut point = three::Vector3::new(tip[0], tip[1], tip[2]);
+        point.apply_matrix4(&matrix);
+        (Some([point.x, point.y, point.z]), Some(feet))
+    }
+
     pub fn capture_shot_scene(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {
         use bfe_sim::units::shapes::{soldier_shapes,HitPosture,HitShape,Half};
         let mut scene=self.shot_aim.borrow_mut();

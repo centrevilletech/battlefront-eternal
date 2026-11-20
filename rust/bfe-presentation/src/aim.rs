@@ -32,6 +32,24 @@ impl Basis {
     }
 }
 
+/// The line a droideka's shots converge along, as the 2004 game draws it
+/// for a player: in third person the chase camera's line along the aim,
+/// from where the camera rests (`camera`: the STAND section, never pulled
+/// in at a wall), started level with the eye; in first person or zoomed
+/// (`camera` None) the eye's own line. The reticle sits on this line, so
+/// the first thing along it is what the reticle is on. Returns the line's
+/// start and direction.
+pub fn walker_line<M:Math>(feet:V,yaw:f64,pitch:f64,eye:V,camera:Option<&crate::cameras::soldier::Section>)->(V,V) {
+    use crate::cameras::math::{euler,rotate};
+    let direction=V::new(M::sin(yaw)*M::cos(pitch),M::sin(pitch),M::cos(yaw)*M::cos(pitch));
+    let Some(section)=camera else {return (eye,direction)};
+    let pivot=crate::cameras::soldier::pivot::<M>(feet,yaw,crate::cameras::soldier::v(section.center));
+    let q=euler::<M>(pitch-section.tilt,yaw+std::f64::consts::PI,0.0,false);
+    let rest=add(pivot,rotate(crate::cameras::soldier::v(section.offset),q));
+    let along=sub(eye,rest).dot(&direction);
+    (plus(rest,direction,along),direction)
+}
+
 // Command preview and replay use this same gun/eye geometry. Collision is
 // supplied afterwards so neither owner calls a foreign object per command.
 #[derive(Clone,Copy,Default)]
@@ -87,5 +105,21 @@ mod tests {
         }
         view.uses_eye=false;view.walker=true;
         assert!(!view.sample::<V8>().needs_reach);
+    }
+    #[test]
+    fn a_walkers_line_is_the_chase_cameras_level_with_its_eye() {
+        use crate::cameras::soldier::Section;
+        // The droideka's STAND camera: its line runs 0.5 cos 5 + 4.5 sin 5
+        // (0.890) m above the eye, square to the aim, whatever the aim.
+        let stand=Section{eye:[0.;3],center:[0.,1.8,0.],offset:[0.,0.5,4.5],tilt:5f64.to_radians()};
+        let rise=0.5*5f64.to_radians().cos()+4.5*5f64.to_radians().sin();
+        for (yaw,pitch) in [(0.,0.),(1.2,0.3),(-2.5,-0.4)] {
+            let (feet,eye)=(V::new(4.,-1.,7.),V::new(4.,0.8,7.));
+            let (start,direction)=walker_line::<V8>(feet,yaw,pitch,eye,Some(&stand));
+            let off=sub(start,eye);
+            assert!((off.length()-rise).abs()<1e-12&&off.dot(&direction).abs()<1e-12);
+            assert!(off.y>0.&&off.dot(&V::new(yaw.cos(),0.,-yaw.sin())).abs()<1e-12);
+            assert_eq!(walker_line::<V8>(feet,yaw,pitch,eye,None),(eye,direction));
+        }
     }
 }

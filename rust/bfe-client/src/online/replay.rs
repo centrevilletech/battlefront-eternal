@@ -223,8 +223,10 @@ pub struct Shot {
     pub fire: [f64; 2],
     pub posture: usize,
     pub air: bool,
-    // A droideka's: from its eye, a metre up, not a soldier's gun origin.
+    // A droideka's, from its gun counter's gun (`gun`) to the point its
+    // reticle is on, not from a soldier's gun origin along the aim.
     pub walker: bool,
+    pub gun: f64,
 }
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
@@ -275,6 +277,9 @@ pub struct Replay {
     shot_delays: Vec<f64>,
     walker_next: f64,
     walker_ahead: bool,
+    // The ticks of the droideka rounds shown ahead of the world: those after
+    // its last correction move the world's gun counter on.
+    walker_fired: Vec<f64>,
     // The reason and life whose prediction last failed, logged once.
     failed: Option<(&'static str, [f64; 3])>,
 }
@@ -357,6 +362,7 @@ impl Replay {
             shot_delays: defs.weapons.iter().map(|weapon| weapon.record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.) * 60.).collect(),
             walker_next: 0.,
             walker_ahead: false,
+            walker_fired: Vec::with_capacity(16),
             failed: None,
         })
     }
@@ -451,6 +457,7 @@ impl Replay {
             self.shown_tick = 0.;
             self.smoother.reset();
             self.walker_next = 0.;
+            self.walker_fired.clear();
         }
         self.life = life;
         self.weapon_count = 0;
@@ -517,6 +524,11 @@ impl Replay {
                     self.walker_next = r.latest + weapon.wait.max(0.) * 60.;
                 } else if delay > 0. && r.latest >= self.walker_next {
                     let aim = sender.fire_aim.unwrap_or([sender.yaw, sender.pitch]);
+                    // The world fired every round up to its correction's tick.
+                    self.walker_fired.retain(|&tick| tick > r.own.tick);
+                    if self.walker_fired.len() == self.walker_fired.capacity() { self.walker_fired.remove(0); }
+                    let gun = r.own.walker_gun + self.walker_fired.len() as f64;
+                    self.walker_fired.push(r.latest + 1.);
                     self.shots.push(Shot {
                         tick: r.latest + 1.,
                         weapon: index,
@@ -529,6 +541,7 @@ impl Replay {
                         posture: 0,
                         air: false,
                         walker: true,
+                        gun,
                     });
                     self.walker_next = r.latest.max(self.walker_next) + delay;
                 }
@@ -693,6 +706,7 @@ impl Replay {
                         posture: body.posture as usize,
                         air: body.air.is_some(),
                         walker: false,
+                        gun: 0.,
                     });
                 }
                 self.shots = shots;
