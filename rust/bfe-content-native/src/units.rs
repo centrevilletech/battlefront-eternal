@@ -330,7 +330,7 @@ pub fn first_person_descriptor(
 
 /// droideka.js::DroidekaAnimator and unitContent. Reuse the native skinned
 /// roll-axle derivation; a bind-pose bounding box is not its folded wheel axis.
-pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64, blasters: Vec<usize>, aimer: [f64; 6]) -> Input {
+pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64, blasters: Vec<usize>, aimer: [f64; 6], tips: Vec<Vec<[f64; 3]>>) -> Input {
     use bfe_pose::{
         rig::{
             droideka::{roll_axle, SkinnedBody},
@@ -410,6 +410,7 @@ pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64, blasters: Vec<usiz
         roll_center: [center.x, center.y, center.z],
         blasters,
         aimer,
+        tips,
     });
     input
 }

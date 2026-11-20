@@ -29,6 +29,9 @@ struct WalkerGuns {
     aims: [[f64; 2]; 2],
     aimer: bfe_pose::rig::droideka_guns::Aimer,
     target: Option<Vector3>,
+    /// The barrel each gun fires next where the client knows it (the
+    /// player's own droideka), else past the gun's barrels.
+    barrels: [usize; 2],
 }
 
 struct Actor {
@@ -182,13 +185,20 @@ impl Units {
             let bind: Vec<_> = data.skeleton.bind.iter().map(|b| b.quaternion).collect();
             let mounts = bfe_pose::rig::droideka_guns::mounts(&w.blasters, &data.skeleton.parents, &bind);
             let [yaw_rate, pitch_rate, yaw_low, yaw_high, pitch_low, pitch_high] = w.aimer;
-            (mounts.len() == w.blasters.len()).then(|| WalkerGuns {
-                guns: bfe_pose::rig::droideka_guns::Guns::new(mounts),
-                aims: [[0.0; 2]; 2],
-                aimer: bfe_pose::rig::droideka_guns::Aimer {
-                    yaw_rate, pitch_rate, yaw: [yaw_low, yaw_high], pitch: [pitch_low, pitch_high],
-                },
-                target: None,
+            (mounts.len() == w.blasters.len()).then(|| {
+                let mut guns = bfe_pose::rig::droideka_guns::Guns::new(mounts);
+                if w.tips.len() == w.blasters.len() {
+                    guns.tips = w.tips.iter().map(|tips| tips.iter().map(|t| Vector3::new(t[0], t[1], t[2])).collect()).collect();
+                }
+                WalkerGuns {
+                    guns,
+                    aims: [[0.0; 2]; 2],
+                    aimer: bfe_pose::rig::droideka_guns::Aimer {
+                        yaw_rate, pitch_rate, yaw: [yaw_low, yaw_high], pitch: [pitch_low, pitch_high],
+                    },
+                    target: None,
+                    barrels: [usize::MAX; 2],
+                }
             })
         });
         let walker = data.walker.as_ref().map(|w| {
@@ -337,10 +347,13 @@ impl Units {
     }
 
     /// The point a drawn droideka's guns turn toward from its next pose
-    /// (None: back to the clip's line).
-    pub fn aim_walker(&mut self, id: usize, target: Option<[f64; 3]>) {
+    /// (None: back to the clip's line), and the barrel each gun fires next
+    /// where that is known (`usize::MAX` where not): that barrel's line is
+    /// the one brought onto the point.
+    pub fn aim_walker(&mut self, id: usize, target: Option<[f64; 3]>, barrels: [usize; 2]) {
         if let Some(g) = self.actors.get_mut(id).and_then(|a| a.guns.as_mut()) {
             g.target = target.map(|t| Vector3::new(t[0], t[1], t[2]));
+            g.barrels = barrels;
         }
     }
 
@@ -758,7 +771,7 @@ impl Units {
                     if let Some(g) = &mut a.guns {
                         g.guns.pose(&mut a.rig.tree, &a.rig.bones, &g.aims);
                         let target = g.target.filter(|_| d.mode < bfe_pose::rig::droideka::FOLD && !d.dead);
-                        g.guns.aim(&mut a.rig.tree, &a.rig.bones, &mut g.aims, target.as_ref(), a.pose_clock, &g.aimer);
+                        g.guns.aim(&mut a.rig.tree, &a.rig.bones, &mut g.aims, &g.barrels, target.as_ref(), a.pose_clock, &g.aimer);
                         if input[i::OWN] != 0.0 {
                             self.own_gun_aims = g.aims;
                         }

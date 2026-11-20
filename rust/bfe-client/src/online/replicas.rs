@@ -1177,12 +1177,22 @@ impl Replicas {
                 let input = &units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
                 let feet = [input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]];
                 let (yaw, pitch) = (input[i::YAW], input[i::PITCH]);
-                let target = if input[i::OWN] != 0. {
+                let own = input[i::OWN] != 0.;
+                let target = if own {
                     scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
                 } else {
                     slot.identity.and_then(|(id, _)| scene.walker_point(slot.class, id, feet, yaw, pitch, true))
                 };
-                units.aim_walker(slot.actor, target);
+                // The player's own guns bring the barrel each fires next onto
+                // the point, as the world's do (the client's gun counter).
+                let barrels = match self.walker_guns.get(slot.class).filter(|_| own) {
+                    Some(guns) => {
+                        let counts = [0, 1].map(|g| guns.get(g).map_or(0, |(_, tips)| tips.len()));
+                        bfe_pose::rig::droideka::next_barrels(prediction.walker_next_gun(receiver), &counts[..guns.len().min(2)])
+                    }
+                    None => [usize::MAX; 2],
+                };
+                units.aim_walker(slot.actor, target, barrels);
             }
         }
         // Every body of this frame is bound: show what the server said of them.

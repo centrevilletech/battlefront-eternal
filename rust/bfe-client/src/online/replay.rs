@@ -246,6 +246,12 @@ impl WalkerGuns {
         self.fired.clear();
         self.older = (0., f64::NEG_INFINITY);
     }
+    /// The gun counter the next round will take, the world's having been
+    /// `gun` at its correction of `corrected` (nothing recorded).
+    fn peek(&self, gun: f64, corrected: f64) -> f64 {
+        let older = if self.older.1 > corrected { self.older.0 } else { 0. };
+        gun + older + self.fired.iter().filter(|&&t| t > corrected).count() as f64
+    }
     /// The gun counter for a round shown at `tick`, the world's counter
     /// having been `gun` at its correction of `corrected`.
     fn next(&mut self, gun: f64, corrected: f64, tick: f64) -> f64 {
@@ -317,6 +323,12 @@ pub struct Replay {
     failed: Option<(&'static str, [f64; 3])>,
 }
 impl Replay {
+    /// The gun counter the player's droideka's next round will take: the
+    /// world's at its last correction, moved on by the rounds shown since.
+    pub fn walker_next_gun(&self, r: &Receiver) -> f64 {
+        self.walker_guns.peek(r.own.walker_gun, r.own.tick)
+    }
+
     /// The mounted subject stays out of its camera and aiming rays.
     pub fn mounted_body(&self, receiver: &Receiver) -> Option<u32> {
         use bfe_presentation::network_layout::{net_kind as k, net_record as r};

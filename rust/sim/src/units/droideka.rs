@@ -513,7 +513,7 @@ pub fn turn_guns(unit: &mut Unit, dt: f64, target: Option<&Vector3>, parts: &mut
         yaw_rate: d.gun_rates[0], pitch_rate: d.gun_rates[1], yaw: d.gun_yaw_limits, pitch: d.gun_pitch_limits,
     };
     let mut aims = [[d.gun_yaw[0], d.gun_pitch[0]], [d.gun_yaw[1], d.gun_pitch[1]]];
-    rig.aim_guns(&mut aims, target, dt, &aimer);
+    rig.aim_guns(&mut aims, d.gun, target, dt, &aimer);
     d.gun_yaw = [aims[0][0], aims[1][0]];
     d.gun_pitch = [aims[0][1], aims[1][1]];
 }

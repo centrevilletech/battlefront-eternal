@@ -163,6 +163,9 @@ pub fn aimer_of(class: &bfe_content::Value) -> Aimer {
 pub struct Guns {
     pub mounts: Vec<Mount>,
     pub rest: Vec<Quaternion>,
+    /// Each gun's barrel tips in its bone's frame, where its rounds leave
+    /// (none: from the bone's own line).
+    pub tips: Vec<Vec<Vector3>>,
     /// The turn last written on each gun's bone: a bone the clip has not
     /// posed again since still holds it, and its rest is the one kept.
     written: Vec<Option<Quaternion>>,
@@ -172,7 +175,38 @@ impl Guns {
     pub fn new(mounts: Vec<Mount>) -> Guns {
         let rest = vec![Quaternion::default(); mounts.len()];
         let written = vec![None; mounts.len()];
-        Guns { mounts, rest, written }
+        let tips = vec![Vec::new(); mounts.len()];
+        Guns { mounts, rest, tips, written }
+    }
+
+    /// Back to a new life's state: the clip's rest taken afresh at the next
+    /// pose, nothing written.
+    pub fn reset(&mut self) {
+        self.rest.fill(Quaternion::default());
+        self.written.fill(None);
+    }
+
+    /// Where gun `g`'s round leaves, in the world, as the tree stands (its
+    /// matrices up to date down to the gun's bone): the tip of `barrel`, the
+    /// middle of its tips where that barrel is not known, else the bone's
+    /// own place.
+    fn tip(&self, tree: &TransformTree, bones: &[NodeId], g: usize, barrel: usize) -> Vector3 {
+        let world = &tree.node(bones[self.mounts[g].bone]).matrix_world;
+        let tips = &self.tips[g];
+        let mut at = match tips.get(barrel) {
+            Some(tip) => *tip,
+            None if !tips.is_empty() => {
+                let mut sum = Vector3::default();
+                for tip in tips {
+                    sum.add(tip);
+                }
+                sum.multiply_scalar(1.0 / tips.len() as f64);
+                sum
+            }
+            None => Vector3::default(),
+        };
+        at.apply_matrix4(world);
+        at
     }
 
     /// After the clip's pose: keep each blaster's turn as posed (a bone the
@@ -200,9 +234,8 @@ impl Guns {
     }
 
     /// Gun `g` as it stands: where it turns, the world turn of its aimer's
-    /// frame at rest, and its barrels' line (a point of it: the joint, here,
-    /// as the line runs through it; and its direction). The tree's world
-    /// matrices are brought up to date along the way.
+    /// frame at rest, and the direction its barrels point along. The tree's
+    /// world matrices are brought up to date along the way.
     pub fn frame(&self, tree: &mut TransformTree, bones: &[NodeId], g: usize) -> Option<(Vector3, Quaternion, Vector3)> {
         let mount = self.mounts.get(g)?;
         let node = bones[mount.bone];
@@ -236,11 +269,17 @@ impl Guns {
     }
 
     /// Step every gun's aimer toward `target` (None: back to rest) and turn
-    /// them: `aims` in and out.
-    pub fn aim(&mut self, tree: &mut TransformTree, bones: &[NodeId], aims: &mut [[f64; 2]], target: Option<&Vector3>, dt: f64, aimer: &Aimer) {
+    /// them: `aims` in and out. `barrels`: the barrel each gun fires next (a
+    /// number past its barrels where that is not known), whose line is the
+    /// one brought onto the point, its offset from the joint taken out.
+    #[allow(clippy::too_many_arguments)]
+    pub fn aim(&mut self, tree: &mut TransformTree, bones: &[NodeId], aims: &mut [[f64; 2]], barrels: &[usize],
+        target: Option<&Vector3>, dt: f64, aimer: &Aimer)
+    {
         for g in 0..self.mounts.len().min(aims.len()) {
             let Some((pivot, rest, along)) = self.frame(tree, bones, g) else { continue };
-            aims[g] = step(aims[g], &rest, &pivot, &pivot, &along, target, dt, aimer);
+            let line = self.tip(tree, bones, g, barrels.get(g).copied().unwrap_or(usize::MAX));
+            aims[g] = step(aims[g], &rest, &pivot, &line, &along, target, dt, aimer);
         }
         self.turn(tree, bones, aims);
     }
@@ -350,7 +389,7 @@ mod tests {
         let mut aims = [[0.0, 0.0]];
         let mut ticks = 0;
         loop {
-            guns.aim(&mut tree, &bones, &mut aims, Some(&point), 1.0 / 60.0, &aimer);
+            guns.aim(&mut tree, &bones, &mut aims, &[usize::MAX], Some(&point), 1.0 / 60.0, &aimer);
             ticks += 1;
             let (pivot, _, along) = guns.frame(&mut tree, &bones, 0).unwrap();
             let mut to = point;
@@ -367,7 +406,7 @@ mod tests {
         assert!((aims[0][0] - yaw).abs() < 1e-12 && (aims[0][1] - pitch).abs() < 1e-12);
         // Back to rest when the aim is gone, as fast.
         for _ in 0..6 {
-            guns.aim(&mut tree, &bones, &mut aims, None, 1.0 / 60.0, &aimer);
+            guns.aim(&mut tree, &bones, &mut aims, &[usize::MAX], None, 1.0 / 60.0, &aimer);
         }
         assert_eq!(aims[0], [0.0, 0.0]);
     }
@@ -389,6 +428,85 @@ mod tests {
         tree.node_mut(bones[0]).copy_quaternion(&posed);
         guns.pose(&mut tree, &bones, &[[0.0, 0.0]]);
         assert_eq!(guns.rest[0], tree.node(bones[0]).quaternion);
+    }
+
+    // The droideka's barrels sit either side of its gun's line (0.07 m
+    // across on the bone's Z): the aimer brings the line of the barrel that
+    // fires next, not the joint, onto the point, so that barrel's round,
+    // leaving its tip along the gun, crosses the point itself, at 5, 20 and
+    // 50 m, for either barrel.
+    #[test]
+    fn the_firing_barrels_line_not_the_joint_meets_the_point() {
+        for (k, distance) in [5.0, 20.0, 50.0].into_iter().enumerate() {
+            for barrel in 0..2 {
+                let (mut tree, bones, mut guns) = rig();
+                guns.tips = vec![vec![Vector3::new(0.722, -0.008, -0.07), Vector3::new(0.722, -0.008, 0.07)]];
+                let aimer = Aimer::default();
+                let (yaw, pitch): (f64, f64) = ([0.05, -0.02, 0.01][k], [0.2, 0.08, 0.03][k]);
+                let mut point = Vector3::new(0.5, 0.8, 0.72);
+                point.add_scaled_vector(&Vector3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()), distance);
+                let mut aims = [[0.0, 0.0]];
+                for _ in 0..90 {
+                    guns.aim(&mut tree, &bones, &mut aims, &[barrel], Some(&point), 1.0 / 60.0, &aimer);
+                }
+                tree.update_world_matrix(bones[0], true, false);
+                let mut tip = guns.tips[0][barrel];
+                tip.apply_matrix4(&tree.node(bones[0]).matrix_world);
+                let along = guns.along(&mut tree, &bones, 0).unwrap();
+                let mut to = point;
+                to.sub(&tip);
+                let mut miss = tip;
+                miss.add_scaled_vector(&along, to.dot(&along));
+                assert!(miss.distance_to(&point) < 1e-9, "{distance} m, barrel {barrel}: misses by {}", miss.distance_to(&point));
+                // The joint's own line passes beside it, by about the offset.
+                let (pivot, _, _) = guns.frame(&mut tree, &bones, 0).unwrap();
+                let mut to = point;
+                to.sub(&pivot);
+                let mut beside = pivot;
+                beside.add_scaled_vector(&along, to.dot(&along));
+                assert!(beside.distance_to(&point) > 0.06, "{}", beside.distance_to(&point));
+            }
+        }
+    }
+
+    // A point behind the gun turns it to its limits and no further; a point
+    // on its own line's nearest place to the joint leaves it as it is. No
+    // angle comes out undefined.
+    #[test]
+    fn a_point_behind_the_gun_or_at_its_joint_leaves_it_defined() {
+        let (mut tree, bones, mut guns) = rig();
+        let aimer = Aimer { yaw: [-40f64.to_radians(), 40f64.to_radians()], pitch: [-25f64.to_radians(), 25f64.to_radians()], ..Default::default() };
+        let mut aims = [[0.0, 0.0]];
+        let behind = Vector3::new(0.6, 0.9, -10.0);
+        for _ in 0..120 {
+            guns.aim(&mut tree, &bones, &mut aims, &[usize::MAX], Some(&behind), 1.0 / 60.0, &aimer);
+            assert!(aims[0][0].is_finite() && aims[0][1].is_finite());
+            assert!(aims[0][0].abs() <= 40f64.to_radians() + 1e-12 && aims[0][1].abs() <= 25f64.to_radians() + 1e-12);
+        }
+        assert!(aims[0][0].abs() > 39f64.to_radians(), "it swings to a limit: {:?}", aims);
+        let (mut tree, bones, mut guns) = rig();
+        let mut aims = [[0.1, 0.05]];
+        let at = Vector3::new(0.5, 0.8, 0.72);
+        guns.aim(&mut tree, &bones, &mut aims, &[usize::MAX], Some(&at), 1.0 / 60.0, &aimer);
+        assert_eq!(aims, [[0.1, 0.05]]);
+    }
+
+    // The world's gun counter runs 0..3 for two guns of two barrels: gun 0
+    // barrel 0, gun 1 barrel 0, gun 0 barrel 1, gun 1 barrel 1. Each gun's
+    // next barrel is the one of its next turn.
+    #[test]
+    fn each_gun_aims_the_barrel_of_its_next_turn() {
+        use super::super::droideka::next_barrels;
+        assert_eq!(next_barrels(0.0, &[2, 2]), [0, 0]);
+        assert_eq!(next_barrels(1.0, &[2, 2]), [1, 0]);
+        assert_eq!(next_barrels(2.0, &[2, 2]), [1, 1]);
+        assert_eq!(next_barrels(3.0, &[2, 2]), [0, 1]);
+        // A client's counter counts on past the world's turn of four.
+        assert_eq!(next_barrels(6.0, &[2, 2]), next_barrels(2.0, &[2, 2]));
+        // A gun without barrels, and none at all.
+        assert_eq!(next_barrels(1.0, &[2, 0]), [1, usize::MAX]);
+        assert_eq!(next_barrels(1.0, &[]), [usize::MAX; 2]);
+        assert_eq!(next_barrels(f64::NAN, &[2, 2]), [usize::MAX; 2]);
     }
 
     // The droideka's class names no rates (2 and 1 rad/s) and gives its
@@ -415,7 +533,7 @@ mod tests {
         let mut aims = [[0.0, 0.0]];
         let point = Vector3::new(10.0, -8.0, 1.5);
         for _ in 0..120 {
-            guns.aim(&mut tree, &bones, &mut aims, Some(&point), 1.0 / 60.0, &aimer);
+            guns.aim(&mut tree, &bones, &mut aims, &[usize::MAX], Some(&point), 1.0 / 60.0, &aimer);
         }
         assert_eq!(aims[0], [40f64.to_radians(), -25f64.to_radians()]);
     }
