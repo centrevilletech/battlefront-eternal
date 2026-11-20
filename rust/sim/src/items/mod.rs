@@ -23,6 +23,18 @@ const HARD: f64 = 1.0; // m/s into a surface that bounces rather than settles
 const PICKUP_DELAY: f64 = 0.5; // s a flying item can't be taken
 const FLOOR: f64 = -500.0;
 pub const MINE_SINK: f64 = 0.2; // m/s
+
+/// The name of the list a dispenser's items are counted in (MaxItems): the
+/// character playing the unit and the dispenser's class, whichever body and
+/// life he throws from, as the original game keeps one list per character
+/// slot in the dispenser's class; a body nobody plays keeps a list of its
+/// own life. The admission and the host bind with this one text.
+pub fn owned_key_text(class: &str, character: Option<Ref<Character>>, slot: u32, generation: u32, life: f64) -> String {
+    match character {
+        Some(c) => format!("{class}:character:{}:{}", c.slot, c.gen),
+        None => format!("{class}:body:{slot}:{generation}:{}", jsrt::numfmt::number_to_string(life)),
+    }
+}
 const SOLDIER_RADIUS: f64 = 0.35; // m, the soldier's body for pickups
 const SOLDIER_HEIGHT: f64 = 1.55; // m
 
@@ -97,6 +109,11 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             life,
             health,
             gone: None,
+            carrier: None,
+            carrier_life: 0.0,
+            carried: [0.0; 3],
+            carried_up: UP,
+            carried_forward: [0.0, 0.0, 1.0],
         };
         let r = self.s().item.insert(item);
         self.place(r);
@@ -270,19 +287,27 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         while at < self.s().items.items.len() {
             let r = self.s().items.items[at];
             at += 1;
-            let (gone, life, y) = {
+            let gone = {
                 let i = self.item(r);
-                if i.gone == Some(true) {
-                    (true, 0.0, 0.0)
-                } else {
+                if i.gone != Some(true) {
                     i.age += dt;
                     i.life -= dt;
-                    (false, i.life, i.position[1])
                 }
+                i.gone == Some(true)
             };
             if gone {
                 continue;
             }
+            // A carried mine is first put where its hull has taken it, as
+            // the 2004 game does, so a time bomb on a moving hull goes off
+            // there.
+            if self.item(r).carrier.is_some() {
+                self.carry(r, dt);
+            }
+            let (life, y) = {
+                let i = self.item(r);
+                (i.life, i.position[1])
+            };
             if life <= 0.0 || y < FLOOR {
                 // A time bomb's timer ran out: it goes off where it lies.
                 if life <= 0.0 {
@@ -362,9 +387,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     /// contact: what the item meets between where it was and where
     /// it is.
     fn contact(&mut self, r: Ref<Item>) {
-        let (position, previous, def) = {
+        let (position, previous, def, mine, owner, young) = {
             let i = self.item(r);
-            (i.position, i.previous, i.def)
+            (i.position, i.previous, i.def, i.mine, i.owner, i.life.is_finite() && i.age < 0.5)
         };
         let ray = sub(position, previous);
         let length = crate::ordnance::math::length(ray);
@@ -373,8 +398,46 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         let ray = divide(ray, length);
         let start = add_scaled(previous, ray, -0.05);
-        let Some(hit) = self.w.item_cast(start, ray, length + 0.1) else { return };
+        let hit = self.w.item_cast(start, ray, length + 0.1);
+        // A mine meets soldiers and droids too, team mates included, and
+        // bounces off them rather than sticking, as the 2004 game's do. Its
+        // thrower is left out only for the first 0.5 s of an item with a
+        // LifeSpan (a time bomb); a land mine meets him too, but not while it
+        // is still inside him as the step starts (leaving his hand). A body
+        // the mine is moving away from does not turn it; one it starts
+        // inside of and moves into (a team mate point blank) does. A raised
+        // droideka shield does not stop a mine: in the 2004 game a mine in
+        // flight passes its bubble to the body behind it.
+        if mine {
+            let left_out = match owner {
+                ItemOwner::Unit(unit) if young => OrdnanceOwner::Unit(unit),
+                ItemOwner::Player if young => OrdnanceOwner::Player,
+                _ => OrdnanceOwner::Null,
+            };
+            let mut met = self.w.raycast_units(start, ray, length + 0.1, left_out, None, None, None, false);
+            if let (Some(body), ItemOwner::Unit(thrower)) = (&met, owner) {
+                if body.distance <= 0.0 && body.unit == thrower {
+                    met = self.w.raycast_units(start, ray, length + 0.1, OrdnanceOwner::Unit(thrower), None, None, None, false);
+                }
+            }
+            if let Some(body) = met {
+                if hit.as_ref().is_none_or(|h| body.distance < h.distance) && self.bounce_off_body(r, body.point, body.normal) {
+                    return;
+                }
+            }
+        }
+        let Some(hit) = hit else { return };
         let n = hit.normal;
+        // The hull it met, if it met one. A ridden animal is met as a living
+        // body: a mine bounces off it.
+        let hull = hit.body.and_then(|body| self.w.hull_of(body));
+        if mine && hull.is_some_and(|hull| self.w.creature(hull)) {
+            self.bounce_off_body(r, hit.point, n);
+            return;
+        }
+        // And that hull's frame, if it can be undone.
+        let hull = hull.and_then(|hull| self.s().vehicle.get(hull).map(|v| (hull, v.target_generation, v.matrix)))
+            .filter(|&(_, _, matrix)| three::Matrix4 { elements: matrix }.determinant() != 0.0);
         let (rebound, friction) = {
             let d = self.item_def(def);
             (d.rebound.or_nullish(0.3), d.friction.or_nullish(0.5))
@@ -389,6 +452,18 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             // Stuck, upright on the surface (resting on it, the port's choice).
             i.position = add_scaled(hit.point, n, i.radius * 0.3);
             settle(i, n);
+            // On a hull it rides along, held where it stuck in the hull's
+            // frame, as the 2004 game's mines do.
+            if let Some((carrier, life, matrix)) = hull {
+                let mut inverse = three::Matrix4 { elements: matrix };
+                inverse.invert();
+                let forward = [sin(i.yaw), 0.0, cos(i.yaw)];
+                i.carrier = Some(carrier);
+                i.carrier_life = life;
+                i.carried = transform_point(&inverse, i.position);
+                i.carried_up = transform_direction(&inverse, i.up);
+                i.carried_forward = transform_direction(&inverse, forward);
+            }
             return;
         }
         if d > -HARD {
@@ -396,13 +471,54 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             settle(i, n);
             return;
         }
-        i.position = add_scaled(hit.point, n, 0.02);
-        let mut v = add_scaled(v, n, -d);
-        let along = crate::ordnance::math::length(v);
-        if along > 1e-6 {
-            v = scale(v, 1.0 - js_min((friction * -d * (1.0 + rebound)) / along, 1.0));
+        rebound_off(i, hit.point, n, d, rebound, friction);
+    }
+
+    /// bounce_off_body: off a body, by the item's Rebound and Friction; one moving
+    /// away from the body's surface goes on as it was (false).
+    fn bounce_off_body(&mut self, r: Ref<Item>, point: Vec3, n: Vec3) -> bool {
+        let def = self.item(r).def;
+        let (rebound, friction) = {
+            let d = self.item_def(def);
+            (d.rebound.or_nullish(0.3), d.friction.or_nullish(0.5))
+        };
+        let i = self.item(r);
+        let d = dot(i.velocity, n);
+        if d < 0.0 {
+            rebound_off(i, point, n, d, rebound, friction);
         }
-        i.velocity = add_scaled(v, n, rebound * -d);
+        d < 0.0
+    }
+
+    /// carry: a mine stuck to a hull goes where the hull has taken the
+    /// place it stuck to, turned with it, still at rest on it (no velocity of
+    /// its own); the tick the hull dies or is gone (cleared away, or another
+    /// life of its slot) it falls from there, moving as the hull carried it
+    /// over the last step.
+    fn carry(&mut self, r: Ref<Item>, dt: f64) {
+        let (carrier, life) = {
+            let i = self.item(r);
+            (i.carrier, i.carrier_life)
+        };
+        let frame = carrier.and_then(|hull| self.s().vehicle.get(hull))
+            .filter(|v| v.alive && v.target_generation == life)
+            .map(|v| v.matrix);
+        let i = self.item(r);
+        let Some(matrix) = frame else {
+            i.carrier = None;
+            i.landed = false;
+            if dt > 0.0 {
+                i.velocity = divide(sub(i.position, i.previous), dt);
+            }
+            return;
+        };
+        let m = three::Matrix4 { elements: matrix };
+        let forward = transform_direction(&m, i.carried_forward);
+        i.previous = i.position;
+        i.position = transform_point(&m, i.carried);
+        i.up = transform_direction(&m, i.carried_up);
+        i.yaw = v8math::atan2(forward[0], forward[2]);
+        self.place(r);
     }
 
     /// place: the model upright on its surface, facing its way.
@@ -457,6 +573,36 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 fire = true;
             }
         }
+        // The other stuck mines are about too, as in the 2004 game: an
+        // enemy's within reach of its own sphere sets this one off (it stands
+        // still, so it is never closing in), a friend's within SuppressRadius
+        // holds it.
+        for at in 0..self.s().items.items.len() {
+            let other = self.s().items.items[at];
+            if other == r {
+                continue;
+            }
+            let (stuck, other_team, centre, radius) = {
+                let i = self.item(other);
+                (i.mine && i.landed && i.gone != Some(true), i.team, i.position, i.radius)
+            };
+            if !stuck {
+                continue;
+            }
+            let relation = self.w.teams(other_team, team);
+            let gap = length_sq(sub(centre, position));
+            if relation > 0.0 {
+                let reach = suppress_radius.num() + radius;
+                if suppress_radius.positive() && gap < reach * reach {
+                    return;
+                }
+            } else if relation < 0.0 {
+                let reach = trigger_radius.num() + radius;
+                if gap < reach * reach {
+                    fire = true;
+                }
+            }
+        }
         if !fire {
             return;
         }
@@ -499,10 +645,436 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 }
 
+/// The bounce off a surface with normal `n` met at `d` (the velocity along
+/// `n`, below 0): the part into it gone, then Friction times it times
+/// (1 + Rebound) of the rest, and back out at Rebound times it.
+fn rebound_off(i: &mut Item, point: Vec3, n: Vec3, d: f64, rebound: f64, friction: f64) {
+    i.position = add_scaled(point, n, 0.02);
+    let mut v = add_scaled(i.velocity, n, -d);
+    let along = crate::ordnance::math::length(v);
+    if along > 1e-6 {
+        v = scale(v, 1.0 - js_min((friction * -d * (1.0 + rebound)) / along, 1.0));
+    }
+    i.velocity = add_scaled(v, n, rebound * -d);
+}
+
+/// A point and a direction by a matrix (three.js applyMatrix4 and
+/// transformDirection).
+fn transform_point(m: &three::Matrix4, p: Vec3) -> Vec3 {
+    let mut v = three::Vector3::new(p[0], p[1], p[2]);
+    v.apply_matrix4(m);
+    [v.x, v.y, v.z]
+}
+fn transform_direction(m: &three::Matrix4, d: Vec3) -> Vec3 {
+    let mut v = three::Vector3::new(d[0], d[1], d[2]);
+    v.transform_direction(m);
+    [v.x, v.y, v.z]
+}
+
 /// settle: landed, upright on what it touches.
 fn settle(i: &mut Item, normal: Vec3) {
     i.landed = true;
     i.sinking = false;
     i.velocity = [0.0, 0.0, 0.0];
     i.up = normal;
+}
+
+#[cfg(test)]
+mod tests {
+    //! Items against a stand-in world: a floor at y = 0, a hull's deck at
+    //! y = 1 over 3 <= x <= 6 (while the hull has not moved; the hull a ridden
+    //! animal or not), and one soldier standing as a sphere of radius 0.9 about
+    //! (2, 0.9, 0), whom the units' cast leaves out when he is the owner.
+    use super::*;
+    use crate::ordnance::defs::Defs;
+    use crate::store::{Nullable, RefSet, StrId, Strings};
+
+    const MINE: DefId = DefId(0);
+    const TIME_BOMB: DefId = DefId(1);
+    const POWERUP: DefId = DefId(2);
+    const LANDMINE: DefId = DefId(3);
+
+    struct Stand {
+        store: Store,
+        strings: Strings,
+        defs: Defs,
+        soldier: Option<Ref<Unit>>,
+        deck: Option<(Ref<Body>, Ref<Vehicle>)>,
+        creature: bool,
+        // The one thing a mine watches.
+        target: Option<Watch>,
+    }
+
+    /// What the stand-in's mine watches, measured as F3 measures it.
+    enum Watch {
+        /// The deck's hull: its blast sphere from its model's sphere and its
+        /// springs (the admission's hull_sphere), turned with its matrix.
+        Hull { relation: f64, sphere: &'static str, springs: &'static str, velocity: Vec3 },
+        /// The soldier, by his stance (F3's unit_sphere), standing still.
+        Soldier { relation: f64 },
+    }
+
+    impl World for Stand {
+        fn store(&self) -> &Store { &self.store }
+        fn store_mut(&mut self) -> &mut Store { &mut self.store }
+        fn strings_mut(&mut self) -> &mut Strings { &mut self.strings }
+        fn definitions(&self) -> &Defs { &self.defs }
+        fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit> {
+            let mut best: Option<Hit> = None;
+            let mut plane = |height: f64, body: Option<Ref<Body>>, within: &dyn Fn(Vec3) -> bool| {
+                if direction[1] >= 0.0 { return; }
+                let distance = (height - origin[1]) / direction[1];
+                let point = add_scaled(origin, direction, distance);
+                if distance >= 0.0 && distance <= far && within(point) && best.as_ref().is_none_or(|b| distance < b.distance) {
+                    best = Some(Hit { distance, point, normal: UP, terrain: body.is_none(), body });
+                }
+            };
+            plane(0.0, None, &|_| true);
+            if let Some((body, hull)) = self.deck {
+                if self.store.vehicle.get(hull).is_some_and(|v| v.alive && v.matrix[12] == 0.0) {
+                    plane(1.0, Some(body), &|p| (3.0..=6.0).contains(&p[0]));
+                }
+            }
+            best
+        }
+        fn hull_of(&mut self, body: Ref<Body>) -> Option<Ref<Vehicle>> {
+            self.deck.filter(|&(b, _)| b == body).map(|(_, hull)| hull)
+        }
+        fn creature(&mut self, _hull: Ref<Vehicle>) -> bool { self.creature }
+        fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, _history_tick: Option<f64>, _ignore_body: Option<Ref<Body>>, _mount: Option<Ref<Vehicle>>, _bubbles: bool) -> Option<UnitHit> {
+            let unit = self.soldier?;
+            if owner == OrdnanceOwner::Unit(unit) { return None; }
+            // The ray against the sphere about (2, 0.9, 0), met at once from
+            // inside, as the units' cast does.
+            let to = sub([2.0, 0.9, 0.0], origin);
+            let c = dot(to, to) - 0.81;
+            let b = dot(to, direction);
+            let distance = if c <= 0.0 { 0.0 } else if b < 0.0 || b * b < c { return None } else { b - (b * b - c).sqrt() };
+            if distance > far { return None; }
+            let point = add_scaled(origin, direction, distance);
+            Some(UnitHit { unit, distance, point, normal: normalize(sub(point, [2.0, 0.9, 0.0])), part: Nullable::Null })
+        }
+        fn item_model(&mut self, _def: DefId) -> ItemModel { ItemModel { mesh: true, radius: 0.2, center: None } }
+        fn owner_key(&mut self, _owner: ItemOwner) -> String { "thrower".into() }
+        fn item_water_crossing(&mut self, _from: Vec3, _to: Vec3) -> Option<Vec3> { None }
+        fn cast(&mut self, _origin: Vec3, _direction: Vec3, _far: f64, _out: Out, _ignore_body: Nullable<Ref<Body>>, _static_only: Option<bool>) -> Option<Hit> { unimplemented!() }
+        fn cast_moving(&mut self, _origin: Vec3, _direction: Vec3, _far: f64, _out: Out, _ignore_body: Nullable<Ref<Body>>) -> Option<Hit> { unimplemented!() }
+        fn rider_mount(&mut self, _body: Nullable<Ref<Body>>) -> Option<RiderMount> { unimplemented!() }
+        fn fat_query(&mut self, _center: Vec3, _radius: f64, _owner: OrdnanceOwner, _struck: &RefSet<Unit>, _ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>> { unimplemented!() }
+        fn unit_sphere(&mut self, _unit: Ref<Unit>) -> Option<(Vec3, f64)> { unimplemented!() }
+        fn is_droid(&mut self, _unit: Ref<Unit>) -> bool { unimplemented!() }
+        fn gone(&mut self, _x: BeamSource) -> bool { unimplemented!() }
+        fn beam_local_origin(&mut self, _source: BeamSource, _origin: Vec3) -> Option<Vec3> { unimplemented!() }
+        fn beam_pose(&mut self, _source: BeamSource, _local_origin: Vec3, _position: &mut Vec3, _direction: &mut Vec3) { unimplemented!() }
+        fn shot_tick(&mut self, _owner: OrdnanceOwner, _channel: f64) -> Nullable<f64> { unimplemented!() }
+        fn history_tick(&mut self) -> f64 { unimplemented!() }
+        fn shooter(&mut self, _owner: OrdnanceOwner, _channel: f64) -> Shooter { unimplemented!() }
+        fn missile_target(&mut self, _target_id: f64, _target_generation: f64) -> Option<Vec3> { unimplemented!() }
+        fn navigate_missile(&mut self, _position: Vec3, _velocity: &mut Vec3, _flight_class: Option<StrId>, _target_id: f64, _target_generation: f64, _dt: f64) -> f64 { unimplemented!() }
+        fn water_crossing(&mut self, _from: Vec3, _to: Vec3) -> Option<Vec3> { unimplemented!() }
+        fn waver(&mut self) -> f64 { unimplemented!() }
+        fn spin(&mut self) -> f64 { unimplemented!() }
+        fn explosion(&mut self, _def: &Field, _position: Vec3, _owner: OrdnanceOwner) { unimplemented!() }
+        fn hit(&mut self, _body: Ref<Body>, _def: DefArg, _owner: OrdnanceOwner, _direction: Vec3) { unimplemented!() }
+        fn hit_unit(&mut self, _unit: Ref<Unit>, _def: DefArg, _point: Point, _owner: OrdnanceOwner, _part: Nullable<HitPart>, _direction: Vec3) { unimplemented!() }
+        fn projectile(&mut self, _shot: Shot, _kind: ShotKind) { unimplemented!() }
+        fn launch(&mut self, _bolt: Ref<Bolt>, _tick: Nullable<f64>) { unimplemented!() }
+        fn impact(&mut self, _shot: Shot, _info: &ImpactInfo) { unimplemented!() }
+        fn grenade_contact(&mut self, _grenade: Ref<Grenade>) { unimplemented!() }
+        fn bounce(&mut self, _def: DefId, _position: Vec3, _speed: f64) { unimplemented!() }
+        fn blocked(&mut self, _position: Vec3, _target: Vec3) -> bool { unimplemented!() }
+        fn drop_roll(&mut self) -> f64 { unimplemented!() }
+        fn explode(&mut self, _def: &Field, _position: Vec3, _owner: ItemOwner) { unimplemented!() }
+        fn watch(&mut self, _index: usize, _team: f64) -> Watched {
+            match self.target.as_ref().expect("a watched target") {
+                Watch::Hull { relation, sphere, springs, velocity } => {
+                    let parse = |text: &str| bfe_content::json::parse(text).expect("synthetic JSON");
+                    let (sphere, springs) = (parse(sphere), parse(springs));
+                    let (center, radius) = crate::world::admit::rows::battle::bindings::hull_sphere(
+                        sphere.as_array().unwrap(), springs.as_array().unwrap());
+                    let (_, hull) = self.deck.expect("the watched hull");
+                    let mut matrix = three::Matrix4::default();
+                    matrix.elements = self.store.vehicle.get(hull).unwrap().matrix;
+                    let mut center = three::Vector3::new(center[0], center[1], center[2]);
+                    center.apply_matrix4(&matrix);
+                    Watched { relation: *relation, center: [center.x, center.y, center.z], radius, velocity: *velocity }
+                }
+                Watch::Soldier { relation } => {
+                    let unit = self.store.unit.get(self.soldier.expect("the watched soldier")).unwrap();
+                    let (center, radius) = crate::units::f3_items::unit_sphere(unit, None);
+                    Watched { relation: *relation, center, radius, velocity: [0.0; 3] }
+                }
+            }
+        }
+        fn standing(&mut self, _index: usize) -> Vec3 { unimplemented!() }
+        fn give(&mut self, _index: usize, _def: DefId) -> bool { unimplemented!() }
+        fn pickup(&mut self, _def: DefId, _position: Vec3) { unimplemented!() }
+    }
+
+    fn stand(soldier: bool, deck: bool) -> Stand {
+        let mut store = Store::default();
+        let soldier = soldier.then(|| store.unit.insert(Unit::default()));
+        let deck = deck.then(|| {
+            let body = Ref::<Body>::new(7, 1);
+            let mut identity = [0.0; 16];
+            for i in [0, 5, 10, 15] { identity[i] = 1.0; }
+            let hull = store.vehicle.insert(Vehicle { body, matrix: identity, target_generation: 1.0, alive: true, ..Default::default() });
+            (body, hull)
+        });
+        let num = |x: f64| Field::Num(x);
+        let item = |base: &str, life_span: Field| ItemDef {
+            base: Field::Str(base.into()), gravity: num(1.0), rebound: num(0.0), friction: num(1.0),
+            life_span, max_health: num(200.0), health_type: Field::Undefined,
+            explosion_death: Field::Undefined, explosion_trigger: Field::Undefined, explosion_expire: Field::Undefined,
+            trigger_radius: Field::Undefined, suppress_radius: Field::Undefined,
+        };
+        let mut landmine = item("mine", Field::Undefined);
+        landmine.trigger_radius = num(1.0);
+        landmine.explosion_trigger = num(1.0);
+        let defs = Defs { item: vec![item("mine", Field::Undefined), item("mine", num(5.0)), item("powerupitem", num(30.0)), landmine], ..Default::default() };
+        Stand { store, strings: Strings::default(), defs, soldier, deck, creature: false, target: None }
+    }
+
+    /// An item of `def` thrown by `owner` from `from` at `velocity`, flown
+    /// for two seconds.
+    fn throw_as(w: &mut Stand, def: DefId, owner: ItemOwner, from: Vec3, velocity: Vec3) -> Ref<Item> {
+        let mut cx = Cx::new(w);
+        let item = cx.spawn(def, from, velocity, 0.0, owner, 1.0).expect("room for an item");
+        for _ in 0..120 { cx.items_update(1.0 / 60.0, 0); }
+        item
+    }
+    fn throw(w: &mut Stand, from: Vec3, velocity: Vec3) -> Ref<Item> { throw_as(w, MINE, ItemOwner::Null, from, velocity) }
+    fn at(w: &Stand, item: Ref<Item>) -> &Item { w.store.item.get(item).unwrap() }
+
+    #[test]
+    fn a_mine_bounces_off_a_soldier() {
+        // Thrown level at 4 m/s from 1.5 m up, it would land 2.2 m away,
+        // beyond the soldier; it meets him at 1.1 m and drops at his feet.
+        let mut w = stand(false, false);
+        let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, mine).position[0] > 2.1 && at(&w, mine).position[0] < 2.3, "{:?}", at(&w, mine).position);
+        let mut w = stand(true, false);
+        let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, mine).landed && at(&w, mine).position[0] > 1.0 && at(&w, mine).position[0] < 1.2, "{:?}", at(&w, mine).position);
+        // Thrown from inside its thrower's body, it leaves him, even heading
+        // down and on through his middle.
+        let mut w = stand(true, false);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let mine = throw_as(&mut w, MINE, thrower, [2.1, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, mine).position[0] > 4.2 && at(&w, mine).position[0] < 4.4, "{:?}", at(&w, mine).position);
+        let mut w = stand(true, false);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let mine = throw_as(&mut w, MINE, thrower, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
+        assert!(at(&w, mine).landed && at(&w, mine).position[0] > 3.0, "{:?}", at(&w, mine).position);
+        // Thrown point blank into a team mate (someone else's mine starting
+        // inside him): it does not fly through him, it drops at his feet.
+        let mut w = stand(true, false);
+        let mine = throw(&mut w, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
+        assert!(at(&w, mine).landed && at(&w, mine).position[0] < 2.6, "{:?}", at(&w, mine).position);
+        // A power-up passes him.
+        let mut w = stand(true, false);
+        let powerup = throw_as(&mut w, POWERUP, ItemOwner::Null, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, powerup).position[0] > 2.1 && at(&w, powerup).position[0] < 2.3, "{:?}", at(&w, powerup).position);
+    }
+
+    #[test]
+    fn its_thrower_is_left_out_only_while_a_time_bomb_is_young() {
+        // A land mine meets even its thrower; a time bomb not in its first 0.5 s.
+        let mut w = stand(true, false);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let mine = throw_as(&mut w, MINE, thrower, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, mine).position[0] > 1.0 && at(&w, mine).position[0] < 1.2, "{:?}", at(&w, mine).position);
+        let bomb = throw_as(&mut w, TIME_BOMB, thrower, [0.0, 1.5, 3.0], [4.0, 0.0, 0.0]);
+        let bomb_at = at(&w, bomb).position;
+        let mut w = stand(true, false);
+        let thrower = ItemOwner::Unit(w.soldier.unwrap());
+        let young = throw_as(&mut w, TIME_BOMB, thrower, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        assert!(at(&w, young).position[0] > 2.1 && at(&w, young).position[0] < 2.3, "{:?}", at(&w, young).position);
+        assert!(bomb_at[0] > 2.1, "{bomb_at:?}");
+    }
+
+    #[test]
+    fn a_mine_bounces_off_a_ridden_animal() {
+        let mut w = stand(false, true);
+        w.creature = true;
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let item = at(&w, mine);
+        assert!(item.carrier.is_none() && !item.landed && item.position[1] > 1.0 && item.position[1] < 1.1, "{:?}", item.position);
+    }
+
+    #[test]
+    fn a_characters_fifth_mine_pops_his_first_after_a_death() {
+        // One character's list, named the same for each of his lives: four
+        // mines out (MaxItems 4), a death, and the new life's first throw.
+        let mut w = stand(false, false);
+        let key = w.strings.intern_str("mines:character:3:1");
+        let mut cx = Cx::new(&mut w);
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let mines: Vec<_> = (0..4)
+            .map(|n| cx.dispense_prepared(key, &mut work, &mut spare, 4.0, MINE, [n as f64, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap())
+            .collect();
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let fifth = cx.dispense_prepared(key, &mut work, &mut spare, 4.0, MINE, [5.0, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap();
+        assert_eq!(cx.s().item.get(mines[0]).unwrap().gone, Some(true));
+        assert!(mines[1..].iter().chain([&fifth]).all(|&m| cx.s().item.get(m).unwrap().gone != Some(true)));
+        assert_eq!(cx.s().items.owned.get(key).unwrap().as_slice(), &[mines[1], mines[2], mines[3], fifth]);
+    }
+
+    /// A land mine dropped at `from`, flown two seconds while it watches.
+    fn lay(w: &mut Stand, from: Vec3, velocity: Vec3) -> Ref<Item> {
+        let mut cx = Cx::new(w);
+        let mine = cx.spawn(LANDMINE, from, velocity, 0.0, ItemOwner::Null, 1.0).expect("room for an item");
+        for _ in 0..120 { cx.items_update(1.0 / 60.0, 1); }
+        mine
+    }
+    fn went_off(w: &Stand, mine: Ref<Item>) -> bool { w.store.item.get(mine).is_none_or(|i| i.gone == Some(true)) }
+
+    #[test]
+    fn a_mine_on_a_parked_enemy_hull_goes_off_at_once() {
+        // A hover whose model sphere (4.5, 0.5, 0) r 1.6 is widened by a
+        // spring at (6, 1, 0) r 1.5 to 3.08, the deck its hull.
+        const MODEL: &str = "[4.5, 0.5, 0, 1.6]";
+        const SPRING: &str = r#"[{"at": [6, 1, 0], "radius": 1.5}]"#;
+        let deck = |relation: f64, velocity: Vec3, springs: &'static str| {
+            let mut w = stand(false, true);
+            w.target = Some(Watch::Hull { relation, sphere: MODEL, springs, velocity });
+            w
+        };
+        // Thrown onto an enemy's parked hull, it rides it and goes off at once.
+        let mut w = deck(-1.0, [0.0; 3], SPRING);
+        let mine = lay(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        assert!(went_off(&w, mine));
+        // On an enemy's hull coming on at it, or on a friend's: it stays.
+        for (relation, velocity) in [(-1.0, [-3.0, 0.0, 0.0]), (1.0, [0.0; 3])] {
+            let mut w = deck(relation, velocity, SPRING);
+            let mine = lay(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+            assert!(at(&w, mine).landed && at(&w, mine).carrier.is_some() && !went_off(&w, mine), "{relation} {velocity:?}");
+        }
+        // On the ground 3.5 m from the hover's middle: its springs reach
+        // that far (1 m + 3.08); its model sphere alone (1 m + 1.6) does not.
+        let mut w = deck(-1.0, [0.0; 3], SPRING);
+        let mine = lay(&mut w, [8.0, 0.5, 0.0], [0.0; 3]);
+        assert!(went_off(&w, mine));
+        let mut w = deck(-1.0, [0.0; 3], "[]");
+        let mine = lay(&mut w, [8.0, 0.5, 0.0], [0.0; 3]);
+        assert!(at(&w, mine).landed && !went_off(&w, mine));
+    }
+
+    #[test]
+    fn a_mine_measures_an_enemy_soldier_by_his_stance() {
+        // 2.2 m from his feet: a standing soldier reaches it (2.28 m), a
+        // crouching one does not (1.99 m).
+        for (posture, off) in [(Posture::Stand, true), (Posture::Crouch, false)] {
+            let mut w = stand(true, false);
+            let unit = w.soldier.unwrap();
+            w.store.unit.get_mut(unit).unwrap().soldier = UnitBody::Soldier(Soldier { position: [10.0, 0.0, 0.0], posture, ..Default::default() });
+            w.target = Some(Watch::Soldier { relation: -1.0 });
+            let mine = lay(&mut w, [12.2, 0.5, 0.0], [0.0; 3]);
+            assert_eq!(went_off(&w, mine), off, "{posture:?}");
+        }
+    }
+
+    #[test]
+    fn an_enemys_stuck_mine_sets_a_mine_off() {
+        // Two land mines 1.1 m apart, within 1 m of each other's sphere
+        // (radius 0.2): of two enemies' the one that finds the other lying
+        // there goes off (in a battle its blast takes the other); a team's
+        // own lie side by side.
+        for (teams, off) in [((1.0, 2.0), true), ((1.0, 1.0), false)] {
+            let mut w = stand(false, false);
+            let mut cx = Cx::new(&mut w);
+            let first = cx.spawn(LANDMINE, [4.0, 0.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, teams.0).unwrap();
+            let second = cx.spawn(LANDMINE, [5.1, 0.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, teams.1).unwrap();
+            for _ in 0..120 { cx.items_update(1.0 / 60.0, 0); }
+            assert_eq!(went_off(&w, first) || went_off(&w, second), off, "{teams:?}");
+        }
+        // Out of reach (1.3 m apart), enemies' lie side by side too.
+        let mut w = stand(false, false);
+        let mut cx = Cx::new(&mut w);
+        let first = cx.spawn(LANDMINE, [4.0, 0.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap();
+        let second = cx.spawn(LANDMINE, [5.3, 0.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 2.0).unwrap();
+        for _ in 0..120 { cx.items_update(1.0 / 60.0, 0); }
+        assert!(!went_off(&w, first) && !went_off(&w, second));
+    }
+
+    #[test]
+    fn a_full_pool_pops_the_oldest_and_throws_nothing() {
+        // Three mines about (MaxItems 3, a pool of 3): the fourth throw pops
+        // the oldest, and as the popped one counts until the next update,
+        // nothing is thrown.
+        let mut w = stand(false, false);
+        w.defs.pools = vec![("mine".into(), Field::Num(3.0))];
+        let key = w.strings.intern_str("mines:character:3:1");
+        let mut cx = Cx::new(&mut w);
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let mines: Vec<_> = (0..3)
+            .map(|n| cx.dispense_prepared(key, &mut work, &mut spare, 3.0, MINE, [n as f64, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0).unwrap())
+            .collect();
+        let fourth = cx.dispense_prepared(key, &mut work, &mut spare, 3.0, MINE, [4.0, 1.5, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0);
+        assert!(fourth.is_none());
+        assert_eq!(cx.s().item.get(mines[0]).unwrap().gone, Some(true));
+        assert_eq!(cx.s().items.owned.get(key).unwrap().as_slice(), &[mines[1], mines[2]]);
+    }
+
+    #[test]
+    fn a_mine_rides_the_hull_it_sticks_to() {
+        let mut w = stand(false, true);
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let (_, hull) = w.deck.unwrap();
+        let stuck = at(&w, mine).position;
+        assert_eq!(at(&w, mine).carrier, Some(hull));
+        assert!(stuck[1] > 1.0 && stuck[1] < 1.2, "{stuck:?}");
+        // The hull drives 5 m on and turns a quarter turn about its origin:
+        // the mine keeps its place on the deck.
+        let v = w.store.vehicle.get_mut(hull).unwrap();
+        v.matrix = [0.0, 0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 1.0];
+        Cx::new(&mut w).items_update(1.0 / 60.0, 0);
+        let rode = at(&w, mine);
+        let want = [5.0 + stuck[2], stuck[1], -stuck[0]];
+        assert!(rode.landed && distance_to(rode.position, want) < 1e-9, "{:?} {want:?}", rode.position);
+        // Its slot lives again elsewhere: the mine falls to the floor.
+        w.store.vehicle.get_mut(hull).unwrap().target_generation = 2.0;
+        for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
+        let fell = at(&w, mine);
+        assert!(fell.landed && fell.carrier.is_none() && fell.position[1] < 0.1, "{:?}", fell.position);
+    }
+
+    #[test]
+    fn a_mine_falls_when_its_hull_is_gone_or_dies() {
+        // The hull's row removed from the store.
+        let mut w = stand(false, true);
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let (_, hull) = w.deck.unwrap();
+        w.store.vehicle.remove(hull);
+        for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
+        assert!(at(&w, mine).carrier.is_none() && at(&w, mine).position[1] < 0.1, "{:?}", at(&w, mine).position);
+        // The hull dies while driving at 12 m/s: the mine goes on at that
+        // speed as it falls.
+        let mut w = stand(false, true);
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let (_, hull) = w.deck.unwrap();
+        let stuck = at(&w, mine).position;
+        w.store.vehicle.get_mut(hull).unwrap().matrix[12] = 0.2;
+        Cx::new(&mut w).items_update(1.0 / 60.0, 0);
+        w.store.vehicle.get_mut(hull).unwrap().alive = false;
+        Cx::new(&mut w).items_update(1.0 / 60.0, 0);
+        let freed = at(&w, mine);
+        assert!(freed.carrier.is_none() && !freed.landed, "{:?}", freed.position);
+        assert!((freed.velocity[0] - 12.0).abs() < 1e-6, "{:?}", freed.velocity);
+        for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
+        assert!(at(&w, mine).position[0] > stuck[0] + 3.0, "{:?}", at(&w, mine).position);
+        // Freed on an update with no time step: no speed to divide out, it
+        // drops from where it was.
+        let mut w = stand(false, true);
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let (_, hull) = w.deck.unwrap();
+        let stuck = at(&w, mine).position;
+        w.store.vehicle.get_mut(hull).unwrap().alive = false;
+        Cx::new(&mut w).items_update(0.0, 0);
+        let freed = at(&w, mine);
+        assert!(freed.carrier.is_none() && freed.velocity.iter().all(|v| v.is_finite()), "{:?}", freed.velocity);
+        for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
+        let fell = at(&w, mine).position;
+        assert!(fell[1] < 0.1 && (fell[0] - stuck[0]).abs() < 0.05, "{fell:?}");
+    }
 }

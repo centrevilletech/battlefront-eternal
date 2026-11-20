@@ -210,6 +210,10 @@ pub trait World {
     // The items (ItemsWorld).
 
     fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit>;
+    /// The hull a collision body belongs to, for a mine that sticks to it.
+    fn hull_of(&mut self, _body: Ref<Body>) -> Option<Ref<Vehicle>> { None }
+    /// Whether a hull is a ridden animal (met as a living body, not a hull).
+    fn creature(&mut self, _hull: Ref<Vehicle>) -> bool { false }
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool;
     fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3>;
     fn item_model(&mut self, def: DefId) -> ItemModel;
@@ -225,6 +229,17 @@ pub trait World {
     fn drop_roll(&mut self) -> f64;
     fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner);
     fn watch(&mut self, index: usize, team: f64) -> Watched;
+    /// Team `a`'s side toward team `b`: above 0 friends, below enemies, 0
+    /// neutral (a stuck mine's toward another's).
+    fn teams(&mut self, a: f64, b: f64) -> f64 {
+        if a == b {
+            if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 }
+        } else if a == 0.0 || b == 0.0 || a.is_nan() || b.is_nan() {
+            0.0
+        } else {
+            -1.0
+        }
+    }
     fn standing(&mut self, index: usize) -> Vec3;
     fn give(&mut self, index: usize, def: DefId) -> bool;
     fn pickup(&mut self, def: DefId, position: Vec3);

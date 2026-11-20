@@ -758,6 +758,15 @@ impl World for JsWorld<'_, '_> {
         hit_of(import_item_cast(&ItemCastArgs { origin, direction, far }))
     }
 
+    fn hull_of(&mut self, body: Ref<Body>) -> Option<Ref<Vehicle>> {
+        if !crate::units::f3::active_in(&self.w.units) { return None; }
+        crate::units::f3_hulls::hull_of_in(self.w, body)
+    }
+
+    fn creature(&mut self, hull: Ref<Vehicle>) -> bool {
+        crate::vehicles::module::f2::live_seats::animal_in(&mut self.w.fleet, hull)
+    }
+
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
         if crate::units::f3::active_in(&self.w.units) {
             // A blast's line of sight to a mine: moving hulls do not shield
@@ -836,6 +845,12 @@ impl World for JsWorld<'_, '_> {
         import_explode(&ItemBlastArgs { def_tag, def, position, owner });
         // An explosion moves what it reaches: the targets are read again.
         self.targets = None;
+    }
+
+    fn teams(&mut self, a: f64, b: f64) -> f64 {
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::relation_in(&self.w.units, a, b); }
+        if a == b { return if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 }; }
+        if a == 0.0 || b == 0.0 || a.is_nan() || b.is_nan() { 0.0 } else { -1.0 }
     }
 
     fn watch(&mut self, index: usize, team: f64) -> Watched {

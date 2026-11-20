@@ -12,6 +12,7 @@ use bfe_presentation::{
     network_layout::{net_kind as kind, net_record as net},
 };
 use three::{Matrix4, Quaternion, Vector3};
+mod ride;
 // ItemPresentation retains its own fall, bob and water clocks. Wire records
 // admit or retire qualified items; a renderer recipe is only a resource
 // prerequisite. The host never integrates an independent falling body.
@@ -38,6 +39,8 @@ pub struct Views {
     water: Option<bfe_sim::units::water::WaterState>,
     last_water: f64,
     pub visible: usize,
+    // Mines riding hulls, worked out from the records (ride.rs).
+    riders: ride::Riders,
 }
 impl Views {
     pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
@@ -109,6 +112,7 @@ impl Views {
             water,
             last_water: 0.,
             visible: 0,
+            riders: ride::Riders::new(limit::SLOTS),
         })
     }
     // Changed item records are applied before sampling. The retained owner
@@ -248,6 +252,49 @@ impl Views {
             ));
         }
         self.visible = self.owner.header[h::VIEWS] as usize + self.remotes.len();
+    }
+    /// A mine riding a hull is drawn at its place on the hull as this frame
+    /// draws the hull (ride.rs); every other item as its copy has it. Call
+    /// after the frame's hulls and before the item lights.
+    pub fn ride(&mut self, receiver: &Receiver, hulls: &super::hulls::Hulls, dt: f64) {
+        let three = |row: &[f64], at: usize| [row[at], row[at + 1], row[at + 2]];
+        self.riders.begin();
+        // A ground hull's tilt and roll come in its mount record, sent when
+        // they change; its own record has its heading alone.
+        for field in receiver.publications.iter().filter(|f| f.row[net::KIND] == kind::MOUNT as f64) {
+            let row = &field.row;
+            self.riders.lean((row[net::ID] as u32, row[net::GENERATION] as u32), row[net::TILT], row[net::MOUNT_ROLL]);
+        }
+        for row in receiver.active().filter(|r| r[net::KIND] == kind::VEHICLE as f64) {
+            let key = (row[net::ID] as u32, row[net::GENERATION] as u32);
+            let Some(flying) = hulls.flies(key) else {
+                continue;
+            };
+            let turn = [row[net::QUATERNION], row[net::QUATERNION + 1], row[net::QUATERNION + 2], row[net::QUATERNION + 3]];
+            self.riders.hull(key, row[net::TICK], three(row, net::POSITION), turn, flying);
+        }
+        for row in receiver.active().filter(|r| r[net::KIND] == kind::ITEM as f64) {
+            if self.definitions.get(row[net::DEFINITION_ID] as usize).copied().flatten().is_none() {
+                continue;
+            }
+            let still = row[net::VELOCITY..net::VELOCITY + 3].iter().all(|v| *v == 0.);
+            let frame = ride::item_frame(three(row, net::POSITION), three(row, net::UP), row[net::YAW]);
+            self.riders.item(row[net::ID] as usize, row[net::GENERATION], row[net::ACTIVE] != 0., row[net::TICK], frame, still);
+        }
+        self.riders.settle();
+        let views = self.owner.header[h::VIEWS] as usize;
+        for view in self.owner.views.chunks_exact_mut(v::STRIDE).take(views) {
+            let (p, q) = (v::POSITION, v::QUATERNION);
+            let mut at = Vector3::new(view[p], view[p + 1], view[p + 2]);
+            let mut turn = Quaternion::new(view[q], view[q + 1], view[q + 2], view[q + 3]);
+            // An item with no model has a position alone.
+            let oriented = view[q..q + 4].iter().any(|c| *c != 0.);
+            self.riders.draw(view[v::SLOT] as usize, view[v::GENERATION], &mut at, &mut turn, dt, |key| hulls.drawn(key));
+            view[p..p + 3].copy_from_slice(&[at.x, at.y, at.z]);
+            if oriented {
+                view[q..q + 4].copy_from_slice(&[turn.x, turn.y, turn.z, turn.w]);
+            }
+        }
     }
     pub fn record_budget(&self) -> usize {
         self.owner

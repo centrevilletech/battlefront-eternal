@@ -36,6 +36,11 @@ pub struct Views {
     weapons: Vec<Option<Model>>,
     // Each weapon definition's animation bank, as a record names it.
     banks: Vec<String>,
+    // Each weapon definition's: whether it is thrown (a grenade, a
+    // dispenser or a remote), so the hand holds it for its throw.
+    thrown: Vec<bool>,
+    // Each registry weapon id's definition, as a shot names its weapon.
+    by_id: Vec<Option<usize>>,
     pub active: Option<usize>,
     pub enabled: bool,
     pub frames: u64,
@@ -119,6 +124,8 @@ impl Prepared {
         let defs = content.defs()?;
         let mut weapons = Vec::new();
         let mut banks = Vec::new();
+        let mut thrown = Vec::new();
+        let mut by_id = vec![None; defs.registry.weapons.len() + 1];
         for (id, weapon) in defs.weapons.iter().enumerate() {
             if id >= units.weapon_input.len() / w::STRIDE {
                 break;
@@ -139,11 +146,19 @@ impl Prepared {
             let name = def["HighResGeometry"].as_str().or_else(|| def["GeometryName"].as_str()).unwrap_or("");
             weapons.push(Model::new(content, bridge, textures, name, 0)?);
             banks.push(bank.to_string());
+            thrown.push(matches!(def["base"].as_str(), Some("grenade" | "dispenser" | "remote")));
+            if let Some(slot) = weapon.registry_id.and_then(|registry| by_id.get_mut(usize::from(registry))) {
+                *slot = Some(id);
+            }
         }
-        Ok(Views { views, weapons, banks, active: None, enabled: false, frames: 0, look: [1., 0., 0., 1.] })
+        Ok(Views { views, weapons, banks, thrown, by_id, active: None, enabled: false, frames: 0, look: [1., 0., 0., 1.] })
     }
 }
 impl Views {
+    /// The definition of a registry weapon in the grenade bank.
+    fn grenade_bank(&self, registry: usize) -> Option<usize> {
+        self.by_id.get(registry).copied().flatten().filter(|&index| self.banks.get(index).is_some_and(|bank| bank == "grenade"))
+    }
     /// Where the view's hand (hp_weapons) is in the units' node bank, while
     /// a class with a view is played.
     pub fn hand_node(&self, units: &Units) -> Option<usize> {
@@ -171,8 +186,12 @@ impl Views {
                 units.input[f::COMMANDS] += 1.;
             }
         }
+        // The weapon in the hand (PlayerCombat.updateHeld): a thrown weapon
+        // for the whole of its throw, its model gone once it has left the
+        // hand, otherwise the primary. Every weapon's row is kept current, the
+        // thrown one's too.
         let selected = prediction.selected();
-        let mut primary = 0;
+        let (mut primary, mut shown, mut throwing) = (0, None, None);
         for weapon in prediction.weapons() {
             let index = weapon.def.0.saturating_sub(1) as usize;
             if index >= self.weapons.len() {
@@ -182,11 +201,16 @@ impl Views {
             row[w::REVISION] = self.frames as f64;
             row[w::RELOADING] = (weapon.reload_left > 0.) as u8 as f64;
             row[w::HAND_EMPTY] = weapon.hand_empty() as u8 as f64;
-            if primary as f64 == selected[0] {
-                units.input[f::FIRST_PERSON_SHOWN] = index as f64;
-                break;
+            if self.thrown[index] && weapon.busy() {
+                throwing.get_or_insert(index);
+            }
+            if shown.is_none() && primary as f64 == selected[0] {
+                shown = Some(index);
             }
             primary += 1;
+        }
+        if let Some(index) = throwing.or(shown) {
+            units.input[f::FIRST_PERSON_SHOWN] = index as f64;
         }
         // PredictedShots.fire: `combat.view?.play('shoot', weapon)` on the
         // tick the player's weapon fires in the client's replay. The world's
@@ -238,10 +262,14 @@ impl Views {
             // busy weapon of the record's bank in hand
             // (`weapons.find(w => w.bank === event.bank && w.busy)`). The
             // view ignores it while it is not the one shown.
-            let (weapon, action) = match event.kind {
-                "shot" if prediction.ahead() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
-                "shot" => (units.input[f::FIRST_PERSON_SHOWN], 0.),
-                "weaponAction" if event.prepare => {
+            let (weapon, action) = match (event.kind, self.grenade_bank(event.weapon_id)) {
+                // presentProjectileShot: the arms play the shot of the weapon
+                // that fired it, a throw for the grenade bank (a grenade or
+                // a dispenser letting go), not the gun in the other hand.
+                ("shot", Some(thrown)) => (thrown as f64, 1.),
+                ("shot", _) if prediction.ahead() && !event.repair && !event.melee && ahead(event.weapon_id) => continue,
+                ("shot", _) => (units.input[f::FIRST_PERSON_SHOWN], 0.),
+                ("weaponAction", _) if event.prepare => {
                     let held = prediction
                         .weapons()
                         .filter(|weapon| weapon.busy())

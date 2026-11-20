@@ -51,7 +51,7 @@ fn gun_of(p: Posture) -> [f64; 3] {
 
 /// BLAST_BODY: the sphere a blast measures to, by stance
 /// (its centre above the feet, its radius) and the sight point's height.
-fn blast_body(p: Posture) -> [f64; 3] {
+pub(crate) fn blast_body(p: Posture) -> [f64; 3] {
     match p {
         Posture::Stand => [1.0, 1.4626, 1.4],
         Posture::Crouch => [0.75, 1.1023, 0.6],
@@ -71,11 +71,20 @@ pub struct CombatDefs {
 #[derive(Clone, Debug, Default)]
 struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId>, cameras: Option<[Section; 6]>, sphere: Option<ModelSphere> }
 
-/// What a blast measures a droideka to: the sphere around its model box,
-/// carried with its body (the centre in the body's frame: x to its left,
-/// z ahead), the same whether it stands or rolls.
-#[derive(Clone, Copy, Debug)]
-struct ModelSphere { center: [f64; 3], radius: f64 }
+/// What a blast and a mine's trigger measure a droideka to: the sphere
+/// around its model box, carried with its body (the centre in the body's
+/// frame: x to its left, z ahead), the same whether it stands or rolls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ModelSphere { pub center: [f64; 3], pub radius: f64 }
+
+impl ModelSphere {
+    /// Where its centre is for a body at `position` facing `yaw`.
+    pub(crate) fn carried(&self, position: [f64; 3], yaw: f64) -> [f64; 3] {
+        let [x, y, z] = self.center;
+        let (sin, cos) = v8math::sin_cos(yaw);
+        [position[0] + cos * x + sin * z, position[1] + y, position[2] - sin * x + cos * z]
+    }
+}
 
 /// The sphere of a class's model box (`bounds`: its lowest and highest
 /// corners): the box's centre and half its diagonal.
@@ -148,6 +157,12 @@ impl CombatDefs {
 
     /// A class's loadout (`def.weapons || []`), as weapon classes.
     pub fn loadout(&self, id: DefId) -> &[DefId] { &self.facts[id.0 as usize].loadout }
+
+    /// A droideka class's sphere about its model box, read once as the class
+    /// is prepared; None for any other class, or without a box.
+    pub(crate) fn model_sphere(&self, id: DefId) -> Option<ModelSphere> {
+        self.facts.get(id.0 as usize).and_then(|facts| facts.sphere)
+    }
 }
 
 /// A trigger edge a network player's press carries (unit.networkShot or
@@ -1161,9 +1176,8 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         // A droideka is measured to the sphere around its model, standing or
         // rolled, and seen at that sphere's centre.
         Some(sphere) => {
-            let [x, y, z] = sphere.center;
-            let (sin, cos) = v8math::sin_cos(b.aim_yaw);
-            let center = Vector3 { x: b.position.x + cos * x + sin * z, y: b.position.y + y, z: b.position.z - sin * x + cos * z };
+            let [x, y, z] = sphere.carried([b.position.x, b.position.y, b.position.z], b.aim_yaw);
+            let center = Vector3 { x, y, z };
             (center, sphere.radius, center)
         }
         None => {

@@ -462,7 +462,8 @@ fn prepare_body(world: &mut World, cx: &mut super::rows::Cx, class_name: &str,
     calls.push((Stage::Player,"f3_adopt",units::call(F3Adoption::WORDS,|r,h|adoption.put(r,h))));
     // F3Items.flush runs after adoption, before F4's held-frame preparation
     // and F2's rider construction. Its keys include this body's qualified life.
-    let dispensers=units::dispenser_calls(cx,parts.class,key.clone())?;
+    let character=world.sim.store.unit.get(key.reference()).and_then(|u|u.character);
+    let dispensers=units::dispenser_calls(cx,parts.class,key.clone(),character)?;
     apply_construction_calls(world,cx,&dispensers)?;calls.extend(dispensers);
     for rider in &riders {
         world.sim.calls.result(F2RiderBirth::WORDS,|r,h|rider.put(r,h));
