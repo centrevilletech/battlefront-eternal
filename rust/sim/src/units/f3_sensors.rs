@@ -628,10 +628,10 @@ fn live_bubble_raycast_in(world_ctx: &mut crate::world::owner::World, origin: &V
             continue;
         }
         let Some(unit) = world_ctx.sim.store.unit.get(r) else { continue };
+        let Some(bubble) = live_bubble(&defs, unit) else { continue };
         if unit.seat.is_some() || !accept(&world_ctx.fleet, &world_ctx.sim.store, unit) {
             continue;
         }
-        let Some(bubble) = live_bubble(&defs, unit) else { continue };
         if let Some((distance, normal)) = crate::units::shapes::segment_bubble(origin, dir, best, &bubble.center, bubble.yaw, &bubble.radii) {
             if distance < best {
                 best = distance;
@@ -963,6 +963,26 @@ mod shield_bubble {
         let along_x = segment_bubble(&Vector3::new(5.0, 0.0, 0.0), &Vector3::new(-1.0, 0.0, 0.0), 10.0, &center, std::f64::consts::FRAC_PI_2, &[2.0, 1.0, 1.0]);
         let along_z = segment_bubble(&Vector3::new(0.0, 0.0, 5.0), &Vector3::new(0.0, 0.0, -1.0), 10.0, &center, std::f64::consts::FRAC_PI_2, &[2.0, 1.0, 1.0]);
         assert!((along_x.unwrap().0 - 4.0).abs() < 1e-9 && (along_z.unwrap().0 - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn an_ellipsoid_bubble_is_struck_along_its_own_normal() {
+        // Radii (2, 1, 1): 2 m along the body's x (its left). A shot down -z
+        // 1 m to the left of its centre meets x^2/4 + z^2 = 1 at z = 0.866,
+        // where the outward normal is the gradient (x/4, 0, z), normalised.
+        let radii = [2.0, 1.0, 1.0];
+        let expected = |x: f64, z: f64| { let mut n = Vector3::new(x / 4.0, 0.0, z); n.normalize(); n };
+        let z = 0.75f64.sqrt();
+        let (distance, normal) = segment_bubble(&Vector3::new(1.0, 0.0, 5.0), &ALONG, 10.0, &Vector3::default(), 0.0, &radii).unwrap();
+        assert!((distance - (5.0 - z)).abs() < 1e-9, "{distance}");
+        assert!(normal.distance_to(&expected(1.0, z)) < 1e-9, "{normal:?}");
+        // Turned to face +x, its left is world -z: the same hit turned with it.
+        let yaw = std::f64::consts::FRAC_PI_2;
+        let (distance, normal) = segment_bubble(&Vector3::new(5.0, 0.0, -1.0), &Vector3::new(-1.0, 0.0, 0.0), 10.0, &Vector3::default(), yaw, &radii).unwrap();
+        assert!((distance - (5.0 - z)).abs() < 1e-9, "{distance}");
+        let local = expected(1.0, z);
+        let turned = Vector3::new(local.z, 0.0, -local.x);
+        assert!(normal.distance_to(&turned) < 1e-9, "{normal:?} {turned:?}");
     }
 
     /// One droideka in the hit history, its bubble moving 1 m along x from

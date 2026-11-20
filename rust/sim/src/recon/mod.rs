@@ -1424,7 +1424,6 @@ impl Authority {
     // Measure from its offset body center, reducing distance by half the radius.
     // Only static geometry provides blast cover; moving hulls do not block it.
     // Apply push before damage so death observes the updated native velocity.
-    // The upward push component remains even when the center direction is zero.
     pub fn blast<W: World>(
         &mut self,
         store: &mut Store,

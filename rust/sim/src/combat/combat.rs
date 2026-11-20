@@ -1149,11 +1149,12 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         c.blow_apart = true;
         push = 0.0;
     }
+    // A rider (held by an animated prop or in a seat) is neither shoved nor
+    // pushed, alive or killed: one the blast kills leaves by his own path.
+    // Dying gives up the seat inside the damage step, so whether he rode is
+    // read first.
+    let rider = c.mounted == Some(true) || u.seat.is_some();
     if !was_dead {
-        // A rider (held by an animated prop or in a seat) leaves by his own
-        // path when he dies, and dying gives up the seat inside the damage
-        // step, so whether he rode is read first.
-        let rider = c.mounted == Some(true) || u.seat.is_some();
         let generic = explosion.hit.shield;
         let info = DamageInfo { explosion: true, amount: Some(damage), typed: Some(typed), generic: Some(generic), known: Some(false), point: Some(None) };
         damage_with(c, u, defs, damage * typed, damage * generic, Some(*position), owner, &info, world);
@@ -1173,9 +1174,9 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
     }
     // Thrown whole, alive or killed by this blast; a droid that blew apart
     // at its death has no body left; droidekas never take the push, nor a
-    // living soldier already flying from an earlier one.
+    // rider, nor a living soldier already flying from an earlier one.
     let flying = b.air == Some(Air::Thrown) && !c.dead;
-    if push > 0.0 && c.mounted != Some(true) && !(c.dead && c.blow_apart) && !walkerdroid && !flying {
+    if push > 0.0 && !rider && !(c.dead && c.blow_apart) && !walkerdroid && !flying {
         if let UnitBody::Soldier(s) = &mut u.soldier {
             let mut velocity = v(s.velocity);
             velocity.add_scaled_vector(&away, push);

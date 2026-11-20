@@ -836,6 +836,13 @@ mod tests {
         // Going down into the cut through the ground is cut, through the cut is not.
         assert!(terrain_cuts_sight(&mut s, 0, [-2.0, 1.2, 0.0], [2.5, -1.0, 0.0]));
         assert!(!terrain_cuts_sight(&mut s, 0, [1.9, 0.3, 0.0], [2.5, -1.0, 0.0]));
+        // Flat ground cut out from x 0 to 1, rising to 1 m from x 5 to 6. A line
+        // 0.5 m up from x -5.5 to 6 is tested at x -2.625, 0.25, 3.125 and 6:
+        // under the cut at 0.25 (no ground met: not cut), above at 3.125, then
+        // under the rise at 6 (cut). Stopped at 0.25 it is not cut.
+        let mut s = strip(|x| if x == 6 { 1.0 } else { 0.0 }, Some(6));
+        assert!(!terrain_cuts_sight(&mut s, 0, [-5.5, 0.5, 0.0], [0.25, 0.5, 0.0]));
+        assert!(terrain_cuts_sight(&mut s, 0, [-5.5, 0.5, 0.0], [6.0, 0.5, 0.0]));
     }
 }
 
