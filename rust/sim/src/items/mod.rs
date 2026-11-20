@@ -390,9 +390,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         // A mine meets soldiers and droids too, team mates included, and
         // bounces off them rather than sticking, as the 2004 game's do. Its
         // thrower is left out only for the first 0.5 s of an item with a
-        // LifeSpan (a time bomb); a land mine meets him too, but it leaves
-        // his head moving away from it, and a body it moves away from does
-        // not turn it.
+        // LifeSpan (a time bomb); a land mine meets him too. A body the mine
+        // is still inside of as the step starts (its thrower's, as it leaves
+        // his hand) or is moving away from does not turn it.
         if mine {
             let thrower = match owner {
                 ItemOwner::Unit(unit) if young => OrdnanceOwner::Unit(unit),
@@ -400,7 +400,8 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 _ => OrdnanceOwner::Null,
             };
             if let Some(body) = self.w.raycast_units(start, ray, length + 0.1, thrower, None, None, None) {
-                if hit.as_ref().is_none_or(|h| body.distance < h.distance) && self.bounce_off_body(r, body.point, body.normal) {
+                if body.distance > 0.0 && hit.as_ref().is_none_or(|h| body.distance < h.distance)
+                    && self.bounce_off_body(r, body.point, body.normal) {
                     return;
                 }
             }
@@ -770,10 +771,14 @@ mod tests {
         let mut w = stand(true, false);
         let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
         assert!(at(&w, mine).landed && at(&w, mine).position[0] > 1.0 && at(&w, mine).position[0] < 1.2, "{:?}", at(&w, mine).position);
-        // Thrown from inside a body (its thrower's head), it leaves it.
+        // Thrown from inside a body (its thrower's), it leaves it, even
+        // heading down and on through the body's middle.
         let mut w = stand(true, false);
         let mine = throw(&mut w, [2.1, 1.5, 0.0], [4.0, 0.0, 0.0]);
         assert!(at(&w, mine).position[0] > 4.2 && at(&w, mine).position[0] < 4.4, "{:?}", at(&w, mine).position);
+        let mut w = stand(true, false);
+        let mine = throw(&mut w, [1.6, 1.5, 0.0], [4.0, -1.0, 0.0]);
+        assert!(at(&w, mine).landed && at(&w, mine).position[0] > 3.0, "{:?}", at(&w, mine).position);
         // A power-up passes him.
         let mut w = stand(true, false);
         let powerup = throw_as(&mut w, POWERUP, ItemOwner::Null, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
