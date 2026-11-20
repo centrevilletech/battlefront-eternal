@@ -120,6 +120,9 @@ struct Slot {
     flash: (usize, f64, f64, [f64; 4]),
     // The tick of the round whose flash light is lit (each lit once).
     flash_lit: f64,
+    // A droideka's last cast for its guns' point: what it was cast from
+    // (the unit, its feet, yaw, pitch, line and the tick) and the point.
+    walker_cast: ([f64; 8], Option<[f64; 3]>),
     // The charge-up glow playing at his gun, while he holds a charge.
     glow: Option<u32>,
 }
@@ -537,6 +540,7 @@ impl Replicas {
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
                     flash_lit: -1.,
+                    walker_cast: ([f64::NAN; 8], None),
                     glow: None,
                 });
             }
@@ -1182,22 +1186,34 @@ impl Replicas {
         // player's by the same rule along his camera's line in third person
         // (his view is not known here); a bot's along its eye's line from its
         // published aim. Each to the first surface or body on that line (a
-        // bot's guns meet at its quarry, on its line).
+        // bot's guns meet at its quarry, on its line). Its guns turn only
+        // while it stands, so nothing is cast for it folded, rolled,
+        // unfolding or dead; and the point is cast again only when what it
+        // is cast from changes, or the tick (the bodies it may meet move).
         {
             let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
-            let (slots, units, scene, characters) = (&self.slots, &mut self.units, self.shot_aim.borrow(), &self.characters);
-            for slot in slots.iter().filter(|slot| slot.active && slot.walker) {
+            let (slots, units, scene, characters) = (&mut self.slots, &mut self.units, self.shot_aim.borrow(), &self.characters);
+            for slot in slots.iter_mut().filter(|slot| slot.active && slot.walker) {
                 let input = &units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
                 let feet = [input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]];
                 let (yaw, pitch) = (input[i::YAW], input[i::PITCH]);
                 let own = input[i::OWN] != 0.;
-                let target = if own {
-                    scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
-                } else {
-                    slot.identity.and_then(|(id, life)| {
-                        let eyes = !human(characters, &receiver.roster, id, life);
-                        scene.walker_point(slot.class, id, feet, yaw, pitch, eyes)
-                    })
+                let standing = input[i::WALKER_MODE] < f64::from(bfe_pose::rig::droideka::FOLD) && input[i::DEAD] == 0.;
+                let target = match slot.identity.filter(|_| standing) {
+                    None => None,
+                    Some((id, life)) => {
+                        let eyes = if own { eyes } else { !human(characters, &receiver.roster, id, life) };
+                        let from = [f64::from(id), feet[0], feet[1], feet[2], yaw, pitch, f64::from(u8::from(eyes)), tick.floor()];
+                        if slot.walker_cast.0 != from {
+                            let point = if own {
+                                scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
+                            } else {
+                                scene.walker_point(slot.class, id, feet, yaw, pitch, eyes)
+                            };
+                            slot.walker_cast = (from, point);
+                        }
+                        slot.walker_cast.1
+                    }
                 };
                 // The player's own guns bring the barrel each fires next onto
                 // the point, as the world's do (the client's gun counter).
