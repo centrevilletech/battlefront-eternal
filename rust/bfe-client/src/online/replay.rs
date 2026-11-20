@@ -230,41 +230,30 @@ pub struct Shot {
 }
 /// Which gun a droideka's predicted round leaves from: the world's gun
 /// counter at its last correction, moved on by every round shown since then
-/// (rounds the world had not fired by that correction's tick). The newest 16
-/// rounds' ticks are kept; older ones still count (`older`: how many, and the
-/// newest one's tick) until a correction covers them all.
+/// (rounds the world had not fired by that correction's tick). Every such
+/// round's tick is kept until a correction covers it (room for 64 is made at
+/// the start, more only after 64 rounds without a correction).
 struct WalkerGuns {
     fired: Vec<f64>,
-    older: (f64, f64),
 }
 impl WalkerGuns {
-    const KEPT: usize = 16;
     fn new() -> Self {
-        Self { fired: Vec::with_capacity(Self::KEPT), older: (0., f64::NEG_INFINITY) }
+        Self { fired: Vec::with_capacity(64) }
     }
     fn clear(&mut self) {
         self.fired.clear();
-        self.older = (0., f64::NEG_INFINITY);
     }
     /// The gun counter the next round will take, the world's having been
     /// `gun` at its correction of `corrected` (nothing recorded).
     fn peek(&self, gun: f64, corrected: f64) -> f64 {
-        let older = if self.older.1 > corrected { self.older.0 } else { 0. };
-        gun + older + self.fired.iter().filter(|&&t| t > corrected).count() as f64
+        gun + self.fired.iter().filter(|&&t| t > corrected).count() as f64
     }
     /// The gun counter for a round shown at `tick`, the world's counter
     /// having been `gun` at its correction of `corrected`.
     fn next(&mut self, gun: f64, corrected: f64, tick: f64) -> f64 {
         self.fired.retain(|&t| t > corrected);
-        if self.older.1 <= corrected {
-            self.older = (0., f64::NEG_INFINITY);
-        }
-        if self.fired.len() == Self::KEPT {
-            let oldest = self.fired.remove(0);
-            self.older = (self.older.0 + 1., oldest);
-        }
         self.fired.push(tick);
-        gun + self.older.0 + (self.fired.len() - 1) as f64
+        gun + (self.fired.len() - 1) as f64
     }
 }
 
@@ -1040,17 +1029,23 @@ mod loose_tests {
 mod walker_gun_tests {
     use super::*;
     // Twenty rounds shown with no correction: each leaves the next gun, the
-    // seventeenth too (the list keeps 16). A correction that has the world
-    // past the first ten moves the count on from the world's counter.
+    // seventeenth too. A correction that has the world past some of them
+    // moves the count on from the world's counter by those it has not had,
+    // however few it covers (the first two here, then ten).
     #[test]
     fn a_droidekas_predicted_rounds_take_the_guns_in_turn_past_sixteen() {
         let mut guns = WalkerGuns::new();
         let shown: Vec<f64> = (0..20).map(|k| guns.next(4., 100., 101. + 6. * k as f64)).collect();
         assert_eq!(shown, (0..20).map(|k| 4. + k as f64).collect::<Vec<_>>());
-        // The world fired the first ten (ticks 101..155): its counter is 14.
-        assert_eq!(guns.next(14., 155., 221.), 24.);
-        // A correction past every round shown.
-        assert_eq!(guns.next(25., 221., 227.), 25.);
+        // The world fired the first two (ticks 101 and 107) by tick 110: its
+        // counter is 6, and 18 shown rounds are still ahead of it.
+        assert_eq!(guns.peek(6., 110.), 24.);
+        assert_eq!(guns.next(6., 110., 221.), 24.);
+        // The world fired the first ten (ticks 101..155): its counter is 14,
+        // and 11 shown rounds (ticks 161..215 and 221) are ahead of it.
+        assert_eq!(guns.next(14., 155., 227.), 25.);
+        // A correction past all 22 rounds shown: the world's counter is 26.
+        assert_eq!(guns.next(26., 227., 233.), 26.);
         guns.clear();
         assert_eq!(guns.next(0., 300., 301.), 0.);
     }
