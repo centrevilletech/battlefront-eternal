@@ -142,6 +142,7 @@ impl history::World for Sensors<'_> {
         // Truncate the logical sample without dropping its retained capacity.
         // An enclosed rider still contributes position and bounding sphere.
         out.shapes.clear();
+        out.bubble = None;
         if let Member::Unit(r) = key {
             // A dead or removed unit is not sampled: answer without lending it.
             if self.w.sim.store.unit.get(r).is_some_and(|u| !u.alive || u.removed) {
@@ -171,6 +172,10 @@ impl history::World for Sensors<'_> {
                 // into pre-reserved storage without cloning any content table.
                 out.shapes
                     .extend(u.hit_shapes(r.slot, world).iter().map(history::SavedShape::from));
+            }
+            // A droideka's shield bubble, while it is up, for rewound rounds.
+            if matches!(u.soldier, crate::gen::UnitBody::Droideka(_)) {
+                out.bubble = live_bubble(&crate::combat::module::defs_in(&mut world.w.combat), u);
             }
             true
             }).unwrap_or(false);
@@ -512,6 +517,7 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
     history: Option<f64>,
     ignore: Option<Ref<crate::gen::Body>>,
     mount: Option<Ref<crate::gen::Vehicle>>,
+    bubbles: bool,
 ) -> Option<crate::ordnance::world::UnitHit> {
     use crate::gen::{HitPart, OrdnanceOwner};
     use crate::store::Nullable;
@@ -538,46 +544,105 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
         }
         true
     };
+    let part = |head: bool| Nullable::Value(if head { HitPart::Head } else { HitPart::Body });
+    // A round also meets a droideka's shield bubble (a hit on it carries the
+    // BUBBLE part); a second ray through a hull to its riders meets riders only.
+    let bubbles = bubbles && mount.is_none();
     let o = v3(origin);
     let d = v3(direction);
     if let Some(tick) = history {
         // History's callbacks only access sensors, never its retained frames.
-        let hit = f3::with_history_in(world_ctx, |world_ctx, history| history.raycast_with(tick, &o, &d, far, exclude, true, &mut Sensors { w: world_ctx }, &mut |sensors,member| {
+        let body = f3::with_history_in(world_ctx, |world_ctx, history| history.raycast_with(tick, &o, &d, far, exclude, true, &mut Sensors { w: world_ctx }, &mut |sensors,member| {
             let Member::Unit(r) = member else {return false};
             sensors.w.sim.store.unit.get(r).is_some_and(|unit| accept(&sensors.w.fleet,&sensors.w.sim.store,unit))
-        }))?;
-        let Member::Unit(unit) = hit.key else {
-            unreachable!()
-        };
-        return Some(crate::ordnance::world::UnitHit {
-            unit,
-            distance: hit.distance,
-            point: a3(hit.point),
-            normal: a3(hit.normal),
-            part: Nullable::Value(if hit.part == crate::gen::ShapePart::Head {
-                HitPart::Head
-            } else {
-                HitPart::Body
-            }),
+        })).map(|hit| {
+            let Member::Unit(unit) = hit.key else {
+                unreachable!()
+            };
+            crate::ordnance::world::UnitHit { unit, distance: hit.distance, point: a3(hit.point), normal: a3(hit.normal),
+                part: part(hit.part == crate::gen::ShapePart::Head) }
         });
+        let bubble = if bubbles {
+            let reach = body.as_ref().map_or(far, |b| b.distance);
+            f3::with_history_in(world_ctx, |world_ctx, history| history.bubble_raycast_with(tick, &o, &d, reach, exclude, true, &mut Sensors { w: world_ctx }, &mut |sensors,member| {
+                let Member::Unit(r) = member else {return false};
+                sensors.w.sim.store.unit.get(r).is_some_and(|unit| accept(&sensors.w.fleet,&sensors.w.sim.store,unit))
+            })).map(|hit| {
+                let Member::Unit(unit) = hit.key else {
+                    unreachable!()
+                };
+                crate::ordnance::world::UnitHit { unit, distance: hit.distance, point: a3(hit.point), normal: a3(hit.normal), part: crate::ordnance::world::BUBBLE }
+            })
+        } else {
+            None
+        };
+        return bubble.or(body);
     }
     // Current rays retain Units.raycast's strict distance improvement. A hit
     // exactly at far, or tied with an earlier shape, cannot replace that hit.
-    let hit = super::module::with_registry_in(world_ctx,|world,registry,slab| registry.raycast_with(
+    let body = super::module::with_registry_in(world_ctx,|world,registry,slab| registry.raycast_with(
         slab,&o,&d,far,exclude.map_or(registry::Exclude::Nobody,registry::Exclude::One),
         &mut |member,unit,world: &mut super::module::ModuleWorld<'_, '_>| matches!(member,Member::Unit(_)) && accept(&world.w.fleet,&world.w.sim.store,unit),
-        true,world,|world| world))?;
-    Some(crate::ordnance::world::UnitHit {
+        true,world,|world| world)).map(|hit| crate::ordnance::world::UnitHit {
         unit: world_ctx.sim.store.unit.at(hit.unit).unwrap().0,
         distance: hit.distance,
         point: a3(hit.point),
         normal: a3(hit.normal),
-        part: Nullable::Value(if hit.part == crate::units::shapes::ShapePart::Head {
-            HitPart::Head
-        } else {
-            HitPart::Body
-        }),
-    })
+        part: part(hit.part == crate::units::shapes::ShapePart::Head),
+    });
+    let bubble = if bubbles {
+        let reach = body.as_ref().map_or(far, |b| b.distance);
+        live_bubble_raycast_in(world_ctx, &o, &d, reach, exclude, &accept)
+    } else {
+        None
+    };
+    bubble.or(body)
+}
+
+/// A droideka's shield bubble as rounds meet it now: up, with charge left,
+/// alive and standing (not folding, rolled or unfolding), sized and placed
+/// by its shield class (ShieldRadius about ShieldOffset in its frame).
+pub(crate) fn live_bubble(defs: &crate::combat::combat::CombatDefs, unit: &Unit) -> Option<history::SavedBubble> {
+    let crate::gen::UnitBody::Droideka(d) = &unit.soldier else { return None };
+    let shield = d.shield.as_ref()?;
+    if !unit.alive || unit.removed || d.dead || d.rolled() || !shield.on || shield.value <= 0.0 {
+        return None;
+    }
+    let bubble = defs.weapons.classes.get(shield.def.0 as usize)?.as_ref()?.base().bubble?;
+    let (sin, cos) = v8math::sin_cos(d.aim_yaw);
+    let [x, y, z] = bubble.offset;
+    let center = Vector3::new(d.position[0] + cos * x + sin * z, d.position[1] + y, d.position[2] - sin * x + cos * z);
+    Some(history::SavedBubble { center, yaw: d.aim_yaw, radii: bubble.radii })
+}
+
+/// The nearest live shield bubble a round's segment meets within `far`
+/// (strictly nearer), among the units the round may strike.
+fn live_bubble_raycast_in(world_ctx: &mut crate::world::owner::World, origin: &Vector3, dir: &Vector3, far: f64, exclude: Option<Member>,
+    accept: &impl Fn(&crate::vehicles::module::Fleet, &crate::gen::Store, &Unit) -> bool) -> Option<crate::ordnance::world::UnitHit> {
+    let defs = crate::combat::module::defs_in(&mut world_ctx.combat);
+    let mut best = far;
+    let mut found = None;
+    for member in world_ctx.sim.store.units.list.iter() {
+        let Member::Unit(r) = *member else { continue };
+        if Some(*member) == exclude {
+            continue;
+        }
+        let Some(unit) = world_ctx.sim.store.unit.get(r) else { continue };
+        if unit.seat.is_some() || !accept(&world_ctx.fleet, &world_ctx.sim.store, unit) {
+            continue;
+        }
+        let Some(bubble) = live_bubble(&defs, unit) else { continue };
+        if let Some((distance, normal)) = crate::units::shapes::segment_bubble(origin, dir, best, &bubble.center, bubble.yaw, &bubble.radii) {
+            if distance < best {
+                best = distance;
+                found = Some((r, normal));
+            }
+        }
+    }
+    let (unit, normal) = found?;
+    let mut point = *origin;
+    point.add_scaled_vector(dir, best);
+    Some(crate::ordnance::world::UnitHit { unit, distance: best, point: a3(point), normal: a3(normal), part: crate::ordnance::world::BUBBLE })
 }
 
 /// HitHistory.shotTick and OrdnanceWorld.shooter share the same press channel.
@@ -694,4 +759,258 @@ pub(crate) fn water_crossing_in(_world_ctx: &mut crate::world::owner::World, fro
     point.lerp_vectors(&v3(from),&v3(to),t);
     point.y = level;
     water.over(point.x,point.z).then_some(a3(point))
+}
+
+#[cfg(test)]
+mod shield_bubble {
+    use super::{history, live_bubble};
+    use crate::combat::combat::{self, CombatDefs};
+    use crate::combat::defs::{Js, JsObj, WeaponClass};
+    use crate::combat::history::{Entry, History, SavedBubble};
+    use crate::combat::impacts::{self, BlastPacket, HealthScale, HitPacket, ImpactWorld};
+    use crate::combat::world::{CastHit, DamageInfo};
+    use crate::gen::{Attacker, Combat, Droideka, Shield, Unit, UnitBody};
+    use crate::store::DefId;
+    use crate::units::shapes::segment_bubble;
+    use std::rc::Rc;
+    use three::Vector3;
+
+    #[derive(Default)]
+    struct World {
+        shield_hits: Vec<(f64, f64)>,
+    }
+    impl ImpactWorld for World {
+        fn impact_cast(&mut self, _: &Vector3, _: &Vector3, _: f64, _: bool) -> Option<CastHit> {
+            None
+        }
+        fn impact_draw(&mut self, _: bool) -> f64 {
+            0.9
+        }
+        fn impact_shield(&mut self, taken: f64, left: f64, _: Option<Vector3>, _: bool) {
+            self.shield_hits.push((taken, left));
+        }
+        fn impact_damaged(&mut self, _: f64, _: Attacker, _: &DamageInfo, _: Option<Vector3>, _: &mut Unit, _: &mut Combat) {}
+        fn impact_died(&mut self, unit: &mut Unit, _: &mut Combat) {
+            unit.alive = false;
+            unit.dead = true;
+        }
+        fn impact_blown_apart(&mut self, _: f64, _: &mut Unit, _: &mut Combat) {}
+    }
+
+    fn obj(fields: Vec<(&str, Js)>) -> Rc<JsObj> {
+        Rc::new(JsObj { fields: fields.into_iter().map(|(k, v)| (Rc::from(k), v)).collect(), def: None })
+    }
+    fn list(values: &[f64]) -> Js {
+        Js::Arr(Rc::new(values.iter().map(|v| Js::Num(*v)).collect()))
+    }
+
+    /// cis_inf_droideka's model box and cis_weap_walk_droideka_shield.
+    fn defs() -> CombatDefs {
+        let mut defs = CombatDefs::default();
+        defs.set_class(DefId(0), obj(vec![("base", Js::Str("walkerdroid".into())), ("weapons", Js::Arr(Default::default())),
+            ("bounds", Js::Arr(Rc::new(vec![list(&[-0.809129, -0.000631, -0.841644]), list(&[0.801283, 2.091974, 1.436694])])))]));
+        defs.weapons.set(DefId(1), WeaponClass::new(obj(vec![("base", Js::Str("shield".into())), ("MaxShield", Js::Num(4000.0)),
+            ("ShieldRadius", Js::Num(1.25)), ("ShieldOffset", list(&[0.0, 1.0, 0.125]))])));
+        defs
+    }
+
+    /// A droideka at the origin facing +z, its shield at 4000 of 4000.
+    fn droideka(on: bool, mode: f64) -> (Unit, Combat) {
+        let d = Droideka { mode, aim_yaw: 0.0, shield: Some(Shield { def: DefId(1), max: 4000.0, value: 4000.0, on, ..Default::default() }), ..Default::default() };
+        let unit = Unit { class_def: DefId(0), alive: true, soldier: UnitBody::Droideka(d), ..Default::default() };
+        (unit, Combat { health: 450.0, max_health: 450.0, ..Default::default() })
+    }
+    fn shield_of(unit: &Unit) -> f64 {
+        let UnitBody::Droideka(d) = &unit.soldier else { panic!() };
+        d.shield.as_ref().unwrap().value
+    }
+
+    /// A shot straight down -z, 1.0 m to the droideka's left of its centre
+    /// line, at the bubble's centre height.
+    const FROM: Vector3 = Vector3 { x: 1.0, y: 1.0, z: 20.0 };
+    const ALONG: Vector3 = Vector3 { x: 0.0, y: 0.0, z: -1.0 };
+
+    fn meets(bubble: &SavedBubble) -> Option<(f64, Vector3)> {
+        segment_bubble(&FROM, &ALONG, 100.0, &bubble.center, bubble.yaw, &bubble.radii)
+    }
+
+    #[test]
+    fn the_bubble_is_the_shield_class_sphere_and_only_while_the_shield_is_up_standing() {
+        let defs = defs();
+        let bubble = live_bubble(&defs, &droideka(true, 0.0).0).expect("raised shield");
+        assert_eq!(bubble.radii, [1.25; 3]);
+        assert!(bubble.center.distance_to(&Vector3::new(0.0, 1.0, 0.125)) < 1e-12, "{:?}", bubble.center);
+        // Down, empty, dead, or folding, rolled up or unfolding: no bubble.
+        assert!(live_bubble(&defs, &droideka(false, 0.0).0).is_none());
+        for mode in [11.0, 12.0, 13.0] {
+            assert!(live_bubble(&defs, &droideka(true, mode).0).is_none(), "{mode}");
+        }
+        let (mut empty, _) = droideka(true, 0.0);
+        if let UnitBody::Droideka(d) = &mut empty.soldier { d.shield.as_mut().unwrap().value = 0.0; }
+        assert!(live_bubble(&defs, &empty).is_none());
+        let (mut dead, _) = droideka(true, 0.0);
+        if let UnitBody::Droideka(d) = &mut dead.soldier { d.dead = true; }
+        assert!(live_bubble(&defs, &dead).is_none());
+        // Turned a quarter left (facing +x), the offset turns with it.
+        let (mut turned, _) = droideka(true, 0.0);
+        if let UnitBody::Droideka(d) = &mut turned.soldier { d.aim_yaw = std::f64::consts::FRAC_PI_2; }
+        let center = live_bubble(&defs, &turned).unwrap().center;
+        assert!(center.distance_to(&Vector3::new(0.125, 1.0, 0.0)) < 1e-12, "{center:?}");
+    }
+
+    #[test]
+    fn a_bolt_a_metre_off_the_centre_line_meets_the_bubble_and_drains_only_the_shield() {
+        let defs = defs();
+        let (mut unit, combat) = droideka(true, 0.0);
+        let bubble = live_bubble(&defs, &unit).unwrap();
+        let (distance, normal) = meets(&bubble).expect("a metre off the centre line is inside 1.25 m");
+        // It meets the sphere at z = 0.125 + 0.75, its normal (0.8, 0, 0.6).
+        assert!((distance - (20.0 - 0.875)).abs() < 1e-9, "{distance}");
+        assert!(normal.distance_to(&Vector3::new(0.8, 0.0, 0.6)) < 1e-9, "{normal:?}");
+        // 1.3 m off it misses.
+        let wide = Vector3::new(1.3, 1.0, 20.0);
+        assert!(segment_bubble(&wide, &ALONG, 100.0, &bubble.center, bubble.yaw, &bubble.radii).is_none());
+        let bolt = HitPacket { damage: 30.0, scales: [1.0; 5], shield: 1.0 };
+        let mut w = World::default();
+        impacts::bubble_hit(&combat, &mut unit, &bolt, 1.0, Vector3::new(1.0, 1.0, 0.875), &mut w);
+        assert_eq!(shield_of(&unit), 3970.0);
+        assert_eq!(combat.health, 450.0);
+        assert_eq!(w.shield_hits, [(30.0, 3970.0)]);
+        // A hit bigger than what is left empties the shield; nothing reaches health.
+        if let UnitBody::Droideka(d) = &mut unit.soldier { d.shield.as_mut().unwrap().value = 10.0; }
+        impacts::bubble_hit(&combat, &mut unit, &bolt, 1.0, Vector3::new(1.0, 1.0, 0.875), &mut w);
+        assert_eq!(shield_of(&unit), 0.0);
+        assert_eq!(combat.health, 450.0);
+        let UnitBody::Droideka(d) = &unit.soldier else { panic!() };
+        assert!(!d.shield.as_ref().unwrap().on);
+    }
+
+    #[test]
+    fn an_emp_rocket_on_the_bubble_drains_its_direct_damage_and_its_full_blast_from_the_shield() {
+        let defs = defs();
+        let (mut unit, mut combat) = droideka(true, 0.0);
+        let bubble = live_bubble(&defs, &unit).unwrap();
+        let (distance, normal) = meets(&bubble).unwrap();
+        let mut point = FROM;
+        point.add_scaled_vector(&ALONG, distance);
+        let mut w = World::default();
+        // rep_weap_inf_rocket_launcher_ord: Damage 120, ShieldScale 1.
+        let rocket = HitPacket { damage: 120.0, scales: [0.5, 0.5, 1.0, 0.0, 0.1], shield: 1.0 };
+        impacts::bubble_hit(&combat, &mut unit, &rocket, 1.0, point, &mut w);
+        // Its ExplosionImpact 0.2 m off the bubble reaches the droideka inside,
+        // shield first (rep_weap_inf_rocket_launcher_exp: 300, full to 0.5 m).
+        let blast = BlastPacket { hit: HitPacket { damage: 300.0, scales: [0.5, 0.5, 1.0, 0.0, 0.2], shield: 5.0 }, inner: 0.5, outer: 2.5, push: 0.0, push_inner: 0.0, push_outer: 0.0 };
+        let mut at = point;
+        at.add_scaled_vector(&normal, 0.2);
+        combat::explode_prepared(&mut combat, &mut unit, &defs, &blast, HealthScale::Droid, &at, Attacker::Null, 1.0, &mut w);
+        assert_eq!(shield_of(&unit), 4000.0 - 120.0 - 1500.0);
+        assert_eq!(combat.health, 450.0);
+    }
+
+    #[test]
+    fn a_lowered_or_rolled_shield_stops_nothing_and_shots_leave_the_bubble_freely() {
+        let defs = defs();
+        for (on, mode) in [(false, 0.0), (true, 12.0)] {
+            assert!(live_bubble(&defs, &droideka(on, mode).0).is_none());
+        }
+        let bubble = live_bubble(&defs, &droideka(true, 0.0).0).unwrap();
+        // The droideka's own bolt, fired from a gun inside the bubble, in any
+        // direction, and a shot leaving the bubble's face outward: no hit.
+        let gun = Vector3::new(0.4, 0.9, 1.0);
+        for dir in [Vector3::new(0.0, 0.0, 1.0), Vector3::new(0.0, 0.0, -1.0), Vector3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 1.0, 0.0)] {
+            assert!(segment_bubble(&gun, &dir, 100.0, &bubble.center, bubble.yaw, &bubble.radii).is_none(), "{dir:?}");
+        }
+        let outside = Vector3::new(0.0, 1.0, 2.0);
+        assert!(segment_bubble(&outside, &Vector3::new(0.0, 0.0, 1.0), 100.0, &bubble.center, bubble.yaw, &bubble.radii).is_none());
+        // Short of the bubble: no hit.
+        assert!(segment_bubble(&FROM, &ALONG, 10.0, &bubble.center, bubble.yaw, &bubble.radii).is_none());
+    }
+
+    #[test]
+    fn a_team_mates_bolt_stops_on_the_bubble_and_drains_it_only_with_friendly_fire() {
+        let defs = defs();
+        let (mut unit, combat) = droideka(true, 0.0);
+        assert!(meets(&live_bubble(&defs, &unit).unwrap()).is_some(), "the bubble stops a team mate's bolt too");
+        let bolt = HitPacket { damage: 30.0, scales: [1.0; 5], shield: 1.0 };
+        let mut w = World::default();
+        let off = impacts::team_damage(2.0, false, 2.0, false, false);
+        impacts::bubble_hit(&combat, &mut unit, &bolt, off, Vector3::new(1.0, 1.0, 0.875), &mut w);
+        assert_eq!(shield_of(&unit), 4000.0);
+        let on = impacts::team_damage(2.0, false, 2.0, false, true);
+        impacts::bubble_hit(&combat, &mut unit, &bolt, on, Vector3::new(1.0, 1.0, 0.875), &mut w);
+        assert_eq!(shield_of(&unit), 3970.0);
+    }
+
+    #[test]
+    fn the_shield_class_reads_one_radius_for_three_axes_and_a_missing_offset_as_zero() {
+        let read = |radius: Js, offset: Option<Js>| {
+            let mut fields = vec![("base", Js::Str("shield".into())), ("ShieldRadius", radius)];
+            if let Some(offset) = offset { fields.push(("ShieldOffset", offset)); }
+            WeaponClass::new(obj(fields)).base().bubble
+        };
+        assert_eq!(read(Js::Num(1.25), Some(list(&[0.0, 1.0, 0.125]))).unwrap().radii, [1.25; 3]);
+        let strings = read(Js::Str("1 2 3".into()), Some(Js::Str("0.5".into()))).unwrap();
+        assert_eq!((strings.radii, strings.offset), ([1.0, 2.0, 3.0], [0.5, 0.0, 0.0]));
+        assert!(read(Js::Num(0.0), None).is_none());
+        assert!(read(Js::Undefined, None).is_none());
+        // A turned ellipsoid: radii (2, 1, 1) along the body's x, turned to face
+        // +x, is 2 m deep along world z and 1 m along world x.
+        let center = Vector3::default();
+        let along_x = segment_bubble(&Vector3::new(5.0, 0.0, 0.0), &Vector3::new(-1.0, 0.0, 0.0), 10.0, &center, std::f64::consts::FRAC_PI_2, &[2.0, 1.0, 1.0]);
+        let along_z = segment_bubble(&Vector3::new(0.0, 0.0, 5.0), &Vector3::new(0.0, 0.0, -1.0), 10.0, &center, std::f64::consts::FRAC_PI_2, &[2.0, 1.0, 1.0]);
+        assert!((along_x.unwrap().0 - 4.0).abs() < 1e-9 && (along_z.unwrap().0 - 3.0).abs() < 1e-9);
+    }
+
+    /// One droideka in the hit history, its bubble moving 1 m along x from
+    /// tick 10 to 11 and down at tick 12.
+    struct Ticks {
+        at: u32,
+    }
+    impl history::World for Ticks {
+        type Key = u32;
+        fn count(&self) -> usize {
+            1
+        }
+        fn key(&self, _: usize) -> u32 {
+            7
+        }
+        fn capture(&mut self, key: u32, out: &mut Entry<u32>) -> bool {
+            let x = (self.at - 10) as f64;
+            out.key = key;
+            out.life = 1.0;
+            out.position = Vector3::new(x, 0.0, 0.0);
+            out.center = Vector3::new(x, 1.0, 0.0);
+            out.radius = 2.0;
+            out.shapes.clear();
+            out.bubble = (self.at < 12).then_some(SavedBubble { center: Vector3::new(x, 1.0, 0.125), yaw: 0.0, radii: [1.25; 3] });
+            true
+        }
+        fn eligible(&mut self, _: u32, _: f64, _: bool) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn a_rewound_round_meets_the_bubble_where_it_was_at_the_view_tick() {
+        let mut history = History::new(8);
+        history.reserve(4, 0, 4);
+        let mut world = Ticks { at: 10 };
+        for tick in 10..=12 {
+            world.at = tick;
+            history.capture(tick, &mut world);
+        }
+        let cast = |history: &mut History<u32>, world: &mut Ticks, tick: f64, from: Vector3| {
+            history.bubble_raycast_with(tick, &from, &ALONG, 100.0, None, true, world, &mut |_, _| true)
+        };
+        // At tick 10.5 the bubble's centre is at x 0.5: a shot 1.5 m to the left
+        // of x 0 is 1.0 m off its centre line and meets it.
+        let hit = cast(&mut history, &mut world, 10.5, Vector3::new(1.5, 1.0, 20.0)).expect("interpolated bubble");
+        assert!((hit.distance - (20.0 - 0.875)).abs() < 1e-9, "{}", hit.distance);
+        assert_eq!(hit.key, 7);
+        // At tick 10 that shot is 1.5 m off and misses; at tick 12 the shield is down.
+        assert!(cast(&mut history, &mut world, 10.0, Vector3::new(1.5, 1.0, 20.0)).is_none());
+        assert!(cast(&mut history, &mut world, 12.0, Vector3::new(2.0, 1.0, 20.0)).is_none());
+        // The owner's own round never meets it.
+        assert!(history.bubble_raycast_with(10.5, &Vector3::new(1.5, 1.0, 20.0), &ALONG, 100.0, Some(7), true, &mut world, &mut |_, _| true).is_none());
+    }
 }

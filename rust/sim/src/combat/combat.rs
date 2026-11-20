@@ -19,6 +19,9 @@ const AIM_REACH: f64 = 60.0;
 const DROIDEKA_REACH: f64 = 512.0;
 const RESPAWN_DELAY: f64 = 4.0;
 const THROWN_SPEED: f64 = 2.0;
+/// The speed a blast that kills a soldier on foot sends his body away from it
+/// (the 2004 game adds it whether or not the explosion pushes).
+const BLAST_DEATH_SPEED: f64 = 5.0;
 const KICK_RATE: f64 = 10.0;
 const KICK_FADE: f64 = 20.0;
 // PlayerCombat.updateKick keeps the original exponential fade constants.
@@ -66,7 +69,27 @@ pub struct CombatDefs {
 }
 
 #[derive(Clone, Debug, Default)]
-struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId>, cameras: Option<[Section; 6]> }
+struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId>, cameras: Option<[Section; 6]>, sphere: Option<ModelSphere> }
+
+/// What a blast measures a droideka to: the sphere around its model box,
+/// carried with its body (the centre in the body's frame: x to its left,
+/// z ahead), the same whether it stands or rolls.
+#[derive(Clone, Copy, Debug)]
+struct ModelSphere { center: [f64; 3], radius: f64 }
+
+/// The sphere of a class's model box (`bounds`: its lowest and highest
+/// corners): the box's centre and half its diagonal.
+fn model_sphere(bounds: &Js) -> Option<ModelSphere> {
+    let (low, high) = (bounds.at(0), bounds.at(1));
+    let corner = |c: &Js| [c.at(0).num(), c.at(1).num(), c.at(2).num()];
+    let (low, high) = (corner(low), corner(high));
+    if !low.iter().chain(&high).all(|v| v.is_finite()) {
+        return None;
+    }
+    let size = [high[0] - low[0], high[1] - low[1], high[2] - low[2]];
+    let center = [(low[0] + high[0]) * 0.5, (low[1] + high[1]) * 0.5, (low[2] + high[2]) * 0.5];
+    Some(ModelSphere { center, radius: 0.5 * (size[0] * size[0] + size[1] * size[1] + size[2] * size[2]).sqrt() })
+}
 
 #[derive(Default)]
 pub struct Scratch {
@@ -111,8 +134,10 @@ impl CombatDefs {
             let n = |j: usize| numbers.at(k * 10 + j).num();
             Section { eye: [n(0), n(1), n(2)], center: [n(3), n(4), n(5)], offset: [n(6), n(7), n(8)], tilt: n(9) }
         }));
+        let walkerdroid = obj.get("base").is_str("walkerdroid");
+        let sphere = if walkerdroid { model_sphere(obj.get("bounds")) } else { None };
         self.facts[i] = ClassFacts {
-            add_health:obj.get("AddHealth").num(),walkerdroid:obj.get("base").is_str("walkerdroid"),loadout,cameras,
+            add_health:obj.get("AddHealth").num(),walkerdroid,loadout,cameras,sphere,
         };
         self.classes[i] = Some(obj);
     }
@@ -1123,7 +1148,8 @@ pub fn explode(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, explosion: &Js, 
 // The caller owns live-registry traversal and depth-first fan-out ordering.
 pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs,
     explosion: &BlastPacket, health: HealthScale, position: &Vector3, owner: Attacker, scale: f64, world: &mut W) -> bool {
-    let walkerdroid = defs.facts[u.class_def.0 as usize].walkerdroid;
+    let facts = &defs.facts[u.class_def.0 as usize];
+    let walkerdroid = facts.walkerdroid;
     let was_dead = c.dead;
     // Nothing is left to throw of a droid that went up in pieces, and a
     // droideka's hull never takes the infantry launch impulse.
@@ -1131,16 +1157,29 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         return false;
     }
     let b = body(u);
-    let stance = if was_dead {
-        Posture::Prone
-    } else if b.air.is_some() {
-        Posture::Stand
-    } else {
-        b.posture
+    let (center, radius, sight_point) = match facts.sphere.filter(|_| walkerdroid) {
+        // A droideka is measured to the sphere around its model, standing or
+        // rolled, and seen at that sphere's centre.
+        Some(sphere) => {
+            let [x, y, z] = sphere.center;
+            let (sin, cos) = v8math::sin_cos(b.aim_yaw);
+            let center = Vector3 { x: b.position.x + cos * x + sin * z, y: b.position.y + y, z: b.position.z - sin * x + cos * z };
+            (center, sphere.radius, center)
+        }
+        None => {
+            let stance = if was_dead {
+                Posture::Prone
+            } else if b.air.is_some() {
+                Posture::Stand
+            } else {
+                b.posture
+            };
+            let [middle, radius, sight] = blast_body(stance);
+            let mut center = b.position;
+            center.y += middle;
+            (center, radius, Vector3 { x: b.position.x, y: b.position.y + sight, z: b.position.z })
+        }
     };
-    let [middle, radius, sight] = blast_body(stance);
-    let mut center = b.position;
-    center.y += middle;
     let mut away = Vector3::default();
     away.sub_vectors(&center, position);
     let span = away.length();
@@ -1153,8 +1192,7 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         return false;
     }
     // Terrain or a building between the blast and his sight point shields him.
-    let sight_point = Vector3 { x: b.position.x, y: b.position.y + sight, z: b.position.z };
-    if blast_blocked(world, position, &sight_point) {
+    if world.impact_blocked(position, &sight_point) {
         return false;
     }
     // The owned publisher needs only rows whose values changed. A blast can
@@ -1170,13 +1208,32 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         push = 0.0;
     }
     if !was_dead {
+        // A rider (held by an animated prop or in a seat) leaves by his own
+        // path when he dies, and dying gives up the seat inside the damage
+        // step, so whether he rode is read first.
+        let rider = c.mounted == Some(true) || u.seat.is_some();
         let generic = explosion.hit.shield;
         let info = DamageInfo { explosion: true, amount: Some(damage), typed: Some(typed), generic: Some(generic), known: Some(false), point: Some(None) };
         damage_with(c, u, defs, damage * typed, damage * generic, Some(*position), owner, &info, world);
+        // A soldier on foot this blast killed is sent off from it along the
+        // line from the blast to his feet, whether or not the explosion pushes.
+        if c.dead && !rider && !c.blow_apart {
+            if let UnitBody::Soldier(s) = &mut u.soldier {
+                let mut off = Vector3::default();
+                if off.sub_vectors(&b.position, position).length() > 0.0 {
+                    off.normalize();
+                    let mut velocity = v(s.velocity);
+                    velocity.add_scaled_vector(&off, BLAST_DEATH_SPEED);
+                    s.velocity = a(&velocity);
+                }
+            }
+        }
     }
     // Thrown whole, alive or killed by this blast; a droid that blew apart
-    // at its death has no body left; droidekas never take the push.
-    if push > 0.0 && c.mounted != Some(true) && !(c.dead && c.blow_apart) && !walkerdroid {
+    // at its death has no body left; droidekas never take the push, nor a
+    // living soldier already flying from an earlier one.
+    let flying = b.air == Some(Air::Thrown) && !c.dead;
+    if push > 0.0 && c.mounted != Some(true) && !(c.dead && c.blow_apart) && !walkerdroid && !flying {
         if let UnitBody::Soldier(s) = &mut u.soldier {
             let mut velocity = v(s.velocity);
             velocity.add_scaled_vector(&away, push);
@@ -1221,25 +1278,6 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
         return (outer - distance) / (outer - inner);
     }
     0.0
-}
-
-/// blastBlocked(collision, position, target): terrain or
-/// a building (never a moving body) between them.
-// PlayerCombat.explode uses static-only cover for its line of sight.
-// A near-zero ray cannot normalize safely and therefore stays unobstructed.
-// The final tolerance avoids treating the victim's own surface as cover.
-// Moving hulls follow their separate blast path and do not shelter this ray.
-fn blast_blocked<W: ImpactWorld + ?Sized>(world: &mut W, position: &Vector3, target: &Vector3) -> bool {
-    let mut sight = Vector3::default();
-    let span = sight.sub_vectors(target, position).length();
-    if span < 1e-3 {
-        return false;
-    }
-    sight.divide_scalar(span);
-    match world.impact_cast(position, &sight, span, true) {
-        Some(hit) => hit.distance < span - 0.05,
-        None => false,
-    }
 }
 
 /// damage(amount, onShield, source, attacker, info).

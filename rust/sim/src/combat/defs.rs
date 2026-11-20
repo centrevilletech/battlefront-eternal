@@ -403,11 +403,49 @@ pub struct Level {
     // givePowerup excludes dispensers which themselves make power-ups.
     // Resolve this nested content property once, outside the pickup loop.
     pub powerup_dispenser: bool,
+    /// A shield weapon's bubble, which rounds meet while the shield is up.
+    pub bubble: Option<Bubble>,
+}
+
+/// A droideka's shield as a body rounds can meet: an ellipsoid whose three
+/// radii are the shield class's `ShieldRadius` (one number fills all three),
+/// about `ShieldOffset` in the body's frame (x to its left, y up, z ahead).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Bubble {
+    pub radii: [f64; 3],
+    pub offset: [f64; 3],
+}
+
+impl Bubble {
+    /// From a shield class; None without a positive radius on every axis.
+    pub fn read(obj: &JsObj) -> Option<Bubble> {
+        let radius = numbers(obj.get("ShieldRadius"));
+        let first = *radius.first()?;
+        let radii = [first, radius.get(1).copied().unwrap_or(first), radius.get(2).copied().unwrap_or(first)];
+        if !radii.iter().all(|r| *r > 0.0 && r.is_finite()) {
+            return None;
+        }
+        // A missing offset component is zero, as the class reads it.
+        let offset = numbers(obj.get("ShieldOffset"));
+        let at = |i: usize| offset.get(i).copied().filter(|v| v.is_finite()).unwrap_or(0.0);
+        Some(Bubble { radii, offset: [at(0), at(1), at(2)] })
+    }
+}
+
+/// The numbers of a key given as one number, a list or a string "x y z".
+fn numbers(value: &Js) -> Vec<f64> {
+    match value {
+        Js::Num(n) => vec![*n],
+        Js::Arr(list) => list.iter().map(Js::num).collect(),
+        Js::Str(text) => text.split_whitespace().map(|part| part.parse().unwrap_or(f64::NAN)).collect(),
+        _ => Vec::new(),
+    }
 }
 
 impl Level {
     pub fn new(obj: Rc<JsObj>) -> Level {
         let kind=WeaponBase::read(obj.get("base"));
+        let bubble = if matches!(kind, WeaponBase::Shield) { Bubble::read(&obj) } else { None };
         let vals = KEYS.iter().map(|k| obj.get(k).clone()).collect();
         let ordnance = obj.get("ordnance");
         // PredictedShots.fire admits these classes before choosing a barrel.
@@ -441,6 +479,7 @@ impl Level {
             repair,
             cosmetic_round,
             powerup_dispenser,
+            bubble,
         }
     }
 

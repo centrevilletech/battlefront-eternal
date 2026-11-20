@@ -131,6 +131,41 @@ pub fn segment_shape(origin: &Vector3, dir: &Vector3, far: f64, shape: &HitShape
 /// segmentSphere: the first distance in [0, far] at which a
 /// ray from `origin` along unit `dir` is inside the sphere, or None. A ray
 /// starting inside hits at 0.
+/// Where a segment from `origin` along the unit vector `dir` first meets a
+/// droideka's shield bubble within `far`: an ellipsoid with `radii` about
+/// `center`, its axes turned by `yaw` as the body's are (x to its left, z
+/// ahead). Returns the distance and the bubble's outward normal there. As in
+/// the 2004 game, a segment that starts inside the bubble or does not head
+/// into it never meets it, so shots leave a bubble freely.
+pub fn segment_bubble(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, yaw: f64, radii: &[f64; 3]) -> Option<(f64, Vector3)> {
+    let (sin, cos) = v8math::sin_cos(yaw);
+    // Into the bubble's frame, each axis scaled by its radius: a unit sphere.
+    let scaled = |v: &Vector3| [(v.x * cos - v.z * sin) / radii[0], v.y / radii[1], (v.x * sin + v.z * cos) / radii[2]];
+    let mut from_center = Vector3::default();
+    from_center.sub_vectors(origin, center);
+    let p = scaled(&from_center);
+    let d = scaled(dir);
+    let c = p[0] * p[0] + p[1] * p[1] + p[2] * p[2] - 1.0;
+    let b = p[0] * d[0] + p[1] * d[1] + p[2] * d[2];
+    if c < 0.0 || b >= 0.0 {
+        return None;
+    }
+    let a = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+    let disc = b * b - a * c;
+    if disc.is_nan() || disc <= 0.0 {
+        return None;
+    }
+    let t = (-b - disc.sqrt()) / a;
+    if t.is_nan() || t > far {
+        return None;
+    }
+    // The gradient there, back out of the bubble's frame.
+    let q = [(p[0] + d[0] * t) / radii[0], (p[1] + d[1] * t) / radii[1], (p[2] + d[2] * t) / radii[2]];
+    let mut normal = Vector3::new(q[0] * cos + q[2] * sin, q[1], q[2] * cos - q[0] * sin);
+    normal.normalize();
+    Some((t, normal))
+}
+
 pub fn segment_sphere(origin: &Vector3, dir: &Vector3, far: f64, center: &Vector3, radius: f64) -> Option<f64> {
     let mut to_center = Vector3::default();
     to_center.sub_vectors(center, origin);

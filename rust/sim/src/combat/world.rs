@@ -93,6 +93,13 @@ pub trait CombatWorld: WeaponDraws {
     /// cast(origin, direction, far, out, null, staticOnly).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
 
+    /// Whether terrain or a building shields `to` from a blast at `from`. A
+    /// world without its own rule casts the fixed world and forgives the
+    /// last 5 cm; the battle's world tests the terrain as the 2004 game does.
+    fn blast_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        sight_cast_blocked(from, to, |origin, direction, far| self.cast(origin, direction, far, true))
+    }
+
     // ---- His recon droids, a network player's.
     /// remoteOf(weapon): the live droid the weapon at `weapon` launched.
     fn remote_of(&mut self, weapon: u32) -> Option<Droid>;
@@ -247,3 +254,18 @@ pub trait CombatWorld: WeaponDraws {
 
 /// `Admission` a world answers for a weapon with no authority over it.
 pub const ADMITTED: Admission = Admission::Yes;
+
+/// A blast's sight line by one cast of the fixed world: shielded by a hit
+/// short of the last 5 cm. A line shorter than 1 mm is never shielded.
+pub fn sight_cast_blocked(from: &Vector3, to: &Vector3, mut cast: impl FnMut(&Vector3, &Vector3, f64) -> Option<CastHit>) -> bool {
+    let mut sight = Vector3::default();
+    let span = sight.sub_vectors(to, from).length();
+    if span < 1e-3 {
+        return false;
+    }
+    sight.divide_scalar(span);
+    match cast(from, &sight, span) {
+        Some(hit) => hit.distance < span - 0.05,
+        None => false,
+    }
+}

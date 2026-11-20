@@ -46,6 +46,8 @@ impl ImpactWorld for World {
         self.events.push("death");
         unit.alive = false;
         unit.dead = true;
+        // As in a battle, a gunner killed in his seat gives it up here.
+        unit.seat = None;
     }
     fn impact_blown_apart(&mut self, _: f64, _: &mut Unit, _: &mut Combat) {
         self.events.push("apart");
@@ -279,4 +281,186 @@ fn shield_scale_spills_only_the_unabsorbed_health_share() {
     let shield = d.shield.unwrap();
     assert_eq!(shield.value, 0.0);
     assert!(!shield.on);
+}
+
+fn blast(damage: f64, inner: f64, outer: f64, push: f64) -> BlastPacket {
+    BlastPacket { hit: HitPacket { damage, scales: [1.0; 5], shield: 1.0 }, inner, outer, push, push_inner: outer, push_outer: outer }
+}
+
+fn walker_defs(bounds: bool) -> CombatDefs {
+    // A model 1.6 m wide, 2 m tall and 2.4 m long, reaching 1.6 m ahead.
+    walker_box(bounds.then_some([[-0.8, 0.0, -0.8], [0.8, 2.0, 1.6]]))
+}
+
+fn walker_box(bounds: Option<[[f64; 3]; 2]>) -> CombatDefs {
+    use bfe_sim::combat::defs::{Js, JsObj};
+    let corner = |v: [f64; 3]| Js::Arr(std::rc::Rc::new(v.iter().map(|x| Js::Num(*x)).collect()));
+    let mut fields: Vec<(std::rc::Rc<str>, Js)> = vec![("base".into(), Js::Str("walkerdroid".into())), ("weapons".into(), Js::Arr(Default::default()))];
+    if let Some([low, high]) = bounds {
+        fields.push(("bounds".into(), Js::Arr(std::rc::Rc::new(vec![corner(low), corner(high)]))));
+    }
+    let mut defs = CombatDefs::default();
+    defs.set_class(bfe_sim::store::DefId(0), std::rc::Rc::new(JsObj { fields, def: None }));
+    defs
+}
+
+fn droideka_hit(defs: &CombatDefs, rolled: bool, at: Vector3) -> f64 {
+    let (mut u, mut c, _) = actor();
+    // Facing +x: its model's +z points along +x.
+    u.soldier = UnitBody::Droideka(bfe_sim::gen::Droideka { mode: if rolled { 12.0 } else { 0.0 }, aim_yaw: std::f64::consts::FRAC_PI_2, ..Default::default() });
+    combat::explode_prepared(&mut c, &mut u, defs, &blast(100.0, 0.5, 3.0, 10.0), HealthScale::Droid, &at, Attacker::Null, 1.0, &mut World::default());
+    let UnitBody::Droideka(d) = &u.soldier else { panic!() };
+    assert_eq!(d.velocity, [0.0; 3], "a droideka is never pushed");
+    100.0 - c.health
+}
+
+#[test]
+fn a_droideka_is_measured_to_its_model_sphere_standing_or_rolled() {
+    let defs = walker_defs(true);
+    let at = Vector3::new(3.0, 0.2, 0.0);
+    // Centre (0, 1, 0.4) in its frame, so (0.4, 1, 0) here; radius half the box's diagonal.
+    let radius = 0.5 * (1.6f64 * 1.6 + 2.0 * 2.0 + 2.4 * 2.4).sqrt();
+    let distance = Vector3::new(0.4, 1.0, 0.0).distance_to(&at) - 0.5 * radius;
+    let expected = 100.0 * (3.0 - distance) / 2.5;
+    let standing = droideka_hit(&defs, false, at);
+    assert!((standing - expected).abs() < 1e-9, "{standing} {expected}");
+    assert_eq!(droideka_hit(&defs, true, at).to_bits(), standing.to_bits());
+    // The same blast behind it is that much farther from the sphere's centre.
+    assert!(droideka_hit(&defs, false, Vector3::new(-3.0, 0.2, 0.0)) < standing);
+    // A class without a box falls back to the standing soldier's sphere.
+    assert!(droideka_hit(&walker_defs(false), false, at) < standing);
+}
+
+#[test]
+fn a_blast_kills_a_soldier_and_sends_his_body_off_even_without_push() {
+    let (mut u, mut c, defs) = actor();
+    let mut w = World::default();
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut w);
+    assert!(c.dead);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [-5.0, 0.0, 0.0]);
+    // A survivor is not sent anywhere by a blast that does not push.
+    let (mut u, mut c, defs) = actor();
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(50.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut w);
+    assert!(!c.dead && c.health == 50.0);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [0.0; 3]);
+}
+
+#[test]
+fn a_soldier_already_thrown_is_not_pushed_again() {
+    let (mut u, mut c, defs) = actor();
+    if let UnitBody::Soldier(s) = &mut u.soldier {
+        s.air = Some(bfe_sim::gen::Air::Thrown);
+        s.velocity = [1.0, 3.0, 0.0];
+    }
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(10.0, 2.0, 4.0, 10.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
+    assert_eq!(c.health, 90.0);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [1.0, 3.0, 0.0]);
+}
+
+/// Records where each sight line of a blast ends.
+#[derive(Default)]
+struct Sight {
+    ends: Vec<Vector3>,
+}
+impl ImpactWorld for Sight {
+    fn impact_cast(&mut self, from: &Vector3, dir: &Vector3, far: f64, fixed: bool) -> Option<CastHit> {
+        assert!(fixed);
+        let mut end = *from;
+        end.add_scaled_vector(dir, far);
+        self.ends.push(end);
+        None
+    }
+    fn impact_draw(&mut self, _: bool) -> f64 {
+        0.9
+    }
+    fn impact_shield(&mut self, _: f64, _: f64, _: Option<Vector3>, _: bool) {}
+    fn impact_damaged(&mut self, _: f64, _: Attacker, _: &DamageInfo, _: Option<Vector3>, _: &mut Unit, _: &mut Combat) {}
+    fn impact_died(&mut self, unit: &mut Unit, _: &mut Combat) {
+        unit.alive = false;
+        unit.dead = true;
+    }
+    fn impact_blown_apart(&mut self, _: f64, _: &mut Unit, _: &mut Combat) {}
+}
+
+fn droideka_sight(defs: &CombatDefs, rolled: bool, yaw: f64, at: Vector3) -> Vec<Vector3> {
+    let (mut u, mut c, _) = actor();
+    u.soldier = UnitBody::Droideka(bfe_sim::gen::Droideka { mode: if rolled { 12.0 } else { 0.0 }, aim_yaw: yaw, ..Default::default() });
+    let mut w = Sight::default();
+    combat::explode_prepared(&mut c, &mut u, defs, &blast(100.0, 0.5, 3.0, 10.0), HealthScale::Droid, &at, Attacker::Null, 1.0, &mut w);
+    w.ends
+}
+
+#[test]
+fn a_droideka_is_seen_at_its_sphere_centre_carried_with_its_heading() {
+    let near = |a: &Vector3, b: Vector3| a.distance_to(&b) < 1e-9;
+    // The box's centre (0, 1, 0.4) in its frame; facing +x that is (0.4, 1, 0).
+    let at = Vector3::new(3.0, 0.2, 0.0);
+    for rolled in [false, true] {
+        let ends = droideka_sight(&walker_defs(true), rolled, std::f64::consts::FRAC_PI_2, at);
+        assert!(ends.len() == 1 && near(&ends[0], Vector3::new(0.4, 1.0, 0.0)), "{ends:?}");
+    }
+    // A box off to its left: the centre (0.4, 1, 0.4) in its frame, carried as
+    // left * 0.4 + forward * 0.4 with forward (sin, 0, cos) and left (cos, 0, -sin).
+    let defs = walker_box(Some([[-0.4, 0.0, -0.8], [1.2, 2.0, 1.6]]));
+    let yaw: f64 = 0.3;
+    let (sin, cos) = yaw.sin_cos();
+    let expected = Vector3::new(0.4 * cos + 0.4 * sin, 1.0, -0.4 * sin + 0.4 * cos);
+    let ends = droideka_sight(&defs, false, yaw, Vector3::new(2.0, 0.2, 1.0));
+    assert!(ends.len() == 1 && near(&ends[0], expected), "{ends:?} {expected:?}");
+}
+
+fn soldier_velocity(u: &Unit) -> Vector3 {
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    Vector3::new(s.velocity[0], s.velocity[1], s.velocity[2])
+}
+
+#[test]
+fn a_gunner_killed_in_his_seat_is_not_sent_off() {
+    let (mut u, mut c, defs) = actor();
+    u.seat = Some(Ref::new(0, 1));
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
+    assert!(c.dead && u.seat.is_none());
+    assert_eq!(soldier_velocity(&u), Vector3::new(0.0, 0.0, 0.0));
+}
+
+#[test]
+fn a_blast_at_his_feet_kills_him_where_he_stands() {
+    let (mut u, mut c, defs) = actor();
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(0.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
+    assert!(c.dead);
+    assert_eq!(soldier_velocity(&u), Vector3::new(0.0, 0.0, 0.0));
+}
+
+#[test]
+fn a_body_is_pushed_by_a_later_blast_but_not_sent_off_again() {
+    let (mut u, mut c, defs) = actor();
+    let at = Vector3::new(1.0, 0.0, 0.0);
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &at, Attacker::Null, 1.0, &mut World::default());
+    assert_eq!(soldier_velocity(&u), Vector3::new(-5.0, 0.0, 0.0));
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 10.0), HealthScale::Person, &at, Attacker::Null, 1.0, &mut World::default());
+    // Measured lying down (centre 0.35 m up), fully inside the push radius.
+    let mut expected = Vector3::new(-1.0, 0.35, 0.0);
+    expected.normalize().multiply_scalar(10.0);
+    expected.add(&Vector3::new(-5.0, 6.0, 0.0));
+    assert!(soldier_velocity(&u).distance_to(&expected) < 1e-9, "{:?} {expected:?}", soldier_velocity(&u));
+}
+
+#[test]
+fn a_thrown_soldier_killed_by_a_blast_is_sent_off_and_pushed() {
+    let (mut u, mut c, defs) = actor();
+    if let UnitBody::Soldier(s) = &mut u.soldier {
+        s.air = Some(bfe_sim::gen::Air::Thrown);
+        s.velocity = [1.0, 3.0, 0.0];
+    }
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 10.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
+    assert!(c.dead);
+    // 5 m/s from the blast to his feet, then the push from the blast to his
+    // standing sphere's centre (1 m up) with its lift.
+    let mut expected = Vector3::new(-1.0, 1.0, 0.0);
+    expected.normalize().multiply_scalar(10.0);
+    expected.add(&Vector3::new(1.0 - 5.0, 3.0 + 6.0, 0.0));
+    assert!(soldier_velocity(&u).distance_to(&expected) < 1e-9, "{:?} {expected:?}", soldier_velocity(&u));
 }

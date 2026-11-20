@@ -142,9 +142,9 @@ impl CombatRows {
         Ok(id)
     }
 
-    /// F3CombatStore.unitClass sends AddHealth, base, weapons and the class's
-    /// six camera sections (ten numbers each), in that order, after
-    /// registering every weapon it references.
+    /// F3CombatStore.unitClass sends AddHealth, base, weapons, the class's
+    /// six camera sections (ten numbers each) and bounds, in that order,
+    /// after registering every weapon it references.
     pub fn class(&mut self, def: &Value, strings: &mut Strings) -> Result<DefId, AdmitError> {
         let id = self.classes.id(def, Stage::Combat)?;
         if self.sent_classes.contains(&id.0) { return Ok(id); }
@@ -155,12 +155,14 @@ impl CombatRows {
         let list = weapons.as_array().ok_or_else(|| AdmitError::Content { stage: Stage::Combat, message: "class weapons are not an array".into() })?;
         for weapon in list { self.weapon(weapon, strings)?; }
         // A soldier's held rounds converge on his crosshair's point in the
-        // world (combat's crosshair_aim), from his class's cameras.
+        // world (combat's crosshair_aim), from his class's cameras; `bounds`
+        // (the model's box) gives a droideka's blast sphere.
         let cameras = Value::Array(crate::units::class::camera_def(def).sections.iter()
             .flat_map(|s| s.eye.into_iter().chain(s.center).chain(s.offset).chain([s.tilt]))
             .map(Value::Number).collect::<Vec<_>>().into());
-        let mut row = vec![7.0, 4.0];
-        for (key, value) in [("AddHealth", def.get("AddHealth")), ("base", def.get("base")), ("weapons", Some(weapons)), ("cameras", Some(&cameras))] {
+        let mut row = vec![7.0, 5.0];
+        for (key, value) in [("AddHealth", def.get("AddHealth")), ("base", def.get("base")), ("weapons", Some(weapons)),
+            ("cameras", Some(&cameras)), ("bounds", def.get("bounds"))] {
             row.push(strings.intern_str(key).0 as f64);
             row.extend(value_words(value, strings, Some(&self.weapons)));
         }

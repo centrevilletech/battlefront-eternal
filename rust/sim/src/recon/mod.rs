@@ -156,7 +156,8 @@ pub struct Hit {
 /// receive ownership explicitly so immediate nested damage observes live rows.
 pub trait World {
     fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit>;
-    fn static_cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit>;
+    /// Whether terrain or a building shields `to` from a blast at `from`.
+    fn blast_blocked(&mut self, from: Vector3, to: Vector3) -> bool;
     fn gather(&mut self, center: Vector3, radius: f64, out: &mut Vec<Triangle>);
     fn water(&self, x: f64, z: f64) -> Option<f64>;
     /// createDroid captures an immutable launch owner before any projectile
@@ -1462,17 +1463,8 @@ impl Authority {
                 if !(damage > 0.0 || push > 0.0) {
                     continue;
                 }
-                let mut ray = center;
-                ray.sub(&position);
-                let length = ray.length();
-                if length >= 1e-3 {
-                    ray.divide_scalar(length);
-                    if world
-                        .static_cast(position, ray, length)
-                        .is_some_and(|h| h.distance < length - 0.05)
-                    {
-                        continue;
-                    }
+                if world.blast_blocked(position, center) {
+                    continue;
                 }
                 if push > 0.0 {
                     self.mark_droid(r);
@@ -1480,15 +1472,13 @@ impl Authority {
                     away.sub(&position);
                     let d = store.recon_droid.get_mut(r).unwrap();
                     let mut velocity = v(d.velocity);
+                    // Straight away from the blast, with no lift (unlike a
+                    // soldier's); at coincident centres it is not pushed.
+                    // Damage follows, so a death explosion sees this committed velocity.
                     if away.length_sq() > 1e-6 {
                         away.normalize();
                         velocity.add_scaled_vector(&away, push);
                     }
-                    // The upward impulse is unconditional once push is positive.
-                    // At coincident centers there is no normalized outward impulse.
-                    // Keep the vertical addition as its separate operation afterward.
-                    // Damage follows, so a death explosion sees this committed velocity.
-                    velocity.y += 0.6 * push;
                     d.velocity = a(velocity);
                 }
                 self.hurt(store, world, r, damage);

@@ -125,7 +125,8 @@ fn obj_of(v: Js) -> Rc<JsObj> {
 pub(crate) fn cmb_weapon_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).weapon(id, value); }
 
 /// Unit class `id` (the battle's unitClass table): what combat reads of it
-/// (AddHealth, base, its loadout), in the call block.
+/// (AddHealth, base, its loadout, its cameras, its model's box), in the
+/// call block.
 pub(crate) fn cmb_class_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).class(id, value); }
 
 /// Explosion `id` (src/f3-combat.js's table), in the call block.
@@ -431,6 +432,11 @@ impl CombatWorld for JsWorld<'_, '_> {
             point: h.point,
             normal: h.normal,
         });
+    }
+
+    fn blast_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        let world = crate::units::f3::collision_world_in(&self.w.units);
+        crate::units::native::blast_sight_blocked_in(self.w, world, [from.x, from.y, from.z], [to.x, to.y, to.z], None)
     }
 
     fn remote_of(&mut self, weapon: u32) -> Option<Droid> {
@@ -853,13 +859,14 @@ impl CombatWorld for JsWorld<'_, '_> {
 
     // The shooter is out of the slab here, so the unit ray passes over him
     // without a separate exclusion. Soldiers are met where the network
-    // player's screen showed them, as his bolts are.
+    // player's screen showed them, as his bolts are. As in the 2004 game the
+    // aim ray passes through a droideka's raised shield to the body behind.
     fn aim_reach(&mut self, unit: &Unit, origin: &Vector3, direction: &Vector3, far: f64, channel: f64) -> f64 {
         let wall = self.cast(origin, direction, far, false).map_or(far, |hit| hit.distance);
         let tick = crate::units::f3_sensors::view_tick_in(self.w, self.r, unit.generation,
             unit.network_human == Some(true), unit.alive, unit.seat.is_some(), channel);
         crate::units::f3_sensors::ordnance_raycast_in(self.w, a3(origin), a3(direction), wall,
-            OrdnanceOwner::Unit(self.r), tick, None, None).map_or(wall, |hit| hit.distance)
+            OrdnanceOwner::Unit(self.r), tick, None, None, false).map_or(wall, |hit| hit.distance)
     }
 
     fn turn_guns(&mut self, unit: &mut Unit, target: Option<&Vector3>, dt: f64) {

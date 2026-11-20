@@ -28,6 +28,10 @@ pub struct Hit {
     pub body: Option<Ref<Body>>,
 }
 
+/// The body part of a unit hit that met a droideka's shield bubble rather
+/// than its body: none at all (undefined), which no hit on a body carries.
+pub const BUBBLE: Nullable<HitPart> = Nullable::Undefined;
+
 /// A unit raycast's answer (raycast).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitHit {
@@ -169,7 +173,10 @@ pub trait World {
     fn cast(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>, static_only: Option<bool>) -> Option<Hit>;
     /// collision.castMoving (None too when the collision world has none).
     fn cast_moving(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>) -> Option<Hit>;
-    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>) -> Option<UnitHit>;
+    /// `bubbles`: whether a droideka's shield bubble stops it too (rounds and
+    /// bolts; not beams, nor a second ray through a hull to its riders).
+    #[allow(clippy::too_many_arguments)]
+    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>, bubbles: bool) -> Option<UnitHit>;
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount>;
     /// None when the battle's units cannot be queried.
     fn fat_query(&mut self, center: Vec3, radius: f64, owner: OrdnanceOwner, struck: &RefSet<Unit>, ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>>;

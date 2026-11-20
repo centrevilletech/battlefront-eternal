@@ -594,6 +594,27 @@ pub fn world_candidates_into(s: &State, world: usize, ray: &Ray, ignore: i64, st
 /// along the ray.
 /// Cast using explicit candidate places and their enabled flags.
 pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot_xz: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Hit) {
+    let (mut code, hit) = world_cast_fixed_ray_in(s, world, ray, far, candidates, enabled);
+    let low = cast_terrain(s, world, ray, hit.map_or(far, |h| h.distance), hypot_xz);
+    let terrain = matches!((low, hit), (Some(l), Some(h)) if l.distance < h.distance) || (low.is_some() && hit.is_none());
+    let mut out = if terrain {
+        code = TERRAIN;
+        low.unwrap()
+    } else {
+        match hit { Some(h) => h, None => return (MISS, Hit { distance: 0.0, px: 0.0, py: 0.0, pz: 0.0, nx: 0.0, ny: 0.0, nz: 0.0 }) }
+    };
+    if dot([out.nx, out.ny, out.nz], [ray.dx, ray.dy, ray.dz]) > 0.0 {
+        out.nx = -out.nx;
+        out.ny = -out.ny;
+        out.nz = -out.nz;
+    }
+    (code, out)
+}
+
+/// The nearest hit along a ray among the world's meshes and the enabled
+/// candidate bodies, without the terrain: its code (STATIC or the body's
+/// slot) and the hit as found, its normal not yet turned back along the ray.
+pub fn world_cast_fixed_ray_in(s: &State, world: usize, ray: &Ray, far: f64, candidates: &[u32], enabled: &[u8]) -> (i32, Option<Hit>) {
     let w = &s.worlds[world];
     let mut hit = tree_raycast(s, w.tree, ray, 0.0, far);
     let mut code = STATIC;
@@ -615,21 +636,59 @@ pub fn world_cast_ray_in(s: &mut State, world: usize, ray: &Ray, far: f64, hypot
             }
         }
     }
-    let low = cast_terrain(s, world, ray, hit.map_or(far, |h| h.distance), hypot_xz);
-    let terrain = matches!((low, hit), (Some(l), Some(h)) if l.distance < h.distance) || (low.is_some() && hit.is_none());
-    let mut out = if terrain {
-        code = TERRAIN;
-        low.unwrap()
-    } else {
-        match hit { Some(h) => h, None => return (MISS, Hit { distance: 0.0, px: 0.0, py: 0.0, pz: 0.0, nx: 0.0, ny: 0.0, nz: 0.0 }) }
-    };
-    if dot([out.nx, out.ny, out.nz], [ray.dx, ray.dy, ray.dz]) > 0.0 {
-        out.nx = -out.nx;
-        out.ny = -out.ny;
-        out.nz = -out.nz;
-    }
-    (code, out)
+    (code, hit)
 }
+
+/// Whether the terrain cuts a blast's line of sight from `from` to `to`, as
+/// the 2004 game tests it: the line is halved until its pieces are at most
+/// 3 m long, and only each piece's far end is held against the ground under
+/// it. It is cut where a piece ends below the ground after the point before
+/// it was on or above it, unless that piece went down through a cut in the
+/// terrain rather than through the ground. A line that starts on the ground
+/// or a little under it and rises is never cut by that ground, and the
+/// ground between two sampled points does not count.
+pub fn terrain_cuts_sight(s: &mut State, world: usize, from: [f64; 3], to: [f64; 3]) -> bool {
+    let Some(grid) = s.worlds[world].grid else { return false };
+    let mut above = ground_height(s, grid, from).is_some_and(|h| h <= from[1]);
+    sight_walk(s, grid, from, to, &mut above)
+}
+
+const SIGHT_PIECE: f64 = 3.0;
+
+fn sight_walk(s: &mut State, grid: usize, from: [f64; 3], to: [f64; 3], above: &mut bool) -> bool {
+    let d = sub(to, from);
+    let length_sq = dot(d, d);
+    if length_sq > SIGHT_PIECE * SIGHT_PIECE {
+        let middle = [(from[0] + to[0]) * 0.5, (from[1] + to[1]) * 0.5, (from[2] + to[2]) * 0.5];
+        return sight_walk(s, grid, from, middle, above) || sight_walk(s, grid, middle, to, above);
+    }
+    // A point with no ground under it is in a cut in the terrain (or off
+    // it), which lies under the surface it was cut from.
+    let below = ground_height(s, grid, to).is_none_or(|h| h > to[1]);
+    if below && *above && piece_meets_ground(s, grid, from, d, length_sq.sqrt()) {
+        return true;
+    }
+    *above = !below;
+    false
+}
+
+/// Whether a piece of a sight line that went from above the ground to below
+/// it met the ground on the way, rather than going down through a cut.
+fn piece_meets_ground(s: &mut State, grid: usize, from: [f64; 3], d: [f64; 3], length: f64) -> bool {
+    length > 0.0 && {
+        let ray = Ray { ox: from[0], oy: from[1], oz: from[2], dx: d[0] / length, dy: d[1] / length, dz: d[2] / length };
+        grid_raycast(s, grid, &ray, length).is_some()
+    }
+}
+
+/// The terrain's height straight under (x, z), or None where it has none.
+fn ground_height(s: &mut State, grid: usize, at: [f64; 3]) -> Option<f64> {
+    let ray = Ray { ox: at[0], oy: GROUND_PROBE, oz: at[2], dx: 0.0, dy: -1.0, dz: 0.0 };
+    grid_raycast(s, grid, &ray, f64::INFINITY).map(|hit| hit.py)
+}
+
+/// Where a straight-down height probe starts: above any map's terrain.
+const GROUND_PROBE: f64 = 1.0e5;
 
 /// CollisionWorld.castMoving over the first `count` candidates (moving
 /// bodies only): the nearest one's hit (MISS or the body's slot), its normal
@@ -715,6 +774,68 @@ mod tests {
         assert_eq!(triangle_normal(a, b, c), [0.0, -1.0, 0.0]);
         let miss = Ray { ox: 2.0, oy: 1.0, oz: 2.0, dx: 0.0, dy: -1.0, dz: 0.0 };
         assert_eq!(intersect_triangle(&miss, a, b, c, false), None);
+    }
+
+    /// Ground from x -6 to 6 (z -2 to 2) at `height(x)` for whole x, one
+    /// column of cells per metre, without the cells of column `cut` (x from
+    /// cut - 6 to cut - 5); one grid cell holds it all.
+    fn strip(height: impl Fn(i32) -> f64, cut: Option<u32>) -> State {
+        let mut corners = Vec::new();
+        for x in -6..=6 {
+            for z in [-2.0, 2.0] {
+                corners.extend([x as f64, height(x), z]);
+            }
+        }
+        let mut index = Vec::new();
+        for column in (0..12u32).filter(|&c| Some(c) != cut) {
+            let (a, b, c, d) = (column * 2, column * 2 + 1, column * 2 + 2, column * 2 + 3);
+            index.extend([a, b, c, b, d, c]);
+        }
+        let triangles = index.len() / 3;
+        let grid = Grid { positions: 0, index, cells: (0..triangles as u32).collect(), start: vec![0, triangles as u32],
+            stamp: vec![0; triangles], serial: 0, min_x: -6.0, min_z: -6.0, max_x: 6.0, max_z: 6.0, size: 12.0, nx: 1.0, nz: 1.0 };
+        let world = World { tree: 0, terrain: None, grid: Some(0), order: Vec::new(), prepared: Vec::new(), version: 0,
+            statics: None, broad: Default::default() };
+        State { positions: vec![Corners::F64(corners)], trees: Vec::new(), grids: vec![grid], bodies: Vec::new(),
+            worlds: vec![world], sets: Vec::new(), fixed_version: 0 }
+    }
+
+    /// Flat ground at y 0 with a ridge 1 m high at x 0, falling to the
+    /// ground at x -1 and 1.
+    fn ridge() -> State {
+        strip(|x| if x == 0 { 1.0 } else { 0.0 }, None)
+    }
+
+    #[test]
+    fn terrain_cuts_a_blast_sight_line_only_where_a_sampled_point_goes_under() {
+        let mut s = ridge();
+        // A blast lying on the ground, a hair over or under it, or 0.1 m under
+        // it, sees a point above: the ground it lies on never shields it.
+        for y in [0.0, 1e-6, -1e-6, -0.1] {
+            assert!(!terrain_cuts_sight(&mut s, 0, [3.0, y, 0.0], [5.0, 1.4, 0.0]), "{y}");
+        }
+        // From on the ground down under it is cut; from under it to under it is not.
+        assert!(terrain_cuts_sight(&mut s, 0, [3.5, 0.0, 0.0], [5.5, -0.5, 0.0]));
+        assert!(!terrain_cuts_sight(&mut s, 0, [3.5, -0.5, 0.0], [5.5, -0.5, 0.0]));
+        // A line ending inside the ridge, after a start above the ground, is cut.
+        assert!(terrain_cuts_sight(&mut s, 0, [-3.0, 0.5, 0.0], [0.0, 0.5, 0.0]));
+        // Over 3 m the line is sampled every 2.5 m here: x 0 is under the ridge.
+        assert!(terrain_cuts_sight(&mut s, 0, [-5.0, 0.2, 0.0], [5.0, 0.2, 0.0]));
+        // A line under 3 m long is held against the ground at its end only:
+        // the ridge between its ends does not cut it.
+        assert!(!terrain_cuts_sight(&mut s, 0, [-0.9, 0.2, 0.0], [0.9, 0.2, 0.0]));
+    }
+
+    #[test]
+    fn a_cut_in_the_terrain_is_under_the_ground_and_lets_a_line_down_through_it() {
+        // Flat ground at y 0 with the cells from x 2 to 3 cut out.
+        let mut s = strip(|_| 0.0, Some(8));
+        // A blast in the cut, under the ground's level, sees a point under the
+        // ground beside the cut: both are under it.
+        assert!(!terrain_cuts_sight(&mut s, 0, [2.5, -1.0, 0.0], [4.0, -0.5, 0.0]));
+        // Going down into the cut through the ground is cut, through the cut is not.
+        assert!(terrain_cuts_sight(&mut s, 0, [-2.0, 1.2, 0.0], [2.5, -1.0, 0.0]));
+        assert!(!terrain_cuts_sight(&mut s, 0, [1.9, 0.3, 0.0], [2.5, -1.0, 0.0]));
     }
 }
 
