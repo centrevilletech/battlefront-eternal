@@ -452,12 +452,29 @@ impl Weapon {
         }
     }
 
+    /// How long a throw keeps the weapon busy, from the press. A grenade (or
+    /// a remote) waits InitialSalvoDelay to let go and ShotDelay more. A
+    /// dispenser counts its ShotDelay from the press as well, so it is busy
+    /// for the longer of the two, and its ShotDelay is never under 0.01 s:
+    /// the 2004 game's rules. A dispenser that lets go at once is still
+    /// busy for a tick after the item leaves, which is what starts the
+    /// thrower's toss.
+    fn throw_length(d: &Level) -> f64 {
+        let initial = d.get(K::InitialSalvoDelay).num();
+        let shot_delay = d.get(K::ShotDelay).num();
+        if d.kind == WeaponBase::Dispenser {
+            js_max(initial, js_max(shot_delay, 0.01))
+        } else {
+            initial + shot_delay
+        }
+    }
+
     /// startThrow(shots, aim).
     fn start_throw(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         self.throw_time = 0.0;
         self.released = false;
-        self.wait = d.get(K::InitialSalvoDelay).num() + d.get(K::ShotDelay).num();
+        self.wait = Self::throw_length(d);
         self.limit = d.get(K::ShotDelay).or(0.0);
         self.throw_step(index, class, aim, draws, out);
     }
@@ -466,7 +483,7 @@ impl Weapon {
     fn throw_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         let initial = d.get(K::InitialSalvoDelay).num();
-        let shot_delay = d.get(K::ShotDelay).num();
+        let length = Self::throw_length(d);
         let hide = !matches!(d.get(K::HideOnFire), Js::Num(x) if *x == 0.0);
         if !self.released && self.throw_time >= initial {
             let before = out.len();
@@ -482,7 +499,7 @@ impl Weapon {
             self.released = true;
             self.hidden = hide;
         }
-        if self.throw_time >= initial + shot_delay {
+        if self.throw_time >= length {
             self.throw_time = -1.0;
             if self.can_shoot() {
                 self.hidden = false;
@@ -842,4 +859,56 @@ pub fn select(c: &mut crate::gen::Combat, defs: &WeaponDefs, i: usize) -> bool {
     }
     c.selected[channel] = at as f64;
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::defs::JsObj;
+    use std::rc::Rc;
+
+    struct Draws;
+    impl WeaponDraws for Draws {
+        fn draw(&mut self, _: u32) -> f64 { 0.5 }
+        fn legacy(&mut self, _: u32) -> f64 { 0.5 }
+        fn seeded(&mut self, _: f64, _: f64) {}
+        fn admit(&mut self, _: u32) -> Admission { Admission::Yes }
+    }
+
+    /// The ticks at 60 Hz from a tap of the trigger until the thrown thing
+    /// leaves the hand, and until the weapon is no longer busy.
+    fn throw_ticks(base: &str, initial: f64, shot_delay: f64) -> (usize, usize) {
+        let fields = [("base", Js::Str(base.into())), ("InitialSalvoDelay", Js::Num(initial)), ("ShotDelay", Js::Num(shot_delay)),
+            ("RoundsPerClip", Js::Num(1.0)), ("ammo", Js::Num(4.0)), ("ReloadTime", Js::Num(1.0)), ("TriggerSingle", Js::Num(1.0))];
+        let fields = fields.into_iter().map(|(k, v)| (Rc::from(k), v)).collect();
+        let mut defs = WeaponDefs::default();
+        defs.set(DefId(0), WeaponClass::new(Rc::new(JsObj { fields, def: None })));
+        let class = defs.class(DefId(0));
+        let mut weapon = Weapon::create(DefId(0), &defs, true);
+        let aim = Aim { stick: 0.0, posture: None, zoomed: false, repair_target: false };
+        let (mut out, mut left, mut idle) = (Vec::new(), None, None);
+        for tick in 0..300 {
+            let trigger = Trigger { held: tick == 0, pressed: tick == 0, seed: None, late: 0.0 };
+            weapon.update(0, class, 1.0 / 60.0, true, &trigger, false, &aim, &mut Draws, &mut out);
+            if left.is_none() && !out.is_empty() { left = Some(tick); }
+            if idle.is_none() && !weapon.busy() { idle = Some(tick); }
+        }
+        (left.expect("a throw"), idle.expect("an end to the throw"))
+    }
+
+    #[test]
+    fn a_dispenser_counts_its_shot_delay_from_the_press() {
+        // The rebel mine: lets go after 0.3 s, ready again (but for its
+        // reload) 1.5 s after the press, not 1.8 s.
+        let (left, idle) = throw_ticks("dispenser", 0.3, 1.5);
+        assert!((18..=19).contains(&left), "{left}");
+        assert!((90..=91).contains(&idle), "{idle}");
+        // The republic mine lets go at once and is still busy for the next
+        // tick, long enough for the thrower's toss to start.
+        assert_eq!(throw_ticks("dispenser", 0.0, 0.0), (0, 1));
+        // A grenade waits InitialSalvoDelay and then its whole ShotDelay.
+        let (left, idle) = throw_ticks("grenade", 0.3, 1.4);
+        assert!((18..=19).contains(&left), "{left}");
+        assert!((102..=103).contains(&idle), "{idle}");
+    }
 }
