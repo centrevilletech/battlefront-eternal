@@ -452,6 +452,15 @@ impl Units {
             weapon.model = index(self.weapon_input[p + w::MODEL]);
         }
         let view_id = index(self.input[f::FIRST_PERSON]);
+        // A droideka's first person arms carry its guns' turn on the pose
+        // drawn last. It comes off before this frame's animation, which may
+        // crossfade from that pose (another clip, a throw, a landing), and
+        // goes on again after it, so it does not count twice.
+        if let Some(v) = self.views.get_mut(view_id) {
+            if let Some(guns) = &v.guns {
+                guns.unturn(&mut v.rig.tree, &v.rig.bones);
+            }
+        }
         for at in 0..commands {
             let cmd = &self.commands[at * c::STRIDE..][..c::STRIDE];
             let kind = cmd[c::KIND] as u32;
