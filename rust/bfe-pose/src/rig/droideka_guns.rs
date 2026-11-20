@@ -12,8 +12,9 @@ use crate::{js_max, js_min};
 use three::{Matrix4, NodeId, Quaternion, TransformTree, Vector3};
 
 /// rad/s: how fast a droideka's guns turn across (yaw) and up and down
-/// (pitch). The 2004 aimers' defaults, which the droideka's class keeps; a
-/// class's own `AimerYawRate` and `AimerPitchRate` replace them.
+/// (pitch): the 2004 aimer's defaults. The droideka's aimer sections name no
+/// rates, and a prepared class keeps no aimer keys, so every droideka's guns
+/// turn at these.
 pub const YAW_RATE: f64 = 2.0;
 pub const PITCH_RATE: f64 = 1.0;
 
@@ -130,31 +131,23 @@ pub fn step(aim: [f64; 2], rest: &Quaternion, pivot: &Vector3, line: &Vector3, a
     [within(toward(aim[0], want[0], aimer.yaw_rate), aimer.yaw), within(toward(aim[1], want[1], aimer.pitch_rate), aimer.pitch)]
 }
 
-/// A droideka class's gun aimer: its blaster's (the first weapon with
-/// aimers) `AimerYawRate`, `AimerPitchRate` (rad/s), `AimerYawLimits` and
-/// `AimerPitchLimits` (degrees) where it names them; else, for the limits,
-/// the class's `YawLimits` and `PitchLimits` (the droideka's weapon section
-/// gives the same numbers to both); else the 2004 aimer's defaults.
+/// A droideka class's gun aimer: the 2004 aimer's rates, and the class's
+/// `YawLimits` and `PitchLimits` (degrees), which are the numbers its aimer
+/// sections give `AimerYawLimits` and `AimerPitchLimits` (a prepared class
+/// keeps only the class's). A pair written high to low is read low to high;
+/// a class without a pair of two numbers gets the 2004 aimer's limits.
 pub fn aimer_of(class: &bfe_content::Value) -> Aimer {
     use bfe_content::Value;
-    let blaster = class.get("weapons").and_then(Value::as_array).and_then(|list| {
-        list.iter().find(|w| matches!(w.get("aimers"), Some(Value::Array(a)) if !a.is_empty()))
-    });
-    let named = |key: &str| blaster.and_then(|b| b.get(key)).filter(|v| v.truthy());
     let number = |v: &Value| bfe_content::js::to_number(Some(v));
-    let rate = |key: &str, default: f64| named(key).map(number).filter(|r| r.is_finite() && *r > 0.0).unwrap_or(default);
-    let limits = |key: &str, class_key: &str, default: [f64; 2]| {
-        named(key).or_else(|| class.get(class_key).filter(|v| v.truthy())).and_then(Value::as_array)
+    let limits = |key: &str, default: [f64; 2]| {
+        class.get(key).and_then(Value::as_array)
             .filter(|a| a.len() >= 2)
-            .map_or(default, |a| [number(&a[0]).to_radians(), number(&a[1]).to_radians()])
+            .map(|a| [number(&a[0]), number(&a[1])])
+            .filter(|[a, b]| a.is_finite() && b.is_finite())
+            .map_or(default, |[a, b]| [a.min(b).to_radians(), a.max(b).to_radians()])
     };
     let d = Aimer::default();
-    Aimer {
-        yaw_rate: rate("AimerYawRate", d.yaw_rate),
-        pitch_rate: rate("AimerPitchRate", d.pitch_rate),
-        yaw: limits("AimerYawLimits", "YawLimits", d.yaw),
-        pitch: limits("AimerPitchLimits", "PitchLimits", d.pitch),
-    }
+    Aimer { yaw: limits("YawLimits", d.yaw), pitch: limits("PitchLimits", d.pitch), ..d }
 }
 
 /// A posed rig's guns: each blaster bone's turn as the clip left it (what
@@ -509,20 +502,23 @@ mod tests {
         assert_eq!(next_barrels(f64::NAN, &[2, 2]), [usize::MAX; 2]);
     }
 
-    // The droideka's class names no rates (2 and 1 rad/s) and gives its
-    // weapon section's limits as the class's YawLimits and PitchLimits.
+    // The droideka's class as it is prepared: its blaster names its aimers
+    // and nothing else of them, and the class keeps the limits. A pair
+    // written high to low is read low to high; one that is not two numbers
+    // leaves the 2004 aimer's.
     #[test]
     fn a_droidekas_aimer_comes_from_its_class() {
-        let class = bfe_content::json::parse_bytes(br#"{"YawLimits":[-40,40],"PitchLimits":[-25,25],
-            "weapons":[{"aimers":["hp_gun_1","hp_gun_2"]},{"base":"shield"}]}"#).unwrap();
+        let class = bfe_content::json::parse_bytes(br#"{"YawLimits":[-40.0,40.0],"PitchLimits":[-25.0,25.0],
+            "weapons":[{"slot":1,"aimers":["hp_gun_1","hp_gun_2"]},{"slot":2,"aimers":[]}]}"#).unwrap();
         let a = aimer_of(&class);
         assert_eq!((a.yaw_rate, a.pitch_rate), (YAW_RATE, PITCH_RATE));
         assert_eq!((a.yaw, a.pitch), ([-40f64.to_radians(), 40f64.to_radians()], [-25f64.to_radians(), 25f64.to_radians()]));
-        let own = bfe_content::json::parse_bytes(br#"{"YawLimits":[-40,40],"weapons":[{"aimers":["a"],
-            "AimerYawRate":3,"AimerYawLimits":[-10,20]}]}"#).unwrap();
-        let a = aimer_of(&own);
-        assert_eq!((a.yaw_rate, a.pitch_rate, a.yaw), (3.0, PITCH_RATE, [-10f64.to_radians(), 20f64.to_radians()]));
+        let reversed = bfe_content::json::parse_bytes(br#"{"YawLimits":[40,-40],"PitchLimits":["up",25]}"#).unwrap();
+        let a = aimer_of(&reversed);
+        assert_eq!(a.yaw, [-40f64.to_radians(), 40f64.to_radians()]);
         assert_eq!(a.pitch, Aimer::default().pitch);
+        let short = bfe_content::json::parse_bytes(br#"{"YawLimits":[30],"PitchLimits":null}"#).unwrap();
+        assert_eq!(aimer_of(&short), Aimer::default());
     }
 
     // A point beyond the limits: the gun stops at them.
