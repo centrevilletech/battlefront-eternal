@@ -418,12 +418,24 @@ fn soldier_velocity(u: &Unit) -> Vector3 {
 }
 
 #[test]
-fn a_gunner_killed_in_his_seat_is_not_sent_off() {
+fn a_gunner_in_his_seat_is_neither_sent_off_nor_pushed() {
+    let at = Vector3::new(1.0, 0.0, 0.0);
+    // Killed without push, then with push: he leaves the seat by his own path.
+    for push in [0.0, 10.0] {
+        let (mut u, mut c, defs) = actor();
+        u.seat = Some(Ref::new(0, 1));
+        combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, push), HealthScale::Person, &at, Attacker::Null, 1.0, &mut World::default());
+        assert!(c.dead && u.seat.is_none(), "{push}");
+        assert_eq!(soldier_velocity(&u), Vector3::new(0.0, 0.0, 0.0), "{push}");
+    }
+    // A pushing blast he survives leaves him still in his seat, not thrown.
     let (mut u, mut c, defs) = actor();
     u.seat = Some(Ref::new(0, 1));
-    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
-    assert!(c.dead && u.seat.is_none());
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(10.0, 2.0, 4.0, 10.0), HealthScale::Person, &at, Attacker::Null, 1.0, &mut World::default());
+    assert!(!c.dead && c.health == 90.0 && u.seat.is_some());
     assert_eq!(soldier_velocity(&u), Vector3::new(0.0, 0.0, 0.0));
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.air, None);
 }
 
 #[test]
