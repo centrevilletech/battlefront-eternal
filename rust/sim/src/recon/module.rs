@@ -84,15 +84,11 @@ impl World for NativeWorld<'_, '_> {
             normal: h.normal,
         })
     }
-    // RemoteDroids.blast ignores moving bodies for occlusion. Reusing the
-    // ordinary aim cast here would let a passing hull shield a droid from
-    // an explosion that the JavaScript static-only ray lets through.
-    fn static_cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {
-        native::cast_static_in(self.w, f3::collision_world_in(&self.w.units), &origin, &direction, far, true).map(|h| Hit {
-            distance: h.distance,
-            point: h.point,
-            normal: h.normal,
-        })
+    // A blast's line of sight to a droid: moving hulls never shield it, and
+    // the terrain counts as the 2004 game tests it.
+    fn blast_blocked(&mut self, from: Vector3, to: Vector3) -> bool {
+        let world = f3::collision_world_in(&self.w.units);
+        native::blast_sight_blocked_in(self.w, world, [from.x, from.y, from.z], [to.x, to.y, to.z], None)
     }
     fn gather(&mut self, center: Vector3, radius: f64, out: &mut Vec<Triangle>) {
         // RemoteDroids.fly uses uncached collision.gather. Flatten polygons in

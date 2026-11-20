@@ -103,6 +103,10 @@ impl BlastPacket {
 /// without constructing a battle, content bank or foreign callback adapter.
 pub trait ImpactWorld {
     fn impact_cast(&mut self, from: &Vector3, dir: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
+    /// Whether terrain or a building shields `to` from a blast at `from`.
+    fn impact_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        super::world::sight_cast_blocked(from, to, |origin, direction, far| self.impact_cast(origin, direction, far, true))
+    }
     fn impact_draw(&mut self, generator: bool) -> f64;
     fn impact_shield(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
     fn impact_damaged(
@@ -125,6 +129,9 @@ pub trait ImpactWorld {
 impl<W: CombatWorld + ?Sized> ImpactWorld for W {
     fn impact_cast(&mut self, a: &Vector3, b: &Vector3, far: f64, fixed: bool) -> Option<CastHit> {
         self.cast(a, b, far, fixed)
+    }
+    fn impact_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        self.blast_blocked(from, to)
     }
     fn impact_draw(&mut self, generator: bool) -> f64 {
         self.draw_combat(generator)

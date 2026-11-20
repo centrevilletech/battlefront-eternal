@@ -125,7 +125,7 @@ fn obj_of(v: Js) -> Rc<JsObj> {
 pub(crate) fn cmb_weapon_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).weapon(id, value); }
 
 /// Unit class `id` (the battle's unitClass table): what combat reads of it
-/// (AddHealth, base, its loadout), in the call block.
+/// (AddHealth, base, its loadout, its model's box), in the call block.
 pub(crate) fn cmb_class_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).class(id, value); }
 
 /// Explosion `id` (src/f3-combat.js's table), in the call block.
@@ -431,6 +431,11 @@ impl CombatWorld for JsWorld<'_, '_> {
             point: h.point,
             normal: h.normal,
         });
+    }
+
+    fn blast_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        let world = crate::units::f3::collision_world_in(&self.w.units);
+        crate::units::native::blast_sight_blocked_in(self.w, world, [from.x, from.y, from.z], [to.x, to.y, to.z], None)
     }
 
     fn remote_of(&mut self, weapon: u32) -> Option<Droid> {

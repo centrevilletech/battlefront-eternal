@@ -1134,7 +1134,7 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         return false;
     }
     // Terrain or a building between the blast and his sight point shields him.
-    if blast_blocked(world, position, &sight_point) {
+    if world.impact_blocked(position, &sight_point) {
         return false;
     }
     // The owned publisher needs only rows whose values changed. A blast can
@@ -1150,12 +1150,16 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         push = 0.0;
     }
     if !was_dead {
+        // A rider (held by an animated prop or in a seat) leaves by his own
+        // path when he dies, and dying gives up the seat inside the damage
+        // step, so whether he rode is read first.
+        let rider = c.mounted == Some(true) || u.seat.is_some();
         let generic = explosion.hit.shield;
         let info = DamageInfo { explosion: true, amount: Some(damage), typed: Some(typed), generic: Some(generic), known: Some(false), point: Some(None) };
         damage_with(c, u, defs, damage * typed, damage * generic, Some(*position), owner, &info, world);
         // A soldier on foot this blast killed is sent off from it along the
         // line from the blast to his feet, whether or not the explosion pushes.
-        if c.dead && c.mounted != Some(true) && !c.blow_apart {
+        if c.dead && !rider && !c.blow_apart {
             if let UnitBody::Soldier(s) = &mut u.soldier {
                 let mut off = Vector3::default();
                 if off.sub_vectors(&b.position, position).length() > 0.0 {
@@ -1216,25 +1220,6 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
         return (outer - distance) / (outer - inner);
     }
     0.0
-}
-
-/// blastBlocked(collision, position, target): terrain or
-/// a building (never a moving body) between them.
-// PlayerCombat.explode uses static-only cover for its line of sight.
-// A near-zero ray cannot normalize safely and therefore stays unobstructed.
-// The final tolerance avoids treating the victim's own surface as cover.
-// Moving hulls follow their separate blast path and do not shelter this ray.
-fn blast_blocked<W: ImpactWorld + ?Sized>(world: &mut W, position: &Vector3, target: &Vector3) -> bool {
-    let mut sight = Vector3::default();
-    let span = sight.sub_vectors(target, position).length();
-    if span < 1e-3 {
-        return false;
-    }
-    sight.divide_scalar(span);
-    match world.impact_cast(position, &sight, span, true) {
-        Some(hit) => hit.distance < span - 0.05,
-        None => false,
-    }
 }
 
 /// damage(amount, onShield, source, attacker, info).

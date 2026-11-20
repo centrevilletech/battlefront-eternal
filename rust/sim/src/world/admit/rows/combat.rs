@@ -142,8 +142,8 @@ impl CombatRows {
         Ok(id)
     }
 
-    /// F3CombatStore.unitClass sends only AddHealth, base and weapons, in
-    /// literal-property order, after registering every weapon it references.
+    /// F3CombatStore.unitClass sends only AddHealth, base, weapons and bounds,
+    /// in literal-property order, after registering every weapon it references.
     pub fn class(&mut self, def: &Value, strings: &mut Strings) -> Result<DefId, AdmitError> {
         let id = self.classes.id(def, Stage::Combat)?;
         if self.sent_classes.contains(&id.0) { return Ok(id); }

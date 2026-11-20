@@ -760,13 +760,10 @@ impl World for JsWorld<'_, '_> {
 
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
         if crate::units::f3::active_in(&self.w.units) {
-            // ItemsWorld.blocked uses blastBlocked: moving hulls do not
-            // shield a mine, and the final five centimetres are tolerated.
-            let mut direction = three::Vector3::new(target[0]-position[0],target[1]-position[1],target[2]-position[2]);
-            let span = direction.length();if span < 1e-3 { return false; }
-            direction.divide_scalar(span);
-            return crate::units::native::ordnance_cast_in(self.w, crate::units::f3::collision_world_in(&self.w.units),position,
-                [direction.x,direction.y,direction.z],span,None,true,false).is_some_and(|hit| hit.distance < span-0.05);
+            // A blast's line of sight to a mine: moving hulls do not shield
+            // it, and the terrain counts as the 2004 game tests it.
+            let world = crate::units::f3::collision_world_in(&self.w.units);
+            return crate::units::native::blast_sight_blocked_in(self.w, world, position, target, None);
         }
         import_blocked(&BlockedArgs { position, target }).value
     }
