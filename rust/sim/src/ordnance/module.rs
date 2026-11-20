@@ -850,6 +850,12 @@ impl World for JsWorld<'_, '_> {
         self.targets = None;
     }
 
+    fn teams(&mut self, a: f64, b: f64) -> f64 {
+        if crate::units::f3::active_in(&self.w.units) { return crate::units::f3::relation_in(&self.w.units, a, b); }
+        if a == b { return if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 }; }
+        if a == 0.0 || b == 0.0 || a.is_nan() || b.is_nan() { 0.0 } else { -1.0 }
+    }
+
     fn watch(&mut self, index: usize, team: f64) -> Watched {
         if crate::units::f3::active_in(&self.w.units) { return crate::units::f3_items::watch_in(self.w, index,team); }
         let relation = self.relation(index, team);

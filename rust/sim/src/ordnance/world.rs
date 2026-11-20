@@ -222,6 +222,17 @@ pub trait World {
     fn drop_roll(&mut self) -> f64;
     fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner);
     fn watch(&mut self, index: usize, team: f64) -> Watched;
+    /// Team `a`'s side toward team `b`: above 0 friends, below enemies, 0
+    /// neutral (a stuck mine's toward another's).
+    fn teams(&mut self, a: f64, b: f64) -> f64 {
+        if a == b {
+            if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 }
+        } else if a == 0.0 || b == 0.0 || a.is_nan() || b.is_nan() {
+            0.0
+        } else {
+            -1.0
+        }
+    }
     fn standing(&mut self, index: usize) -> Vec3;
     fn give(&mut self, index: usize, def: DefId) -> bool;
     fn pickup(&mut self, def: DefId, position: Vec3);

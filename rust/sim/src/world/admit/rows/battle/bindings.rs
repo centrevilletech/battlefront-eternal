@@ -159,8 +159,8 @@ fn trap(world: &mut World, cx: &Cx, desc: &Value, data: &Value) -> Result<props:
 /// F3Hulls.prepare over the fleet (Vehicles.vehicles, then F2's prepared
 /// variants: every other registered hull in slot order): the registry
 /// VehicleTarget of a live hull, the health type and classifier of its
-/// class, its blast sphere (the template's rig sphere widened to the hull's
-/// half diagonal, else the hull's own centre), the hull's body and its
+/// class, its blast sphere (blast_sphere: the template's rig sphere widened
+/// to take in the class's hover springs, else the hull's own box), the hull's body and its
 /// kernel slot, and the whole body list once (F3Sim.bodiesIn publishes it
 /// when the collision world's version moved, which the first hull always
 /// finds). F1 explosions register at the row.
@@ -197,14 +197,10 @@ pub fn hulls(world: &World, cx: &Cx) -> Result<Vec<units::HullBinding>, AdmitErr
             live += 1;
             (Some(Member::VehicleTarget(Ref::new(id, 0))), format!("v{}", live - 1))
         };
-        // `0.5 * vehicle.size.length()`: THREE's length is a plain square root.
-        let radius = 0.5 * (vehicle.size[0] * vehicle.size[0] + vehicle.size[1] * vehicle.size[1] + vehicle.size[2] * vehicle.size[2]).sqrt();
         let model = def.get("model").and_then(Value::as_str).unwrap_or("");
         let sphere = cx.content.vehicle_templates.iter().find(|t| t.name == model).and_then(|t| t.rig.get("sphere")).and_then(Value::as_array);
-        let (blast_center, blast_radius) = match sphere {
-            Some(s) => hull_sphere(s, def.get("springs").and_then(Value::as_array).unwrap_or(&[])),
-            None => (vehicle.center, radius),
-        };
+        let springs = def.get("springs").and_then(Value::as_array).unwrap_or(&[]);
+        let (blast_center, blast_radius) = blast_sphere(sphere, springs, vehicle.center, vehicle.size);
         let kernel = collision.kernel_slot(vehicle.body.slot).ok_or_else(|| error("a hull's body is outside the collision world"))? as u32;
         let setup = F3HullSetup { hull: *hull, member, health, category, kind, key: crate::store::StrId(0),
             blast_center, blast_radius, explosion: None, final_explosion: None };
@@ -222,11 +218,22 @@ pub fn fill(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
     Ok(())
 }
 
+/// A hull's blast sphere: its model's sphere widened by its springs
+/// (hull_sphere), or, with no model sphere in its template, the middle of
+/// its collision box and half the box's diagonal.
+fn blast_sphere(sphere: Option<&[Value]>, springs: &[Value], center: [f64; 3], size: [f64; 3]) -> ([f64; 3], f64) {
+    match sphere {
+        Some(sphere) => hull_sphere(sphere, springs),
+        // `0.5 * vehicle.size.length()`: THREE's length is a plain square root.
+        None => (center, 0.5 * (size[0] * size[0] + size[1] * size[1] + size[2] * size[2]).sqrt()),
+    }
+}
+
 /// A hull's sphere from its model's bounding sphere (`sphere`: centre and
 /// radius) and its hover springs: the original game widens the radius to
 /// take in each `AddSpringBody` sphere's reach from that centre, never to
 /// the hull's collision box. A blast and a mine's trigger measure to it.
-fn hull_sphere(sphere: &[Value], springs: &[Value]) -> ([f64; 3], f64) {
+pub(crate) fn hull_sphere(sphere: &[Value], springs: &[Value]) -> ([f64; 3], f64) {
     let center = [to_number(sphere.first()), to_number(sphere.get(1)), to_number(sphere.get(2))];
     let reach = springs.iter().fold(0.0, |most: f64, spring| {
         let at = spring.get("at").and_then(Value::as_array);
@@ -252,5 +259,8 @@ mod tests {
         // A walker has no springs: the model's own radius.
         let walker = value("[0, 4.2, 2.3, 10.97]");
         assert_eq!(hull_sphere(walker.as_array().unwrap(), &[]), ([0.0, 4.2, 2.3], 10.97));
+        assert_eq!(blast_sphere(walker.as_array(), &[], [9.0; 3], [6.0, 8.0, 0.0]), ([0.0, 4.2, 2.3], 10.97));
+        // A hull whose template has no model sphere: its own box.
+        assert_eq!(blast_sphere(None, springs.as_array().unwrap(), [1.0, 2.0, 3.0], [6.0, 8.0, 0.0]), ([1.0, 2.0, 3.0], 5.0));
     }
 }
