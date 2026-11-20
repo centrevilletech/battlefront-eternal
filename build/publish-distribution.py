@@ -440,7 +440,7 @@ def read_mac_payload(path, platform, version, store, incoming):
         raise ValueError(f'The {platform} update lacks the notarization ticket')
     return tree
 
-def publish_macos(source, check=False):
+def publish_macos(source):
     """Adds a signed and notarized Mac build to the live release. `source`
     holds the disk image, one update payload per platform key, the signing
     step's record of them (macos-notarized.json) and the signing Mac's
@@ -448,10 +448,12 @@ def publish_macos(source, check=False):
     Mac files and their own signed checksums are added beside it, the channel
     file is signed again with the Mac platforms added, which is when
     installed Mac clients see it, and downloads/latest-macos points at the
-    release. macos.json is written last and is what says the release has its
-    Mac build: a step that stopped anywhere before it is simply run again.
-    With `check` it makes every check and writes nothing: the release host
-    does that before it attaches the files to the GitHub release."""
+    release. The record, its signature and the update payloads are served
+    too, under their own names, so that anyone (the public repository's
+    release-mac-files workflow first) can check the build against the
+    signing Mac's public key. macos.json is written last and is what says the
+    release has its Mac build: a step that stopped anywhere before it is
+    simply run again."""
     os.umask(0o022)
     downloads = ROOT / 'downloads'
     raw = (source / MAC_RECORD).read_bytes()
@@ -487,12 +489,6 @@ def publish_macos(source, check=False):
         raise ValueError(f"The Mac build record's update payloads are not those of a {image.get('arch')} image")
     image_file = named(image)
     store = downloads / 'updates' / 'blobs'
-    if check:
-        # Every payload read and checked as below, into a folder outside the distribution.
-        with tempfile.TemporaryDirectory(prefix='bfe-macos-check-') as incoming:
-            for platform in sorted(updates):
-                read_mac_payload(named(updates[platform]), platform, version, store, Path(incoming))
-        return
     # As publish() does: a release that was published without update payloads has no store yet.
     store.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix='.macos-', dir=downloads))
@@ -503,6 +499,11 @@ def publish_macos(source, check=False):
         entries = {platform: store_payload(tree, platform, stage, release_id, store, incoming) for platform, tree in trees.items()}
         public = f"Battlefront-Eternal-macos-{image['arch']}.dmg"
         shutil.copyfile(image_file, stage / public)
+        # What a third party needs to check the build: the signed record and every file it names.
+        (stage / MAC_RECORD).write_bytes(raw)
+        shutil.copyfile(source / MAC_SIGNATURE, stage / MAC_SIGNATURE)
+        for platform in sorted(updates):
+            shutil.copyfile(named(updates[platform]), stage / updates[platform]['name'])
         done = (json.dumps({
             'version': version, 'release_id': release_id, 'file': public, 'sha256': image['sha256'], 'size': image['size'],
             'arch': image['arch'], 'platforms': sorted(entries), 'minimum_macos': record.get('minimum_macos'),
@@ -537,7 +538,7 @@ def main():
     with (ROOT / '.publish.lock').open('w') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if os.environ.get('BFE_MACOS_DIR'):
-            return publish_macos(Path(os.environ['BFE_MACOS_DIR']), check=os.environ.get('BFE_MACOS_CHECK') == '1')
+            return publish_macos(Path(os.environ['BFE_MACOS_DIR']))
         # The release's files, downloaded and checked by the caller (build/publish-public.py).
         publish(Path(os.environ['BFE_RELEASE_DIR']), os.environ['BFE_PACKAGE_VERSION'], os.environ['BFE_RELEASE_TAG'],
                 os.environ['BFE_REVISION'], os.environ['BFE_BUILD_DATE'])

@@ -342,12 +342,8 @@ class DistributionTest(unittest.TestCase):
                 return record
 
             def refused(why):
-                """The Mac step refuses, and leaves nothing behind: no blob, no file of the release, no staging folder.
-                Its check alone (what the release host runs before it attaches the files to the GitHub release)
-                refuses the same."""
+                """The Mac step refuses, and leaves nothing behind: no blob, no file of the release, no staging folder."""
                 blobs = sorted(path.name for path in store.glob('*/*.zst'))
-                with self.assertRaises(ValueError, msg=why):
-                    distribution.publish_macos(mac, check=True)
                 with self.assertRaises(ValueError, msg=why):
                     distribution.publish_macos(mac)
                 self.assertEqual(sorted(path.name for path in store.glob('*/*.zst')), blobs, f'{why}: a refused Mac build left blobs in the store')
@@ -380,15 +376,8 @@ class DistributionTest(unittest.TestCase):
             (mac / record['dmg']['name']).write_text('another image')
             refused('not the file the record describes')
 
-            # The check alone accepts the build and writes nothing at all.
-            mac_build(5)
-            before = sorted(str(path.relative_to(downloads)) for path in downloads.rglob('*'))
-            channel_before = (downloads / 'updates/development-preview.json').read_bytes()
-            distribution.publish_macos(mac, check=True)
-            self.assertEqual(sorted(str(path.relative_to(downloads)) for path in downloads.rglob('*')), before)
-            self.assertEqual((downloads / 'updates/development-preview.json').read_bytes(), channel_before)
-
             # A step that stops before its last file lands leaves a release without a Mac build, and runs again.
+            mac_build(5)
             from unittest.mock import patch as patch_object
             with patch_object.object(distribution, 'sign_update', side_effect=RuntimeError('the update key is unreadable')):
                 with self.assertRaises(RuntimeError):
@@ -413,6 +402,13 @@ class DistributionTest(unittest.TestCase):
             subprocess.run(['gpg', '--homedir', str(keyhome), '--verify', str(mac_sums) + '.asc', str(mac_sums)], check=True, capture_output=True)
             subprocess.run(['sha256sum', '--check', str(mac_sums)], cwd=mac_sums.parent, check=True, capture_output=True)
             self.assertIn('  macos.json\n', mac_sums.read_text())
+            # The signed record and every file it names are served, so the build can be checked by anyone
+            # (the release-mac-files workflow attaches them to the GitHub release after that check).
+            record = json.loads((mac / 'macos-notarized.json').read_bytes())
+            for name in ('macos-notarized.json', 'macos-notarized.json.sig', 'update-darwin-arm64.tar'):
+                self.assertEqual((downloads / 'preview-5' / name).read_bytes(), (mac / name).read_bytes(), name)
+                self.assertIn(f'  {name}\n', mac_sums.read_text())
+            self.assertEqual(hashlib.sha256((downloads / 'preview-5/Battlefront-Eternal-macos-arm64.dmg').read_bytes()).hexdigest(), record['dmg']['sha256'])
             with self.assertRaises(ValueError):
                 distribution.publish_macos(mac)  # a release takes its Mac build once
             self.assertFalse(list(downloads.glob('.macos-*')), 'the Mac step leaves no stage behind')
