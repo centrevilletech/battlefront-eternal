@@ -285,7 +285,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             (b.position, b.direction, b.ignore_body, b.history_tick, b.def, b.duration)
         };
         let hit = self.w.cast(position, direction, 600.0, Out::Hit, nullable(ignore_body), None);
-        let unit_hit = match self.cast_units(position, direction, hit.map_or(600.0, |h| h.distance), owner, history_tick, ignore_body, None) {
+        let unit_hit = match self.cast_units(position, direction, hit.map_or(600.0, |h| h.distance), owner, history_tick, ignore_body, None, false) {
             Some(u) => Some(u),
             None => self.rider_behind(position, direction, hit, 600.0, owner, history_tick, ignore_body, false),
         };
@@ -593,7 +593,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             let unit_hit = if kind == RoundKind::Fatray {
                 None
             } else {
-                match self.cast_units(previous, ray, hit.map_or(length, |h| h.distance), owner, None, ignore_body, None) {
+                match self.cast_units(previous, ray, hit.map_or(length, |h| h.distance), owner, None, ignore_body, None, true) {
                     Some(u) => Some(u),
                     None => {
                         let far = if kind == RoundKind::Bullet { length + js_max(life, 0.0) * math::length(velocity) } else { f64::INFINITY };
@@ -753,7 +753,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.s().ordnance.start = start;
         self.bolt(r).position = add_scaled(start, direction, speed * step);
         let moving = self.w.cast_moving(start, direction, speed * step, Out::Hit, nullable(ignore_body));
-        let unit_hit = match self.cast_units(start, direction, moving.map_or(speed * step, |h| h.distance), owner, history_tick, ignore_body, None) {
+        let unit_hit = match self.cast_units(start, direction, moving.map_or(speed * step, |h| h.distance), owner, history_tick, ignore_body, None, true) {
             Some(u) => Some(u),
             None => self.rider_behind(start, direction, moving, speed * life, owner, history_tick, ignore_body, true),
         };
@@ -967,13 +967,14 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
 
     /// castUnits: the first unit a segment meets (the world
     /// says which may be struck). `mount`: the hull a round has gone
-    /// through to its riders (riderBehind).
+    /// through to its riders (riderBehind). `bubbles`: whether a droideka's
+    /// shield bubble stops it (rounds and bolts do; beams do not).
     #[allow(clippy::too_many_arguments)]
-    fn cast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>) -> Option<UnitHit> {
+    fn cast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>, bubbles: bool) -> Option<UnitHit> {
         if far <= 0.0 {
             return None;
         }
-        self.w.raycast_units(origin, direction, far, owner, history_tick, ignore_body, mount)
+        self.w.raycast_units(origin, direction, far, owner, history_tick, ignore_body, mount, bubbles)
     }
 
     /// riderBehind: a round that met a hull whose collision
@@ -994,7 +995,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         } else {
             self.w.cast(origin, direction, reach, Out::Behind, mount.body, None)
         };
-        self.cast_units(origin, direction, next.map_or(reach, |n| n.distance), owner, history_tick, ignore_body, Some(mount.vehicle))
+        self.cast_units(origin, direction, next.map_or(reach, |n| n.distance), owner, history_tick, ignore_body, Some(mount.vehicle), false)
     }
 }
 

@@ -5,7 +5,7 @@ use super::{
     defs::Js,
     world::{CastHit, CombatWorld, DamageInfo},
 };
-use crate::gen::{Attacker, Combat, Unit};
+use crate::gen::{Attacker, Combat, Unit, UnitBody};
 use three::Vector3;
 
 /// The health scale PlayerCombat chooses from its immutable class.
@@ -243,6 +243,22 @@ pub fn hit<W: ImpactWorld + ?Sized>(
         &info,
         world,
     );
+}
+
+/// A round that struck a droideka's shield bubble rather than its body: its
+/// `Damage` x `ShieldScale` (x the team factor `scale`) comes off the shield
+/// and nothing reaches health, even when it empties the shield.
+pub fn bubble_hit<W: ImpactWorld + ?Sized>(combat: &Combat, unit: &mut Unit, packet: &HitPacket, scale: f64, point: Vector3, world: &mut W) {
+    if combat.dead || scale <= 0.0 {
+        return;
+    }
+    let UnitBody::Droideka(droideka) = &mut unit.soldier else { return };
+    let mut taken = None;
+    droideka.absorb(1.0, packet.damage * scale * packet.shield, |_, amount| taken = Some(amount));
+    if let Some(taken) = taken {
+        let left = droideka.shield.as_ref().map_or(0.0, |s| s.value);
+        world.impact_shield(taken, left, Some(point), false);
+    }
 }
 
 /// The original explosion loop observes the live registry after every nested

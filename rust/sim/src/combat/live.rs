@@ -322,19 +322,24 @@ pub(crate) fn hit_packet_in(w: &mut crate::world::owner::World,
         super::impacts::team_damage(team, human, unit.team, unit.human, f3::friendly_fire_in(&w.units));
     let health_scale = f3::health_scale_in(&w.units, reference.slot);
     let mut world = super::module::JsWorld::with_services_in(w, reference, &unit, &combat,recon);
-    super::impacts::hit(
-        &mut combat,
-        &mut unit,
-        &defs,
-        &packet,
-        health_scale,
-        scale,
-        part == Nullable::Value(HitPart::Head),
-        v(point),
-        Some(v(direction)),
-        attacker,
-        &mut world,
-    );
+    if part == crate::ordnance::world::BUBBLE {
+        // A round that met a droideka's shield bubble rather than its body.
+        super::impacts::bubble_hit(&combat, &mut unit, &packet, scale, v(point), &mut world);
+    } else {
+        super::impacts::hit(
+            &mut combat,
+            &mut unit,
+            &defs,
+            &packet,
+            health_scale,
+            scale,
+            part == Nullable::Value(HitPart::Head),
+            v(point),
+            Some(v(direction)),
+            attacker,
+            &mut world,
+        );
+    }
     // Make recursive results canonical before the caller resumes its shot.
     // Sparse publication records a touched handle without observing shapes.
     world.finish();

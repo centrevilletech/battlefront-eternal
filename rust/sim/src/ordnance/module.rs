@@ -420,9 +420,9 @@ impl World for JsWorld<'_, '_> {
     // A historical target never rewinds the shooter's current muzzle position.
     // Exposed riders are admitted only for projectile queries that request them.
     // Strict equal-distance ties retain the mixed registry's first member.
-    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>) -> Option<UnitHit> {
+    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>, bubbles: bool) -> Option<UnitHit> {
         if crate::units::f3::active_in(&self.w.units) {
-            return crate::units::f3_sensors::ordnance_raycast_in(self.w, origin,direction,far,owner,history_tick,ignore_body,mount);
+            return crate::units::f3_sensors::ordnance_raycast_in(self.w, origin,direction,far,owner,history_tick,ignore_body,mount,bubbles);
         }
         let a = import_raycast_units(&UnitCastArgs { origin, direction, far, owner, history_tick, ignore_body, mount });
         if !a.found {

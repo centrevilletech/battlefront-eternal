@@ -1,7 +1,7 @@
 //! HitHistory. Samples never move live bodies back
 //! in time. Each ring frame retains its entry and shape storage across ticks.
 use crate::gen::{Half, HitShape};
-use crate::units::shapes::{segment_shape, segment_sphere, shape_normal};
+use crate::units::shapes::{segment_bubble, segment_shape, segment_sphere, shape_normal};
 use three::Vector3;
 
 // HitHistory's saved shapes are used only for rewind intersection. The live
@@ -36,6 +36,15 @@ impl SavedShape {
     }
 }
 
+/// A droideka's shield bubble as captured: its centre, the body's yaw and the
+/// bubble's radii. Only rounds meet it (units::shapes::segment_bubble).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SavedBubble {
+    pub center: Vector3,
+    pub yaw: f64,
+    pub radii: [f64; 3],
+}
+
 /// One captured life, in that frame's registry order. Shape storage is pooled:
 /// stance changes alter count, rather than dropping capacity every capture.
 #[derive(Clone, Debug)]
@@ -46,6 +55,8 @@ pub struct Entry<K> {
     pub center: Vector3,
     pub radius: f64,
     pub shapes: Vec<SavedShape>,
+    /// Its shield bubble, while it had one up.
+    pub bubble: Option<SavedBubble>,
 }
 impl<K: Copy> Entry<K> {
     pub fn new(key: K, capacity: usize) -> Self {
@@ -56,6 +67,7 @@ impl<K: Copy> Entry<K> {
             center: Vector3::default(),
             radius: 0.0,
             shapes: Vec::with_capacity(capacity),
+            bubble: None,
         }
     }
 }
@@ -254,6 +266,17 @@ impl<K: Copy + PartialEq> History<K> {
                 }
                 e.shapes.push(saved);
             }
+            // A bubble raised or dropped between the frames keeps the earlier
+            // frame's state, as a topology change keeps the earlier shapes.
+            e.bubble = match (a.bubble, b.bubble) {
+                (Some(first), Some(next)) if alpha != 0.0 => {
+                    let mut center = first.center;
+                    center.lerp(&next.center, alpha);
+                    let (sin, cos) = v8math::sin_cos(next.yaw - first.yaw);
+                    Some(SavedBubble { center, yaw: first.yaw + v8math::atan2(sin, cos) * alpha, radii: first.radii })
+                }
+                (first, _) => first,
+            };
         }
         self.sampled_at = tick;
         Some(out)
@@ -361,6 +384,51 @@ impl<K: Copy + PartialEq> History<K> {
             part: shape.part,
         })
     }
+
+    /// The nearest shield bubble a segment meets in the sample at `tick`,
+    /// among the members that are eligible and pass `filter` as for shapes:
+    /// the member, the distance, the point and the bubble's outward normal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn bubble_raycast_with<W: World<Key = K>>(
+        &mut self,
+        tick: f64,
+        origin: &Vector3,
+        dir: &Vector3,
+        far: f64,
+        exclude: Option<K>,
+        riders: bool,
+        world: &mut W,
+        filter: &mut impl FnMut(&mut W, K) -> bool,
+    ) -> Option<BubbleHit<K>> {
+        let frame = self.sample(tick)?;
+        let mut best = far;
+        let mut found = None;
+        for entry in &frame.entries[..frame.count] {
+            let Some(bubble) = &entry.bubble else { continue };
+            if !world.eligible(entry.key, entry.life, riders) || Some(entry.key) == exclude || !filter(world, entry.key) {
+                continue;
+            }
+            if let Some((distance, normal)) = segment_bubble(origin, dir, best, &bubble.center, bubble.yaw, &bubble.radii) {
+                if distance < best {
+                    best = distance;
+                    found = Some((entry.key, normal));
+                }
+            }
+        }
+        let (key, normal) = found?;
+        let mut point = *origin;
+        point.add_scaled_vector(dir, best);
+        Some(BubbleHit { key, distance: best, point, normal })
+    }
+}
+
+/// A segment meeting a shield bubble: whose, how far, where and its outward normal.
+#[derive(Debug, PartialEq)]
+pub struct BubbleHit<K> {
+    pub key: K,
+    pub distance: f64,
+    pub point: Vector3,
+    pub normal: Vector3,
 }
 // rewindBudgetTicks accepts finite client measurements only. Missing or
 // nonfinite lead/playout use their normal maximum, rather than zero delay.
