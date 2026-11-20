@@ -10,13 +10,19 @@ name: Release
 # macOS: the same run builds the Mac app and checks it, its disk image and its
 # update payload. A Mac app that players can open must be signed and notarized
 # with an Apple developer certificate, which no workflow here holds, so the
-# release carries the unsigned app as one build input archive and the project's
-# signing step makes the download from it (docs/desktop-updates.md). The Mac
-# job is not part of the release job: whether it fails, hangs or is slow, this
-# run's Windows and Linux release is made at the same time and with the same
-# files as without it. What it can do is what any build job here can: a hung
-# Mac job holds this run open until its timeout (60 minutes, as for the other
+# release carries the unsigned app as one build input archive. The project's
+# signing Mac signs and notarizes it and hands the notarized files to the
+# release host, which attaches the disk image and the update payload to this
+# release and publishes them (docs/desktop-updates.md). The Mac job is not
+# part of the release job: whether it fails, hangs or is slow, this run's
+# Windows and Linux release is made at the same time and with the same files
+# as without it. What it can do is what any build job here can: a hung Mac
+# job holds this run open until its timeout (60 minutes, as for the other
 # builds; it takes about 25), and the next run starts only when this one ends.
+#
+# Only a run on main publishes. The two jobs that write to the release run in
+# the `release` environment, which the repository allows only for main, and
+# pull requests never start this workflow.
 
 on:
   workflow_dispatch:
@@ -578,15 +584,15 @@ jobs:
           path: release/macos-arm64-unsigned-build-input.tar.zst
 
   release:
-    # One release with every platform's files, created only when all three
-    # native builds pass and publishing is enabled (workflow_dispatch with
-    # publish=true, or a push to refs/heads/main), so branch validation runs
-    # never publish a GitHub release and the release host never sees a partial
-    # release.
+    # One release with every platform's files, created only on main when all
+    # three native builds pass (a push, or workflow_dispatch with publish=true),
+    # so branch validation runs never publish a GitHub release and the release
+    # host never sees a partial release.
     needs: [linux-x64, linux-arm64, windows]
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    environment: release
     permissions:
       contents: write
     steps:
@@ -606,15 +612,16 @@ jobs:
           ls -l release
           gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
             --title "Development preview $VERSION" \
-            --notes "Development preview built from $GITHUB_SHA. Install it from https://battlefronteternal.com/download; installed copies update themselves once it is published there. The file macos-arm64-unsigned-build-input.tar.zst, when present, is not an installer: it is the unsigned Mac build that the project's signing step takes. macOS builds are downloaded from the page above once they are signed and notarized."
+            --notes "Development preview built from $GITHUB_SHA. Install it from https://battlefronteternal.com/download; installed copies update themselves once it is published there. The file macos-arm64-unsigned-build-input.tar.zst, when present, is not an installer: it is the unsigned Mac build that the project's signing Mac takes. The signed and notarized Mac disk image (Apple silicon) joins this release once the signing Mac has made it, usually within the hour."
 
   release-macos:
     # Adds the Mac build input to the release that the job above created. Kept apart from
     # it so that a Mac build that fails or is slow never delays or changes that release.
     needs: [linux-x64, release, macos]
-    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.publish == true) || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    environment: release
     permissions:
       contents: write
     steps:
