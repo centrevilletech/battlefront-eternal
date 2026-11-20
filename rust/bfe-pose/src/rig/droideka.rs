@@ -7,12 +7,18 @@
 //! heading; `gunAt` reads a barrel's place off it.
 //!
 //! Every quaternion here is written as three writes it, so each bone's
-//! Euler angles would come out as three's (nothing reads them). One line of
-//! the JavaScript does not do what it says: the unfold's blend out of the
-//! ball (`bone.quaternion.slerpQuaternions(from.q, bone.quaternion, blend)`)
-//! copies `from.q` over the quaternion it then slerps toward, so for the
-//! blend's 0.16 s every bone keeps the turn it had as the unfold began
-//! while its position blends. It is ported as it is (quirks register).
+//! Euler angles would come out as three's (nothing reads them).
+//!
+//! As in the 2004 game, a mode's clip spreads its frames over the whole of
+//! the mode (its last frame shows as the mode ends) and nothing blends one
+//! clip into the next: they are made to meet. Two changes do not meet, and
+//! here (looks only; the game snaps) they are eased over `BLEND`: the pose
+//! drawn as the fold begins turns into the fold's clip, and as the unfold
+//! begins the shell, rolled to any angle in the ball (and the unfold's first
+//! frame has it turned a further 138 degrees), turns about its axle the
+//! short way round from where it was drawn into the unfold. While it does,
+//! `unfold_turn` holds that turn and the shell bone's `from` place the
+//! distance it had left to go.
 
 use super::math;
 use super::skeleton::Skeleton;
@@ -46,6 +52,8 @@ pub const DEATH: i32 = 3;
 pub const DEAD: i32 = 4;
 /// m, the ball's centre above the origin (BallRadius's default).
 pub const BALL_CENTER: f64 = 0.65;
+/// s, the drawn pose's turn into the fold's and the unfold's first frame.
+pub const BLEND: f64 = 0.25;
 const UP: Vector3 = Vector3::new(0.0, 1.0, 0.0);
 const AXIS_X: Vector3 = Vector3::new(1.0, 0.0, 0.0);
 const AXIS_Z: Vector3 = Vector3::new(0.0, 0.0, 1.0);
@@ -75,6 +83,43 @@ impl<'c> DroidekaClips<'c> {
             None => 0.0,
         }
     }
+}
+
+/// The time on a clip's own clock (what `Pose::add` takes) at `time` into a
+/// mode `length` long: the 2004 game spreads the clip's frames over the
+/// whole mode, from the first at its start to the last at its end.
+pub fn clip_time(clip: &Clip, time: f64, length: f64) -> f64 {
+    if length <= 0.0 || clip.fps <= 0.0 {
+        return 0.0;
+    }
+    js_min(js_max(time, 0.0), length) / length * clip.frames.saturating_sub(1) as f64 / clip.fps
+}
+
+/// A droideka's clip a moment between two samples of it, `a` the older and
+/// `b` the newer, each (mode, time into its clip, played backward), the
+/// moment `elapsed` seconds after `a` and `left` before `b`. Within one run
+/// of a clip the time goes from the one to the other. Where the mode changed
+/// (or its clip started again) the old clip runs on until the new one began
+/// (`b`'s time counted back), so a droideka drawn between samples neither
+/// stands still nor skips where one clip hands over to the next.
+pub fn between(a: (i32, f64, bool), b: (i32, f64, bool), elapsed: f64, left: f64) -> (i32, f64, bool) {
+    let ((am, at, ar), (bm, bt, br)) = (a, b);
+    let restarted = if br { bt > at } else { bt < at };
+    if am == bm && !restarted {
+        let span = elapsed + left;
+        let f = if span > 0.0 { elapsed / span } else { 1.0 };
+        return (bm, at + (bt - at) * f, br);
+    }
+    if !br {
+        if bt - left >= 0.0 {
+            return (bm, bt - left, false);
+        }
+        return (am, if ar { js_max(at - elapsed, 0.0) } else { at + elapsed }, ar);
+    }
+    if ar && at - elapsed >= 0.0 {
+        return (am, at - elapsed, true);
+    }
+    (bm, bt + left, true)
 }
 
 /// What the animator reads of the droideka, as it stands when
@@ -134,6 +179,10 @@ pub struct DroidekaAnimator {
     pub from_p: Vec<Vector3>,
     pub pivot: Vector3,
     pub roll_center: Vector3,
+    /// rad, the shell's turn about its axle still to undo as an unfold
+    /// begins (kept apart from `roll_origin`, which a droideka killed while
+    /// unfolding still needs for its rolled corpse).
+    pub unfold_turn: f64,
 }
 
 /// The hidden rig: the tree (its root, a clone of each bone, a clone of each
@@ -244,6 +293,7 @@ impl DroidekaRig {
             transition: 0.0,
             pivot,
             roll_center,
+            unfold_turn: 0.0,
         };
         DroidekaRig {
             tree,
@@ -448,8 +498,7 @@ pub fn roll_axle(
 }
 
 /// DroidekaAnimator.update on either the visible actor or the hidden world
-/// rig. Both hosts share the same pose and fold/unfold state, including the
-/// original self-targeting quaternion blend during unfold.
+/// rig. Both hosts share the same pose and fold/unfold state.
 pub fn update_display(
     a: &mut DroidekaAnimator,
     tree: &mut TransformTree,
@@ -459,21 +508,20 @@ pub fn update_display(
     d: &DroidekaState,
     clips: &DroidekaClips,
 ) {
+    let mut unfolding = false;
     if d.mode != a.mode {
+        unfolding = d.mode == UNFOLD && a.mode == BALL;
         if d.mode == BALL {
             a.roll_origin = d.roll;
         }
         if d.mode == DEAD {
             a.went_up_rolled = a.mode >= FOLD;
         }
-        // Unfold starts from a fixed authored orientation; the last
-        // displayed pose is kept instead of snapping out of a live spin.
-        a.transition = if d.mode == UNFOLD && a.mode == BALL {
-            0.16
-        } else {
-            0.0
-        };
-        if a.transition != 0.0 {
+        // The fold starts from its own standing frame: the last drawn pose
+        // turns into it. The unfold starts from the shell's authored angle.
+        let folding = d.mode == FOLD && a.mode >= 0 && a.mode < FOLD && a.mode != DEATH && a.mode != DEAD;
+        a.transition = if folding || unfolding { BLEND } else { 0.0 };
+        if folding || unfolding {
             for (i, &b) in bones.iter().enumerate() {
                 a.from_q[i].copy(&tree.node(b).quaternion);
                 a.from_p[i].copy(&tree.node(b).position);
@@ -499,7 +547,7 @@ pub fn update_display(
         let t = if d.mode == DEAD {
             clips.length(DEATH, d.speed) * d.speed
         } else {
-            js_min(js_max(d.time, 0.0), length) * d.speed
+            clip_time(clip, d.time, length)
         };
         // Pose.add's own guard passes: the weight is 1.
         pose.add(clip, if mode == BALL { 0.0 } else { t }, 1.0, false);
@@ -579,6 +627,9 @@ pub fn update_display(
             bq.premultiply(&q);
         });
     }
+    // 0 as a change that does not meet happens, 1 once it has been eased.
+    a.transition = js_max(0.0, a.transition - dt);
+    let blend = smoothstep(1.0 - a.transition / BLEND, 0.0, 1.0);
     if a.ball >= 0 && mode >= FOLD {
         let ball = tree.node_mut(bones[a.ball as usize]);
         // The folded shell brought above the contact point gradually,
@@ -587,10 +638,29 @@ pub fn update_display(
         offset
             .sub_vectors(&a.roll_center, &a.pivot)
             .multiply_scalar(folded);
-        if mode == BALL {
+        let k = a.ball as usize;
+        if unfolding {
+            // The turn about the axle from the unfold's first pose to the
+            // shell as drawn (its lean is about another axis), the short way.
+            let mut turn = ball.quaternion;
+            turn.invert().premultiply(&a.from_q[k]);
+            let tau = std::f64::consts::TAU;
+            let angle = 2.0 * v8math::atan2(turn.x, turn.w);
+            a.unfold_turn = angle - tau * ((angle + tau / 2.0) / tau).floor();
+        }
+        // Rolled, the shell turns and leans about its axle; unfolding, it
+        // turns from where it was drawn into the clip.
+        let turn = if mode == BALL {
+            Some((d.lean, d.roll - a.roll_origin))
+        } else if mode == UNFOLD && a.transition > 0.0 {
+            Some((d.lean * (1.0 - blend), a.unfold_turn * (1.0 - blend)))
+        } else {
+            None
+        };
+        if let Some((lean, roll)) = turn {
             let mut spin = Quaternion::default();
-            spin.set_from_axis_angle(&AXIS_Z, d.lean);
-            q.set_from_axis_angle(&AXIS_X, d.roll - a.roll_origin);
+            spin.set_from_axis_angle(&AXIS_Z, lean);
+            q.set_from_axis_angle(&AXIS_X, roll);
             spin.multiply(&q);
             ball.position
                 .sub(&a.pivot)
@@ -601,19 +671,21 @@ pub fn update_display(
             });
         }
         ball.position.add(&offset);
+        if mode == UNFOLD && a.transition > 0.0 {
+            if unfolding {
+                let mut left = a.from_p[k];
+                left.sub(&ball.position);
+                a.from_p[k] = left;
+            }
+            ball.position.add_scaled_vector(&a.from_p[k], 1.0 - blend);
+        }
     }
-    if a.transition > 0.0 {
-        a.transition = js_max(0.0, a.transition - dt);
-        let blend = smoothstep(1.0 - a.transition / 0.16, 0.0, 1.0);
+    if mode == FOLD && a.transition > 0.0 {
         for (i, &b) in bones.iter().enumerate() {
             let node = tree.node_mut(b);
-            // slerpQuaternions(from.q, bone.quaternion, blend): its copy
-            // of from.q is also the slerp's target (the same object).
-            node.copy_quaternion(&a.from_q[i]);
+            // From the pose drawn as the mode changed to this frame's.
             let target = node.quaternion;
-            node.slerp_quaternion(&target, blend);
-            // lerpVectors(from.p, bone.position, blend) reads each part
-            // of the position before it writes it.
+            node.slerp_quaternions(&a.from_q[i], &target, blend);
             let p = node.position;
             node.position.lerp_vectors(&a.from_p[i], &p, blend);
         }
@@ -621,4 +693,80 @@ pub fn update_display(
     a.facing = d.aim_yaw;
     a.legs = d.legs;
     tree.node_mut(root).set_rotation(0.0, d.aim_yaw, 0.0, None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A walking step hands over to the next one tick after the newer
+    // sample's clip began: the clip time runs on through the change.
+    #[test]
+    fn the_clip_runs_on_across_a_change_of_mode() {
+        let step = 17.0 / 60.0;
+        let (a, b) = ((7, step - 0.03, false), (8, 0.02, false));
+        let tick = 1.0 / 60.0;
+        let mut last = None;
+        for k in 0..=3 {
+            let elapsed = k as f64 * tick;
+            let (mode, time, _) = between(a, b, elapsed, 0.05 - elapsed);
+            if elapsed < 0.03 {
+                assert_eq!((mode, time), (7, a.1 + elapsed));
+            } else {
+                assert_eq!(mode, 8);
+                assert!((time - (elapsed - 0.03)).abs() < 1e-12, "{time}");
+            }
+            last = Some((mode, time));
+        }
+        assert_eq!(last, Some((8, 0.02)));
+        // Within one clip the time goes straight from one sample to the next;
+        // played backward too.
+        let close = |got: (i32, f64, bool), want: (i32, f64, bool)| {
+            assert!(got.0 == want.0 && got.2 == want.2 && (got.1 - want.1).abs() < 1e-12, "{got:?} against {want:?}");
+        };
+        close(between((7, 0.1, false), (7, 0.2, false), 0.025, 0.025), (7, 0.15, false));
+        close(between((9, 0.2, true), (9, 0.1, true), 0.025, 0.025), (9, 0.15, true));
+        // Out of a backward step into the next one, also played backward.
+        close(between((9, 0.01, true), (7, 0.25, true), 0.005, 0.045), (9, 0.005, true));
+        close(between((9, 0.01, true), (7, 0.25, true), 0.02, 0.03), (7, 0.28, true));
+    }
+
+    // The corner cases: backward into forward, one clip starting again
+    // (either way round), dying, dead and the ball.
+    #[test]
+    fn the_clip_runs_on_in_the_corner_cases() {
+        let close = |got: (i32, f64, bool), want: (i32, f64, bool)| {
+            assert!(got.0 == want.0 && got.2 == want.2 && (got.1 - want.1).abs() < 1e-12, "{got:?} against {want:?}");
+        };
+        // A backward step ends (time 0) and idle begins 0.01 s before the newer sample.
+        close(between((9, 0.02, true), (0, 0.01, false), 0.005, 0.025), (9, 0.015, true));
+        close(between((9, 0.02, true), (0, 0.01, false), 0.04, 0.01), (0, 0.0, false));
+        // Idle starting again: the old run runs on, then the new run from its start.
+        close(between((0, 0.7, false), (0, 0.01, false), 0.01, 0.03), (0, 0.71, false));
+        close(between((0, 0.7, false), (0, 0.01, false), 0.03, 0.01), (0, 0.0, false));
+        // A backward step starting again (its time jumps back up to the clip's end).
+        close(between((9, 0.01, true), (9, 0.39, true), 0.005, 0.045), (9, 0.005, true));
+        close(between((9, 0.01, true), (9, 0.39, true), 0.03, 0.02), (9, 0.41, true));
+        // Death begins at the newer sample (time 0): the old clip runs on to it; dead the same.
+        close(between((7, 0.1, false), (3, 0.0, false), 0.02, 0.03), (7, 0.12, false));
+        close(between((7, 0.1, false), (3, 0.0, false), 0.05, 0.0), (3, 0.0, false));
+        close(between((3, 0.5, false), (4, 0.0, false), 0.02, 0.01), (3, 0.52, false));
+        // Into the ball and out of it: the change shows when it happened.
+        close(between((11, 0.5, false), (12, 0.02, false), 0.01, 0.04), (11, 0.51, false));
+        close(between((11, 0.5, false), (12, 0.02, false), 0.04, 0.01), (12, 0.01, false));
+        close(between((12, 0.0, false), (13, 0.01, false), 0.04, 0.01), (13, 0.0, false));
+        // The ball's time does not run: it stays where the samples have it.
+        close(between((12, 0.0, false), (12, 0.0, false), 0.02, 0.03), (12, 0.0, false));
+    }
+
+    // The clip's last frame shows as its mode ends, its first as it begins.
+    #[test]
+    fn a_clip_spreads_its_frames_over_its_mode() {
+        let clip = Clip { frames: 31, fps: 30.0, root_motion: false, tracks: vec![], data: vec![] };
+        let length = 31.0 / 30.0 / 2.0;
+        assert_eq!(clip_time(&clip, 0.0, length), 0.0);
+        assert!((clip_time(&clip, length, length) * clip.fps - 30.0).abs() < 1e-12);
+        assert!((clip_time(&clip, length / 2.0, length) * clip.fps - 15.0).abs() < 1e-12);
+        assert_eq!(clip_time(&clip, 2.0 * length, length), clip_time(&clip, length, length));
+    }
 }

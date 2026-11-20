@@ -71,18 +71,15 @@ impl Display {
 }
 
 /// The player's own droideka as a frame draws it: where it is, how fast it
-/// moves, and its pose (roll, lean, legs, clip time).
+/// moves, and its pose (roll, lean, legs, clip time), with the mode whose
+/// clip that time is in and whether it plays backward.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ShownWalker {
     pub position: [f64; 3],
     pub velocity: [f64; 3],
     pub pose: [f64; 4],
-}
-#[derive(Clone, Copy, Default)]
-struct WalkerSample {
-    shown: ShownWalker,
-    mode: u8,
-    reverse: bool,
+    pub mode: u8,
+    pub reverse: bool,
 }
 /// The player's own droideka between the server's corrections. Its body is
 /// not replayed on this client, so the corrections are all that is known of
@@ -95,7 +92,7 @@ struct WalkerSample {
 pub(super) struct Walker {
     life: Option<[f64; 3]>,
     ticks: [f64; Walker::SAMPLES],
-    rows: [WalkerSample; Walker::SAMPLES],
+    rows: [ShownWalker; Walker::SAMPLES],
     // Corrections held, oldest first.
     len: usize,
     clock: f64,
@@ -107,12 +104,10 @@ impl Walker {
         self.len = 0;
     }
     pub fn sample(&mut self, own: &super::receiver::Own, life: [f64; 3], dt: f64) -> ShownWalker {
-        let heard = WalkerSample {
-            shown: ShownWalker {
-                position: own.position,
-                velocity: own.velocity,
-                pose: [own.walker_roll, own.walker_lean, own.walker_legs, own.walker_time],
-            },
+        let heard = ShownWalker {
+            position: own.position,
+            velocity: own.velocity,
+            pose: [own.walker_roll, own.walker_lean, own.walker_legs, own.walker_time],
             mode: own.walker_mode,
             reverse: own.walker_reverse,
         };
@@ -121,7 +116,7 @@ impl Walker {
         // never slid there from the old place.
         let cut = self.life != Some(life)
             || self.len.checked_sub(1).is_some_and(|last| {
-                let from = self.rows[last].shown.position;
+                let from = self.rows[last].position;
                 own.tick < self.ticks[last] || (0..3).map(|k| (own.position[k] - from[k]).powi(2)).sum::<f64>() > 100.
             });
         if cut {
@@ -167,22 +162,25 @@ impl Walker {
         self.clock = self.clock.clamp(oldest, newest);
         let after = self.ticks[..self.len].iter().position(|t| *t > self.clock).unwrap_or(self.len);
         if after == 0 || after == self.len {
-            return self.rows[after.min(self.len - 1)].shown;
+            return self.rows[after.min(self.len - 1)];
         }
         let (a, b) = (&self.rows[after - 1], &self.rows[after]);
         let f = (self.clock - self.ticks[after - 1]) / (self.ticks[after] - self.ticks[after - 1]);
-        let mix = |a: f64, b: f64| a + (b - a) * f;
-        // The pose blends only within one mode, and a clip that started
-        // again takes its new time at once (roll is an angle that is never
-        // wrapped), as for any droideka drawn between two samples.
-        let restarted = if b.reverse { b.shown.pose[3] > a.shown.pose[3] } else { b.shown.pose[3] < a.shown.pose[3] };
+        let mix = |a: f64, b: f64| if a.is_finite() && b.is_finite() { a + (b - a) * f } else { b };
+        // The clip runs on across a change of mode, as for any droideka drawn
+        // between two samples (roll is an angle that is never wrapped).
+        let (mode, time, reverse) = bfe_pose::rig::droideka::between(
+            (a.mode as i32, a.pose[3], a.reverse),
+            (b.mode as i32, b.pose[3], b.reverse),
+            (self.clock - self.ticks[after - 1]) / 60.,
+            (self.ticks[after] - self.clock) / 60.,
+        );
         ShownWalker {
-            position: std::array::from_fn(|k| mix(a.shown.position[k], b.shown.position[k])),
-            velocity: std::array::from_fn(|k| mix(a.shown.velocity[k], b.shown.velocity[k])),
-            pose: std::array::from_fn(|k| {
-                let (from, to) = (a.shown.pose[k], b.shown.pose[k]);
-                if a.mode == b.mode && from.is_finite() && to.is_finite() && !(k == 3 && restarted) { mix(from, to) } else { to }
-            }),
+            position: std::array::from_fn(|k| mix(a.position[k], b.position[k])),
+            velocity: std::array::from_fn(|k| mix(a.velocity[k], b.velocity[k])),
+            pose: [mix(a.pose[0], b.pose[0]), mix(a.pose[1], b.pose[1]), mix(a.pose[2], b.pose[2]), time],
+            mode: mode as u8,
+            reverse,
         }
     }
 }
@@ -259,25 +257,27 @@ mod tests {
             }
             last = shown.position[0];
         }
-        // A clip that starts again is not run backwards to its start: its
-        // time only ever drops straight to the new clip's. (Four frames a
-        // tick as before, then the clock runs up to the newest correction.)
+        // A clip that starts again, and the next mode's clip, show from where
+        // they began (the newer correction's time counted back): with a
+        // correction every tick the clip time falls only twice, each time to
+        // the new run's, and the mode changes once, never back.
         let mut frames = |own: &Own, count: usize| -> Vec<ShownWalker> { (0..count).map(|_| walker.sample(own, life, 1. / 240.)).collect() };
-        own.tick += 1.;
-        own.walker_time = 0.5;
-        frames(&own, 4);
-        own.tick += 1.;
-        own.walker_time = 0.1;
-        let times: Vec<f64> = frames(&own, 16).iter().map(|shown| shown.pose[3]).collect();
-        assert!(times.windows(2).all(|pair| pair[1] >= pair[0] || pair[1] == 0.1), "{times:?}");
-        assert_eq!(times[15], 0.1);
-        // Another mode takes its pose whole, with no roll in between.
-        own.tick += 1.;
-        own.walker_mode = 3;
-        own.walker_roll = 0.;
-        let rolls: Vec<f64> = frames(&own, 16).iter().map(|shown| shown.pose[0]).collect();
-        assert!(rolls.windows(2).all(|pair| pair[1] >= pair[0] || pair[1] == 0.), "{rolls:?}");
-        assert_eq!(rolls[15], 0.);
+        let tick = 1. / 60.;
+        let mut shown = Vec::new();
+        // The second change happens three quarters of a tick after the sample before it.
+        for (mode, time) in [(7, 0.2), (7, 0.2 + tick), (7, 0.25), (7, 0.25 + tick), (7, tick), (7, 2. * tick), (8, 0.25 * tick), (8, 1.25 * tick), (8, 2.25 * tick)] {
+            own.tick += 1.;
+            own.walker_mode = mode;
+            own.walker_time = time;
+            shown.extend(frames(&own, 4));
+        }
+        let shown = &shown[8..];
+        let falls: Vec<&[ShownWalker]> = shown.windows(2).filter(|pair| pair[1].pose[3] < pair[0].pose[3]).collect();
+        let changes = shown.windows(2).filter(|pair| pair[1].mode != pair[0].mode).count();
+        assert!(falls.len() == 2 && falls.iter().all(|pair| pair[1].pose[3] <= tick + 1e-12), "{shown:?}");
+        assert!(changes == 1 && shown.last().is_some_and(|last| last.mode == 8), "{shown:?}");
+        // Until then the old step is still drawn, its clip running on past its last sample.
+        assert!(shown.iter().any(|walker| walker.mode == 7 && walker.pose[3] > 2. * tick + 1e-9), "{shown:?}");
         // The corrections stall for 15 ticks, then come again every tick: the body is where the
         // newest correction puts it, less the usual delay, as soon as that correction is drawn
         // from; it is not left a whole stall behind for a tick first.

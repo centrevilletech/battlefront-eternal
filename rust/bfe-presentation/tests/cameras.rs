@@ -183,3 +183,40 @@ fn death_radius_keeps_the_original_hypot_argument_count() {
     assert_eq!(V8::hypot2(x, z).to_bits(), 119.7297277575953f64.to_bits());
     assert_ne!(V8::hypot2(x, z).to_bits(), V8::hypot(x, z, 0.0).to_bits());
 }
+
+// A droideka's chase camera trails its place behind a ball rolling at 13 m/s
+// and, when the ball stops dead (it unfolds), glides to rest over a few
+// frames instead of stopping with it; sideways it never trails.
+#[test]
+fn a_droideka_camera_glides_to_rest_when_its_ball_stops_dead() {
+    use bfe_presentation::cameras::{motion::Motion, soldier, Camera};
+    let (def, motion) = (soldier::Def::default(), Motion::default());
+    let mut world = World { casts: 0, random: 0, wall: false };
+    let mut cam = Camera { p: Vector3::new(0., 0., 0.), q: three::Quaternion::default(), up: Vector3::new(0., 1., 0.), fov: 65., aspect: 1.5, near: 0.3, far: 1000. };
+    let mut camera = soldier::Soldier::new();
+    let input = |z: f64| soldier::Input {
+        feet: Vector3::new(0., 0., z), yaw: 0., pitch: 0., posture: 0, zoom: 1., first: false, responsive: true, eye: None, crouch: 0., follow: 27.,
+    };
+    let dt = 1. / 60.;
+    let mut z = 0.;
+    for _ in 0..120 {
+        z += 13. * dt;
+        camera.frame::<V8, _>(dt, &input(z), &def, &motion, &mut cam, &mut world);
+    }
+    let rest = |cam: &Camera| cam.p.z - z;
+    let mut gaps = vec![rest(&cam)];
+    for _ in 0..12 {
+        camera.frame::<V8, _>(dt, &input(z), &def, &motion, &mut cam, &mut world);
+        gaps.push(rest(&cam));
+        assert!(cam.p.x.abs() < 1e-9, "sideways {}", cam.p.x);
+    }
+    for _ in 0..60 {
+        camera.frame::<V8, _>(dt, &input(z), &def, &motion, &mut cam, &mut world);
+    }
+    let settled = rest(&cam);
+    // Over a third of a metre further back while rolling; then every frame closes part of the gap, less each time.
+    assert!(gaps[0] < settled - 0.3, "it trails while rolling: {gaps:?}, settled {settled}");
+    let steps: Vec<f64> = gaps.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    assert!(steps.iter().all(|step| *step > 0.0) && steps.windows(2).all(|pair| pair[1] < pair[0]), "{steps:?}");
+    assert!((gaps[12] - settled).abs() < 0.01, "at rest behind the body within 12 frames: {gaps:?}, settled {settled}");
+}

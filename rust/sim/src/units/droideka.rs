@@ -110,13 +110,16 @@ fn length(d: &Droideka, clips: &ModeClips, mode: f64) -> f64 {
 }
 
 /// travel(clip, t): DummyRoot's forward travel at a time on the mode's clock.
+/// As in the 2004 game the clip's frames are spread over the whole mode, so
+/// a step moves the droideka on every tick of it, the last one included.
 fn travel(d: &Droideka, clip: &Clip, t: f64) -> f64 {
     if d.root_index < 0.0 {
         return 0.0;
     }
     let Some(k) = clip.tracks.iter().position(|&b| b as f64 == d.root_index) else { return 0.0 };
     let frames = clip.frames as f64;
-    let f = v8math::min(v8math::max(t * d.speed * clip.fps, 0.0), frames - 1.0);
+    let length = frames / 30.0 / d.speed;
+    let f = v8math::min(v8math::max(t / length * (frames - 1.0), 0.0), frames - 1.0);
     let i0 = f.floor();
     let i1 = v8math::min(i0 + 1.0, frames - 1.0);
     let z = |i: f64| clip.data[(k * clip.frames + i as usize) * 7 + 6] as f64;
@@ -537,4 +540,28 @@ pub fn take_animator(a: &mut RigAnimator, rig: &DroidekaRig) {
     }
     a.pivot = arr(&r.pivot);
     a.roll_center = arr(&r.roll_center);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A walking step 17 frames long at AnimationSpeed 2 lasts 17 ticks and
+    // moves the droideka the same distance on every one of them.
+    #[test]
+    fn a_step_moves_the_droideka_on_every_tick() {
+        let frames = 17;
+        let mut data = vec![0.0f32; frames * 7];
+        for i in 0..frames {
+            data[i * 7 + 3] = 1.0;
+            data[i * 7 + 6] = 0.04 * i as f32;
+        }
+        let clip = Clip { frames, fps: 30.0, root_motion: true, tracks: vec![0], data };
+        let d = Droideka { root_index: 0.0, speed: 2.0, ..Default::default() };
+        let tick = 1.0 / 60.0;
+        let steps: Vec<f64> = (0..frames).map(|k| travel(&d, &clip, (k + 1) as f64 * tick) - travel(&d, &clip, k as f64 * tick)).collect();
+        let whole = travel(&d, &clip, frames as f64 * tick) - travel(&d, &clip, 0.0);
+        assert!((whole - 0.04 * 16.0).abs() < 1e-6, "{whole}");
+        assert!(steps.iter().all(|step| (step - whole / frames as f64).abs() < 1e-6), "{steps:?}");
+    }
 }

@@ -305,7 +305,16 @@ impl Timeline {
                 let turning=btick>start && tick>=start;
                 out[o::YAW_RATE]=if turning {(angle(a[r::YAW],b[r::YAW],1.0)-a[r::YAW])*hz/(btick-start)} else {0.0};
                 out[o::PITCH_RATE]=if turning {(b[r::PITCH]-a[r::PITCH])*hz/(btick-start)} else {0.0};
-                if a[r::KIND]==2.0 && a[r::MODE]==b[r::MODE] {for key in [r::TIME,r::ROLL,r::LEAN,r::LEGS] {out[key]=a[key]+(b[key]-a[key])*blend;}}
+                // A droideka's clip runs on across a change of mode (rig::droideka::between)
+                // and its roll, lean and legs move from the one sample to the other.
+                if a[r::KIND]==2.0 && btick>start {
+                    let span=(btick-start)/hz;let elapsed=blend*span;
+                    let (mode,time,reverse)=crate::rig::droideka::between((a[r::MODE] as i32,a[r::TIME],a[r::REVERSE]!=0.0),
+                        (b[r::MODE] as i32,b[r::TIME],b[r::REVERSE]!=0.0),elapsed,span-elapsed);
+                    if mode as f64!=a[r::MODE] {out[r::DEAD]=b[r::DEAD];}
+                    out[r::MODE]=mode as f64;out[r::TIME]=time;out[r::REVERSE]=if reverse {1.0} else {0.0};
+                    for key in [r::ROLL,r::LEAN,r::LEGS] {out[key]=a[key]+(b[key]-a[key])*blend;}
+                }
             }
         }
     }

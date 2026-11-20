@@ -482,6 +482,14 @@ impl Units {
                 a.last_step = input[i::PREVIOUS_STEP];
                 a.network = false;
                 a.fire_tick = -1.0;
+                // Another life: nothing of the last droideka's pose carries
+                // over (the simulation resets its hidden rig at a spawn too).
+                if let Some(walker) = &mut a.walker {
+                    walker.mode = -1;
+                    walker.transition = 0.0;
+                    walker.went_up_rolled = false;
+                    walker.unfold_turn = 0.0;
+                }
             }
             // presentRiders: death may release a lease before this frame.
             // Its last enclosed mount still decides whether the corpse shows.

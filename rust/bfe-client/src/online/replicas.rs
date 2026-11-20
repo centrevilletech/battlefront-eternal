@@ -1075,6 +1075,9 @@ impl Replicas {
                     input[i::WALKER_LEAN] = walker.pose[1];
                     input[i::WALKER_LEGS] = walker.pose[2];
                     input[i::WALKER_TIME] = walker.pose[3];
+                    // The mode of the sample drawn, not of the newest correction.
+                    input[i::WALKER_MODE] = walker.mode as f64;
+                    input[i::WALKER_REVERSE] = walker.reverse as u8 as f64;
                 }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
