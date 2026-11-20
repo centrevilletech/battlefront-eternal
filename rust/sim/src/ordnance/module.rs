@@ -758,6 +758,11 @@ impl World for JsWorld<'_, '_> {
         hit_of(import_item_cast(&ItemCastArgs { origin, direction, far }))
     }
 
+    fn hull_of(&mut self, body: Ref<Body>) -> Option<Ref<Vehicle>> {
+        if !crate::units::f3::active_in(&self.w.units) { return None; }
+        crate::units::f3_hulls::hull_of_in(self.w, body)
+    }
+
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
         if crate::units::f3::active_in(&self.w.units) {
             // ItemsWorld.blocked uses blastBlocked: moving hulls do not

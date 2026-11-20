@@ -97,6 +97,11 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             life,
             health,
             gone: None,
+            carrier: None,
+            carrier_life: 0.0,
+            carried: [0.0; 3],
+            carried_up: UP,
+            carried_forward: [0.0, 0.0, 1.0],
         };
         let r = self.s().item.insert(item);
         self.place(r);
@@ -292,6 +297,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 }
                 continue;
             }
+            if self.item(r).carrier.is_some() {
+                self.carry(r);
+            }
             if !self.item(r).landed {
                 self.fly(r, dt);
             }
@@ -375,6 +383,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         let start = add_scaled(previous, ray, -0.05);
         let Some(hit) = self.w.item_cast(start, ray, length + 0.1) else { return };
         let n = hit.normal;
+        // The hull it met, if it met one, and that hull's frame.
+        let hull = hit.body.and_then(|body| self.w.hull_of(body))
+            .and_then(|hull| self.s().vehicle.get(hull).map(|v| (hull, v.target_generation, v.matrix)));
         let (rebound, friction) = {
             let d = self.item_def(def);
             (d.rebound.or_nullish(0.3), d.friction.or_nullish(0.5))
@@ -389,6 +400,18 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             // Stuck, upright on the surface (resting on it, the port's choice).
             i.position = add_scaled(hit.point, n, i.radius * 0.3);
             settle(i, n);
+            // On a hull it rides along, held where it stuck in the hull's
+            // frame, as the 2004 game's mines do.
+            if let Some((carrier, life, matrix)) = hull {
+                let mut inverse = three::Matrix4 { elements: matrix };
+                inverse.invert();
+                let forward = [sin(i.yaw), 0.0, cos(i.yaw)];
+                i.carrier = Some(carrier);
+                i.carrier_life = life;
+                i.carried = transform_point(&inverse, i.position);
+                i.carried_up = transform_direction(&inverse, i.up);
+                i.carried_forward = transform_direction(&inverse, forward);
+            }
             return;
         }
         if d > -HARD {
@@ -403,6 +426,33 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             v = scale(v, 1.0 - js_min((friction * -d * (1.0 + rebound)) / along, 1.0));
         }
         i.velocity = add_scaled(v, n, rebound * -d);
+    }
+
+    /// carry: a mine stuck to a hull goes where the hull has taken the
+    /// place it stuck to, turned with it, still at rest on it (no velocity of
+    /// its own); when the hull is gone (cleared away, or another life of its
+    /// slot) it falls from there.
+    fn carry(&mut self, r: Ref<Item>) {
+        let (carrier, life) = {
+            let i = self.item(r);
+            (i.carrier, i.carrier_life)
+        };
+        let frame = carrier.and_then(|hull| self.s().vehicle.get(hull))
+            .filter(|v| v.target_generation == life)
+            .map(|v| v.matrix);
+        let i = self.item(r);
+        let Some(matrix) = frame else {
+            i.carrier = None;
+            i.landed = false;
+            return;
+        };
+        let m = three::Matrix4 { elements: matrix };
+        let forward = transform_direction(&m, i.carried_forward);
+        i.previous = i.position;
+        i.position = transform_point(&m, i.carried);
+        i.up = transform_direction(&m, i.carried_up);
+        i.yaw = v8math::atan2(forward[0], forward[2]);
+        self.place(r);
     }
 
     /// place: the model upright on its surface, facing its way.
@@ -497,6 +547,19 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             }
         }
     }
+}
+
+/// A point and a direction by a matrix (three.js applyMatrix4 and
+/// transformDirection).
+fn transform_point(m: &three::Matrix4, p: Vec3) -> Vec3 {
+    let mut v = three::Vector3::new(p[0], p[1], p[2]);
+    v.apply_matrix4(m);
+    [v.x, v.y, v.z]
+}
+fn transform_direction(m: &three::Matrix4, d: Vec3) -> Vec3 {
+    let mut v = three::Vector3::new(d[0], d[1], d[2]);
+    v.transform_direction(m);
+    [v.x, v.y, v.z]
 }
 
 /// settle: landed, upright on what it touches.
