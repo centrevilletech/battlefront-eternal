@@ -1,119 +1,11 @@
-//! Soldier construction, spawn and immediate look. Cold
-//! bodies publish generated mirrors; a frame consumes all pointer samples
-//! together using the same Soldier methods as authority and private replay.
-use crate::gen::{BodyLook, BodyPreviewFrame, Soldier};
-
-// A stalled frame can retain many commands and pointer samples. Reserve the
-// complete prefix at setup, and refuse its excess without growing a frame.
-pub const LOOKS: usize = 65_536;
-
-// Soldier.look and Soldier.lookRaw share the authoritative posture/air rules.
-// The scratch Soldier is stack data: no body, arsenal or rig is cloned here.
-pub fn preview(frame: &mut BodyPreviewFrame, looks: &[f64]) {
-    let count = (frame.count as usize).min(LOOKS).min(looks.len() / BodyLook::WORDS);
-    // Clamp both the advertised count and the actual span. Native callers
-    // can submit a shortened fixture without exposing an out-of-bounds read.
-    frame.skipped = frame.count.saturating_sub(count as u32);
-    let mut body = Soldier { aim_yaw: frame.aim_yaw, aim_pitch: frame.aim_pitch,
-        max_turn: frame.max_turn, pitch_limits: frame.pitch_limits,
-        posture: frame.posture, air: frame.air, dive: frame.dive, lock: frame.lock,
-        tick_length: frame.tick_length, look_x: frame.look_x, look_y: frame.look_y,
-        ..Default::default() };
-    // Clamping belongs to each sample. Combining counts before a prone or
-    // airborne turn changes the final pitch at a limit or after reversal.
-    for row in looks[..count * BodyLook::WORDS].chunks_exact(BodyLook::WORDS) {
-        let look = BodyLook::take(row, &[]);
-        if look.raw { body.look_raw(look.dx, look.dy, look.scale, look.invert); }
-        else { body.look(look.dx, look.dy, look.scale, look.invert); }
-    }
-    frame.aim_yaw = body.aim_yaw; frame.aim_pitch = body.aim_pitch;
-    frame.look_x = body.look_x; frame.look_y = body.look_y;
-}
-
-// Command aim shares the camera's offsets. World and unit ray responses stay
-// at the existing collision boundary, then one resume completes convergence.
-pub fn aim<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame) {
-    use bfe_presentation::aim::View;
-    use three::Vector3 as V;
-    let view=View{position:V::new(f.position[0],f.position[1],f.position[2]),feet:V::new(f.feet[0],f.feet[1],f.feet[2]),
-        yaw:f.aim_yaw,pitch:f.aim_pitch,posture:f.posture as usize,air:f.air.is_some(),walker:f.walker,rolled:f.rolled,
-        eye_height:f.eye_height,zoom:f.zoom,camera:f.has_camera.then(||V::new(f.camera[0],f.camera[1],f.camera[2])),
-        uses_eye:f.uses_eye,track_offsets:f.track_offsets,sections:None};
-    let aim=view.sample::<M>();f.basis=aim.basis.words();f.eye=[aim.eye.x,aim.eye.y,aim.eye.z];
-    f.shot_yaw=aim.yaw;f.shot_pitch=aim.pitch;f.needs_reach=aim.needs_reach;
-    if aim.needs_reach{f.from=[aim.from.x,aim.from.y,aim.from.z];}
-}
-// World-query resumes retain the same checked generated frame as before.
-// Both callers now finish parallax through the shared presentation owner.
-pub fn resolve<M:bfe_presentation::cameras::math::Math>(f:&mut BodyPreviewFrame) {
-    use bfe_presentation::aim::{Basis,CommandAim};use three::Vector3 as V;
-    let mut aim=CommandAim{basis:Basis{origin:V::new(f.basis[0],f.basis[1],f.basis[2]),
-        direction:V::new(f.basis[12],f.basis[13],f.basis[14]),..Default::default()},
-        from:V::new(f.from[0],f.from[1],f.from[2]),needs_reach:f.needs_reach,yaw:f.shot_yaw,pitch:f.shot_pitch,..Default::default()};
-    aim.resolve::<M>(f.reach);f.shot_yaw=aim.yaw;f.shot_pitch=aim.pitch;
-}
-
-const AIM_ROWS: usize = 2048;
-pub(crate) struct Preview { frame: [f64; BodyPreviewFrame::WORDS], looks: Vec<f64> }
-/// Page previews are admitted only when a page requests its retained banks.
-pub(crate) struct Owner { aims: Option<Vec<f64>>, preview: Option<Preview> }
-impl Owner { pub(crate) const fn new() -> Self { Self { aims: None, preview: None } } }
+//! Soldier and droideka bodies made and placed for a host: a soldier's
+//! construction from its class, and both kinds' spawn placement. Cold
+//! bodies publish generated mirrors.
+use crate::gen::Soldier;
 
 pub(crate) mod module {
     use super::*;
     use crate::{gen::{BodySpawn,BodySpawnOutput}};
-    // Another preview does not resize either reserved allocation.
-    fn owner(w: &mut crate::world::owner::World) -> &mut Preview {
-        // One thread owns the screen preview; no borrow crosses a host import.
-        w.page_body.preview.get_or_insert_with(|| Preview {
-            frame: [0.0; BodyPreviewFrame::WORDS], looks: vec![0.0; LOOKS * BodyLook::WORDS] })
-    }
-    fn aims(w: &mut crate::world::owner::World)->&mut Vec<f64> {
-        // All shot poses in a replay publication share this reserved block.
-        // The host answers their rays before one resume resolves every aim.
-        w.page_body.aims.get_or_insert_with(||vec![0.0;AIM_ROWS*BodyPreviewFrame::WORDS])
-    }
-    pub(crate) fn body_aim_ptr_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> {Some(&mut aims(w)[..])}
-    pub(crate) fn body_aim_capacity_in(_w: &mut crate::world::owner::World) ->u32 {AIM_ROWS as u32}
-    pub(crate) fn body_aim_batch_in(w: &mut crate::world::owner::World, count:u32,resume:u32) {
-        // Count is untrusted independently of the host writer. Oversized
-        // paused publications keep their admitted prefix and report the tail.
-        let skipped=count.saturating_sub(AIM_ROWS as u32);
-        let count=(count as usize).min(AIM_ROWS);let rows=aims(w);
-        for row in rows[..count*BodyPreviewFrame::WORDS].chunks_exact_mut(BodyPreviewFrame::WORDS){
-            let mut frame=BodyPreviewFrame::take(row,&[]);
-            if resume!=0{resolve::<crate::cameras::HostMath>(&mut frame);}
-            else{aim::<crate::cameras::HostMath>(&mut frame);}
-            frame.put(row,&mut Vec::new());
-        }
-        // The first generated row also exposes refusal count to the host;
-        // no diagnostic buffer or per-refusal event needs to grow here.
-        rows[BodyPreviewFrame::SKIPPED]=skipped as f64;
-    }
-    pub(crate) fn body_preview_frame_ptr_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { Some(&mut owner(w).frame[..]) }
-    pub(crate) fn body_preview_looks_ptr_in(w: &mut crate::world::owner::World) -> Option<&mut [f64]> { Some(&mut owner(w).looks[..]) }
-    pub(crate) fn body_preview_capacity_in(_w: &mut crate::world::owner::World) -> u32 { LOOKS as u32 }
-    pub(crate) fn body_preview_in(w: &mut crate::world::owner::World, with_aim: u32) {
-        let p = owner(w); let mut f = BodyPreviewFrame::take(&p.frame, &[]);
-        // convergedAim restored the tick basis after sampling pending look.
-        // Publish it separately: HUD targeting reads the physical gun frame.
-        if with_aim!=0 {
-            let mut source=f.clone();source.aim_yaw=f.source_yaw;source.aim_pitch=f.source_pitch;
-            aim::<crate::cameras::HostMath>(&mut source);
-            f.source_basis=source.basis;
-        }
-        preview(&mut f, &p.looks);
-        // The camera's scalar host math preserves the last bits;
-        // body/scene methods never cross this numeric boundary.
-        if with_aim!=0 {aim::<crate::cameras::HostMath>(&mut f);}
-        // Both records contain scalars only; no heap can grow on this path.
-        f.put(&mut p.frame, &mut Vec::new());
-    }
-    pub(crate) fn body_preview_resolve_in(w: &mut crate::world::owner::World) {
-        let p=owner(w);let mut f=BodyPreviewFrame::take(&p.frame,&[]);
-        resolve::<crate::cameras::HostMath>(&mut f);
-        f.put(&mut p.frame,&mut Vec::new());
-    }
     // Soldier.constructor's native class reader keeps authored defaults in
     // one place. JSON parsing is confined to this cold resource admission.
     pub(crate) fn body_construct_in(w: &mut crate::world::owner::World, def: bfe_content::Value) -> Option<&[f64]> {
@@ -167,30 +59,3 @@ pub(crate) mod module {
         Some(&s.calls.block.words[..])
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gen::Posture;
-    // Frozen results include a pitch-limit reversal: summing the samples
-    // before applying the limit would produce a different final angle.
-    #[test]
-    fn ordered_prone_look_and_locked_body() {
-        let mut frame=BodyPreviewFrame {aim_yaw:0.25, aim_pitch:0.35, max_turn:2.0,
-            pitch_limits:[-0.8,1.1], posture:Posture::Prone, count:2, ..Default::default()};
-        let mut samples=[0.0;2*BodyLook::WORDS];let mut heap=Vec::new();
-        BodyLook {dx:256.0,dy:-256.0,scale:1.0,invert:false,raw:true}.put(&mut samples,&mut heap);
-        BodyLook {dx:128.0,dy:128.0,scale:1.0,invert:false,raw:true}.put(&mut samples[BodyLook::WORDS..],&mut heap);
-        preview(&mut frame,&samples);
-        assert_eq!((frame.aim_yaw,frame.aim_pitch),(0.0625,0.275));
-        frame.lock=1.0;preview(&mut frame,&samples);
-        assert_eq!((frame.aim_yaw,frame.aim_pitch),(0.0625,0.275));
-    }
-    #[test]
-    fn truncated_or_oversized_prefix_is_bounded() {
-        let mut frame=BodyPreviewFrame {count:u32::MAX, lock:1.0, ..Default::default()};
-        preview(&mut frame,&[0.0;BodyLook::WORDS]);
-        assert_eq!(frame.skipped,u32::MAX-1);
-    }
-}
-
