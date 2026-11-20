@@ -370,9 +370,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     /// contact: what the item meets between where it was and where
     /// it is.
     fn contact(&mut self, r: Ref<Item>) {
-        let (position, previous, def) = {
+        let (position, previous, def, mine, owner) = {
             let i = self.item(r);
-            (i.position, i.previous, i.def)
+            (i.position, i.previous, i.def, i.mine, i.owner)
         };
         let ray = sub(position, previous);
         let length = crate::ordnance::math::length(ray);
@@ -381,7 +381,23 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         let ray = divide(ray, length);
         let start = add_scaled(previous, ray, -0.05);
-        let Some(hit) = self.w.item_cast(start, ray, length + 0.1) else { return };
+        let hit = self.w.item_cast(start, ray, length + 0.1);
+        // A mine meets soldiers and droids too (not its thrower), and
+        // bounces off them, as the 2004 game's do, rather than sticking.
+        if mine {
+            let thrower = match owner {
+                ItemOwner::Unit(unit) => OrdnanceOwner::Unit(unit),
+                ItemOwner::Player => OrdnanceOwner::Player,
+                ItemOwner::Null => OrdnanceOwner::Null,
+            };
+            if let Some(body) = self.w.raycast_units(start, ray, length + 0.1, thrower, None, None, None) {
+                if hit.as_ref().is_none_or(|h| body.distance < h.distance) {
+                    self.bounce_off_body(r, body.point, body.normal);
+                    return;
+                }
+            }
+        }
+        let Some(hit) = hit else { return };
         let n = hit.normal;
         // The hull it met, if it met one, and that hull's frame.
         let hull = hit.body.and_then(|body| self.w.hull_of(body))
@@ -419,13 +435,22 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             settle(i, n);
             return;
         }
-        i.position = add_scaled(hit.point, n, 0.02);
-        let mut v = add_scaled(v, n, -d);
-        let along = crate::ordnance::math::length(v);
-        if along > 1e-6 {
-            v = scale(v, 1.0 - js_min((friction * -d * (1.0 + rebound)) / along, 1.0));
+        rebound_off(i, hit.point, n, d, rebound, friction);
+    }
+
+    /// bounce_off_body: off a body, by the item's Rebound and Friction; one moving
+    /// away from the body's surface already goes on as it was.
+    fn bounce_off_body(&mut self, r: Ref<Item>, point: Vec3, n: Vec3) {
+        let def = self.item(r).def;
+        let (rebound, friction) = {
+            let d = self.item_def(def);
+            (d.rebound.or_nullish(0.3), d.friction.or_nullish(0.5))
+        };
+        let i = self.item(r);
+        let d = dot(i.velocity, n);
+        if d < 0.0 {
+            rebound_off(i, point, n, d, rebound, friction);
         }
-        i.velocity = add_scaled(v, n, rebound * -d);
     }
 
     /// carry: a mine stuck to a hull goes where the hull has taken the
@@ -549,6 +574,19 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 }
 
+/// The bounce off a surface with normal `n` met at `d` (the velocity along
+/// `n`, below 0): the part into it gone, then Friction times it times
+/// (1 + Rebound) of the rest, and back out at Rebound times it.
+fn rebound_off(i: &mut Item, point: Vec3, n: Vec3, d: f64, rebound: f64, friction: f64) {
+    i.position = add_scaled(point, n, 0.02);
+    let mut v = add_scaled(i.velocity, n, -d);
+    let along = crate::ordnance::math::length(v);
+    if along > 1e-6 {
+        v = scale(v, 1.0 - js_min((friction * -d * (1.0 + rebound)) / along, 1.0));
+    }
+    i.velocity = add_scaled(v, n, rebound * -d);
+}
+
 /// A point and a direction by a matrix (three.js applyMatrix4 and
 /// transformDirection).
 fn transform_point(m: &three::Matrix4, p: Vec3) -> Vec3 {
@@ -568,4 +606,165 @@ fn settle(i: &mut Item, normal: Vec3) {
     i.sinking = false;
     i.velocity = [0.0, 0.0, 0.0];
     i.up = normal;
+}
+
+#[cfg(test)]
+mod tests {
+    //! A mine's flight against a stand-in world: a floor at y = 0, a hull's
+    //! deck at y = 1 over 3 <= x <= 6 (while the hull has not moved), and one
+    //! soldier standing as a cylinder of radius 0.4 about x = 2, z = 0.
+    use super::*;
+    use crate::ordnance::defs::Defs;
+    use crate::store::{Nullable, RefSet, StrId, Strings};
+
+    struct Stand {
+        store: Store,
+        strings: Strings,
+        defs: Defs,
+        soldier: Option<Ref<Unit>>,
+        deck: Option<(Ref<Body>, Ref<Vehicle>)>,
+    }
+
+    impl World for Stand {
+        fn store(&self) -> &Store { &self.store }
+        fn store_mut(&mut self) -> &mut Store { &mut self.store }
+        fn strings_mut(&mut self) -> &mut Strings { &mut self.strings }
+        fn definitions(&self) -> &Defs { &self.defs }
+        fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit> {
+            let mut best: Option<Hit> = None;
+            let mut plane = |height: f64, body: Option<Ref<Body>>, within: &dyn Fn(Vec3) -> bool| {
+                if direction[1] >= 0.0 { return; }
+                let distance = (height - origin[1]) / direction[1];
+                let point = add_scaled(origin, direction, distance);
+                if distance >= 0.0 && distance <= far && within(point) && best.as_ref().is_none_or(|b| distance < b.distance) {
+                    best = Some(Hit { distance, point, normal: UP, terrain: body.is_none(), body });
+                }
+            };
+            plane(0.0, None, &|_| true);
+            if let Some((body, hull)) = self.deck {
+                if self.store.vehicle.get(hull).is_some_and(|v| v.matrix[12] == 0.0) {
+                    plane(1.0, Some(body), &|p| (3.0..=6.0).contains(&p[0]));
+                }
+            }
+            best
+        }
+        fn hull_of(&mut self, body: Ref<Body>) -> Option<Ref<Vehicle>> {
+            self.deck.filter(|&(b, _)| b == body).map(|(_, hull)| hull)
+        }
+        fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, _owner: OrdnanceOwner, _history_tick: Option<f64>, _ignore_body: Option<Ref<Body>>, _mount: Option<Ref<Vehicle>>) -> Option<UnitHit> {
+            let unit = self.soldier?;
+            // The ray against the cylinder (x - 2)^2 + z^2 = 0.4^2, 0 <= y <= 1.8.
+            let (ox, oz) = (origin[0] - 2.0, origin[2]);
+            let a = direction[0] * direction[0] + direction[2] * direction[2];
+            let b = 2.0 * (ox * direction[0] + oz * direction[2]);
+            let c = ox * ox + oz * oz - 0.16;
+            let disc = b * b - 4.0 * a * c;
+            if a == 0.0 || disc < 0.0 { return None; }
+            let distance = (-b - disc.sqrt()) / (2.0 * a);
+            let point = add_scaled(origin, direction, distance);
+            if distance < 0.0 || distance > far || !(0.0..=1.8).contains(&point[1]) { return None; }
+            let normal = normalize([point[0] - 2.0, 0.0, point[2]]);
+            Some(UnitHit { unit, distance, point, normal, part: Nullable::Null })
+        }
+        fn item_model(&mut self, _def: DefId) -> ItemModel { ItemModel { mesh: true, radius: 0.2, center: None } }
+        fn owner_key(&mut self, _owner: ItemOwner) -> String { "thrower".into() }
+        fn item_water_crossing(&mut self, _from: Vec3, _to: Vec3) -> Option<Vec3> { None }
+        fn cast(&mut self, _origin: Vec3, _direction: Vec3, _far: f64, _out: Out, _ignore_body: Nullable<Ref<Body>>, _static_only: Option<bool>) -> Option<Hit> { unimplemented!() }
+        fn cast_moving(&mut self, _origin: Vec3, _direction: Vec3, _far: f64, _out: Out, _ignore_body: Nullable<Ref<Body>>) -> Option<Hit> { unimplemented!() }
+        fn rider_mount(&mut self, _body: Nullable<Ref<Body>>) -> Option<RiderMount> { unimplemented!() }
+        fn fat_query(&mut self, _center: Vec3, _radius: f64, _owner: OrdnanceOwner, _struck: &RefSet<Unit>, _ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>> { unimplemented!() }
+        fn unit_sphere(&mut self, _unit: Ref<Unit>) -> Option<(Vec3, f64)> { unimplemented!() }
+        fn is_droid(&mut self, _unit: Ref<Unit>) -> bool { unimplemented!() }
+        fn gone(&mut self, _x: BeamSource) -> bool { unimplemented!() }
+        fn beam_local_origin(&mut self, _source: BeamSource, _origin: Vec3) -> Option<Vec3> { unimplemented!() }
+        fn beam_pose(&mut self, _source: BeamSource, _local_origin: Vec3, _position: &mut Vec3, _direction: &mut Vec3) { unimplemented!() }
+        fn shot_tick(&mut self, _owner: OrdnanceOwner, _channel: f64) -> Nullable<f64> { unimplemented!() }
+        fn history_tick(&mut self) -> f64 { unimplemented!() }
+        fn shooter(&mut self, _owner: OrdnanceOwner, _channel: f64) -> Shooter { unimplemented!() }
+        fn missile_target(&mut self, _target_id: f64, _target_generation: f64) -> Option<Vec3> { unimplemented!() }
+        fn navigate_missile(&mut self, _position: Vec3, _velocity: &mut Vec3, _flight_class: Option<StrId>, _target_id: f64, _target_generation: f64, _dt: f64) -> f64 { unimplemented!() }
+        fn water_crossing(&mut self, _from: Vec3, _to: Vec3) -> Option<Vec3> { unimplemented!() }
+        fn waver(&mut self) -> f64 { unimplemented!() }
+        fn spin(&mut self) -> f64 { unimplemented!() }
+        fn explosion(&mut self, _def: &Field, _position: Vec3, _owner: OrdnanceOwner) { unimplemented!() }
+        fn hit(&mut self, _body: Ref<Body>, _def: DefArg, _owner: OrdnanceOwner, _direction: Vec3) { unimplemented!() }
+        fn hit_unit(&mut self, _unit: Ref<Unit>, _def: DefArg, _point: Point, _owner: OrdnanceOwner, _part: Nullable<HitPart>, _direction: Vec3) { unimplemented!() }
+        fn projectile(&mut self, _shot: Shot, _kind: ShotKind) { unimplemented!() }
+        fn launch(&mut self, _bolt: Ref<Bolt>, _tick: Nullable<f64>) { unimplemented!() }
+        fn impact(&mut self, _shot: Shot, _info: &ImpactInfo) { unimplemented!() }
+        fn grenade_contact(&mut self, _grenade: Ref<Grenade>) { unimplemented!() }
+        fn bounce(&mut self, _def: DefId, _position: Vec3, _speed: f64) { unimplemented!() }
+        fn blocked(&mut self, _position: Vec3, _target: Vec3) -> bool { unimplemented!() }
+        fn drop_roll(&mut self) -> f64 { unimplemented!() }
+        fn explode(&mut self, _def: &Field, _position: Vec3, _owner: ItemOwner) { unimplemented!() }
+        fn watch(&mut self, _index: usize, _team: f64) -> Watched { unimplemented!() }
+        fn standing(&mut self, _index: usize) -> Vec3 { unimplemented!() }
+        fn give(&mut self, _index: usize, _def: DefId) -> bool { unimplemented!() }
+        fn pickup(&mut self, _def: DefId, _position: Vec3) { unimplemented!() }
+    }
+
+    fn stand(soldier: bool, deck: bool) -> Stand {
+        let mut store = Store::default();
+        let soldier = soldier.then(|| store.unit.insert(Unit::default()));
+        let deck = deck.then(|| {
+            let body = Ref::<Body>::new(7, 1);
+            let mut identity = [0.0; 16];
+            for i in [0, 5, 10, 15] { identity[i] = 1.0; }
+            let hull = store.vehicle.insert(Vehicle { body, matrix: identity, target_generation: 1.0, ..Default::default() });
+            (body, hull)
+        });
+        let num = |x: f64| Field::Num(x);
+        let mine = ItemDef {
+            base: Field::Str("mine".into()), gravity: num(1.0), rebound: num(0.0), friction: num(1.0),
+            life_span: Field::Undefined, max_health: num(200.0), health_type: Field::Undefined,
+            explosion_death: Field::Undefined, explosion_trigger: Field::Undefined, explosion_expire: Field::Undefined,
+            trigger_radius: Field::Undefined, suppress_radius: Field::Undefined,
+        };
+        Stand { store, strings: Strings::default(), defs: Defs { item: vec![mine], ..Default::default() }, soldier, deck }
+    }
+
+    /// A mine thrown from `from` at `velocity`, flown until it lies still.
+    fn throw(w: &mut Stand, from: Vec3, velocity: Vec3) -> Ref<Item> {
+        let mut cx = Cx::new(w);
+        let mine = cx.spawn(DefId(0), from, velocity, 0.0, ItemOwner::Null, 1.0).expect("room for a mine");
+        for _ in 0..120 { cx.items_update(1.0 / 60.0, 0); }
+        mine
+    }
+
+    #[test]
+    fn a_mine_bounces_off_a_soldier() {
+        // Thrown level at 4 m/s from 1.5 m up, it would land 2.2 m away,
+        // beyond the soldier; it meets him at 1.6 m and drops at his feet.
+        let mut w = stand(false, false);
+        let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        let free = w.store.item.get(mine).unwrap().position;
+        assert!(free[0] > 2.1 && free[0] < 2.3, "{free:?}");
+        let mut w = stand(true, false);
+        let mine = throw(&mut w, [0.0, 1.5, 0.0], [4.0, 0.0, 0.0]);
+        let item = w.store.item.get(mine).unwrap();
+        assert!(item.landed && item.position[0] > 1.5 && item.position[0] < 1.6, "{:?}", item.position);
+    }
+
+    #[test]
+    fn a_mine_rides_the_hull_it_sticks_to() {
+        let mut w = stand(false, true);
+        let mine = throw(&mut w, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0]);
+        let (_, hull) = w.deck.unwrap();
+        let stuck = w.store.item.get(mine).unwrap().position;
+        assert_eq!(w.store.item.get(mine).unwrap().carrier, Some(hull));
+        assert!(stuck[1] > 1.0 && stuck[1] < 1.2, "{stuck:?}");
+        // The hull drives 5 m on and turns a quarter turn about its origin:
+        // the mine keeps its place on the deck.
+        let v = w.store.vehicle.get_mut(hull).unwrap();
+        v.matrix = [0.0, 0.0, -1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 1.0];
+        Cx::new(&mut w).items_update(1.0 / 60.0, 0);
+        let rode = w.store.item.get(mine).unwrap();
+        let want = [5.0 + stuck[2], stuck[1], -stuck[0]];
+        assert!(rode.landed && distance_to(rode.position, want) < 1e-9, "{:?} {want:?}", rode.position);
+        // Its slot lives again elsewhere: the mine falls to the floor.
+        w.store.vehicle.get_mut(hull).unwrap().target_generation = 2.0;
+        for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
+        let fell = w.store.item.get(mine).unwrap();
+        assert!(fell.landed && fell.carrier.is_none() && fell.position[1] < 0.1, "{:?}", fell.position);
+    }
 }
