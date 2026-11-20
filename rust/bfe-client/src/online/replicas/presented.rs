@@ -352,9 +352,19 @@ impl Replicas {
             if let Some((_, weapon, hidden)) = throwing {
                 slot.held = if hidden { None } else { self.weapon_classes.get(weapon).copied().flatten() };
             }
-            let primary = self.presented.weapons.get(slot.primary).copied().flatten().map_or(0, |(bank, _)| bank);
-            let bank = self.presented.banks[throwing.map_or(primary, |(bank, _, _)| bank)].1;
             let actor = slot.actor;
+            // A toss still playing after its throw: its bank, nothing in hand.
+            let banks = &self.presented.banks;
+            let toss = slot.toss.filter(|&bank| {
+                throwing.is_none()
+                    && self.units.actor_animation(actor).is_some_and(|a| a.bank == banks[bank].1 && a.acting().is_some_and(|act| act >= 2))
+            });
+            slot.toss = toss.or(throwing.and(slot.toss));
+            if toss.is_some() {
+                slot.held = None;
+            }
+            let primary = self.presented.weapons.get(slot.primary).copied().flatten().map_or(0, |(bank, _)| bank);
+            let bank = self.presented.banks[throwing.map(|(bank, _, _)| bank).or(toss).unwrap_or(primary)].1;
             if self.units.actor_animation(actor).is_some_and(|animator| animator.bank != bank) {
                 if let Some(row) = self.command(actor, kind::BANK) {
                     row[command::BANK] = bank as f64;
@@ -467,6 +477,11 @@ impl Replicas {
             // A droideka's animator ignores weapon actions.
             Act::Weapon { .. } | Act::EndWeapon { .. } | Act::Shot { .. } if self.slots[slot].walker => {}
             Act::Weapon { action, bank, posture } => {
+                // A thrown weapon's toss keeps its bank until its clip ends,
+                // even when the throw itself is already over.
+                let toss = ACTIONS[action].starts_with("shoot")
+                    && self.presented.weapons.iter().flatten().any(|&(b, thrown)| b == bank && thrown);
+                self.slots[slot].toss = toss.then_some(bank);
                 // setBank first: changing the bank drops the action under way.
                 let animator_bank = self.presented.banks[bank].1;
                 if let Some(row) = self.command(actor, kind::BANK) {

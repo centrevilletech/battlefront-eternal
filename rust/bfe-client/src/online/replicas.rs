@@ -70,6 +70,9 @@ struct Slot {
     // left his hand; and whether his state says he was blown apart.
     primary: usize,
     throwing: Option<(usize, usize, bool)>,
+    // A toss whose clip outlasts its throw (a dispenser that lets go at
+    // once): the bank it plays in, kept with an empty hand until it ends.
+    toss: Option<usize>,
     blown: bool,
     // The held model drawn in his hand this frame, if any.
     held: Option<usize>,
@@ -467,6 +470,7 @@ impl Replicas {
                     class: 0,
                     primary: 0,
                     throwing: None,
+                    toss: None,
                     held: None,
                     blown: false,
                     bubble: None,
@@ -841,6 +845,7 @@ impl Replicas {
                 self.slots[slot].gone = None;
                 self.slots[slot].flash.1 = -1.;
                 self.slots[slot].throwing = None;
+                self.slots[slot].toss = None;
                 self.slots[slot].blown = false;
                 self.slots[slot].mount = None;
                 self.slots[slot].rider_resource = None;
