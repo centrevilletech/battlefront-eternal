@@ -452,17 +452,17 @@ impl Weapon {
         }
     }
 
-    /// How long a throw keeps the weapon busy, from the press. A grenade (or
-    /// a remote) waits InitialSalvoDelay to let go and ShotDelay more. A
-    /// dispenser counts its ShotDelay from the press as well, so it is busy
-    /// for the longer of the two, and its ShotDelay is never under 0.01 s:
-    /// the 2004 game's rules. A dispenser that lets go at once is still
-    /// busy for a tick after the item leaves, which is what starts the
-    /// thrower's toss.
+    /// How long a throw keeps the weapon busy, from the press, by the 2004
+    /// game's rules. A grenade waits InitialSalvoDelay to let go and its
+    /// ShotDelay more. A dispenser, and a recon droid's remote (which throws
+    /// the way a dispenser does), counts its ShotDelay from the press as
+    /// well, so it is busy for the longer of the two, and that ShotDelay is
+    /// never under 0.01 s. A dispenser that lets go at once is still busy for
+    /// a tick after the item leaves, which is what starts the thrower's toss.
     fn throw_length(d: &Level) -> f64 {
         let initial = d.get(K::InitialSalvoDelay).num();
         let shot_delay = d.get(K::ShotDelay).num();
-        if d.kind == WeaponBase::Dispenser {
+        if matches!(d.kind, WeaponBase::Dispenser | WeaponBase::Remote) {
             js_max(initial, js_max(shot_delay, 0.01))
         } else {
             initial + shot_delay
@@ -906,6 +906,15 @@ mod tests {
         // The republic mine lets go at once and is still busy for the next
         // tick, long enough for the thrower's toss to start.
         assert_eq!(throw_ticks("dispenser", 0.0, 0.0), (0, 1));
+        // A dispenser that lets go after its ShotDelay is over is done when
+        // the item leaves.
+        let (left, idle) = throw_ticks("dispenser", 0.5, 0.2);
+        assert!((30..=31).contains(&left), "{left}");
+        assert_eq!(idle, left);
+        // A recon droid's remote throws the way a dispenser does: 1.4 s.
+        let (left, idle) = throw_ticks("remote", 0.3, 1.4);
+        assert!((18..=19).contains(&left), "{left}");
+        assert!((84..=85).contains(&idle), "{idle}");
         // A grenade waits InitialSalvoDelay and then its whole ShotDelay.
         let (left, idle) = throw_ticks("grenade", 0.3, 1.4);
         assert!((18..=19).contains(&left), "{left}");

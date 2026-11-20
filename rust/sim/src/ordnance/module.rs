@@ -763,6 +763,10 @@ impl World for JsWorld<'_, '_> {
         crate::units::f3_hulls::hull_of_in(self.w, body)
     }
 
+    fn creature(&mut self, hull: Ref<Vehicle>) -> bool {
+        crate::vehicles::module::f2::live_seats::animal_in(&mut self.w.fleet, hull)
+    }
+
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool {
         if crate::units::f3::active_in(&self.w.units) {
             // ItemsWorld.blocked uses blastBlocked: moving hulls do not
