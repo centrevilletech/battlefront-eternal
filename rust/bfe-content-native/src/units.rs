@@ -294,7 +294,11 @@ pub fn first_person(
         rotation.make_rotation_y(3.0);
         offset.multiply(&rotation);
     }
+    // A droideka's guns hang on its arms: the bones its model's parts hang
+    // on, the left one (+X at bind) first, as its world guns are ordered.
+    let guns = if walker { first_person_guns(def, &bones) } else { Vec::new() };
     Ok(FirstPersonInput {
+        guns,
         bones,
         clips: clips
             .list
@@ -326,7 +330,7 @@ pub fn first_person_descriptor(
 
 /// droideka.js::DroidekaAnimator and unitContent. Reuse the native skinned
 /// roll-axle derivation; a bind-pose bounding box is not its folded wheel axis.
-pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64) -> Input {
+pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64, blasters: Vec<usize>, aimer: [f64; 6]) -> Input {
     use bfe_pose::{
         rig::{
             droideka::{roll_axle, SkinnedBody},
@@ -404,6 +408,8 @@ pub fn walker(actor: &Actor, clips: &Clips, ball_radius: f64) -> Input {
             .map(|name| name.and_then(|name| clips.list.iter().position(|c| c.name == name))),
         pivot: [pivot.x, pivot.y, pivot.z],
         roll_center: [center.x, center.y, center.z],
+        blasters,
+        aimer,
     });
     input
 }
@@ -436,10 +442,41 @@ fn copy_clips(clips: &[ClipInput]) -> Vec<ClipInput> {
         })
         .collect()
 }
+/// The bones a first person model's parts hang on, left (+X at bind) first.
+fn first_person_guns(def: &Value, bones: &[bfe_presentation::unit_content::Bone]) -> Vec<usize> {
+    // A bone's place and turn at bind, from its parents' (root first).
+    fn world(i: usize, bones: &[bfe_presentation::unit_content::Bone], depth: usize) -> (three::Vector3, three::Quaternion) {
+        let b = &bones[i];
+        let place = three::Vector3::new(b.pose[0], b.pose[1], b.pose[2]);
+        let turn = three::Quaternion::new(b.pose[3], b.pose[4], b.pose[5], b.pose[6]);
+        let Some(parent) = usize::try_from(b.parent).ok().filter(|&p| p < bones.len() && depth < bones.len()) else {
+            return (place, turn);
+        };
+        let (mut at, up) = world(parent, bones, depth + 1);
+        let mut offset = place;
+        offset.apply_quaternion(&up);
+        at.add(&offset);
+        let mut q = up;
+        q.multiply(&turn);
+        (at, q)
+    }
+    let mut found: Vec<(usize, f64)> = Vec::new();
+    for part in def.get("parts").and_then(Value::as_array).unwrap_or(&[]) {
+        let Some(name) = part.get("bone").and_then(Value::as_str) else { continue };
+        let Some(i) = bones.iter().position(|b| b.name.eq_ignore_ascii_case(name)) else { continue };
+        if found.iter().all(|(b, _)| *b != i) {
+            found.push((i, world(i, bones, 0).0.x));
+        }
+    }
+    found.sort_by(|a, b| b.1.total_cmp(&a.1));
+    found.into_iter().map(|(i, _)| i).collect()
+}
+
 pub fn copy_first_person(
     input: &bfe_presentation::unit_content::FirstPersonInput,
 ) -> bfe_presentation::unit_content::FirstPersonInput {
     bfe_presentation::unit_content::FirstPersonInput {
+        guns: input.guns.clone(),
         bones: copy_bones(&input.bones),
         clips: copy_clips(&input.clips),
         sets: input.sets.clone(),

@@ -146,6 +146,8 @@ pub struct DroidekaRig {
     /// The barrel clones (`physicalBarrels`), by gun and barrel.
     pub barrels: Vec<Vec<NodeId>>,
     pub animator: DroidekaAnimator,
+    /// The guns' blasters, which turn toward the aim (`find_guns`).
+    pub guns: super::droideka_guns::Guns,
 }
 
 impl DroidekaRig {
@@ -245,13 +247,31 @@ impl DroidekaRig {
             pivot,
             roll_center,
         };
-        DroidekaRig {
+        let mut rig = DroidekaRig {
             tree,
             root,
             bones,
             barrels,
             animator,
-        }
+            guns: Default::default(),
+        };
+        rig.find_guns();
+        rig
+    }
+
+    /// Each gun's blaster (the bone its barrels hang on) and its aimer's
+    /// frame there, from the bones' bind turns; no guns turn unless every gun
+    /// has one. Bones are the tree's nodes 1 to n, under the root (node 0).
+    pub fn find_guns(&mut self) {
+        let bone_of = |node: Option<NodeId>| node.and_then(|p| (p as usize).checked_sub(1));
+        let parents: Vec<i32> = self.bones.iter().map(|&b| bone_of(self.tree.node(b).parent).map_or(-1, |p| p as i32)).collect();
+        let blasters: Vec<usize> = self.barrels.iter().filter_map(|list| bone_of(self.tree.node(*list.first()?).parent)).collect();
+        let mounts = super::droideka_guns::mounts(&blasters, &parents, &self.animator.bind_q);
+        self.guns = if mounts.len() == self.barrels.len() {
+            super::droideka_guns::Guns::new(mounts)
+        } else {
+            Default::default()
+        };
     }
 
     /// `muzzleAnimator.reset(yaw)` (Droideka.spawn): `roll` is the
@@ -284,6 +304,24 @@ impl DroidekaRig {
             d,
             clips,
         );
+    }
+
+    /// Turn the guns by `aims` (yaw and pitch a gun, from each blaster's line
+    /// in the clip) on the pose `sample_muzzles` just made.
+    pub fn pose_guns(&mut self, aims: &[[f64; 2]]) {
+        self.guns.pose(&mut self.tree, &self.bones, aims);
+    }
+
+    /// Step the guns' aimers `dt` toward `target` (None: back to the clip's
+    /// line) and turn them; `aims` in and out.
+    pub fn aim_guns(&mut self, aims: &mut [[f64; 2]], target: Option<&Vector3>, dt: f64, aimer: &super::droideka_guns::Aimer) {
+        self.guns.aim(&mut self.tree, &self.bones, aims, target, dt, aimer);
+    }
+
+    /// The direction gun `index` points along now, None where the guns do
+    /// not turn.
+    pub fn gun_along(&mut self, index: usize) -> Option<Vector3> {
+        self.guns.along(&mut self.tree, &self.bones, index)
     }
 
     /// `gunAt(out, { index, barrel })`: the barrel's place in the world

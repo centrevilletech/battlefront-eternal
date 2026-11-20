@@ -498,7 +498,30 @@ pub fn sample_muzzles(unit: &mut Unit, dt: f64, parts: &mut DroidekaParts) {
         position: v3(d.position),
     };
     rig.sample_muzzles(dt, &state, &parts.clips.view());
+    rig.pose_guns(&[[d.gun_yaw[0], d.gun_pitch[0]], [d.gun_yaw[1], d.gun_pitch[1]]]);
     take_animator(animator, rig);
+}
+
+/// The guns' aimers, `dt` on toward `target` (None: back to their line in
+/// the clip, as when the droideka folds, rolls or unfolds), as the 2004
+/// game's aimers turn them: the store's angles step, and the hidden rig's
+/// blasters turn so the rounds fired this tick leave along them.
+pub fn turn_guns(unit: &mut Unit, dt: f64, target: Option<&Vector3>, parts: &mut DroidekaParts) {
+    let Some(rig) = &mut parts.rig else { return };
+    let d = body(unit);
+    let aimer = crate::rig::droideka_guns::Aimer {
+        yaw_rate: d.gun_rates[0], pitch_rate: d.gun_rates[1], yaw: d.gun_yaw_limits, pitch: d.gun_pitch_limits,
+    };
+    let mut aims = [[d.gun_yaw[0], d.gun_pitch[0]], [d.gun_yaw[1], d.gun_pitch[1]]];
+    rig.aim_guns(&mut aims, target, dt, &aimer);
+    d.gun_yaw = [aims[0][0], aims[1][0]];
+    d.gun_pitch = [aims[0][1], aims[1][1]];
+}
+
+/// Whether a droideka's guns follow its aim: not while it folds, rolls or
+/// unfolds.
+pub fn guns_ready(d: &crate::gen::Droideka) -> bool {
+    d.mode < FOLD
 }
 
 /// The store's animator into the rig's.

@@ -785,19 +785,14 @@ impl Replicas {
             let mut origin = [basis.origin.x, basis.origin.y, basis.origin.z];
             let mut aim = [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()];
             if shot.walker {
-                // As the world fires it: from the gun its counter names, to
-                // the point under the reticle (combat's droideka_target).
-                let (muzzle, feet) = self.walker_muzzle(receiver, shot.gun);
+                // As the world fires it: from the barrel its gun counter
+                // names, along that gun as it is drawn, turned toward the
+                // point under the reticle as the world's gun turns.
+                let (muzzle, feet, along) = self.walker_muzzle(receiver, shot.gun);
                 let feet = feet.unwrap_or(shot.position);
                 origin = muzzle.unwrap_or([feet[0], feet[1] + 1., feet[2]]);
-                let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
-                if let Some(target) = self.shot_aim.borrow().walker_target(&receiver.own, feet, yaw, pitch, eyes) {
-                    let d: [f64; 3] = std::array::from_fn(|k| target[k] - origin[k]);
-                    let length = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-                    // Never back through the droideka (combat's gun_line).
-                    if length > 1e-9 && d[0] * aim[0] + d[1] * aim[1] + d[2] * aim[2] > 0. {
-                        aim = d.map(|x| x / length);
-                    }
+                if let Some(along) = along {
+                    aim = along;
                 }
             }
             let (collision, world) = (&self.collision, self.world);
@@ -1131,6 +1126,25 @@ impl Replicas {
                 self.own_feet = Some([input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]]);
             }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
+        }
+        // Each drawn droideka's guns turn toward the point its aim is on: the
+        // player's own as the world finds it (the reticle's line); another's
+        // along its eye's line from its published aim, to the first surface
+        // or body (a bot's guns meet at its quarry, on that same line).
+        {
+            let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
+            let (slots, units, scene) = (&self.slots, &mut self.units, self.shot_aim.borrow());
+            for slot in slots.iter().filter(|slot| slot.active && slot.walker) {
+                let input = &units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
+                let feet = [input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]];
+                let (yaw, pitch) = (input[i::YAW], input[i::PITCH]);
+                let target = if input[i::OWN] != 0. {
+                    scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
+                } else {
+                    slot.identity.and_then(|(id, _)| scene.walker_point(slot.class, id, feet, yaw, pitch, true))
+                };
+                units.aim_walker(slot.actor, target);
+            }
         }
         // Every body of this frame is bound: show what the server said of them.
         self.present_states(receiver, prediction, tick);
@@ -2104,15 +2118,16 @@ impl Replicas {
 
 impl Replicas {
     /// Where the player's droideka's gun `gun` (its gun counter) is drawn,
-    /// barrels alternating as the world's nextGun takes them, and where its
-    /// feet are drawn. None before its body is drawn.
-    fn walker_muzzle(&mut self, receiver: &Receiver, gun: f64) -> (Option<[f64; 3]>, Option<[f64; 3]>) {
+    /// barrels alternating as the world's nextGun takes them, the direction
+    /// that gun points along as drawn, and where its feet are drawn. None
+    /// before its body is drawn.
+    fn walker_muzzle(&mut self, receiver: &Receiver, gun: f64) -> (Option<[f64; 3]>, Option<[f64; 3]>, Option<[f64; 3]>) {
         use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
-        let Some(slot) = self.bound.get(&own).map(|&at| &self.slots[at]).filter(|slot| slot.active && slot.walker) else { return (None, None) };
+        let Some(slot) = self.bound.get(&own).map(|&at| &self.slots[at]).filter(|slot| slot.active && slot.walker) else { return (None, None, None) };
         let row = &self.units.output[slot.actor * o::STRIDE..];
         let feet = [row[o::POSITION], row[o::POSITION + 1], row[o::POSITION + 2]];
-        let Some(guns) = self.walker_guns.get(slot.class).filter(|guns| !guns.is_empty()) else { return (None, Some(feet)) };
+        let Some(guns) = self.walker_guns.get(slot.class).filter(|guns| !guns.is_empty()) else { return (None, Some(feet), None) };
         let count = guns.len() as f64;
         let (bone, tips) = &guns[(gun % count) as usize];
         let tip = tips[((gun / count).floor() % tips.len() as f64) as usize];
@@ -2123,7 +2138,10 @@ impl Replicas {
         matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
         let mut point = three::Vector3::new(tip[0], tip[1], tip[2]);
         point.apply_matrix4(&matrix);
-        (Some([point.x, point.y, point.z]), Some(feet))
+        // The blaster's barrels run along its bone's X axis.
+        let mut along = three::Vector3::default();
+        along.set_from_matrix_column(&matrix, 0).normalize();
+        (Some([point.x, point.y, point.z]), Some(feet), Some([along.x, along.y, along.z]))
     }
 
     pub fn capture_shot_scene(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {

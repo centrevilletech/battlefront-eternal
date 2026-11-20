@@ -225,6 +225,15 @@ pub trait CombatWorld: WeaponDraws {
     fn bot_target_point(&mut self) -> Option<Vector3> {
         None
     }
+    /// A droideka's guns a tick (`dt`) on toward `target`, on its hidden gun
+    /// rig (None: back to their line in the clip). A world without the rig
+    /// turns nothing.
+    fn turn_guns(&mut self, _unit: &mut Unit, _target: Option<&Vector3>, _dt: f64) {}
+    /// The direction the gun `selected` (gunAt's) points along now; None in
+    /// a world without the rig's guns, whose rounds go straight at the target.
+    fn gun_along(&mut self, _selected: (f64, f64)) -> Option<Vector3> {
+        None
+    }
     /// (`left`: the shield's value after it took `taken`, as the hook finds it.)
     fn shield_hit(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
 

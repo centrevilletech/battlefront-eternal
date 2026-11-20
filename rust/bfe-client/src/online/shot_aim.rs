@@ -57,14 +57,19 @@ impl Scene {
     /// on, within 512 m, its own body left out (`eyes`: first person or
     /// zoomed, the eye's own line). None for a class that is no droideka.
     pub fn walker_target(&self, own: &Own, feet: [f64; 3], yaw: f64, pitch: f64, eyes: bool) -> Option<[f64; 3]> {
-        let (height, stand) = self.classes.get(own.class)?.walker?;
+        self.walker_point(own.class, own.id as u32, feet, yaw, pitch, eyes)
+    }
+    /// The same for any drawn droideka of class `class` (unit `id`, left
+    /// out of its own line).
+    pub fn walker_point(&self, class: usize, id: u32, feet: [f64; 3], yaw: f64, pitch: f64, eyes: bool) -> Option<[f64; 3]> {
+        let (height, stand) = self.classes.get(class)?.walker?;
         let feet = Vector3::new(feet[0], feet[1], feet[2]);
         let eye = Vector3::new(feet.x, feet.y + height, feet.z);
         let (from, dir) = bfe_presentation::aim::camera_line::<V8>(feet, yaw, pitch, eye, (!eyes).then_some(&stand));
         let ray = Ray {ox:from.x,oy:from.y,oz:from.z,dx:dir.x,dy:dir.y,dz:dir.z};
         let mut reach = self.collision.borrow_mut().ray_hit(self.world, ray, REACH, -1).map_or(REACH, |(_, hit)| hit.distance);
-        for (id, shape) in &self.targets {
-            if *id == own.id as u32 { continue; }
+        for (target, shape) in &self.targets {
+            if *target == id { continue; }
             if let Some(distance) = segment_shape(&from, &dir, reach, shape) { reach = reach.min(distance); }
         }
         let mut point = from;

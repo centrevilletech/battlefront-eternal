@@ -1011,7 +1011,12 @@
       "muzzleAnimator": "rec:RigAnimator|undefined",
       "trackCenter": "vec3",
       "trackOffset": "vec3",
-      "trackTilt": "f64"
+      "trackTilt": "f64",
+      "gunYaw": "f64x2",
+      "gunPitch": "f64x2",
+      "gunRates": "f64x2",
+      "gunYawLimits": "f64x2",
+      "gunPitchLimits": "f64x2"
     }
   },
   "imports": {

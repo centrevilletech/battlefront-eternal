@@ -464,9 +464,10 @@ fn network_shot_direction(u: &Unit, edges: &Edges, dir: &mut Vector3, channel: f
     }
 }
 
-/// From a gun to the point it converges on. A surface nearer than the
-/// barrels (the droideka backed against a wall) never turns a shot back
-/// through the droideka: it fires straight along the aim then.
+/// From a gun to the point it converges on, for a world without the rig's
+/// turning guns. A surface nearer than the barrels (the droideka backed
+/// against a wall) never turns a shot back through the droideka: it fires
+/// straight along the aim then.
 fn gun_line(gun: &Vector3, target: &Vector3, forward: &Vector3) -> Vector3 {
     let mut dir = Vector3::default();
     dir.sub_vectors(target, gun).normalize();
@@ -650,6 +651,15 @@ pub fn update_buffered(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs,
         }
     }
     aim(c, &b, eye_height);
+    // A droideka's guns turn every tick toward the point its aim is on, as
+    // the 2004 game's aimers do (back to rest while it folds, rolls or
+    // unfolds); its rounds leave along them.
+    if let UnitBody::Droideka(d) = &u.soldier {
+        let ready = crate::units::droideka::guns_ready(d);
+        let (target, _) = droideka_target(c, u, edges, 0.0, world);
+        c.target = a(&target);
+        world.turn_guns(u, ready.then_some(&target), dt);
+    }
     // A repair weapon's lock, the trigger held widening it.
     let fixer = [current(c, defs, 0), current(c, defs, 1)].into_iter().flatten().find(|&i| c.weapons[i].repair(&defs.weapons));
     let fix_held = match fixer {
@@ -852,11 +862,11 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
         return;
     }
     let channel = c.weapons[i].channel(&defs.weapons);
-    // A droideka's guns take turns, each firing at the point under its
-    // reticle (its press's aim, for a network player's press).
+    // A droideka's guns take turns, each round leaving its barrel along its
+    // gun, which this tick's aimer turned toward the point under the reticle
+    // (`c.target`; its press's aim, for a network player's press).
     if matches!(u.soldier, UnitBody::Droideka(_)) && world.next_gun(u, c).is_some() {
-        let (target, forward) = droideka_target(c, u, edges, channel, world);
-        c.target = a(&target);
+        let forward = v(c.shot_dir);
         let selected = match &u.soldier {
             UnitBody::Droideka(d) => d.last_gun.as_ref().map(|g| (g.index, g.barrel)),
             _ => None,
@@ -941,7 +951,8 @@ pub fn flush_muzzles_buffered(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, w
 fn emit_gun_round(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, p: &PendingShot, world: &mut dyn CombatWorld) {
     let Some(from) = world.gun_at((p.selected_index, p.selected_barrel)) else { return };
     let i = p.weapon as usize;
-    let mut dir = gun_line(&from, &v(p.target), &v(p.forward));
+    let mut dir = world.gun_along((p.selected_index, p.selected_barrel))
+        .unwrap_or_else(|| gun_line(&from, &v(p.target), &v(p.forward)));
     dir.apply_axis_angle(&UP, p.yaw);
     let mut side = Vector3 { x: dir.z, y: 0.0, z: -dir.x };
     side.normalize();

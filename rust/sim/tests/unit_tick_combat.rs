@@ -16,6 +16,9 @@ struct World {
     guns:Vec<Vector3>,next:usize,reach:Option<f64>,fired:Vec<(Vector3,Vector3)>,
     // A bot's quarry's aim point, and the trigger edges the next tick carries.
     quarry:Option<Vector3>,edges:Edges,
+    // Where the droideka's guns were turned each tick, and the way its gun
+    // rig says they point (None: a world without the rig's guns).
+    turns:Vec<Option<Vector3>>,along:Option<Vector3>,
 }
 impl World {
     fn new() -> Self {
@@ -67,6 +70,8 @@ impl CombatWorld for World {
     fn gun_at(&mut self,(index,_):(f64,f64))->Option<Vector3> {self.guns.get(index as usize).copied()}
     fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64,_:f64)->f64 {self.reach.unwrap_or(far)}
     fn bot_target_point(&mut self)->Option<Vector3> {self.quarry}
+    fn turn_guns(&mut self,_:&mut Unit,target:Option<&Vector3>,_:f64) {self.turns.push(target.copied());}
+    fn gun_along(&mut self,_:(f64,f64))->Option<Vector3> {self.along}
     fn shield_hit(&mut self,_:f64,_:f64,_:Option<Vector3>,_:bool) {}
     fn draw_combat(&mut self,_:bool)->f64 {self.draw(0)}
     fn text(&self,_:StrId)->String {String::new()}
@@ -162,11 +167,12 @@ fn corpse_updates_real_combat_until_its_ordered_removal() {
     assert_eq!(unit.combat.health,0.);
 }
 
-// A droideka player's two guns take turns, and each bolt crosses the point
-// its reticle is on: in third person the first thing along the chase
-// camera's line (a wall 20 m out here), level with its eye; in first person
-// the first thing along its eye's line. Before, they met 512 m out along the
-// eye's line and passed 2 m from what the reticle was on at 20 m.
+// A droideka player's two guns take turns, and its target point is what its
+// reticle is on: in third person the first thing along the chase camera's
+// line (a wall 20 m out here), level with its eye; in first person the first
+// thing along its eye's line. In a world without the rig's turning guns (this
+// one) each bolt goes straight at that point. Before, they met 512 m out
+// along the eye's line and passed 2 m from what the reticle was on at 20 m.
 #[test]
 fn a_droideka_players_bolts_cross_the_point_under_its_reticle() {
     use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
@@ -378,4 +384,45 @@ fn a_bot_droidekas_guns_converge_at_its_quarrys_distance() {
         let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
         assert!(miss.distance_to(&point)<1e-9,"bolt {n} misses its quarry's distance by {}",miss.distance_to(&point));
     }
+}
+
+// A droideka's guns are turned every tick toward the point its reticle is
+// on (back to rest while it is rolled up), and its rounds leave along the
+// gun as its rig turned it, not straight at the point.
+#[test]
+fn a_droidekas_guns_turn_every_tick_and_its_rounds_leave_along_them() {
+    use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
+    let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
+    let mut world=World::new();
+    world.defs.weapons.set(DefId(1),WeaponClass::new(object(vec![("base",Js::Str("cannon".into())),("channel",Js::Num(0.)),
+        ("ShotDelay",Js::Num(0.11)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+        ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(80.))])))])));
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("walkerdroid".into())),("weapons",Js::Arr(Rc::new(vec![
+        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))])))]));
+    world.guns=vec![Vector3::new(3.7,1.8,-0.96),Vector3::new(2.3,1.8,-0.96)];
+    world.reach=Some(20.);
+    let mut along=Vector3::new(0.31,0.05,0.95);along.normalize();
+    world.along=Some(along);
+    let (yaw,pitch)=(0.3,-0.05);
+    let droideka=Droideka {position:[3.,1.,-2.],aim_yaw:yaw,aim_pitch:pitch,eye_height:1.8,pitch_limits:[-0.44,0.44],
+        track_center:[0.,1.8,0.],track_offset:[0.,0.5,4.5],track_tilt:5f64.to_radians(),grounded:true,..Default::default()};
+    let mut unit=Unit {class_def:DefId(0),alive:true,human:true,soldier:UnitBody::Droideka(droideka),
+        controls:Controls {was:[0.;2],pressed:vec![true,false]},..Default::default()};
+    unit.combat=Combat {health:450.,max_health:450.,player:true,defer_muzzles:true,
+        weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
+    unit.intent.buttons=[1.,0.];
+    for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+    let feet=Vector3::new(3.,1.,-2.);let eye=Vector3::new(3.,2.8,-2.);
+    let stand=bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:[0.,1.8,0.],offset:[0.,0.5,4.5],tilt:5f64.to_radians()};
+    let (start,direction)=bfe_presentation::aim::camera_line::<bfe_presentation::cameras::math::V8>(feet,yaw,pitch,eye,Some(&stand));
+    let mut point=start;point.add_scaled_vector(&direction,20.);
+    assert_eq!(world.turns.len(),20,"one turn a tick");
+    assert!(world.turns.iter().all(|t| t.is_some_and(|t| t.distance_to(&point)<1e-9)),"toward the reticle's point");
+    assert!(world.fired.len()>=2,"{} rounds",world.fired.len());
+    assert!(world.fired.iter().all(|(_,dir)| dir.distance_to(&along)<1e-12),"every round along its gun");
+    // Rolled up, the guns go back to rest.
+    if let UnitBody::Droideka(d)=&mut unit.soldier {d.mode=12.;}
+    world.turns.clear();
+    for _ in 0..3 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+    assert_eq!(world.turns,vec![None;3]);
 }

@@ -182,6 +182,7 @@ pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droid
         .and_then(|v| v.as_f64())
         .unwrap_or(1.8);
     let stand = camera_def(def).sections[0];
+    let aimer = crate::rig::droideka_guns::aimer_of(def);
     Droideka {
         max_turn: num_or(def, "MaxTurnSpeed", 2.0),
         pitch_limits: [(pitch[0] * std::f64::consts::PI) / 180.0, (pitch[1] * std::f64::consts::PI) / 180.0],
@@ -194,6 +195,9 @@ pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droid
         track_center: stand.center,
         track_offset: stand.offset,
         track_tilt: stand.tilt,
+        gun_rates: [aimer.yaw_rate, aimer.pitch_rate],
+        gun_yaw_limits: aimer.yaw,
+        gun_pitch_limits: aimer.pitch,
         root_index,
         max_fly_height,
         collision_rule: collision_rule(def, &DROIDEKA_COLLISION),
