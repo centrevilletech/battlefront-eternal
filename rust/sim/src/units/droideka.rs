@@ -9,11 +9,14 @@
 //! after the collision pass, gravity each time: the ball covers twice its
 //! stored velocity and a droideka falls at four times 9.8 m/s2, while the
 //! stored velocity a fall leaves (what collision damage reads) is that of a
-//! fall at 9.8. Deployed, it meets buildings and props with two spheres:
-//! one of 1.4 m resting on the ground 0.44 m ahead of its feet, which rides
-//! it up step edges lower than 0.42 m, then the 0.65 m ball at its feet;
-//! the terrain under its feet. Rolled, the ball alone, which bounces off
-//! what it rolls into and rolls along anything flatter than MaxBallAngle.
+//! fall at 9.8. Here the move after the pass is made at the start of the
+//! next tick, in the same order, so that a tick ends where its pass left the
+//! droideka and the next pass sweeps both moves. Deployed, it meets
+//! buildings and props with two spheres: one of 1.4 m resting on the
+//! ground 0.44 m ahead of its feet along its legs, which rides it up step
+//! edges lower than 0.42 m, then the 0.65 m ball at its feet; the terrain
+//! under its feet. Rolled, the ball alone, which bounces off what it rolls
+//! into and rolls along anything flatter than MaxBallAngle.
 
 use super::damage::contact_damage;
 use super::shapes::{arr, v3};
@@ -67,8 +70,8 @@ const BALL_GROUND: f64 = 0.6;
 /// BallRadius over BallSpinScale (0.65 / 2). Moved twice a tick, a spin of
 /// 20 rolls it at 13 m/s.
 const TRACTION: f64 = 0.325;
-/// The contact normals a collision pass keeps.
-const KEPT: usize = 20;
+/// The contact normals a collision pass keeps (the 2004 game keeps ten).
+const KEPT: usize = 10;
 /// The most polygons one sphere meets in a step of a pass.
 const CONTACTS: usize = 16;
 /// m: a shallower overlap is rounding after a push, not a contact.
@@ -216,6 +219,8 @@ pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f
     let clips = parts.clips.clone();
     let d = body(unit);
     d.previous = d.position;
+    // The last tick's move after its collision pass, swept by this pass.
+    integrate(d, dt);
     d.state_time += dt;
     d.collision_damage = 0.0;
     let dead = d.dead;
@@ -265,12 +270,11 @@ pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f
         walk_move(id, unit, dt, mv, turn, mouse_turn, world, &clips);
     }
 
-    // The update's move, the collision pass, then the move after it.
+    // The update's move, then the collision pass over both moves.
     let d = body(unit);
     integrate(d, dt);
     collide(id, d, &def, dt, world);
     d.settled = d.position;
-    integrate(d, dt);
 
     // Dying: blasts at its nodes every 0.4 s, then it explodes.
     if d.mode == DEATH {
@@ -402,16 +406,21 @@ fn ball_move(d: &mut Droideka, def: &DroidekaDef, dt: f64, mv: f64, turn: f64, m
     d.roll += d.spin * dt;
 }
 
-/// collide(dt): the collision pass over the move since the tick began, in
-/// steps of at most half BallRadius. At each step the terrain under its
-/// feet, then the polygons of buildings, props and hulls, nearest contact
-/// first and each handled at once: deployed with p_building and then the
-/// ball, rolled with the ball alone. After a step with contacts the rest of
-/// the move loses its part into each contact normal of the pass.
+/// collide(dt): the collision pass over the move since the last pass (the
+/// tick's start), in steps of at most half BallRadius. At each step the
+/// terrain under its feet, then the polygons of buildings, props and hulls,
+/// nearest contact first and each handled at once: deployed with
+/// p_building and then the ball, rolled with the ball alone. After a step
+/// with contacts the rest of the move loses its part into each contact
+/// normal of the pass. A move too long to be a move (a teleport) is not
+/// swept and meets nothing.
 fn collide(id: u32, d: &mut Droideka, def: &DroidekaDef, dt: f64, world: &mut dyn UnitsWorld) {
     let ball = d.mode == BALL;
     let r = d.ball_radius;
     let (sin, cos) = (v8math::sin(d.aim_yaw), v8math::cos(d.aim_yaw));
+    // p_building hangs on DummyRoot, which stays with the planted legs while
+    // the body turns over them.
+    let (legs_sin, legs_cos) = (v8math::sin(d.aim_yaw + d.legs), v8math::cos(d.aim_yaw + d.legs));
     let mut pass = Pass {
         ball,
         position: v3(d.previous),
@@ -432,6 +441,7 @@ fn collide(id: u32, d: &mut Droideka, def: &DroidekaDef, dt: f64, world: &mut dy
     step.sub(&pass.position);
     let length = step.length();
     if length > TELEPORT {
+        d.grounded = false;
         return;
     }
     let steps = v8math::trunc(1.0 + length / (0.5 * r));
@@ -440,7 +450,7 @@ fn collide(id: u32, d: &mut Droideka, def: &DroidekaDef, dt: f64, world: &mut dy
         pass.position.add(&step);
         let mut hit = pass.terrain(world, r, d);
         if !ball {
-            let ahead = Vector3 { x: sin * BUILDING_AHEAD, y: BUILDING_RADIUS, z: cos * BUILDING_AHEAD };
+            let ahead = Vector3 { x: legs_sin * BUILDING_AHEAD, y: BUILDING_RADIUS, z: legs_cos * BUILDING_AHEAD };
             hit |= pass.sphere(id, world, ahead, BUILDING_RADIUS, 0, d);
         }
         hit |= pass.sphere(id, world, Vector3 { x: 0.0, y: r, z: 0.0 }, r, 1, d);
@@ -472,7 +482,7 @@ struct Pass {
     damage: f64,
     /// The last surface the ball rolled on in this pass (up before one).
     ground: Vector3,
-    /// The pass's contact normals, as the 2004 game keeps them (20 at most).
+    /// The pass's contact normals, as the 2004 game keeps them (ten at most).
     kept: [Vector3; KEPT],
     count: usize,
     forward: Vector3,
