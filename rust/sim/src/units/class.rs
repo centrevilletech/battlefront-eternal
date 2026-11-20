@@ -201,3 +201,25 @@ pub fn droideka_body(def: &Value, root_index: f64, max_fly_height: f64) -> Droid
         ..Default::default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A droideka's aim line starts from its STAND camera (the 2004 game's
+    // rest place for it), whatever its other sections say.
+    #[test]
+    fn a_droideka_takes_its_aim_cameras_stand_section() {
+        let class = bfe_content::json::parse_bytes(br#"{"base":"walkerdroid","cameras":{
+            "CROUCH":{"TrackCenter":[0,1.0,0],"TrackOffset":[0,0.2,2.0],"TiltValue":9},
+            "STAND":{"TrackCenter":[0,1.8,0.1],"TrackOffset":[0,0.5,4.5],"TiltValue":5},
+            "STANDZOOM":{"TrackCenter":[0,1.6,0],"TrackOffset":[0.4,0,2.8],"TiltValue":3.5}}}"#).unwrap();
+        let d = droideka_body(&class, 0.0, 0.0);
+        assert_eq!((d.track_center, d.track_offset), ([0.0, 1.8, 0.1], [0.0, 0.5, 4.5]));
+        assert_eq!(d.track_tilt, 5.0 * std::f64::consts::PI / 180.0);
+        // No cameras: the defaults (TrackCenter the eye's 1.8 m, 3.5 m back, 5 degrees).
+        let bare = droideka_body(&bfe_content::json::parse_bytes(br#"{"base":"walkerdroid"}"#).unwrap(), 0.0, 0.0);
+        assert_eq!((bare.track_center, bare.track_offset), ([0.0, 1.8, 0.0], [0.0, 0.0, 3.5]));
+        assert_eq!(bare.track_tilt, 5.0 * std::f64::consts::PI / 180.0);
+    }
+}

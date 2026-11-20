@@ -14,6 +14,8 @@ struct World {
     // A droideka's guns, what its aim line meets (None: nothing), and the
     // rounds fired (from, direction).
     guns:Vec<Vector3>,next:usize,reach:Option<f64>,fired:Vec<(Vector3,Vector3)>,
+    // A bot's quarry's aim point, and the trigger edges the next tick carries.
+    quarry:Option<Vector3>,edges:Edges,
 }
 impl World {
     fn new() -> Self {
@@ -63,7 +65,8 @@ impl CombatWorld for World {
         Some(self.guns[index])
     }
     fn gun_at(&mut self,(index,_):(f64,f64))->Option<Vector3> {self.guns.get(index as usize).copied()}
-    fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64)->f64 {self.reach.unwrap_or(far)}
+    fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64,_:f64)->f64 {self.reach.unwrap_or(far)}
+    fn bot_target_point(&mut self)->Option<Vector3> {self.quarry}
     fn shield_hit(&mut self,_:f64,_:f64,_:Option<Vector3>,_:bool) {}
     fn draw_combat(&mut self,_:bool)->f64 {self.draw(0)}
     fn text(&self,_:StrId)->String {String::new()}
@@ -99,7 +102,8 @@ impl UnitsWorld for World {
         let defs=std::mem::take(&mut self.defs);
         let mut scratch=std::mem::take(&mut self.scratch);
         let mut c=std::mem::take(&mut u.combat);
-        combat::update_buffered(&mut c,id,u,&defs,h,stick,&Edges::default(),self,&mut scratch);
+        let edges=std::mem::take(&mut self.edges);
+        combat::update_buffered(&mut c,id,u,&defs,h,stick,&edges,self,&mut scratch);
         u.combat=c;self.defs=defs;self.scratch=scratch;
     }
     fn flush_muzzles(&mut self,_:u32,u:&mut Unit) {
@@ -247,5 +251,131 @@ fn a_soldier_players_held_rounds_cross_his_crosshairs_point() {
             let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
             assert!(miss.distance_to(&point)<1e-9,"round {n} misses the crosshair's point by {}",miss.distance_to(&point));
         }
+    }
+}
+
+// A soldier class with one held-fire rifle and the given cameras (STAND,
+// CROUCH, PRONE, then their ZOOM sections), and a soldier player of it at
+// `feet` aiming (yaw, pitch).
+fn rifleman(world:&mut World,sections:&[bfe_presentation::cameras::soldier::Section;6],scoped:bool,feet:[f64;3],yaw:f64,pitch:f64,posture:Posture)->Unit {
+    use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
+    let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
+    let cameras=sections.iter().flat_map(|s| s.eye.into_iter().chain(s.center).chain(s.offset).chain([s.tilt])).map(Js::Num).collect();
+    let mut keys=vec![("base",Js::Str("cannon".into())),("channel",Js::Num(0.)),
+        ("ShotDelay",Js::Num(0.1)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+        ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(300.))])))];
+    if scoped {keys.push(("ZoomFirstPerson",Js::Num(1.)));}
+    world.defs.weapons.set(DefId(1),WeaponClass::new(object(keys)));
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("soldier".into())),("weapons",Js::Arr(Rc::new(vec![
+        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))]))),("cameras",Js::Arr(Rc::new(cameras)))]));
+    let mut unit=soldier();unit.human=true;unit.class_def=DefId(0);unit.controls.pressed=vec![true,false];
+    if let UnitBody::Soldier(s)=&mut unit.soldier {s.position=feet;s.aim_yaw=yaw;s.aim_pitch=pitch;s.posture=posture;}
+    unit.combat=Combat {health:300.,max_health:300.,player:true,
+        weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
+    unit.intent.buttons=[1.,0.];
+    unit
+}
+
+// Where a soldier's crosshair ray meets a wall `reach` m beyond its start,
+// from first principles (no shipped aim function): the camera `z` m back
+// along the aim tipped down by the tilt `t` puts its line z sin t above the
+// eye along the aim's own up, n; the ray starts z + 2 m on.
+fn crosshair_point(feet:[f64;3],yaw:f64,pitch:f64,section:&bfe_presentation::cameras::soldier::Section,reach:f64)->Vector3 {
+    let (eye,z,t)=(section.eye[1],section.offset[2],section.tilt);
+    let f=Vector3::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+    let n=Vector3::new(-yaw.sin()*pitch.sin(),pitch.cos(),-yaw.cos()*pitch.sin());
+    let (rise,on)=(z*t.sin(),z+2.+reach);
+    Vector3::new(feet[0]+n.x*rise+f.x*on,feet[1]+eye+n.y*rise+f.y*on,feet[2]+n.z*rise+f.z*on)
+}
+
+// Zoomed, the ray starts from the posture's ZOOM camera; lying down, from the
+// PRONE one; zoomed with a primary whose zoom is first person, rounds fly
+// along the aim. Points checked against first principles, not the shipped
+// functions.
+#[test]
+fn a_zoomed_or_prone_soldiers_held_rounds_take_that_cameras_ray() {
+    use bfe_presentation::cameras::soldier::Section;
+    let section=|eye:f64,z:f64,tilt:f64| Section {eye:[0.,eye,0.],center:[0.,eye,0.],offset:[0.,0.,z],tilt:tilt.to_radians()};
+    let sections=[section(1.8,3.5,7.5),section(1.3,3.2,6.),section(0.5,3.0,5.),section(1.8,2.8,3.5),section(1.3,2.6,3.),section(0.5,2.4,2.5)];
+    let (feet,yaw,pitch)=([4.,2.,-3.],-0.6,-0.12);
+    for (zoomed,posture,scoped,index) in [(true,Posture::Stand,false,3),(false,Posture::Prone,false,2),(true,Posture::Prone,false,5),(true,Posture::Stand,true,3)] {
+        let mut world=World::new();world.reach=Some(20.);
+        let mut unit=rifleman(&mut world,&sections,scoped,feet,yaw,pitch,posture);
+        if zoomed {unit.combat.zoom_step=1.;}
+        for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+        assert!(world.fired.len()>=3,"the held trigger fires: {} rounds",world.fired.len());
+        let point=crosshair_point(feet,yaw,pitch,&sections[index],20.);
+        let aim=Vector3::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+        for (n,(from,dir)) in world.fired.iter().enumerate() {
+            if scoped {
+                assert!((dir.dot(&aim)-1.).abs()<1e-12,"round {n} leaves along the aim through a first person zoom");
+                continue;
+            }
+            let mut to=point;to.sub(from);
+            let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
+            assert!(miss.distance_to(&point)<1e-9,"section {index} round {n} misses by {}",miss.distance_to(&point));
+        }
+    }
+}
+
+// A network player's press flies along the aim his screen converged, as
+// the press carries it: the world does not converge it a second time. The
+// rounds he holds after it converge in the world.
+#[test]
+fn a_press_keeps_the_aim_its_screen_converged() {
+    use bfe_presentation::cameras::soldier::Section;
+    use bfe_sim::combat::combat::Edge;
+    let stand=Section {eye:[0.,1.8,0.],center:[0.,1.8,0.],offset:[0.,0.,3.5],tilt:7.5f64.to_radians()};
+    let sections=[stand;6];
+    let (feet,yaw,pitch)=([4.,2.,-3.],-0.6,-0.12);
+    let mut world=World::new();world.reach=Some(20.);
+    let mut unit=rifleman(&mut world,&sections,false,feet,yaw,pitch,Posture::Stand);
+    unit.network_human=Some(true);
+    let (press_yaw,press_pitch)=(-0.55,-0.08);
+    world.edges=Edges {fixed:Some([Some(Edge {button:0.,id:Some(1.),late:None,aim_yaw:Some(press_yaw),aim_pitch:Some(press_pitch)}),None]),..Default::default()};
+    for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+    assert!(world.fired.len()>=3,"{} rounds",world.fired.len());
+    let pressed=Vector3::new(press_yaw.sin()*press_pitch.cos(),press_pitch.sin(),press_yaw.cos()*press_pitch.cos());
+    assert!(world.fired[0].1.distance_to(&pressed)<1e-12,"the press flies along its own aim: {:?}",world.fired[0].1);
+    let point=crosshair_point(feet,yaw,pitch,&stand,20.);
+    for (n,(from,dir)) in world.fired.iter().enumerate().skip(1) {
+        let mut to=point;to.sub(from);
+        let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
+        assert!(miss.distance_to(&point)<1e-9,"held round {n} misses by {}",miss.distance_to(&point));
+    }
+}
+
+// A bot droideka's guns converge along its aim as far as its quarry's aim
+// point (the 2004 game's rule), not on any reticle.
+#[test]
+fn a_bot_droidekas_guns_converge_at_its_quarrys_distance() {
+    use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
+    let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
+    let mut world=World::new();
+    world.defs.weapons.set(DefId(1),WeaponClass::new(object(vec![("base",Js::Str("cannon".into())),("channel",Js::Num(0.)),
+        ("ShotDelay",Js::Num(0.11)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+        ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(80.))])))])));
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("walkerdroid".into())),("weapons",Js::Arr(Rc::new(vec![
+        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))])))]));
+    world.guns=vec![Vector3::new(3.7,1.8,-0.96),Vector3::new(2.3,1.8,-0.96)];
+    // Its quarry stands 15 m off, beside its aim; a reticle would see a wall 6 m out.
+    world.quarry=Some(Vector3::new(9.,2.3,11.));world.reach=Some(6.);
+    let (yaw,pitch)=(0.3,-0.05);
+    let droideka=Droideka {position:[3.,1.,-2.],aim_yaw:yaw,aim_pitch:pitch,eye_height:1.8,pitch_limits:[-0.44,0.44],
+        track_center:[0.,1.8,0.],track_offset:[0.,0.5,4.5],track_tilt:5f64.to_radians(),grounded:true,..Default::default()};
+    let mut unit=Unit {class_def:DefId(0),alive:true,human:false,soldier:UnitBody::Droideka(droideka),
+        controls:Controls {was:[0.;2],pressed:vec![true,false]},..Default::default()};
+    unit.combat=Combat {health:450.,max_health:450.,defer_muzzles:true,
+        weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
+    unit.intent.buttons=[1.,0.];
+    for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+    assert!(world.fired.len()>=2,"{} rounds",world.fired.len());
+    let eye=Vector3::new(3.,2.8,-2.);
+    let aim=Vector3::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+    let mut point=eye;point.add_scaled_vector(&aim,eye.distance_to(&Vector3::new(9.,2.3,11.)));
+    for (n,(from,dir)) in world.fired.iter().enumerate() {
+        let mut to=point;to.sub(from);
+        let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
+        assert!(miss.distance_to(&point)<1e-9,"bolt {n} misses its quarry's distance by {}",miss.distance_to(&point));
     }
 }

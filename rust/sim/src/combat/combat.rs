@@ -495,7 +495,7 @@ fn droideka_target(c: &Combat, u: &Unit, edges: &Edges, channel: f64, world: &mu
     let stand = bfe_presentation::cameras::soldier::Section { eye: [0.0; 3], center: d.track_center, offset: d.track_offset, tilt: d.track_tilt };
     let eyes = c.first_person || c.zoom_step > 0.0;
     let (origin, direction) = bfe_presentation::aim::camera_line::<crate::cameras::HostMath>(v(d.position), yaw, pitch, eye, (!eyes).then_some(&stand));
-    let reach = world.aim_reach(u, &origin, &direction, DROIDEKA_REACH);
+    let reach = world.aim_reach(u, &origin, &direction, DROIDEKA_REACH, channel);
     let mut target = origin;
     target.add_scaled_vector(&direction, reach);
     (target, direction)
@@ -505,14 +505,15 @@ fn droideka_target(c: &Combat, u: &Unit, edges: &Edges, channel: f64, world: &mu
 /// game converges every round he fires in third person: the first thing
 /// within 60 m along the ray from `crosshair_start` (the posture's camera,
 /// its ZOOM section when zoomed), soldiers met where his screen showed them;
-/// the ray's end when nothing is there. None in first person, through a
-/// first person zoom, for bots and for a class without cameras: those fire
-/// along the aim.
-fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, weapon: usize, world: &mut dyn CombatWorld) -> Option<Vector3> {
+/// the ray's end when nothing is there. None in first person, zoomed with a
+/// primary weapon whose zoom is first person (`primary`, the current one, as
+/// the client's view and the 2004 game decide it, whatever weapon fires),
+/// for bots and for a class without cameras: those fire along the aim.
+fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, primary: Option<usize>, channel: f64, world: &mut dyn CombatWorld) -> Option<Vector3> {
     let UnitBody::Soldier(s) = &u.soldier else { return None };
     let zoomed = c.zoom_step > 0.0;
-    if !u.human || matches!(c.aim_override, Nullable::Value(_)) || c.first_person
-        || zoomed && c.weapons[weapon].level(class_of(c, defs, weapon)).get(K::ZoomFirstPerson).truthy() {
+    let scoped = |p: usize| c.weapons[p].level(class_of(c, defs, p)).get(K::ZoomFirstPerson).truthy();
+    if !u.human || matches!(c.aim_override, Nullable::Value(_)) || c.first_person || zoomed && primary.is_some_and(scoped) {
         return None;
     }
     let cameras = defs.facts.get(u.class_def.0 as usize)?.cameras.as_ref()?;
@@ -520,7 +521,7 @@ fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, weapon: usize, world: 
     let section = &cameras[posture as usize + if zoomed { 3 } else { 0 }];
     let (start, direction) = bfe_presentation::aim::crosshair_start::<crate::cameras::HostMath>(v(s.position), s.aim_yaw, s.aim_pitch, section);
     let mut target = start;
-    target.add_scaled_vector(&direction, world.aim_reach(u, &start, &direction, AIM_REACH));
+    target.add_scaled_vector(&direction, world.aim_reach(u, &start, &direction, AIM_REACH, channel));
     let mut dir = Vector3::default();
     dir.sub_vectors(&target, &v(c.origin)).normalize();
     (dir.dot(&direction) > 0.0).then_some(dir)
@@ -887,7 +888,10 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
         let mut dir = v(c.shot_dir);
         if edge_aim(u, edges, channel).is_some() {
             network_shot_direction(u, edges, &mut dir, channel);
-        } else if let Some(converged) = crosshair_aim(c, u, defs, i, world) {
+        } else if let Some(converged) = {
+            let primary = current(c, defs, 0);
+            crosshair_aim(c, u, defs, primary, channel, world)
+        } {
             dir = converged;
         }
         // The spread (and a pattern's offset, and the kick): turn about the

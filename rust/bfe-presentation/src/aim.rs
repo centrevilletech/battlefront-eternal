@@ -126,6 +126,27 @@ mod tests {
         view.uses_eye=false;view.walker=true;
         assert!(!view.sample::<V8>().needs_reach);
     }
+    // From first principles: the camera rests `z` m behind the pivot (here
+    // the eye) along the aim tipped down by the tilt `t`, so its line along
+    // the aim runs z sin t above the eye, square to the aim (the aim's own
+    // "up", n); the ray starts there, z + 2 m on along the aim.
+    #[test]
+    fn a_crosshair_ray_starts_where_the_2004_game_starts_it() {
+        use crate::cameras::soldier::Section;
+        for (eye,z,tilt) in [(1.8,3.5,7.5f64),(0.5,3.0,5.0),(1.8,2.8,3.5)] {
+            let section=Section{eye:[0.,eye,0.],center:[0.,eye,0.],offset:[0.,0.,z],tilt:tilt.to_radians()};
+            for (yaw,pitch) in [(0f64,0f64),(1.2,0.3),(-2.5,-0.4)] {
+                let feet=V::new(4.,-1.,7.);
+                let f=V::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+                let n=V::new(-yaw.sin()*pitch.sin(),pitch.cos(),-yaw.cos()*pitch.sin());
+                let rise=z*tilt.to_radians().sin();
+                let want=V::new(feet.x+n.x*rise+f.x*(z+2.),feet.y+eye+n.y*rise+f.y*(z+2.),feet.z+n.z*rise+f.z*(z+2.));
+                let (start,direction)=crosshair_start::<V8>(feet,yaw,pitch,&section);
+                assert!(start.distance_to(&want)<1e-12,"eye {eye} z {z} tilt {tilt} yaw {yaw} pitch {pitch}: {start:?} against {want:?}");
+                assert!(direction.distance_to(&f)<1e-12);
+            }
+        }
+    }
     #[test]
     fn a_walkers_line_is_the_chase_cameras_level_with_its_eye() {
         use crate::cameras::soldier::Section;

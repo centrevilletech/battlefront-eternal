@@ -854,10 +854,10 @@ impl CombatWorld for JsWorld<'_, '_> {
     // The shooter is out of the slab here, so the unit ray passes over him
     // without a separate exclusion. Soldiers are met where the network
     // player's screen showed them, as his bolts are.
-    fn aim_reach(&mut self, unit: &Unit, origin: &Vector3, direction: &Vector3, far: f64) -> f64 {
+    fn aim_reach(&mut self, unit: &Unit, origin: &Vector3, direction: &Vector3, far: f64, channel: f64) -> f64 {
         let wall = self.cast(origin, direction, far, false).map_or(far, |hit| hit.distance);
         let tick = crate::units::f3_sensors::view_tick_in(self.w, self.r, unit.generation,
-            unit.network_human == Some(true), unit.alive, unit.seat.is_some(), 0.0);
+            unit.network_human == Some(true), unit.alive, unit.seat.is_some(), channel);
         crate::units::f3_sensors::ordnance_raycast_in(self.w, a3(origin), a3(direction), wall,
             OrdnanceOwner::Unit(self.r), tick, None, None).map_or(wall, |hit| hit.distance)
     }
