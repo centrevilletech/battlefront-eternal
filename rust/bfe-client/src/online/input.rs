@@ -69,6 +69,10 @@ pub struct Sender {
     pub fire_edges: u64,
     pub spawned: bool,
     pub auto_spawn: bool,
+    // A class and post picked before the server's first correction, kept until
+    // the spawn can be sent (else the automatic spawn would ask for the
+    // server's default class instead).
+    pick: Option<(usize, usize)>,
     last_tick: f64,
     ahead: bool,
     measured: bool,
@@ -167,6 +171,7 @@ impl Default for Sender {
             refused: 0,
             fire_edges: 0,
             spawned: false,
+            pick: None,
             auto_spawn: true,
             last_tick: 0.,
             ahead: false,
@@ -612,6 +617,15 @@ impl Sender {
         if !self.auto_spawn || self.spawned || !receiver.complete || receiver.corrections == 0 || receiver.spectator {
             return;
         }
+        // A pick made before this first correction is the player's choice.
+        if let Some((class_id, post_id)) = self.pick.take() {
+            if receiver.own.alive {
+                self.spawned = true;
+            } else {
+                self.send_spawn(receiver, class_id, post_id);
+            }
+            return;
+        }
         // The correction names the server-selected roster class. Choosing a
         // model from the content table can select an unavailable special class.
         self.spawned = true;
@@ -633,10 +647,20 @@ impl Sender {
         edge[e::TEAM_RANGE_VALID] = 1.;
     }
     pub fn request_spawn(&mut self, receiver: &Receiver, class_id: usize, post_id: usize) {
-        if !receiver.complete || receiver.corrections == 0 || receiver.spectator || receiver.own.alive {
+        if receiver.spectator || receiver.own.alive {
             return;
         }
+        if !receiver.complete || receiver.corrections == 0 {
+            // Nothing can be sent before the server's first correction: keep
+            // the pick for `spawn`, which sends it once one has come.
+            self.pick = Some((class_id, post_id));
+            return;
+        }
+        self.send_spawn(receiver, class_id, post_id);
+    }
+    fn send_spawn(&mut self, receiver: &Receiver, class_id: usize, post_id: usize) {
         self.spawned = true;
+        self.pick = None;
         let tick = self.last_tick.max(receiver.latest + 1.);
         let edge = self.edge(3., tick);
         edge[e::CLASS_ID] = if class_id != 0 { class_id } else { receiver.own.class.max(1) } as f64;
@@ -838,6 +862,38 @@ mod tests {
         assert_eq!(pointer.scale, 0.5);
         assert!(pointer.invert);
         assert_eq!((pointer.x, pointer.y), (12., -8.));
+    }
+
+    // A class picked on the spawn screen before the server's first correction
+    // (the moment after joining) used to be dropped, and the automatic spawn
+    // then asked for the server's default class. The pick waits instead.
+    #[test]
+    fn a_class_picked_before_the_first_correction_is_the_one_asked_for() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.own.class = 1;
+        receiver.latest = 100.;
+        let mut sender = Sender::default();
+        sender.auto_spawn = true;
+        sender.request_spawn(&receiver, 5, 3);
+        sender.spawn(&receiver);
+        assert!(!sender.spawned && sender.edge_count == 0, "nothing goes before the first correction");
+        receiver.complete = true;
+        receiver.corrections = 1;
+        sender.spawn(&receiver);
+        assert!(sender.spawned);
+        assert_eq!(sender.edge_count, 1);
+        let edge = sender.edges[0];
+        assert_eq!((edge[e::KIND], edge[e::CLASS_ID], edge[e::POST_ID]), (3., 5., 3.));
+        // Once sent, the pick is not sent again.
+        sender.spawned = false;
+        sender.spawn(&receiver);
+        assert_eq!(sender.edges[1][e::CLASS_ID], 1., "a later automatic spawn takes the server's class");
+        // A pick made once the correction is in goes at once, as before.
+        let mut sender = Sender::default();
+        sender.request_spawn(&receiver, 4, 2);
+        assert!(sender.spawned);
+        assert_eq!((sender.edges[0][e::CLASS_ID], sender.edges[0][e::POST_ID]), (4., 2.));
     }
 
     #[test]
