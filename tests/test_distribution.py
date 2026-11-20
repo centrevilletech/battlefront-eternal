@@ -342,8 +342,12 @@ class DistributionTest(unittest.TestCase):
                 return record
 
             def refused(why):
-                """The Mac step refuses, and leaves nothing behind: no blob, no file of the release, no staging folder."""
+                """The Mac step refuses, and leaves nothing behind: no blob, no file of the release, no staging folder.
+                Its check alone (what the release host runs before it attaches the files to the GitHub release)
+                refuses the same."""
                 blobs = sorted(path.name for path in store.glob('*/*.zst'))
+                with self.assertRaises(ValueError, msg=why):
+                    distribution.publish_macos(mac, check=True)
                 with self.assertRaises(ValueError, msg=why):
                     distribution.publish_macos(mac)
                 self.assertEqual(sorted(path.name for path in store.glob('*/*.zst')), blobs, f'{why}: a refused Mac build left blobs in the store')
@@ -376,8 +380,15 @@ class DistributionTest(unittest.TestCase):
             (mac / record['dmg']['name']).write_text('another image')
             refused('not the file the record describes')
 
-            # A step that stops before its last file lands leaves a release without a Mac build, and runs again.
+            # The check alone accepts the build and writes nothing at all.
             mac_build(5)
+            before = sorted(str(path.relative_to(downloads)) for path in downloads.rglob('*'))
+            channel_before = (downloads / 'updates/development-preview.json').read_bytes()
+            distribution.publish_macos(mac, check=True)
+            self.assertEqual(sorted(str(path.relative_to(downloads)) for path in downloads.rglob('*')), before)
+            self.assertEqual((downloads / 'updates/development-preview.json').read_bytes(), channel_before)
+
+            # A step that stops before its last file lands leaves a release without a Mac build, and runs again.
             from unittest.mock import patch as patch_object
             with patch_object.object(distribution, 'sign_update', side_effect=RuntimeError('the update key is unreadable')):
                 with self.assertRaises(RuntimeError):
