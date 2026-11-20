@@ -19,6 +19,8 @@ struct World {
     // Where the droideka's guns were turned each tick, and the way its gun
     // rig says they point (None: a world without the rig's guns).
     turns:Vec<Option<Vector3>>,along:Option<Vector3>,
+    // The firing channel each aim ray was cast for.
+    channels:Vec<f64>,
 }
 impl World {
     fn new() -> Self {
@@ -68,7 +70,7 @@ impl CombatWorld for World {
         Some(self.guns[index])
     }
     fn gun_at(&mut self,(index,_):(f64,f64))->Option<Vector3> {self.guns.get(index as usize).copied()}
-    fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64,_:f64)->f64 {self.reach.unwrap_or(far)}
+    fn aim_reach(&mut self,_:&Unit,_:&Vector3,_:&Vector3,far:f64,channel:f64)->f64 {self.channels.push(channel);self.reach.unwrap_or(far)}
     fn bot_target_point(&mut self)->Option<Vector3> {self.quarry}
     fn turn_guns(&mut self,_:&mut Unit,target:Option<&Vector3>,_:f64) {self.turns.push(target.copied());}
     fn gun_along(&mut self,_:(f64,f64))->Option<Vector3> {self.along}
@@ -263,8 +265,10 @@ fn a_soldier_players_held_rounds_cross_his_crosshairs_point() {
 
 // A soldier class with one held-fire rifle and the given cameras (STAND,
 // CROUCH, PRONE, then their ZOOM sections), and a soldier player of it at
-// `feet` aiming (yaw, pitch).
-fn rifleman(world:&mut World,sections:&[bfe_presentation::cameras::soldier::Section;6],scoped:bool,feet:[f64;3],yaw:f64,pitch:f64,posture:Posture)->Unit {
+// `feet` aiming (yaw, pitch), holding the rifle's trigger; with `launcher`,
+// a second gun on the secondary trigger (no zoom of its own) held instead.
+#[allow(clippy::too_many_arguments)]
+fn rifleman(world:&mut World,sections:&[bfe_presentation::cameras::soldier::Section;6],scoped:bool,feet:[f64;3],yaw:f64,pitch:f64,posture:Posture,launcher:bool)->Unit {
     use bfe_sim::combat::{defs::{DefTable,WeaponClass},weapons::arm};
     let object=|fields:Vec<(&str,Js)>| Rc::new(JsObj {fields:fields.into_iter().map(|(k,v)|(k.into(),v)).collect(),def:None});
     let cameras=sections.iter().flat_map(|s| s.eye.into_iter().chain(s.center).chain(s.offset).chain([s.tilt])).map(Js::Num).collect();
@@ -273,13 +277,22 @@ fn rifleman(world:&mut World,sections:&[bfe_presentation::cameras::soldier::Sect
         ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(300.))])))];
     if scoped {keys.push(("ZoomFirstPerson",Js::Num(1.)));}
     world.defs.weapons.set(DefId(1),WeaponClass::new(object(keys)));
-    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("soldier".into())),("weapons",Js::Arr(Rc::new(vec![
-        Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,DefId(1)))}))]))),("cameras",Js::Arr(Rc::new(cameras)))]));
-    let mut unit=soldier();unit.human=true;unit.class_def=DefId(0);unit.controls.pressed=vec![true,false];
+    let weapon=|id:DefId| Js::Obj(Rc::new(JsObj {fields:Vec::new(),def:Some((DefTable::Weapon,id))}));
+    let mut weapons=vec![weapon(DefId(1))];
+    if launcher {
+        world.defs.weapons.set(DefId(2),WeaponClass::new(object(vec![("base",Js::Str("cannon".into())),("channel",Js::Num(1.)),
+            ("ShotDelay",Js::Num(0.25)),("SalvoCount",Js::Num(1.)),("ShotsPerSalvo",Js::Num(1.)),
+            ("ordnance",Js::Obj(object(vec![("base",Js::Str("bolt".into())),("Velocity",Js::Num(60.))])))])));
+        weapons.push(weapon(DefId(2)));
+    }
+    let count=weapons.len();
+    world.defs.set_class(DefId(0),object(vec![("base",Js::Str("soldier".into())),("weapons",Js::Arr(Rc::new(weapons))),
+        ("cameras",Js::Arr(Rc::new(cameras)))]));
+    let mut unit=soldier();unit.human=true;unit.class_def=DefId(0);unit.controls.pressed=vec![!launcher,launcher];
     if let UnitBody::Soldier(s)=&mut unit.soldier {s.position=feet;s.aim_yaw=yaw;s.aim_pitch=pitch;s.posture=posture;}
     unit.combat=Combat {health:300.,max_health:300.,player:true,
-        weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();1],..Default::default()};
-    unit.intent.buttons=[1.,0.];
+        weapons:arm(world.defs.loadout(DefId(0)),&world.defs.weapons,true),seen:vec![Seen::default();count],..Default::default()};
+    unit.intent.buttons=if launcher {[0.,1.]} else {[1.,0.]};
     unit
 }
 
@@ -307,7 +320,7 @@ fn a_zoomed_or_prone_soldiers_held_rounds_take_that_cameras_ray() {
     let (feet,yaw,pitch)=([4.,2.,-3.],-0.6,-0.12);
     for (zoomed,posture,scoped,index) in [(true,Posture::Stand,false,3),(false,Posture::Prone,false,2),(true,Posture::Prone,false,5),(true,Posture::Stand,true,3)] {
         let mut world=World::new();world.reach=Some(20.);
-        let mut unit=rifleman(&mut world,&sections,scoped,feet,yaw,pitch,posture);
+        let mut unit=rifleman(&mut world,&sections,scoped,feet,yaw,pitch,posture,false);
         if zoomed {unit.combat.zoom_step=1.;}
         for _ in 0..20 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
         assert!(world.fired.len()>=3,"the held trigger fires: {} rounds",world.fired.len());
@@ -321,6 +334,43 @@ fn a_zoomed_or_prone_soldiers_held_rounds_take_that_cameras_ray() {
             let mut to=point;to.sub(from);
             let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
             assert!(miss.distance_to(&point)<1e-9,"section {index} round {n} misses by {}",miss.distance_to(&point));
+        }
+        assert!(scoped==world.channels.is_empty()&&world.channels.iter().all(|&c|c==0.),"the rifle's rays: {:?}",world.channels);
+    }
+}
+
+// The view is the current primary's, as the client's and the 2004 game's
+// are, whatever weapon fires: zoomed through a primary whose zoom is first
+// person, the secondary trigger's gun (no zoom of its own) fires along the
+// aim too; zoomed with a primary that stays in third person, it converges
+// on the ZOOM camera's point, its ray cast for the secondary's channel.
+#[test]
+fn a_secondary_fired_zoomed_takes_the_primarys_view() {
+    use bfe_presentation::cameras::soldier::Section;
+    let section=|eye:f64,z:f64,tilt:f64| Section {eye:[0.,eye,0.],center:[0.,eye,0.],offset:[0.,0.,z],tilt:tilt.to_radians()};
+    let sections=[section(1.8,3.5,7.5),section(1.3,3.2,6.),section(0.5,3.0,5.),section(1.8,2.8,3.5),section(1.3,2.6,3.),section(0.5,2.4,2.5)];
+    let (feet,yaw,pitch):([f64;3],f64,f64)=([4.,2.,-3.],-0.6,-0.12);
+    let aim=Vector3::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+    let point=crosshair_point(feet,yaw,pitch,&sections[3],20.);
+    for scoped in [true,false] {
+        let mut world=World::new();world.reach=Some(20.);
+        let mut unit=rifleman(&mut world,&sections,scoped,feet,yaw,pitch,Posture::Stand,true);
+        unit.combat.zoom_step=1.;
+        for _ in 0..40 {world.order=1;world.combat_update(0,&mut unit,1./60.,0.);world.flush_muzzles(0,&mut unit);}
+        assert!(world.fired.len()>=2,"the held secondary fires: {} rounds",world.fired.len());
+        for (n,(from,dir)) in world.fired.iter().enumerate() {
+            if scoped {
+                assert!((dir.dot(&aim)-1.).abs()<1e-12,"round {n} leaves along the aim through the primary's first person zoom");
+                continue;
+            }
+            let mut to=point;to.sub(from);
+            let mut miss=*from;miss.add_scaled_vector(dir,to.dot(dir));
+            assert!(miss.distance_to(&point)<1e-9,"round {n} misses the ZOOM camera's point by {}",miss.distance_to(&point));
+        }
+        if scoped {
+            assert!(world.channels.is_empty(),"no ray is cast through a first person zoom: {:?}",world.channels);
+        } else {
+            assert!(!world.channels.is_empty()&&world.channels.iter().all(|&c|c==1.),"the secondary's rays: {:?}",world.channels);
         }
     }
 }
@@ -336,7 +386,7 @@ fn a_press_keeps_the_aim_its_screen_converged() {
     let sections=[stand;6];
     let (feet,yaw,pitch)=([4.,2.,-3.],-0.6,-0.12);
     let mut world=World::new();world.reach=Some(20.);
-    let mut unit=rifleman(&mut world,&sections,false,feet,yaw,pitch,Posture::Stand);
+    let mut unit=rifleman(&mut world,&sections,false,feet,yaw,pitch,Posture::Stand,false);
     unit.network_human=Some(true);
     let (press_yaw,press_pitch)=(-0.55,-0.08);
     world.edges=Edges {fixed:Some([Some(Edge {button:0.,id:Some(1.),late:None,aim_yaw:Some(press_yaw),aim_pitch:Some(press_pitch)}),None]),..Default::default()};

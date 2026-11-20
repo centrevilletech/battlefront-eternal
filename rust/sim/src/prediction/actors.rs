@@ -8,7 +8,7 @@ use crate::collision::{
     State, MISS, TERRAIN,
 };
 use crate::combat::combat::update_kick;
-use crate::gen::{Air, Combat, Droideka, Kick, MoveInput, Posture, Soldier, Unit, UnitBody};
+use crate::gen::{Air, Combat, Posture, Soldier, Unit, UnitBody};
 use crate::movement::{
     scene::{GroundCache, Scene},
     soldier::{Air as MAir, Input, Mover, Posture as MPosture, Trig, PART_CACHES, V3},
@@ -78,37 +78,6 @@ impl<'a> Reader<'a> {
     }
 }
 
-/// A soldier's body row as the host sends it. Its enum words are checked
-/// before decoding (a word out of range would decode to the first value);
-/// a body riding on another (a pass-through body) is not predicted.
-fn soldier_row(row: &[f64]) -> Result<Soldier, &'static str> {
-    let posture = |at: usize| [0., 1., 2.].contains(&row[at]);
-    // `air` is a nullable enum: its presence word (0 a value, 1 null, 2
-    // undefined), then the value.
-    let air = row[Soldier::AIR];
-    if !posture(Soldier::POSTURE) || !posture(Soldier::DIVE_FROM) || ![0., 1., 2.].contains(&air)
-        || air == 0.0 && ![0., 1., 2., 3.].contains(&row[Soldier::AIR + 1])
-    {
-        return Err(INVALID);
-    }
-    let soldier = Soldier::take(row, &[]);
-    if soldier.pass_through.is_some() {
-        return Err(INVALID);
-    }
-    Ok(soldier)
-}
-
-/// A droideka's body row as the host sends it: its mode must be one of its
-/// fourteen, and a predicted body carries no gun rig's animator.
-fn droideka_row(row: &[f64]) -> Result<Droideka, &'static str> {
-    let droideka = Droideka::take(row, &[]);
-    let mode = droideka.mode;
-    if !mode.is_finite() || !(0.0..=13.0).contains(&mode) || mode.fract() != 0.0 || droideka.muzzle_animator.is_some() {
-        return Err(INVALID);
-    }
-    Ok(droideka)
-}
-
 fn clip(r: &mut Reader<'_>) -> Result<Option<Rc<Clip>>, &'static str> {
     if !r.flag()? {
         return Ok(None);
@@ -147,20 +116,10 @@ fn clip(r: &mut Reader<'_>) -> Result<Option<Rc<Clip>>, &'static str> {
     })))
 }
 
-/// Scalar commands shared by the adapter and native corpus replay.
-/// 0: kind (0 infantry, 1 droideka); droideka adds five (present,value)
-/// definition numbers, then fourteen clips (present; frames,fps,rootMotion,
-/// track count/tracks, Float32 data count/data).
-/// 1: world, ignored body slot, dt, body-flag count/flags, generated Soldier
-/// (64) or Droideka (77) row; infantry adds contactCount, contactMean xyz,
-/// stepBlocked and whether the original world uses MovementKernel. Then
-/// forward,right,turn,pitch,jump,crouch,prone,use,jetPresent,jet xyz;
-/// kick rate/hold/offset; shieldEquipped,underwater,shieldPressed,airBlocked,
-/// dive truthiness,lock. Output: the body row, infantry scratch (five words),
-/// kick-write flag, kick rate/hold/offset. No row carries live store references.
+/// The private body one client's replay steps: configured once per body
+/// (`configure`), then stepped tick by tick (`step`). It holds no live store
+/// references.
 pub struct Session {
-    pub input: Vec<f64>,
-    pub output: Vec<f64>,
     kind: Option<u32>,
     pub(crate) unit: Unit,
     pub(crate) combat: Combat,
@@ -176,8 +135,6 @@ pub struct Session {
 impl Default for Session {
     fn default() -> Self {
         Self {
-            input: Vec::new(),
-            output: Vec::new(),
             kind: None,
             unit: Unit::default(),
             combat: Combat::default(),
@@ -201,142 +158,44 @@ impl Session {
         self.gathered.reserve(256,16);self.gathered.prepare_dense(collision,world,16);
         for cache in &mut self.caches{cache.reserve(statics,0,w.order.len());}
     }
-    pub fn run(&mut self, op: u32, collision: &mut State) -> Result<(), &'static str> {
-        self.output.clear();
-        let mut r = Reader {
-            words: &self.input,
-            at: 0,
-        };
-        if op == 0 {
-            let kind = r.count()?;
-            let parts = match kind {
-                0 => None,
-                1 => {
-                    let def = DroidekaDef {
-                        max_pitch_speed: r.optional()?,
-                        ball_turn_speed: r.optional()?,
-                        ball_max_lean: r.optional()?,
-                        ball_acceleration: r.optional()?,
-                        ball_rolling_friction: r.optional()?,
-                    };
-                    let mut clips = ModeClips::default();
-                    for slot in &mut clips.by_mode {
-                        *slot = clip(&mut r)?;
-                    }
-                    Some(DroidekaParts {
-                        def,
-                        clips: Rc::new(clips),
-                        rig: None,
-                    })
-                }
-                _ => return Err(INVALID),
-            };
-            r.done()?;
-            self.kind = Some(kind as u32);
-            self.parts = parts;
-            // ActorPrediction.configure used to replace the complete scene cache.
-            // Body changes invalidate query facts, not the owned reservations.
-            for cache in &mut self.caches { cache.reset(); }
-            self.gathered.reset();
-            self.ground.reset();
-            self.mover = Mover::new(0);
-            return Ok(());
-        }
-        if op != 1 {
-            return Err(INVALID);
-        }
-        let kind = self.kind.ok_or(INVALID)?;
-        let world = r.count()?;
-        let ignored = r.word()?;
-        let dt = r.word()?;
-        if !ignored.is_finite()
-            || ignored < -1.0
-            || ignored.fract() != 0.0
-            || ignored > u32::MAX as f64
-        {
-            return Err(INVALID);
-        }
-        let count = r.count()?;
-        if collision.worlds.get(world).map(|w| w.order.len()) != Some(count)
-            || count > collision::MAX_BODIES
-        {
-            return Err(INVALID);
-        }
-        let flags = (0..count)
-            .map(|_| r.flag().map(u8::from))
-            .collect::<Result<Vec<_>, _>>()?;
-        let soldier = if kind == 0 {
-            UnitBody::Soldier(soldier_row(r.slice(Soldier::WORDS)?)?)
-        } else {
-            UnitBody::Droideka(droideka_row(r.slice(Droideka::WORDS)?)?)
-        };
-        let (scratch, movement_backend) = if kind == 0 {
-            (
-                (
-                    r.word()?,
-                    V3::new(r.word()?, r.word()?, r.word()?),
-                    r.flag()?,
-                ),
-                r.flag()?,
-            )
-        } else {
-            ((0.0, V3::ZERO, false), false)
-        };
-        let mut input = MoveInput {
-            forward: r.word()?,
-            right: r.word()?,
-            turn: r.word()?,
-            pitch: r.word()?,
-            jump: r.flag()?,
-            crouch: r.flag()?,
-            prone: r.flag()?,
-            r#use: r.flag()?,
-            ..MoveInput::default()
-        };
-        let jet = r.flag()?;
-        let direction = [r.word()?, r.word()?, r.word()?];
-        input.jet_direction = jet.then_some(direction);
-        let kick = Kick {
-            rate: r.word()?,
-            hold: r.word()?,
-            offset: r.word()?,
-        };
-        let shield = r.flag()?;
-        let underwater = r.flag()?;
-        let pressed = r.flag()?;
-        let airborne = r.flag()?;
-        let dive = r.flag()?;
-        let lock = r.word()?;
-        r.done()?;
-        self.unit.soldier = soldier;
-        self.unit.input = input;
-        let kick_write = truthy(kick.rate) || truthy(kick.hold) || truthy(kick.offset);
-        self.combat.kick = kick;
-        self.step(collision, world, ignored as i64, &flags, dt, scratch, movement_backend,
-            shield, underwater, pressed, airborne, dive, lock)?;
-        match &self.unit.soldier {
-            UnitBody::Soldier(s) => {
-                self.output.resize(Soldier::WORDS, 0.0);
-                s.put(&mut self.output, &mut Vec::new());
-                let (count, mean, blocked) = if movement_backend {
-                    scratch
-                } else {
-                    self.mover.prediction_scratch()
+    /// Configure the body a replay steps: its kind (0 infantry, 1 droideka);
+    /// a droideka adds five (present, value) definition numbers, then fourteen
+    /// clips (present; frames, fps, rootMotion, track count/tracks, Float32
+    /// data count/data).
+    pub fn configure(&mut self, input: &[f64]) -> Result<(), &'static str> {
+        let mut r = Reader { words: input, at: 0 };
+        let kind = r.count()?;
+        let parts = match kind {
+            0 => None,
+            1 => {
+                let def = DroidekaDef {
+                    max_pitch_speed: r.optional()?,
+                    ball_turn_speed: r.optional()?,
+                    ball_max_lean: r.optional()?,
+                    ball_acceleration: r.optional()?,
+                    ball_rolling_friction: r.optional()?,
                 };
-                self.output
-                    .extend([count, mean.x, mean.y, mean.z, blocked as u8 as f64]);
+                let mut clips = ModeClips::default();
+                for slot in &mut clips.by_mode {
+                    *slot = clip(&mut r)?;
+                }
+                Some(DroidekaParts {
+                    def,
+                    clips: Rc::new(clips),
+                    rig: None,
+                })
             }
-            UnitBody::Droideka(d) => {
-                self.output.resize(crate::gen::Droideka::WORDS, 0.0);
-                d.put(&mut self.output, &mut Vec::new());
-            }
-        }
-        self.output.extend([
-            kick_write as u8 as f64,
-            self.combat.kick.rate,
-            self.combat.kick.hold,
-            self.combat.kick.offset,
-        ]);
+            _ => return Err(INVALID),
+        };
+        r.done()?;
+        self.kind = Some(kind as u32);
+        self.parts = parts;
+        // ActorPrediction.configure used to replace the complete scene cache.
+        // Body changes invalidate query facts, not the owned reservations.
+        for cache in &mut self.caches { cache.reset(); }
+        self.gathered.reset();
+        self.ground.reset();
+        self.mover = Mover::new(0);
         Ok(())
     }
 
@@ -650,55 +509,5 @@ impl UnitsWorld for ActorWorld<'_> {
     }
     fn release(&mut self, _: u32, _: &Unit) {
         unreachable!()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::gen::{RigAnimator, Shield};
-
-    fn row_of<T>(words: usize, put: impl Fn(&T, &mut [f64], &mut Vec<f64>), value: &T) -> Vec<f64> {
-        let (mut row, mut heap) = (vec![0.0; words], Vec::new());
-        put(value, &mut row, &mut heap);
-        row
-    }
-
-    // A droideka row as the client sends it is accepted whatever its other
-    // fields hold (a wall's push with a fraction in it, no shield); its mode
-    // and its rig's animator are what decide.
-    #[test]
-    fn a_droideka_row_is_judged_by_its_mode_and_its_rig() {
-        let mut d = Droideka { mode: 7.0, avoidance: [0.25, 0.0, 0.625], shield: None, ..Default::default() };
-        assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok());
-        d.shield = Some(Shield { max: 0.0, ..Default::default() });
-        assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok());
-        for mode in [13.0, 0.0] {
-            d.mode = mode;
-            assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_ok(), "mode {mode}");
-        }
-        for mode in [2.5, 14.0, -1.0, f64::NAN] {
-            d.mode = mode;
-            assert!(droideka_row(&row_of(Droideka::WORDS, Droideka::put, &d)).is_err(), "mode {mode}");
-        }
-        d.mode = 7.0;
-        d.muzzle_animator = Some(RigAnimator::default());
-        let (mut row, mut heap) = (vec![0.0; Droideka::WORDS], Vec::new());
-        d.put(&mut row, &mut heap);
-        assert!(droideka_row(&row).is_err(), "a rig's animator");
-    }
-
-    #[test]
-    fn a_soldier_row_is_judged_by_its_postures_and_air() {
-        let mut s = Soldier { posture: Posture::Crouch, air: Some(Air::Jump), avoidance: [0.25, 0.0, 0.625], ..Default::default() };
-        let row = row_of(Soldier::WORDS, Soldier::put, &s);
-        assert!(soldier_row(&row).is_ok());
-        for (at, word) in [(Soldier::POSTURE, 3.0), (Soldier::DIVE_FROM, 1.5), (Soldier::AIR, 3.0), (Soldier::AIR + 1, 4.0)] {
-            let mut broken = row.clone();
-            broken[at] = word;
-            assert!(soldier_row(&broken).is_err(), "word {at} = {word}");
-        }
-        s.air = None;
-        assert!(soldier_row(&row_of(Soldier::WORDS, Soldier::put, &s)).is_ok());
     }
 }

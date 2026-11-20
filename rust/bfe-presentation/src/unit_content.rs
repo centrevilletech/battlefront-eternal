@@ -60,6 +60,9 @@ pub struct WalkerInput {
     pub blasters: Vec<usize>,
     #[serde(default)]
     pub aimer: [f64; 6],
+    /// Each gun's barrel tips in its blaster bone's frame (as `blasters`).
+    #[serde(default)]
+    pub tips: Vec<Vec<[f64; 3]>>,
 }
 
 pub struct Content {

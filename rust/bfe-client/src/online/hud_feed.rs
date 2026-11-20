@@ -450,16 +450,9 @@ impl Feed {
 
     // applyUnitState: the Character slot and hero flag of one unit life.
     fn unit_state(&mut self, row: &[f64], bytes: &[u8], own: &Own) {
-        let (Some(id), Some(&flags), Some(slot)) =
-            (bytes.get(0..4), bytes.get(4), bytes.get(UNIT_STATE_SLOT..UNIT_STATE_SLOT + 2))
-        else {
+        let (Some((id, slot)), Some(&flags)) = (unit_slot(row, bytes), bytes.get(4)) else {
             return;
         };
-        let id = u32::from_le_bytes(id.try_into().unwrap());
-        if row[r::ID] != UNIT_STATE_ID + id as f64 {
-            return;
-        }
-        let slot = u16::from_le_bytes(slot.try_into().unwrap());
         let generation = row[r::GENERATION] as u32;
         self.units.insert(id, UnitState { generation, slot, hero: flags & 1 != 0 });
         // unit.combat.repairLock, for the client's own soldier: the key after
@@ -746,6 +739,14 @@ pub fn damage_direction(x: f64, z: f64, yaw: f64) -> f64 {
 
 /// relationName for a numeric team relation, as a HudModel relation code:
 /// 1 friendly, 2 enemy, else 0.
+/// A unit state summary's unit id and its Character's roster slot (65535:
+/// a unit without one), from captureUnitState's header.
+pub(super) fn unit_slot(row: &[f64], bytes: &[u8]) -> Option<(u32, u16)> {
+    let id = u32::from_le_bytes(bytes.get(0..4)?.try_into().ok()?);
+    let slot = u16::from_le_bytes(bytes.get(UNIT_STATE_SLOT..UNIT_STATE_SLOT + 2)?.try_into().ok()?);
+    (row[r::ID] == UNIT_STATE_ID + id as f64).then_some((id, slot))
+}
+
 pub fn relation_code(relation: f64) -> f64 {
     if relation > 0. {
         1.

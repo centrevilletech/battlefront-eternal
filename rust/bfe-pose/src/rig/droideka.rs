@@ -199,6 +199,29 @@ pub struct DroidekaRig {
     pub guns: super::droideka_guns::Guns,
 }
 
+/// The barrel each gun fires next, for the gun counter `gun` and each gun's
+/// barrel count (nextGun's turn: gun `gun % guns`, its barrel
+/// `floor(gun / guns) % barrels`, the counter running round `guns * 2`);
+/// `usize::MAX` for a gun without barrels or beyond the second.
+pub fn next_barrels(gun: f64, counts: &[usize]) -> [usize; 2] {
+    let guns = counts.len();
+    let mut out = [usize::MAX; 2];
+    if guns == 0 || !gun.is_finite() || gun < 0.0 {
+        return out;
+    }
+    let cycle = guns * 2;
+    let now = gun as usize % cycle;
+    for (g, slot) in out.iter_mut().enumerate().take(guns) {
+        if counts[g] == 0 {
+            continue;
+        }
+        // The first turn of the counter, from now, that is this gun's.
+        let ahead = (g + guns - now % guns) % guns;
+        *slot = ((now + ahead) % cycle / guns) % counts[g];
+    }
+    out
+}
+
 impl DroidekaRig {
     /// `Droideka.arm`'s rig, before its first `sampleMuzzles(0)`: the body's
     /// skeleton (its bones' bind pose, `Skeleton::actor`), the guns with
@@ -318,7 +341,10 @@ impl DroidekaRig {
         let blasters: Vec<usize> = self.barrels.iter().filter_map(|list| bone_of(self.tree.node(*list.first()?).parent)).collect();
         let mounts = super::droideka_guns::mounts(&blasters, &parents, &self.animator.bind_q);
         self.guns = if mounts.len() == self.barrels.len() {
-            super::droideka_guns::Guns::new(mounts)
+            let mut guns = super::droideka_guns::Guns::new(mounts);
+            // Each barrel hangs on its gun's bone at the tip it fires from.
+            guns.tips = self.barrels.iter().map(|list| list.iter().map(|&node| self.tree.node(node).position).collect()).collect();
+            guns
         } else {
             Default::default()
         };
@@ -366,9 +392,13 @@ impl DroidekaRig {
     }
 
     /// Step the guns' aimers `dt` toward `target` (None: back to the clip's
-    /// line) and turn them; `aims` in and out.
-    pub fn aim_guns(&mut self, aims: &mut [[f64; 2]], target: Option<&Vector3>, dt: f64, aimer: &super::droideka_guns::Aimer) {
-        self.guns.aim(&mut self.tree, &self.bones, aims, target, dt, aimer);
+    /// line) and turn them; `aims` in and out. `gun`: the gun counter, which
+    /// names the barrel each gun fires next: its line is brought onto the
+    /// point.
+    pub fn aim_guns(&mut self, aims: &mut [[f64; 2]], gun: f64, target: Option<&Vector3>, dt: f64, aimer: &super::droideka_guns::Aimer) {
+        let counts = [0, 1].map(|g| self.barrels.get(g).map_or(0, Vec::len));
+        let barrels = next_barrels(gun, &counts[..self.barrels.len().min(2)]);
+        self.guns.aim(&mut self.tree, &self.bones, aims, &barrels, target, dt, aimer);
     }
 
     /// The direction gun `index` points along now, None where the guns do
@@ -862,7 +892,7 @@ mod tests {
         for k in 0..20 {
             rig.sample_muzzles(dt, &state(FOLD, k), &clips);
             rig.pose_guns(&aims);
-            rig.aim_guns(&mut aims, None, dt, &aimer);
+            rig.aim_guns(&mut aims, 0.0, None, dt, &aimer);
             let now = rig.gun_along(0).unwrap();
             let step = now.angle_to(&along);
             assert!(step <= most + 1e-9, "fold tick {k}: the gun swung {step} rad (at most {most})");
