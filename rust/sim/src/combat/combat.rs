@@ -47,7 +47,7 @@ fn gun_of(p: Posture) -> [f64; 3] {
 
 /// BLAST_BODY: the sphere a blast measures to, by stance
 /// (its centre above the feet, its radius) and the sight point's height.
-fn blast_body(p: Posture) -> [f64; 3] {
+pub(crate) fn blast_body(p: Posture) -> [f64; 3] {
     match p {
         Posture::Stand => [1.0, 1.4626, 1.4],
         Posture::Crouch => [0.75, 1.1023, 0.6],

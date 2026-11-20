@@ -9,6 +9,8 @@ use crate::ordnance::world::{ItemModel, PreparedItem};
 use crate::store::{DefId, Ref, StrId};
 
 const ITEM_ROOM: usize = 1024;
+/// A sphere's centre and radius.
+type Sphere = ([f64; 3], f64);
 // A weapon level has one owned list and one invocation's work buffer. The
 // second buffer supplies the first Map insertion without allocating on fire.
 struct Binding {
@@ -48,6 +50,9 @@ pub(crate) struct Items {
     // never can, even though its pooled Unit still has the same slab slot.
     current_keys: Vec<bool>,
     notice: F3DispenserNotice,
+    // A unit class's sphere about its model box, by class, once read (a
+    // mine's trigger measures a droideka to it).
+    spheres: Vec<Option<Option<Sphere>>>,
 }
 impl Items {
     pub fn new() -> Self {
@@ -64,6 +69,7 @@ impl Items {
             live_keys: Vec::new(),
             current_keys: Vec::new(),
             notice,
+            spheres: Vec::new(),
         }
     }
     pub fn reserve_unit(&mut self, count: usize) {
@@ -377,17 +383,78 @@ pub(crate) fn standing_in(world_ctx: &mut crate::world::owner::World, index: usi
         [p.x,p.y,p.z]
     } else { world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap().position }
 }
+// A mine's trigger measures everyone to the sphere a blast measures him to,
+// as the 2004 game's do: a hull's about its model, turned with it.
 pub(crate) fn watch_in(world_ctx: &mut crate::world::owner::World, index: usize, team: f64) -> crate::ordnance::world::Watched {
-    let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
-    if let Some(r) = row.unit {
+    let (unit, hull) = {
+        let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
+        (row.unit, row.hull)
+    };
+    if let Some(r) = unit {
         let unit = world_ctx.sim.store.unit.get(r).unwrap();
-        let p = unit.position(); let v = unit.velocity();
+        let model = match unit.soldier {
+            UnitBody::Droideka(_) => model_sphere_in(world_ctx, unit.class_def),
+            UnitBody::Soldier(_) => None,
+        };
+        let unit = world_ctx.sim.store.unit.get(r).unwrap();
+        let v = unit.velocity();
+        let (center, radius) = unit_sphere(unit, model);
         crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, unit.team,team),
-            center:[p.x,p.y+1.048,p.z],radius:1.278,velocity:[v.x,v.y,v.z]}
+            center,radius,velocity:[v.x,v.y,v.z]}
     } else {
-        let v = world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap();
+        let hull = hull.unwrap();
+        let (center, radius) = super::f3_hulls::sphere_in(world_ctx, hull, true);
+        let v = world_ctx.sim.store.vehicle.get(hull).unwrap();
         crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, v.team.unwrap_or(0.0),team),
-            center:v.item_center,radius:v8math::max(v.size[0],v.size[2])*0.5,velocity:v.velocity}
+            center:[center.x,center.y,center.z],radius,velocity:v.velocity}
+    }
+}
+
+/// A unit class's sphere about its model box (`bounds`, its lowest and
+/// highest corners): the box's centre and half its diagonal, read once.
+fn model_sphere_in(world_ctx: &mut crate::world::owner::World, class: DefId) -> Option<Sphere> {
+    let at = class.0 as usize;
+    if let Some(Some(known)) = super::f3::items_in(&mut world_ctx.units).spheres.get(at) {
+        return *known;
+    }
+    let defs = crate::combat::module::defs_in(&mut world_ctx.combat);
+    let sphere = defs.classes.get(at).and_then(Option::as_ref).and_then(|class| {
+        let bounds = class.get("bounds");
+        let corner = |c: usize| [0, 1, 2].map(|axis| bounds.at(c).at(axis).num());
+        let (low, high) = (corner(0), corner(1));
+        low.iter().chain(&high).all(|v| v.is_finite()).then(|| {
+            let size = [0, 1, 2].map(|axis| high[axis] - low[axis]);
+            ([0, 1, 2].map(|axis| (low[axis] + high[axis]) * 0.5), 0.5 * (size[0] * size[0] + size[1] * size[1] + size[2] * size[2]).sqrt())
+        })
+    });
+    let spheres = &mut super::f3::items_in(&mut world_ctx.units).spheres;
+    if spheres.len() <= at {
+        spheres.resize(at + 1, None);
+    }
+    spheres[at] = Some(sphere);
+    sphere
+}
+
+/// A unit's sphere for a mine's trigger, its centre and radius: a soldier's
+/// by stance (standing while in the air); a droideka's about its model box
+/// (`model`, in the body's frame: x to its left, z ahead), carried with its
+/// body, standing or rolled, or the standing soldier's without one.
+fn unit_sphere(unit: &Unit, model: Option<Sphere>) -> Sphere {
+    match &unit.soldier {
+        UnitBody::Soldier(s) => {
+            let stance = if s.air.is_some() { Posture::Stand } else { s.posture };
+            let [middle, radius, _] = crate::combat::combat::blast_body(stance);
+            ([s.position[0], s.position[1] + middle, s.position[2]], radius)
+        }
+        UnitBody::Droideka(d) => {
+            let p = d.position;
+            let Some(([x, y, z], radius)) = model else {
+                let [middle, radius, _] = crate::combat::combat::blast_body(Posture::Stand);
+                return ([p[0], p[1] + middle, p[2]], radius);
+            };
+            let (sin, cos) = v8math::sin_cos(d.aim_yaw);
+            ([p[0] + cos * x + sin * z, p[1] + y, p[2] - sin * x + cos * z], radius)
+        }
     }
 }
 
@@ -435,3 +502,43 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn soldier(posture: Posture, air: Option<Air>) -> Unit {
+        Unit { soldier: UnitBody::Soldier(Soldier { position: [2.0, 5.0, -1.0], posture, air, ..Default::default() }), ..Default::default() }
+    }
+
+    /// The horizontal distance at which a mine lying 0.06 m up sets off on
+    /// a unit whose sphere is `sphere` (TriggerRadius 1, the land mine's).
+    fn reach(feet: [f64; 3], (center, radius): Sphere) -> f64 {
+        let rise = center[1] - (feet[1] + 0.06);
+        ((1.0 + radius) * (1.0 + radius) - rise * rise).sqrt()
+    }
+
+    #[test]
+    fn a_mine_measures_a_soldier_by_his_stance() {
+        let feet = [2.0, 5.0, -1.0];
+        let at = |posture, air| unit_sphere(&soldier(posture, air), None);
+        assert_eq!(at(Posture::Stand, None), ([2.0, 6.0, -1.0], 1.4626));
+        assert_eq!(at(Posture::Crouch, None), ([2.0, 5.75, -1.0], 1.1023));
+        assert_eq!(at(Posture::Prone, None), ([2.0, 5.35, -1.0], 1.622));
+        assert_eq!(at(Posture::Crouch, Some(Air::Jump)), at(Posture::Stand, None));
+        // Before: one sphere 1.048 m up, radius 1.278, 2.05 m whatever the stance.
+        for (posture, distance) in [(Posture::Stand, 2.276), (Posture::Crouch, 1.986), (Posture::Prone, 2.606)] {
+            assert!((reach(feet, at(posture, None)) - distance).abs() < 5e-4, "{posture:?}");
+        }
+    }
+
+    #[test]
+    fn a_mine_measures_a_droideka_to_its_model_box_turned_with_it() {
+        let turn = std::f64::consts::FRAC_PI_2;
+        let unit = Unit { soldier: UnitBody::Droideka(Droideka { position: [10.0, 0.0, 10.0], aim_yaw: turn, mode: 11.0, ..Default::default() }), ..Default::default() };
+        // The droideka's box: its centre 0.3 m ahead, 1.05 m up.
+        let model = Some(([0.0, 1.05, 0.3], 1.75));
+        let (center, radius) = unit_sphere(&unit, model);
+        assert!((center[0] - 10.3).abs() < 1e-12 && center[1] == 1.05 && (center[2] - 10.0).abs() < 1e-12, "{center:?}");
+        assert_eq!(radius, 1.75);
+    }
+}
