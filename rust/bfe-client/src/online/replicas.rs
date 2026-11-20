@@ -24,6 +24,37 @@ use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
 // FLASH_SCALE: the flash model's size at a muzzle.
 const FLASH_SCALE: f64 = 0.6;
+
+/// A drawn droideka's muzzle flash: on the barrel tip, of all its guns' tips
+/// as drawn (`guns`: each gun's bone and its tips in that bone's frame),
+/// nearest `near` (where its round left), along that gun's barrels.
+fn walker_flash(units: &mut bfe_presentation::units::Units, guns: &[(usize, Vec<[f64; 3]>)], actor: usize, near: [f64; 3]) -> Option<Matrix4> {
+    use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
+    units.refresh_actor(actor);
+    let start = units.actor_node_start(actor);
+    let near = three::Vector3::new(near[0], near[1], near[2]);
+    // The flash's own axis turned onto the barrels' (each bone's X axis).
+    let along = bfe_pose::rig::droideka_guns::Mount::new(0, -1.0).frame;
+    let mut best: Option<(f64, Matrix4)> = None;
+    for (bone, tips) in guns {
+        let node = (start + bone + 2) * STRIDE + WORLD;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(units.nodes.get(node..node + 16)?);
+        for tip in tips {
+            let mut at = three::Vector3::new(tip[0], tip[1], tip[2]);
+            at.apply_matrix4(&matrix);
+            let distance = at.distance_to(&near);
+            if best.as_ref().is_none_or(|(d, _)| distance < *d) {
+                let mut local = Matrix4::default();
+                local.compose(&three::Vector3::new(tip[0], tip[1], tip[2]), &along, &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE));
+                let mut placed = matrix;
+                placed.multiply(&local);
+                best = Some((distance, placed));
+            }
+        }
+    }
+    best.map(|(_, placed)| placed)
+}
 struct Model {
     row: [f64; draw::REC_STRIDE],
     // The preview borrows immutable GPU geometry, but owns animation clocks
@@ -87,6 +118,8 @@ struct Slot {
     // the tick it fired on (negative: none), how long the flash lasts and
     // its colour and alpha.
     flash: (usize, f64, f64, [f64; 4]),
+    // The tick of the round whose flash light is lit (each lit once).
+    flash_lit: f64,
     // The charge-up glow playing at his gun, while he holds a charge.
     glow: Option<u32>,
 }
@@ -181,6 +214,9 @@ pub struct Replicas {
     // The first person arms' muzzle flash: the tick of the shot it is for
     // and the seconds it has left.
     eye_flash: (f64, f64),
+    // Where the player's own droideka's last predicted round left (its drawn
+    // barrel), for that round's muzzle flash.
+    walker_flash: Option<[f64; 3]>,
     // Each registry weapon's ChargeUpEffect group, where the library has it.
     charge_effects: Vec<Option<usize>>,
     bound: Index,
@@ -497,6 +533,7 @@ impl Replicas {
                     charge: 0.,
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
+                    flash_lit: -1.,
                     glow: None,
                 });
             }
@@ -744,6 +781,7 @@ impl Replicas {
             preview_held,
             slots,
             eye_flash: (-1., 0.),
+            walker_flash: None,
             charge_effects,
             bound: Index::new(POOL),
             visible: 0,
@@ -791,6 +829,7 @@ impl Replicas {
                 let (muzzle, feet, along) = self.walker_muzzle(receiver, shot.gun);
                 let feet = feet.unwrap_or(shot.position);
                 origin = muzzle.unwrap_or([feet[0], feet[1] + 1., feet[2]]);
+                self.walker_flash = muzzle;
                 if let Some(along) = along {
                     aim = along;
                 }
@@ -1584,29 +1623,56 @@ impl Replicas {
                 continue;
             }
             let out = &self.units.output[slot.actor * o::STRIDE..];
-            // FirstPersonView.flash: in that view the player's own flash
-            // sits on the arms' gun, while the arms are shown.
-            let hand = if eyes {
-                self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
-            } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
-                None
+            // A droideka (seen from outside) flashes at the barrel its round
+            // left: its own predicted round's, another's newest launch.
+            let matrix = if slot.walker && !eyes {
+                let near = if slot.identity == Some(own) {
+                    self.walker_flash
+                } else {
+                    slot.identity.and_then(|id| self.combat.latest_launch(id)).map(|(point, _)| point)
+                };
+                let guns = self.walker_guns.get(slot.class);
+                near.zip(guns).and_then(|(near, guns)| walker_flash(&mut self.units, guns, slot.actor, near))
             } else {
-                self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+                // FirstPersonView.flash: in that view the player's own flash
+                // sits on the arms' gun, while the arms are shown.
+                let hand = if eyes {
+                    self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
+                } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                    None
+                } else {
+                    self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+                };
+                match (hand, self.guns.muzzles.get(weapon).copied().flatten()) {
+                    (Some(hand), Some(point)) => {
+                        self.units.refresh_actor(slot.actor);
+                        let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+                        let mut matrix = Matrix4::default();
+                        matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+                        let mut local = Matrix4::default();
+                        local.compose(
+                            &three::Vector3::new(point[0], point[1], point[2]),
+                            &three::Quaternion::default(),
+                            &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE),
+                        );
+                        matrix.multiply(&local);
+                        Some(matrix)
+                    }
+                    _ => None,
+                }
             };
-            let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
+            let Some(matrix) = matrix else {
                 continue;
             };
-            self.units.refresh_actor(slot.actor);
-            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
-            let mut matrix = Matrix4::default();
-            matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
-            let mut local = Matrix4::default();
-            local.compose(
-                &three::Vector3::new(point[0], point[1], point[2]),
-                &three::Quaternion::default(),
-                &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE),
-            );
-            matrix.multiply(&local);
+            // Its light (`FlashLightRadius` for `FlashLightDuration`), lit
+            // once for each round where the flash is.
+            if slot.flash_lit != fired {
+                slot.flash_lit = fired;
+                if let Some((rgb, radius, duration)) = self.guns.flash_lights.get(weapon).copied().flatten() {
+                    let e = &matrix.elements;
+                    self.lights.flash([e[12], e[13], e[14]], rgb, radius, duration);
+                }
+            }
             let opacity = color[3] * (2. * left / length.max(1e-3)).min(1.);
             let shown = if eyes {
                 self.combat.particles.flash_view(bridge, &matrix.elements, &color[..3], opacity)

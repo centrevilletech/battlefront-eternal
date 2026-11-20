@@ -73,6 +73,9 @@ pub struct Unit {
 pub struct Guns {
     pub muzzles: Vec<Option<[f64; 3]>>,
     pub flashes: Vec<(f64, [f64; 4])>,
+    /// Each weapon's muzzle flash light (`FlashLightColor` 0..1 times its
+    /// alpha, `FlashLightRadius`, `FlashLightDuration`), None without one.
+    pub flash_lights: Vec<Option<([f64; 3], f64, f64)>>,
     pub colors: Vec<Option<[f64; 4]>>,
     pub holds: Vec<f64>,
     pub casters: Vec<Option<(usize, f64)>>,
@@ -98,6 +101,7 @@ impl Guns {
         let mut guns = Self {
             muzzles: vec![None; weapons],
             flashes: vec![(0.1, [1.; 4]); weapons],
+            flash_lights: vec![None; weapons],
             colors: vec![None; weapons],
             holds: vec![0.; weapons],
             casters: vec![None; defs.registry.classes.len() + 1],
@@ -132,6 +136,20 @@ impl Guns {
                 }
             }
             guns.flashes[id] = (length, color);
+            // Its light: `FlashLightRadius` m for `FlashLightDuration` s in
+            // `FlashLightColor` (white when it names none).
+            let number = |key: &str| weapon.record.get(key).and_then(Value::as_f64).unwrap_or(0.);
+            let (radius, duration) = (number("FlashLightRadius"), number("FlashLightDuration"));
+            if radius > 0. && duration > 0. {
+                let mut rgba = [255.; 4];
+                if let Some(Value::Array(list)) = weapon.record.get("FlashLightColor") {
+                    for (slot, value) in rgba.iter_mut().zip(list.iter()) {
+                        *slot = value.as_f64().unwrap_or(255.);
+                    }
+                }
+                let a = rgba[3] / 255.;
+                guns.flash_lights[id] = Some(([rgba[0] / 255. * a, rgba[1] / 255. * a, rgba[2] / 255. * a], radius, duration));
+            }
             if guns.charge_effects[id].is_none() {
                 guns.charge_effects[id] = weapon.record.get("ChargeUpEffect").and_then(Value::as_str).map(str::to_string);
             }

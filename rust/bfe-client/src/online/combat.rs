@@ -256,6 +256,16 @@ fn color(v: &bfe_content::Value, key: &str) -> [f64; 3] {
     std::array::from_fn(|i| a.and_then(|a| a.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or(255.) / 255. * alpha)
 }
 impl Combat {
+    /// The start of the newest round `owner` fired that is still flying (its
+    /// launch place), with its launch tick: where its muzzle flash belongs.
+    pub fn latest_launch(&self, owner: (u32, u32)) -> Option<([f64; 3], f64)> {
+        self.bolts[..self.top.min(self.bolts.len())]
+            .iter()
+            .filter(|b| b.active && b.owner == owner)
+            .max_by(|a, b| a.flight.total_cmp(&b.flight))
+            .map(|b| (b.position, b.flight))
+    }
+
     pub async fn new(
         content: &BattleContent,
         mut prepared: particles::Prepared,
