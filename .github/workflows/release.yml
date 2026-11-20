@@ -12,8 +12,9 @@ name: Release
 # with an Apple developer certificate, which no workflow here holds, so the
 # release carries the unsigned app as one build input archive. The project's
 # signing Mac signs and notarizes it and hands the notarized files to the
-# release host, which attaches the disk image and the update payload to this
-# release and publishes them (docs/desktop-updates.md). The Mac job is not
+# release host, which publishes them; release-mac-files.yml then checks them
+# against the signing Mac's public key and attaches them to this release
+# (docs/desktop-updates.md). The Mac job is not
 # part of the release job: whether it fails, hangs or is slow, this run's
 # Windows and Linux release is made at the same time and with the same files
 # as without it. What it can do is what any build job here can: a hung Mac

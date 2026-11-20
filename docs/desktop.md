@@ -681,9 +681,11 @@ distribution test suites, verifies each package on its runner with
 `build/publish-distribution.py`. A Windows installer without a code-signing
 certificate shows a SmartScreen warning. The same workflow builds the Mac app
 on a hosted Apple silicon runner and attaches it to the release as one build
-input archive; the project's signing Mac signs and notarizes it, and the
-release host attaches the notarized disk image and update payload to the
-same release ([desktop-updates.md](desktop-updates.md)). That job is not part of the
+input archive; the project's signing Mac signs and notarizes it, the
+release host publishes the notarized disk image on the download site, and
+`.github/workflows/release-mac-files.yml` checks it against the signing Mac's
+public key and attaches it to the same release
+([desktop-updates.md](desktop-updates.md)). That job is not part of the
 release job: it never delays or changes the Windows and Linux release of its
 own run. Like any build job, a Mac job that hangs keeps its run open until
 its timeout (60 minutes), and the next release run starts after that.
