@@ -295,9 +295,14 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     }
 
     fn visit_gathered(&mut self, _id: u32, center: &Vector3, radius: f64, cache: usize,
-        visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        visit: &mut dyn FnMut(bool, f64, &[Vector3; 3])) {
         self.droideka.as_mut().expect("the droideka's collision caches")
             .visit_gathered(&self.w.collision.state, self.w.movement.flags_mut(), self.world, center, radius, cache, visit);
+    }
+
+    fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<(f64, Vector3)> {
+        crate::collision::spheres::ground(&mut self.w.collision.state, self.world, x, z, top)
+            .map(|(height, n)| (height, Vector3::new(n[0], n[1], n[2])))
     }
 
     fn seat_exposed(&mut self, id: u32, _unit: &Unit) -> bool {

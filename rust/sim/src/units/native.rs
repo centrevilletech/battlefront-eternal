@@ -80,12 +80,12 @@ impl DroidekaBody {
     // prediction. Convert one borrowed triangle on the stack, not an entire
     // gather into a second set of growable vectors at each collision pass.
     pub fn visit_gathered(&mut self, s: &collision::State, flags: &[u8], world: usize, center: &Vector3, radius: f64,
-        cache: usize, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        cache: usize, visit: &mut dyn FnMut(bool, f64, &[Vector3; 3])) {
         spheres::gather(s, world, [center.x, center.y, center.z], radius, None,
             Some(&mut self.caches[cache]), -1, flags, &mut self.gathered);
         for polygon in self.gathered.list() {
             for triangle in &polygon.tris {
-                visit(polygon.moving, &[v3(triangle.a), v3(triangle.b), v3(triangle.c)]);
+                visit(polygon.moving, polygon.id, &[v3(triangle.a), v3(triangle.b), v3(triangle.c)]);
             }
         }
     }
