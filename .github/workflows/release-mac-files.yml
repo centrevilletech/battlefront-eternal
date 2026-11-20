@@ -1,0 +1,71 @@
+name: Release Mac files
+
+# Attaches each preview's signed and notarized Mac build to its GitHub release.
+# The project's signing Mac makes the build from the release's build input,
+# and the release host publishes it on the download site with
+# macos-notarized.json, a record of its files, and that record's signature,
+# made with a key that only the signing Mac holds. This workflow takes those
+# files from the download site, checks the signature against
+# build/macos-record.pub.pem, the record against the release (tag, commit on
+# main, notarized) and every file against the record, and only then attaches
+# them with this workflow's own token (build/ci/release-mac-files.py). It
+# replaces nothing: a file the release already has is skipped when it is the
+# same and fails the run when it differs. No secret is used, and nothing but
+# the files the record names is attached.
+#
+# The first job only looks (read-only token). The second runs only when there
+# is something to attach, in the `release` environment, which only main may
+# use. Schedules run main's copy of this file; a manual run on another branch
+# does nothing.
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-mac-files
+  cancel-in-progress: false
+
+jobs:
+  find:
+    name: Find releases that need their Mac files
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tags: ${{ steps.find.outputs.tags }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Find them
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 build/ci/release-mac-files.py --find | tee -a "$GITHUB_OUTPUT"
+
+  attach:
+    name: Check and attach the Mac files
+    needs: find
+    if: ${{ github.ref == 'refs/heads/main' && needs.find.outputs.tags != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check and attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAGS: ${{ needs.find.outputs.tags }}
+        # TAGS is word-split on purpose: one argument per tag, each checked by the script.
+        run: python3 build/ci/release-mac-files.py --attach $TAGS
