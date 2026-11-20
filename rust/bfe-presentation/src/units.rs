@@ -34,6 +34,17 @@ struct WalkerGuns {
     barrels: [usize; 2],
 }
 
+impl WalkerGuns {
+    /// Another life: the guns start on the clip's line, not where the last
+    /// life left them, and turn toward the point the client gives this one
+    /// (the first person arms take that turn from the next pose).
+    fn restart(&mut self) {
+        self.aims = [[0.0; 2]; 2];
+        self.target = None;
+        self.barrels = [usize::MAX; 2];
+    }
+}
+
 struct Actor {
     content: usize,
     rig: DisplayRig,
@@ -498,6 +509,10 @@ impl Units {
                     }
                 }
                 k::PRESENTATION_RESET => {
+                    // The same body alive again keeps its generation.
+                    if let Some(g) = &mut a.guns {
+                        g.restart();
+                    }
                     a.step_offset = 0.0;
                     a.last_step = cmd[c::TIME];
                     a.network = false;
@@ -534,6 +549,9 @@ impl Units {
             if a.generation != input[i::GENERATION] {
                 a.generation = input[i::GENERATION];
                 a.pose_clock = 0.0;
+                if let Some(g) = &mut a.guns {
+                    g.restart();
+                }
                 a.rider_lean = 0.0;
                 a.enclosed = false;
                 a.vanished = false;

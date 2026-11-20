@@ -172,13 +172,6 @@ impl Guns {
         Guns { mounts, rest, tips, written }
     }
 
-    /// Back to a new life's state: the clip's rest taken afresh at the next
-    /// pose, nothing written.
-    pub fn reset(&mut self) {
-        self.rest.fill(Quaternion::default());
-        self.written.fill(None);
-    }
-
     /// Where gun `g`'s round leaves, in the world, as the tree stands (its
     /// matrices up to date down to the gun's bone): the tip of `barrel`, the
     /// middle of its tips where that barrel is not known, else the bone's

@@ -5,7 +5,7 @@ use bfe_presentation::{
         unit_command as c, unit_command_kind as k, unit_frame as f, unit_header as h,
         unit_input as i, VERSION,
     },
-    unit_content::{Bone, ClipInput, FirstPersonInput, Input, TableInput},
+    unit_content::{Bone, ClipInput, FirstPersonInput, Input, TableInput, WalkerInput},
     units::Units,
 };
 use bfe_presentation::layout::unit_collision_input as ci;
@@ -233,4 +233,74 @@ fn a_distant_soldier_keeps_his_heading_between_animated_frames() {
         assert!(apart < 1e-9, "frame {frame}: the body is drawn facing {drawn}, its heading is {body}");
     }
     assert_eq!(animated, 4);
+}
+
+// A droideka's drawn guns start each life on the clip's line, whether the
+// life comes as another generation or as the same body alive again (a
+// presentation reset): the last life's turn is not carried into it.
+#[test]
+fn a_droidekas_guns_start_each_life_on_the_clips_line() {
+    let s = std::f64::consts::FRAC_1_SQRT_2;
+    let mut skeleton = bones();
+    // A blaster on the ribcage, its barrels (its X) pointing ahead; the
+    // clip leaves it alone, so its line is its bind turn.
+    skeleton.push(Bone { name: "bone_l_gun".into(), parent: 3, pose: [0.5, 0.0, 0.7, 0.0, -s, 0.0, s, 1.0, 1.0, 1.0] });
+    let mut units = Units::new();
+    let content = units.load(Input {
+        bones: skeleton,
+        clips: vec![clip()],
+        tables: tables(),
+        walker: Some(WalkerInput {
+            by_mode: [Some(0); 14],
+            pivot: [0.0; 3],
+            roll_center: [0.0, 0.5, 0.0],
+            blasters: vec![4],
+            aimer: [2.0, 1.0, -0.7, 0.7, -0.4, 0.4],
+            tips: Vec::new(),
+        }),
+    });
+    let identity = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    assert_eq!(units.actor(content, &[identity; 5]), 0);
+    units.input[f::VERSION] = VERSION as f64;
+    units.input[f::ACTORS] = 1.0;
+    units.input[f::DT] = 1.0 / 60.0;
+    units.input[f::FIRST_PERSON] = -1.0;
+    let input = &mut units.input[f::STRIDE..f::STRIDE + i::STRIDE];
+    input[i::ID] = 3.0;
+    input[i::GENERATION] = 1.0;
+    input[i::PRESENT] = 1.0;
+    input[i::ALPHA] = 1.0;
+    input[i::HELD_CLIP] = -1.0;
+    input[i::ROOT_QUATERNION + 3] = 1.0;
+    // How far (rad) the gun is drawn turned from its line.
+    let off = |units: &Units| {
+        let (_, rig) = units.rider_source(0).unwrap();
+        let q = rig.tree.node(rig.bones[4]).quaternion;
+        2.0 * (q.w * s - q.y * s).abs().min(1.0).acos()
+    };
+    // Each frame the client gives the point its aim is on, ahead and to one side.
+    let mut frame = 0.0;
+    let mut pose = |units: &mut Units, commands: f64| {
+        units.input[f::FRAME] = frame;
+        frame += 1.0;
+        units.input[f::COMMANDS] = commands;
+        units.aim_walker(0, Some([3.0, 1.0, 4.0]), [usize::MAX; 2]);
+        units.pose_frame();
+        assert_eq!(units.header[h::STATUS], 0.0);
+    };
+    for _ in 0..30 {
+        pose(&mut units, 0.0);
+    }
+    assert!(off(&units) > 0.3, "the gun turns toward the point: {}", off(&units));
+    units.input[f::STRIDE + i::GENERATION] = 2.0;
+    pose(&mut units, 0.0);
+    assert!(off(&units) < 1e-6, "another generation starts on the line: {}", off(&units));
+    for _ in 0..30 {
+        pose(&mut units, 0.0);
+    }
+    assert!(off(&units) > 0.3, "and turns again: {}", off(&units));
+    units.commands[c::ACTOR] = 0.0;
+    units.commands[c::KIND] = k::PRESENTATION_RESET as f64;
+    pose(&mut units, 1.0);
+    assert!(off(&units) < 1e-6, "the same body alive again starts on the line: {}", off(&units));
 }
