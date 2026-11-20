@@ -642,6 +642,7 @@ mod tests {
     const MINE: DefId = DefId(0);
     const TIME_BOMB: DefId = DefId(1);
     const POWERUP: DefId = DefId(2);
+    const LANDMINE: DefId = DefId(3);
 
     struct Stand {
         store: Store,
@@ -650,6 +651,8 @@ mod tests {
         soldier: Option<Ref<Unit>>,
         deck: Option<(Ref<Body>, Ref<Vehicle>)>,
         creature: bool,
+        // The one thing a mine watches: its relation, sphere and velocity.
+        target: Option<(f64, Vec3, f64, Vec3)>,
     }
 
     impl World for Stand {
@@ -723,7 +726,10 @@ mod tests {
         fn blocked(&mut self, _position: Vec3, _target: Vec3) -> bool { unimplemented!() }
         fn drop_roll(&mut self) -> f64 { unimplemented!() }
         fn explode(&mut self, _def: &Field, _position: Vec3, _owner: ItemOwner) { unimplemented!() }
-        fn watch(&mut self, _index: usize, _team: f64) -> Watched { unimplemented!() }
+        fn watch(&mut self, _index: usize, _team: f64) -> Watched {
+            let (relation, center, radius, velocity) = self.target.expect("a watched target");
+            Watched { relation, center, radius, velocity }
+        }
         fn standing(&mut self, _index: usize) -> Vec3 { unimplemented!() }
         fn give(&mut self, _index: usize, _def: DefId) -> bool { unimplemented!() }
         fn pickup(&mut self, _def: DefId, _position: Vec3) { unimplemented!() }
@@ -746,8 +752,11 @@ mod tests {
             explosion_death: Field::Undefined, explosion_trigger: Field::Undefined, explosion_expire: Field::Undefined,
             trigger_radius: Field::Undefined, suppress_radius: Field::Undefined,
         };
-        let defs = Defs { item: vec![item("mine", Field::Undefined), item("mine", num(5.0)), item("powerupitem", num(30.0))], ..Default::default() };
-        Stand { store, strings: Strings::default(), defs, soldier, deck, creature: false }
+        let mut landmine = item("mine", Field::Undefined);
+        landmine.trigger_radius = num(1.0);
+        landmine.explosion_trigger = num(1.0);
+        let defs = Defs { item: vec![item("mine", Field::Undefined), item("mine", num(5.0)), item("powerupitem", num(30.0)), landmine], ..Default::default() };
+        Stand { store, strings: Strings::default(), defs, soldier, deck, creature: false, target: None }
     }
 
     /// An item of `def` thrown by `owner` from `from` at `velocity`, flown
@@ -826,6 +835,32 @@ mod tests {
         assert_eq!(cx.s().item.get(mines[0]).unwrap().gone, Some(true));
         assert!(mines[1..].iter().chain([&fifth]).all(|&m| cx.s().item.get(m).unwrap().gone != Some(true)));
         assert_eq!(cx.s().items.owned.get(key).unwrap().as_slice(), &[mines[1], mines[2], mines[3], fifth]);
+    }
+
+    #[test]
+    fn a_mine_on_a_parked_enemy_hull_goes_off_at_once() {
+        // The deck's hull, watched as a sphere about its middle.
+        let deck = |relation: f64, velocity: Vec3| {
+            let mut w = stand(false, true);
+            w.target = Some((relation, [4.5, 1.0, 0.0], 2.0, velocity));
+            w
+        };
+        let fly = |w: &mut Stand| {
+            let mut cx = Cx::new(w);
+            let mine = cx.spawn(LANDMINE, [3.0, 2.0, 0.0], [1.0, 0.0, 0.0], 0.0, ItemOwner::Null, 1.0).expect("room for an item");
+            for _ in 0..120 { cx.items_update(1.0 / 60.0, 1); }
+            mine
+        };
+        // An enemy's, parked: it goes off as it sticks.
+        let mut w = deck(-1.0, [0.0; 3]);
+        let mine = fly(&mut w);
+        assert!(w.store.item.get(mine).is_none_or(|i| i.gone == Some(true)));
+        // An enemy's coming on at it, or a friend's: it stays on the deck.
+        for (relation, velocity) in [(-1.0, [-3.0, 0.0, 0.0]), (1.0, [0.0; 3])] {
+            let mut w = deck(relation, velocity);
+            let mine = fly(&mut w);
+            assert!(at(&w, mine).landed && at(&w, mine).gone != Some(true), "{relation} {velocity:?}");
+        }
     }
 
     #[test]
