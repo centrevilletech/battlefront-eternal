@@ -1024,9 +1024,6 @@
       "maxSpin": "f64",
       "maxBallSlope": "f64",
       "eyeHeight": "f64",
-      "trackCenter": "vec3",
-      "trackOffset": "vec3",
-      "trackTilt": "f64",
       "rootIndex": "f64",
       "maxFlyHeight": "f64",
       "collisionRule": "rec:CollisionRule",
@@ -1055,7 +1052,10 @@
       "lastGun": "rec:LastGun|undefined",
       "shield": "rec:Shield|null",
       "waterClock": "f64|undefined",
-      "muzzleAnimator": "rec:RigAnimator|undefined"
+      "muzzleAnimator": "rec:RigAnimator|undefined",
+      "trackCenter": "vec3",
+      "trackOffset": "vec3",
+      "trackTilt": "f64"
     }
   },
   "imports": {
