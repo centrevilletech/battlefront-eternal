@@ -280,3 +280,76 @@ fn shield_scale_spills_only_the_unabsorbed_health_share() {
     assert_eq!(shield.value, 0.0);
     assert!(!shield.on);
 }
+
+fn blast(damage: f64, inner: f64, outer: f64, push: f64) -> BlastPacket {
+    BlastPacket { hit: HitPacket { damage, scales: [1.0; 5], shield: 1.0 }, inner, outer, push, push_inner: outer, push_outer: outer }
+}
+
+fn walker_defs(bounds: bool) -> CombatDefs {
+    use bfe_sim::combat::defs::{Js, JsObj};
+    let corner = |v: [f64; 3]| Js::Arr(std::rc::Rc::new(v.iter().map(|x| Js::Num(*x)).collect()));
+    let mut fields: Vec<(std::rc::Rc<str>, Js)> = vec![("base".into(), Js::Str("walkerdroid".into())), ("weapons".into(), Js::Arr(Default::default()))];
+    if bounds {
+        // A model 1.6 m wide, 2 m tall and 2.4 m long, reaching 1.6 m ahead.
+        fields.push(("bounds".into(), Js::Arr(std::rc::Rc::new(vec![corner([-0.8, 0.0, -0.8]), corner([0.8, 2.0, 1.6])]))));
+    }
+    let mut defs = CombatDefs::default();
+    defs.set_class(bfe_sim::store::DefId(0), std::rc::Rc::new(JsObj { fields, def: None }));
+    defs
+}
+
+fn droideka_hit(defs: &CombatDefs, rolled: bool, at: Vector3) -> f64 {
+    let (mut u, mut c, _) = actor();
+    // Facing +x: its model's +z points along +x.
+    u.soldier = UnitBody::Droideka(bfe_sim::gen::Droideka { mode: if rolled { 12.0 } else { 0.0 }, aim_yaw: std::f64::consts::FRAC_PI_2, ..Default::default() });
+    combat::explode_prepared(&mut c, &mut u, defs, &blast(100.0, 0.5, 3.0, 10.0), HealthScale::Droid, &at, Attacker::Null, 1.0, &mut World::default());
+    let UnitBody::Droideka(d) = &u.soldier else { panic!() };
+    assert_eq!(d.velocity, [0.0; 3], "a droideka is never pushed");
+    100.0 - c.health
+}
+
+#[test]
+fn a_droideka_is_measured_to_its_model_sphere_standing_or_rolled() {
+    let defs = walker_defs(true);
+    let at = Vector3::new(3.0, 0.2, 0.0);
+    // Centre (0, 1, 0.4) in its frame, so (0.4, 1, 0) here; radius half the box's diagonal.
+    let radius = 0.5 * (1.6f64 * 1.6 + 2.0 * 2.0 + 2.4 * 2.4).sqrt();
+    let distance = Vector3::new(0.4, 1.0, 0.0).distance_to(&at) - 0.5 * radius;
+    let expected = 100.0 * (3.0 - distance) / 2.5;
+    let standing = droideka_hit(&defs, false, at);
+    assert!((standing - expected).abs() < 1e-9, "{standing} {expected}");
+    assert_eq!(droideka_hit(&defs, true, at).to_bits(), standing.to_bits());
+    // The same blast behind it is that much farther from the sphere's centre.
+    assert!(droideka_hit(&defs, false, Vector3::new(-3.0, 0.2, 0.0)) < standing);
+    // A class without a box falls back to the standing soldier's sphere.
+    assert!(droideka_hit(&walker_defs(false), false, at) < standing);
+}
+
+#[test]
+fn a_blast_kills_a_soldier_and_sends_his_body_off_even_without_push() {
+    let (mut u, mut c, defs) = actor();
+    let mut w = World::default();
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(200.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut w);
+    assert!(c.dead);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [-5.0, 0.0, 0.0]);
+    // A survivor is not sent anywhere by a blast that does not push.
+    let (mut u, mut c, defs) = actor();
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(50.0, 2.0, 4.0, 0.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut w);
+    assert!(!c.dead && c.health == 50.0);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [0.0; 3]);
+}
+
+#[test]
+fn a_soldier_already_thrown_is_not_pushed_again() {
+    let (mut u, mut c, defs) = actor();
+    if let UnitBody::Soldier(s) = &mut u.soldier {
+        s.air = Some(bfe_sim::gen::Air::Thrown);
+        s.velocity = [1.0, 3.0, 0.0];
+    }
+    combat::explode_prepared(&mut c, &mut u, &defs, &blast(10.0, 2.0, 4.0, 10.0), HealthScale::Person, &Vector3::new(1.0, 0.0, 0.0), Attacker::Null, 1.0, &mut World::default());
+    assert_eq!(c.health, 90.0);
+    let UnitBody::Soldier(s) = &u.soldier else { panic!() };
+    assert_eq!(s.velocity, [1.0, 3.0, 0.0]);
+}

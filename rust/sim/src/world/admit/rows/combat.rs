@@ -153,8 +153,9 @@ impl CombatRows {
         let weapons = def.get("weapons").filter(|value| value.truthy()).unwrap_or(&empty);
         let list = weapons.as_array().ok_or_else(|| AdmitError::Content { stage: Stage::Combat, message: "class weapons are not an array".into() })?;
         for weapon in list { self.weapon(weapon, strings)?; }
-        let mut row = vec![7.0, 3.0];
-        for (key, value) in [("AddHealth", def.get("AddHealth")), ("base", def.get("base")), ("weapons", Some(weapons))] {
+        // `bounds` (the model's box) gives a droideka's blast sphere.
+        let mut row = vec![7.0, 4.0];
+        for (key, value) in [("AddHealth", def.get("AddHealth")), ("base", def.get("base")), ("weapons", Some(weapons)), ("bounds", def.get("bounds"))] {
             row.push(strings.intern_str(key).0 as f64);
             row.extend(value_words(value, strings, Some(&self.weapons)));
         }
