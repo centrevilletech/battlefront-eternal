@@ -508,6 +508,17 @@ impl Replicas {
             // own weaponAction); a melee swing raises the stance.
             Act::Shot { weapon, repair, melee } => {
                 let (bank, thrown) = self.presented.weapons[weapon].unwrap_or_default();
+                // A shot of a weapon that is not thrown ends a toss still
+                // playing: the body takes that weapon's bank back first, so
+                // its shoot clip plays there and the hand holds the gun.
+                if !thrown && self.slots[slot].toss.take().is_some() {
+                    let animator_bank = self.presented.banks[bank].1;
+                    if self.units.actor_animation(actor).is_some_and(|animator| animator.bank != animator_bank) {
+                        if let Some(row) = self.command(actor, kind::BANK) {
+                            row[command::BANK] = animator_bank as f64;
+                        }
+                    }
+                }
                 if !repair && !melee && !thrown {
                     let posture = (self.units.output[actor * o::STRIDE + o::POSTURE] as usize).min(POSTURES.len() - 1);
                     let clip = self.models[model].weapon_clips[bank][posture][2];
