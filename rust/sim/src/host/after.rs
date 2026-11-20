@@ -125,36 +125,23 @@ impl Authority {
             .map_err(|e| e.message().to_string())
     }
 
-    /// `F3Items.flush`: a unit whose life changed
+    /// `F3Items.flush`: a unit whose life or player changed
     /// gets a dispenser binding for every weapon level that dispenses an
-    /// item, keyed `NAME:character:SLOT:GENERATION` by the character playing
-    /// it (or `NAME:body:SLOT:GENERATION:LIFE` for a body nobody plays),
-    /// where NAME is the level's class; the native dispenser later asks for
-    /// that key. One list per character and dispenser class, as the 2004
-    /// game keeps them: MaxItems counts a character's items across his
-    /// lives, and they outlive him. The first call only learns the lives the
-    /// admission bound.
+    /// item, keyed by `crate::items::owned_key_text` (the character playing
+    /// it, or the body's own life when nobody plays it), the same text the
+    /// admission bound; the native dispenser later asks for that key. One
+    /// list per character and dispenser class, as the 2004 game keeps them:
+    /// MaxItems counts a character's items across his lives, and they
+    /// outlive him. The first call only learns what the admission bound; a
+    /// bot taking a stock body keeps its life but changes its player, and is
+    /// bound again then.
     pub(super) fn bind_dispensers(&mut self, context: &Context) -> Result<(), String> {
         self.units.refresh(context, false)?;
         let mut changed = std::mem::take(&mut self.changed_lives);
         changed.clear();
         for (i, unit) in self.units.rows().iter().enumerate() {
-            let (slot, generation) = (unit.slot, unit.gen);
-            match self.lives.iter_mut().find(|(s, _, _)| *s == slot) {
-                Some(entry) => {
-                    if entry.1 != generation || entry.2 != unit.life {
-                        *entry = (slot, generation, unit.life);
-                        changed.push(i);
-                    }
-                }
-                None => {
-                    // The first sight of a slot: the admission bound the
-                    // lives it built, a later slot is new.
-                    self.lives.push((slot, generation, unit.life));
-                    if self.lives_known {
-                        changed.push(i);
-                    }
-                }
+            if seen_again(&mut self.lives, (unit.slot, unit.gen, unit.life, unit.character), self.lives_known) {
+                changed.push(i);
             }
         }
         self.lives_known = true;
@@ -167,7 +154,7 @@ impl Authority {
         result
     }
 
-    /// The dispenser bindings of the units `bind_dispensers` found with a new life.
+    /// The dispenser bindings of the units `bind_dispensers` found with a new life or player.
     fn bind_changed(&self, context: &Context, changed: &[usize]) -> Result<(), String> {
         for &i in changed {
             let unit = &self.units.rows()[i];
@@ -184,7 +171,7 @@ impl Authority {
                     let name = context
                         .intern(&class)
                         .map_err(|e| e.message().to_string())?;
-                    let text = owned_key_text(&String::from_utf16_lossy(&class), character, slot, generation, life);
+                    let text = crate::items::owned_key_text(&String::from_utf16_lossy(&class), character, slot, generation, life);
                     let owned_key = intern(context, &text)?;
                     let binding = gen::F3DispenserBinding {
                         key: gen::F3UnitKey {
@@ -265,19 +252,28 @@ impl Authority {
     }
 }
 
-/// The name of the list a dispenser's items are counted in: the character
-/// playing the unit and the dispenser's class, whichever body and life he
-/// throws from; a body nobody plays keeps a list of its own life.
-pub(super) fn owned_key_text(class: &str, character: Option<crate::store::Ref<gen::Character>>, slot: u32, generation: u32, life: f64) -> String {
-    match character {
-        Some(c) => format!("{class}:character:{}:{}", c.slot, c.gen),
-        None => format!("{class}:body:{slot}:{generation}:{}", jsrt::numfmt::number_to_string(life)),
+/// Whether a unit's (slot, generation, life, character) differs from what
+/// the host last saw of its slot (and records it): a body bound again. A
+/// slot first seen at the start was bound by the admission; one first seen
+/// later is new.
+fn seen_again(lives: &mut Vec<(u32, u32, f64, Option<crate::store::Ref<gen::Character>>)>,
+    now: (u32, u32, f64, Option<crate::store::Ref<gen::Character>>), known: bool) -> bool {
+    match lives.iter_mut().find(|entry| entry.0 == now.0) {
+        Some(entry) => {
+            let changed = entry.1 != now.1 || entry.2 != now.2 || entry.3 != now.3;
+            *entry = now;
+            changed
+        }
+        None => {
+            lives.push(now);
+            known
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::owned_key_text;
+    use crate::items::owned_key_text;
     use crate::store::Ref;
 
     #[test]
@@ -290,5 +286,22 @@ mod tests {
         assert_ne!(owned_key_text("mines", character, 7, 2, 4.0), owned_key_text("bombs", character, 7, 2, 4.0));
         // A body nobody plays keeps one list a life.
         assert_ne!(owned_key_text("mines", None, 7, 2, 4.0), owned_key_text("mines", None, 7, 2, 5.0));
+    }
+
+    #[test]
+    fn a_body_is_bound_again_when_its_life_or_its_player_changes() {
+        let mut lives = Vec::new();
+        let (stock, bot) = (Some(Ref::new(5, 1)), Some(Ref::new(9, 3)));
+        // The admission bound what it built: the first look learns it.
+        assert!(!super::seen_again(&mut lives, (4, 1, 1.0, None), false));
+        assert!(!super::seen_again(&mut lives, (4, 1, 1.0, None), true));
+        // A bot takes the stock body without a new life: bound again.
+        assert!(super::seen_again(&mut lives, (4, 1, 1.0, stock), true));
+        assert!(!super::seen_again(&mut lives, (4, 1, 1.0, stock), true));
+        // A new life, or another character in it.
+        assert!(super::seen_again(&mut lives, (4, 1, 2.0, stock), true));
+        assert!(super::seen_again(&mut lives, (4, 1, 2.0, bot), true));
+        // A slot first seen after the start is new.
+        assert!(super::seen_again(&mut lives, (6, 1, 1.0, None), true));
     }
 }

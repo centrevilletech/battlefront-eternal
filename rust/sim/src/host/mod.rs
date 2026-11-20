@@ -93,8 +93,9 @@ pub struct Authority {
     event_epoch: u32,
     event_offset: usize,
     /// Each unit's life as the host last saw it (`binding.life`): slot,
-    /// store generation, life, for the dispenser bindings a new life needs.
-    lives: Vec<(u32, u32, f64)>,
+    /// store generation, life and the character playing it, for the
+    /// dispenser bindings a new life or a new player needs.
+    lives: Vec<(u32, u32, f64, Option<crate::store::Ref<gen::Character>>)>,
     lives_known: bool,
     /// The units' facts the host reads, refilled when it reads them.
     units: UnitTable,

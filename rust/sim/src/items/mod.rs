@@ -23,6 +23,18 @@ const HARD: f64 = 1.0; // m/s into a surface that bounces rather than settles
 const PICKUP_DELAY: f64 = 0.5; // s a flying item can't be taken
 const FLOOR: f64 = -500.0;
 pub const MINE_SINK: f64 = 0.2; // m/s
+
+/// The name of the list a dispenser's items are counted in (MaxItems): the
+/// character playing the unit and the dispenser's class, whichever body and
+/// life he throws from, as the original game keeps one list per character
+/// slot in the dispenser's class; a body nobody plays keeps a list of its
+/// own life. The admission and the host bind with this one text.
+pub fn owned_key_text(class: &str, character: Option<Ref<Character>>, slot: u32, generation: u32, life: f64) -> String {
+    match character {
+        Some(c) => format!("{class}:character:{}:{}", c.slot, c.gen),
+        None => format!("{class}:body:{slot}:{generation}:{}", jsrt::numfmt::number_to_string(life)),
+    }
+}
 const SOLDIER_RADIUS: f64 = 0.35; // m, the soldier's body for pickups
 const SOLDIER_HEIGHT: f64 = 1.55; // m
 

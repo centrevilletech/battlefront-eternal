@@ -234,7 +234,8 @@ fn construct(world: &mut World, cx: &mut Cx, class_name: &str, holders: &[bodies
     let adopt = units::call(F3Adoption::WORDS, |r, h| adoption.put(r, h));
     if dispatch(world, cx, &mut calls, "f3_adopt", adopt)? == Returned::Scalar(0.0) { return Err(refused("f3_adopt")); }
     // F3Items.flush after adoption, then F2Riders.ensure for every holder.
-    let dispensers = units::dispenser_calls(cx, parts.class, key.clone())?;
+    let character = world.sim.store.unit.get(key.reference()).and_then(|u| u.character);
+    let dispensers = units::dispenser_calls(cx, parts.class, key.clone(), character)?;
     super::spawn::apply_construction_calls(world, cx, &dispensers)?;
     calls.extend(dispensers);
     let scale = world.sim.store.unit.get(key.reference()).map(|u| u.root_scale).ok_or_else(|| refused("unit slot"))?;

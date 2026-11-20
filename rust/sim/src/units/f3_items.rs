@@ -3,7 +3,8 @@
 //! keys into the original first-use owner numbering after the outer return.
 //! Construction never inserts a gameplay ownership entry. Mine policy can
 //! number an owner before its first throw, so those numbers belong to JS.
-//! Native keys instead retain the pooled slot and the exact throwing life.
+//! Native keys name the character playing the body (the body's own life
+//! when nobody plays it), so one list follows a character across bodies.
 use crate::gen::*;
 use crate::ordnance::world::{ItemModel, PreparedItem};
 use crate::store::{DefId, Ref, StrId};
@@ -173,14 +174,7 @@ impl Items {
                 list.last_mut().unwrap()
             }
         };
-        if binding.key != row.owned_key {
-            // Keep live old-life mines in their existing insertion position.
-            // Only an already drained tombstone can disappear at rebind.
-            self.current_keys[binding.key.0 as usize] = false;
-            if !self.live_keys[binding.key.0 as usize] {
-                sim.store.items.owned.remove(binding.key);
-            }
-        }
+        let replaced = (binding.key != row.owned_key).then_some(binding.key);
         binding.life = row.key.life;
         binding.name = row.name;
         binding.key = row.owned_key;
@@ -190,6 +184,18 @@ impl Items {
         binding
             .spare
             .reserve(ITEM_ROOM.saturating_sub(binding.spare.len()));
+        // Two bodies can name one character's list (his old body and the
+        // one he lives in now): the old key stops being current only when no
+        // body names it any more. Keep live old-life mines in their existing
+        // insertion position; only an already drained tombstone can go.
+        if let Some(old) = replaced {
+            if !self.bindings.iter().flatten().any(|b| b.key == old) {
+                self.current_keys[old.0 as usize] = false;
+                if !self.live_keys[old.0 as usize] {
+                    sim.store.items.owned.remove(old);
+                }
+            }
+        }
         let count = row.owned_key.0 as usize + 1;
         if self.live_keys.len() < count {
             self.live_keys.resize(count, false);
@@ -439,7 +445,7 @@ fn model_sphere_in(world_ctx: &mut crate::world::owner::World, class: DefId) -> 
 /// by stance (standing while in the air); a droideka's about its model box
 /// (`model`, in the body's frame: x to its left, z ahead), carried with its
 /// body, standing or rolled, or the standing soldier's without one.
-fn unit_sphere(unit: &Unit, model: Option<Sphere>) -> Sphere {
+pub(crate) fn unit_sphere(unit: &Unit, model: Option<Sphere>) -> Sphere {
     match &unit.soldier {
         UnitBody::Soldier(s) => {
             let stance = if s.air.is_some() { Posture::Stand } else { s.posture };
@@ -515,6 +521,33 @@ mod tests {
     fn reach(feet: [f64; 3], (center, radius): Sphere) -> f64 {
         let rise = center[1] - (feet[1] + 0.06);
         ((1.0 + radius) * (1.0 + radius) - rise * rise).sqrt()
+    }
+
+    #[test]
+    fn a_characters_list_stays_current_while_he_lives_in_another_body() {
+        let mut sim = crate::abi::Sim::new();
+        let mut items = Items::new();
+        items.reserve_unit(4);
+        let his = sim.strings.intern_str("mines:character:5:1");
+        let other = sim.strings.intern_str("mines:character:6:1");
+        let row = |slot: u32, life: f64, key: StrId| F3DispenserBinding {
+            key: F3UnitKey { slot, generation: 1, life }, weapon: DefId(2), level: 0, name: StrId(0), owned_key: key };
+        // He dies in body 1 and lives again in body 2: both name his list.
+        items.bind(&mut sim, row(1, 1.0, his));
+        items.bind(&mut sim, row(2, 1.0, his));
+        // Another character takes body 1: his list is still current.
+        items.bind(&mut sim, row(1, 2.0, other));
+        assert!(items.current(his) && items.current(other));
+        // Body 2 goes to that other character too: now nobody names his list.
+        items.bind(&mut sim, row(2, 2.0, other));
+        assert!(!items.current(his));
+        // A bot takes a stock body with no new life: its body list gives way
+        // to his list, the one the host binds then.
+        let stock = sim.strings.intern_str("mines:body:3:1:1");
+        items.bind(&mut sim, row(3, 1.0, stock));
+        items.bind(&mut sim, row(3, 1.0, his));
+        assert!(items.current(his) && !items.current(stock));
+        assert_eq!(items.take(3, 1.0, DefId(2), 0).key, his);
     }
 
     #[test]
