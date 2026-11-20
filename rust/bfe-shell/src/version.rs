@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// Default simulation identifier from the shared network contract
 /// (`src/net/layout.js` / `rust/bfe-transport/src/layout.rs`).
-pub const DEFAULT_SIMULATION: &str = "bfe-sim-28";
+pub const DEFAULT_SIMULATION: &str = "bfe-sim-29";
 
 /// Embedded repository `tools/content-version.json` specifying expected
 /// `maps`, `sides`, and `common` content generations.
@@ -229,7 +229,7 @@ fn parse_preview_number(version: &str) -> Option<&str> {
 }
 
 /// Extracts the trailing ASCII digit run from a simulation contract identifier
-/// (e.g. `"bfe-sim-28"` -> `Some("28")`), matching `/(\d+)$/`.
+/// (e.g. `"bfe-sim-29"` -> `Some("29")`), matching `/(\d+)$/`.
 fn trailing_digits(s: &str) -> Option<&str> {
     let start = s
         .as_bytes()
@@ -314,14 +314,14 @@ mod tests {
         assert_eq!(strict, relaxed);
         assert_eq!(strict.current, Some(true));
         let about = AboutInfo { prepared: Some(strict), wanted: Some(wanted), version: None };
-        assert_eq!(version_line(Some(&about), None), "DEVELOPMENT BUILD   SIMULATION 28   GAME DATA M16 S3 C2");
+        assert_eq!(version_line(Some(&about), None), "DEVELOPMENT BUILD   SIMULATION 29   GAME DATA M16 S3 C2");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn formats_version_line_matching_js_exactly() {
         // Web build without desktop `about` metadata.
-        assert_eq!(version_line(None, None), "DEVELOPMENT BUILD   SIMULATION 28");
+        assert_eq!(version_line(None, None), "DEVELOPMENT BUILD   SIMULATION 29");
 
         // Preview build with current prepared content generations.
         let preview = AboutInfo {
@@ -340,8 +340,8 @@ mod tests {
             }),
         };
         assert_eq!(
-            version_line(Some(&preview), Some("bfe-sim-28")),
-            "PREVIEW 4   SIMULATION 28   GAME DATA M16 S3 C2"
+            version_line(Some(&preview), Some("bfe-sim-29")),
+            "PREVIEW 4   SIMULATION 29   GAME DATA M16 S3 C2"
         );
 
         // Release version whose prepared content lags behind `wanted`.
@@ -361,8 +361,8 @@ mod tests {
             }),
         };
         assert_eq!(
-            version_line(Some(&outdated), Some("bfe-sim-28")),
-            "VERSION 0.2.0   SIMULATION 28   GAME DATA M15 S2 C2 (NEEDS M16 S3 C2)"
+            version_line(Some(&outdated), Some("bfe-sim-29")),
+            "VERSION 0.2.0   SIMULATION 29   GAME DATA M15 S2 C2 (NEEDS M16 S3 C2)"
         );
 
         // Desktop build (`~preview.1`) before content preparation has run.
@@ -372,8 +372,8 @@ mod tests {
             prepared: None,
         };
         assert_eq!(
-            version_line(Some(&unprepared), Some("bfe-sim-28")),
-            "PREVIEW 1   SIMULATION 28   GAME DATA NOT PREPARED"
+            version_line(Some(&unprepared), Some("bfe-sim-29")),
+            "PREVIEW 1   SIMULATION 29   GAME DATA NOT PREPARED"
         );
 
         let wanted = Generations::wanted_from_repo();

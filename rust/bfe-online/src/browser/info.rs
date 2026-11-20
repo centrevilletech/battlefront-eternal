@@ -17,7 +17,7 @@ use super::{
 // the client's own contract values so minimal LAN or development beacons are
 // not falsely marked incompatible ("a server that doesn't say is taken at its
 // word").
-/// The revision number of a simulation contract name (`"bfe-sim-28"` -> 28).
+/// The revision number of a simulation contract name (`"bfe-sim-29"` -> 29).
 pub fn sim_number(sim: &str) -> Option<u32> {
     sim.rsplit('-').next()?.parse().ok()
 }

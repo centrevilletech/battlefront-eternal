@@ -1358,7 +1358,7 @@ impl ShellApp {
 }
 
 /// Convenience helper returning a default [`ServerBrowser`] configured with
-/// the standard network contract (`bfe-sim-28`) for callers and tests.
+/// the standard network contract (`bfe-sim-29`) for callers and tests.
 pub fn default_server_browser() -> ServerBrowser {
     ServerBrowser::default()
 }

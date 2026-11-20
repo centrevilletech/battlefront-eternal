@@ -19,7 +19,7 @@ world. Its readiness state carries the validated contract to the LAN listener,
 master listing, transport hello and game session. Health checks (`/healthz`)
 inspect the advertised contract as well as process liveness.
 
-The current engine requires `bfe-sim-28`, adapter ABI 4, and own-player
+The current engine requires `bfe-sim-29`, adapter ABI 4, and own-player
 correction schema 11. The server sends the verified entity registry followed by
 a `snapshot-delta-v1` welcome and starts the shared snapshot publisher directly.
 Local and remote worlds use the same records and the same snapshot codec
@@ -117,6 +117,21 @@ are shared by authoritative Rust simulation and client prediction. Clients and
 servers on `bfe-sim-27` must update together: a mixed join is refused with
 "Update required" rather than allowing prediction to disagree. The wire format
 remains protocol 3; no content generation changes.
+
+Simulation `bfe-sim-29` brings the droideka and explosions closer to the 2004
+game, on the host and in the client's prediction alike ([formats.md](formats.md)
+"Droideka", "Explosions"). The droideka's guns turn toward what its crosshair
+is on and its bolts leave along them; it climbs steps and slopes and rolls by
+the 2004 collision rules, moves on every tick of a walking step, and is drawn
+without jumps as it folds and unfolds. Blasts measure a droideka by the sphere
+around its model and test the terrain between a blast and its target as the
+2004 game does, a blast that kills a soldier on foot sends him off from it,
+and rounds stop on a droideka's raised shield bubble, where their strike
+takes only shield. A soldier's held automatic fire converges on his
+crosshair's point as a press does. Clients and servers on `bfe-sim-28` must update together: a
+mixed join is refused with "Update required" rather than allowing prediction
+to disagree. The wire format remains protocol 3; no content generation
+changes.
 
 Desktop releases package `bfeserver` and `bfe-client` from the same workspace.
 The desktop boot updater installs the paired release before online play. The
