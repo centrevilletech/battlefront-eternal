@@ -69,6 +69,10 @@ pub struct Sender {
     pub fire_edges: u64,
     pub spawned: bool,
     pub auto_spawn: bool,
+    // A team, class and post picked before the server's first correction,
+    // kept until the spawn can be sent (else the automatic spawn would ask
+    // for the server's default class, on the team the server chose).
+    pick: Option<(u8, usize, usize)>,
     last_tick: f64,
     ahead: bool,
     measured: bool,
@@ -167,6 +171,7 @@ impl Default for Sender {
             refused: 0,
             fire_edges: 0,
             spawned: false,
+            pick: None,
             auto_spawn: true,
             last_tick: 0.,
             ahead: false,
@@ -612,6 +617,19 @@ impl Sender {
         if !self.auto_spawn || self.spawned || !receiver.complete || receiver.corrections == 0 || receiver.spectator {
             return;
         }
+        // A pick made before this first correction is the player's choice:
+        // the team he picked first, where the correction puts him on another.
+        if let Some((team, class_id, post_id)) = self.pick.take() {
+            if receiver.own.alive {
+                self.spawned = true;
+            } else {
+                if receiver.own.team != 0 && receiver.own.team != team {
+                    self.request_team(receiver, team);
+                }
+                self.send_spawn(receiver, class_id, post_id);
+            }
+            return;
+        }
         // The correction names the server-selected roster class. Choosing a
         // model from the content table can select an unavailable special class.
         self.spawned = true;
@@ -632,11 +650,25 @@ impl Sender {
         edge[e::TEAM] = team as f64;
         edge[e::TEAM_RANGE_VALID] = 1.;
     }
-    pub fn request_spawn(&mut self, receiver: &Receiver, class_id: usize, post_id: usize) {
-        if !receiver.complete || receiver.corrections == 0 || receiver.spectator || receiver.own.alive {
+    /// Ask to spawn as `class_id` at `post_id`, on `team`: the team the
+    /// player picked with them, which goes first only with a pick kept for
+    /// the first correction (the team he is on is not known before it; once
+    /// it is, the caller asks for the team itself).
+    pub fn request_spawn(&mut self, receiver: &Receiver, team: u8, class_id: usize, post_id: usize) {
+        if receiver.spectator || receiver.own.alive {
             return;
         }
+        if !receiver.complete || receiver.corrections == 0 {
+            // Nothing can be sent before the server's first correction: keep
+            // the pick for `spawn`, which sends it once one has come.
+            self.pick = Some((team, class_id, post_id));
+            return;
+        }
+        self.send_spawn(receiver, class_id, post_id);
+    }
+    fn send_spawn(&mut self, receiver: &Receiver, class_id: usize, post_id: usize) {
         self.spawned = true;
+        self.pick = None;
         let tick = self.last_tick.max(receiver.latest + 1.);
         let edge = self.edge(3., tick);
         edge[e::CLASS_ID] = if class_id != 0 { class_id } else { receiver.own.class.max(1) } as f64;
@@ -838,6 +870,89 @@ mod tests {
         assert_eq!(pointer.scale, 0.5);
         assert!(pointer.invert);
         assert_eq!((pointer.x, pointer.y), (12., -8.));
+    }
+
+    // A class picked on the spawn screen before the server's first correction
+    // (the moment after joining) used to be dropped, and the automatic spawn
+    // then asked for the server's default class. The pick waits instead.
+    #[test]
+    fn a_class_picked_before_the_first_correction_is_the_one_asked_for() {
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.own.class = 1;
+        receiver.latest = 100.;
+        let mut sender = Sender::default();
+        sender.auto_spawn = true;
+        sender.request_spawn(&receiver, 0, 5, 3);
+        sender.spawn(&receiver);
+        assert!(!sender.spawned && sender.edge_count == 0, "nothing goes before the first correction");
+        receiver.complete = true;
+        receiver.corrections = 1;
+        sender.spawn(&receiver);
+        assert!(sender.spawned);
+        assert_eq!(sender.edge_count, 1);
+        let edge = sender.edges[0];
+        assert_eq!((edge[e::KIND], edge[e::CLASS_ID], edge[e::POST_ID]), (3., 5., 3.));
+        // Once sent, the pick is not sent again.
+        sender.spawned = false;
+        sender.spawn(&receiver);
+        assert_eq!(sender.edges[1][e::CLASS_ID], 1., "a later automatic spawn takes the server's class");
+        // A pick made once the correction is in goes at once, as before.
+        let mut sender = Sender::default();
+        sender.request_spawn(&receiver, 0, 4, 2);
+        assert!(sender.spawned);
+        assert_eq!((sender.edges[0][e::CLASS_ID], sender.edges[0][e::POST_ID]), (4., 2.));
+    }
+
+    // A team picked with the class before the first correction is kept with
+    // it: once the correction puts the player on another team, the team edge
+    // goes first, then the spawn. On the team he picked, only the spawn goes;
+    // a second pick replaces the first; a spectator's or a living player's
+    // pick is not kept (the automatic spawn takes the server's class).
+    #[test]
+    fn a_team_picked_with_the_class_before_the_first_correction_goes_first() {
+        let waiting = |team: u8| {
+            let mut receiver = Receiver::new(serde_json::Value::Null);
+            receiver.welcomed = true;
+            receiver.own.class = 1;
+            receiver.own.team = team;
+            receiver.latest = 100.;
+            let mut sender = Sender::default();
+            sender.auto_spawn = true;
+            (receiver, sender)
+        };
+        let corrected = |receiver: &mut Receiver, team: u8| {
+            receiver.complete = true;
+            receiver.corrections = 1;
+            receiver.own.team = team;
+        };
+        let (mut receiver, mut sender) = waiting(0);
+        sender.request_spawn(&receiver, 2, 5, 3);
+        assert_eq!(sender.edge_count, 0);
+        corrected(&mut receiver, 1);
+        sender.spawn(&receiver);
+        assert_eq!(sender.edge_count, 2);
+        assert_eq!((sender.edges[0][e::KIND], sender.edges[0][e::TEAM]), (2., 2.));
+        assert_eq!((sender.edges[1][e::KIND], sender.edges[1][e::CLASS_ID], sender.edges[1][e::POST_ID]), (3., 5., 3.));
+        let (mut receiver, mut sender) = waiting(0);
+        sender.request_spawn(&receiver, 1, 5, 3);
+        sender.request_spawn(&receiver, 1, 6, 4);
+        corrected(&mut receiver, 1);
+        sender.spawn(&receiver);
+        assert_eq!(sender.edge_count, 1);
+        assert_eq!((sender.edges[0][e::KIND], sender.edges[0][e::CLASS_ID], sender.edges[0][e::POST_ID]), (3., 6., 4.));
+        for (spectator, alive) in [(true, false), (false, true)] {
+            let (mut receiver, mut sender) = waiting(0);
+            receiver.spectator = spectator;
+            receiver.own.alive = alive;
+            sender.request_spawn(&receiver, 2, 5, 3);
+            receiver.spectator = false;
+            receiver.own.alive = false;
+            corrected(&mut receiver, 1);
+            sender.spawn(&receiver);
+            assert_eq!(sender.edge_count, 1, "spectator {spectator} alive {alive}");
+            assert_eq!((sender.edges[0][e::KIND], sender.edges[0][e::CLASS_ID]), (3., 1.), "spectator {spectator} alive {alive}");
+        }
     }
 
     #[test]
