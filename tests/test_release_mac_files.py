@@ -48,8 +48,8 @@ class GitHub:
     def __init__(self):
         self.releases, self.commits, self.on_main, self.calls, self.next_id = {}, {}, set(), [], 100
 
-    def add(self, number, assets=('macos-arm64-unsigned-build-input.tar.zst',), author=WORKFLOW, commit=None):
-        tag = f'preview-{number}'
+    def add(self, number, assets=('macos-arm64-unsigned-build-input.tar.zst',), author=WORKFLOW, commit=None, tag=None):
+        tag = tag or f'preview-{number}'
         self.commits[tag] = commit or f'{number:040x}'
         self.on_main.add(self.commits[tag])
         release = {'id': number, 'tag_name': tag, 'draft': False, 'author': author, 'assets': [],
@@ -173,12 +173,15 @@ class ReleaseMacFilesTest(unittest.TestCase):
         self.github.add(383, author=SOMEONE)                            # not the workflow's
         self.github.add(384)
         self.github.add(385)
-        self.github.asset('preview-385', 'macos-notarized.json', b'{}')  # already done
-        for number in (380, 382, 383, 384, 385):
+        self.github.asset('preview-385', 'macos-notarized.json', b'{}', uploader=WORKFLOW)  # already done
+        self.github.add(386)
+        self.github.asset('preview-386', 'macos-notarized.json', b'{}')  # someone else's: not done
+        self.github.add(387, tag='preview-0387')                       # not a canonical tag
+        for number in (380, 382, 383, 384, 385, 386):
             self.publish(number)
-        self.assertEqual(self.run_script('--find'), (0, 'tags=preview-384 preview-382\n'))
+        self.assertEqual(self.run_script('--find'), (0, 'tags=preview-386 preview-384 preview-382\n'))
         # Only the newest few are looked at.
-        for number in range(386, 392):
+        for number in range(388, 394):
             self.github.add(number)
         self.assertEqual(self.run_script('--find'), (0, 'tags=\n'))
 

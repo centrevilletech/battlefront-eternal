@@ -63,7 +63,7 @@ class Refused(Exception):
 
 
 def preview(tag):
-    match = re.fullmatch(r'preview-(\d+)', tag or '')
+    match = re.fullmatch(r'preview-([1-9][0-9]*)', tag or '')
     return int(match.group(1)) if match else -1
 
 
@@ -123,6 +123,12 @@ def has(release, name):
     return any(item['name'] == name for item in release['assets'])
 
 
+def attached(release, name):
+    """Whether this workflow attached `name`: a file of that name uploaded by anyone else does
+    not count, so the run goes on to attach and fails loudly on the clash instead."""
+    return any(item['name'] == name and by_workflow(item.get('uploader')) for item in release['assets'])
+
+
 def find(site):
     """The newest releases of the release workflow that carry the Mac build input, lack the
     record, and whose Mac build the download site has."""
@@ -131,7 +137,7 @@ def find(site):
                    and by_workflow(release.get('author'))), key=lambda release: preview(release['tag_name']), reverse=True)[:NEWEST]
     tags = []
     for release in ours:
-        if not has(release, INPUT) or has(release, RECORD):
+        if not has(release, INPUT) or attached(release, RECORD):
             continue
         with tempfile.TemporaryDirectory() as work:
             if fetch(f"{site}/{release['tag_name']}/{RECORD}", Path(work) / RECORD, 64 << 10) is not None:
