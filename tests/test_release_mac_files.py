@@ -26,8 +26,18 @@ SOMEONE = {'login': 'someone-with-write-access', 'id': 1234, 'type': 'User'}
 
 
 def ed25519():
+    """Whether openssl can do what the script and these tests do: make an Ed25519 key, sign raw data
+    with it and verify against its public half (OpenSSL 3; macOS's LibreSSL makes keys but cannot
+    sign raw input)."""
     try:
-        return subprocess.run(['openssl', 'genpkey', '-algorithm', 'ed25519'], capture_output=True).returncode == 0
+        with tempfile.TemporaryDirectory() as work:
+            key, public, data, signature = (Path(work) / name for name in ('key.pem', 'public.pem', 'data', 'signature'))
+            data.write_bytes(b'probe')
+            steps = (['openssl', 'genpkey', '-algorithm', 'ed25519', '-out', str(key)],
+                     ['openssl', 'pkey', '-in', str(key), '-pubout', '-out', str(public)],
+                     ['openssl', 'pkeyutl', '-sign', '-inkey', str(key), '-rawin', '-in', str(data), '-out', str(signature)],
+                     ['openssl', 'pkeyutl', '-verify', '-pubin', '-inkey', str(public), '-rawin', '-in', str(data), '-sigfile', str(signature)])
+            return all(subprocess.run(step, capture_output=True).returncode == 0 for step in steps)
     except OSError:
         return False
 
