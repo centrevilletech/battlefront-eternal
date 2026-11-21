@@ -113,6 +113,24 @@ impl Walker {
     /// Nothing is drawn from what was heard before (the player left the droideka).
     pub fn forget(&mut self) {
         self.len = 0;
+        self.push = None;
+    }
+    /// The share of an unfold's push to add to the drawn body `since` ticks
+    /// after its step began, the step `step` ticks long: what the ease shows
+    /// of the push by now, less what the step itself has drawn of it already.
+    /// None once the ease is over. The ease lasts a quarter second, or as long
+    /// as the step when a late correction made the step longer, so the two
+    /// end together and nothing is left to show in one frame.
+    fn push_share(since: f64, step: f64) -> Option<f64> {
+        let span = Self::PUSH_TICKS.max(step);
+        if since >= span {
+            return None;
+        }
+        if since <= 0. {
+            return Some(0.);
+        }
+        let x = since / span;
+        Some(x * x * (3. - 2. * x) - (since / step).min(1.))
     }
     pub fn sample(&mut self, own: &super::receiver::Own, life: [f64; 3], dt: f64) -> ShownWalker {
         let heard = ShownWalker {
@@ -208,14 +226,12 @@ impl Walker {
         // Of the push, the part its step has drawn already is held back but
         // for what a quarter second's ease shows of it by now.
         if let Some((from, to, push)) = self.push {
-            let since = self.clock - from;
-            if since >= Self::PUSH_TICKS {
-                self.push = None;
-            } else if since > 0. {
-                let x = since / Self::PUSH_TICKS;
-                let (ease, done) = (x * x * (3. - 2. * x), (since / (to - from)).min(1.));
-                for k in 0..3 {
-                    shown.position[k] += push[k] * (ease - done);
+            match Self::push_share(self.clock - from, to - from) {
+                None => self.push = None,
+                Some(share) => {
+                    for k in 0..3 {
+                        shown.position[k] += push[k] * share;
+                    }
                 }
             }
         }
@@ -372,5 +388,50 @@ mod tests {
         assert!(most < 1.5 * 0.9 / 15. * 0.3, "{most} m in a frame");
         assert!(steps.iter().filter(|step| **step > 1e-9).count() >= 4 * 14);
         assert_eq!(drawn.last(), Some(&-0.9));
+    }
+
+    // A correction that comes late makes the unfold's step longer than a
+    // quarter second. The ease then lasts as long as the step: it never ends
+    // with part of the push still held back, to show in one frame.
+    #[test]
+    fn an_unfold_push_ends_with_its_step_however_late_the_correction() {
+        // A step of one tick is eased over fifteen.
+        assert_eq!(Walker::push_share(15., 1.), None);
+        assert!(Walker::push_share(14.99, 1.).is_some_and(|share| share.abs() < 1e-2));
+        // A step of twenty ticks is still being eased at fifteen, and ends at twenty.
+        assert!(Walker::push_share(15., 20.).is_some());
+        assert_eq!(Walker::push_share(20., 20.), None);
+        // Up to its end the share never changes by more than a little in a
+        // quarter tick: nothing is left over as the ease stops.
+        for step in [1.0_f64, 15., 20., 40.] {
+            let span = step.max(15.);
+            let mut last = 0.0_f64;
+            let mut since = 0.0_f64;
+            while since < span {
+                let share = Walker::push_share(since, step).expect("an ease still running");
+                // The first tick of a short step holds its drawn part back at once.
+                let most = if since <= 1. { 1.0 } else { 0.06 };
+                assert!((share - last).abs() <= most, "{step}: {last} to {share} at {since}");
+                last = share;
+                since += 0.25;
+            }
+            assert!(last.abs() < 0.06, "{step}: {last} left as the ease ends");
+        }
+    }
+
+    // A push still being drawn does not come back when the droideka is left
+    // and drawn again in the same life.
+    #[test]
+    fn a_forgotten_walker_draws_no_old_push() {
+        use crate::online::receiver::Own;
+        let life = [1., 9., 1.];
+        let mut walker = Walker::default();
+        let mut own = Own { walker: true, alive: true, walker_mode: 13, tick: 40., ..Default::default() };
+        own.position[2] = -0.9;
+        walker.sample(&own, life, 1. / 60.);
+        walker.push = Some((own.tick - 5., own.tick - 4., [0., 0., -0.9]));
+        walker.forget();
+        own.tick += 1.;
+        assert_eq!(walker.sample(&own, life, 1. / 60.).position, own.position);
     }
 }
