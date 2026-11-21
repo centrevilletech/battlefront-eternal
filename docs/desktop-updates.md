@@ -224,6 +224,9 @@ Everything else is kept.
 `.github/workflows/release.yml` builds the packages and update payloads and
 attaches the public installers and server archives to a GitHub release tagged
 `preview-N`; the project's release host then signs and publishes that release.
+Only a run on `main` creates a release: the jobs that write to it run in the
+repository's `release` environment, which only `main` may use, and pull
+requests never start the workflow.
 The scripts involved:
 
 - Every packaged build records its own files in `resources/bfe-tree.json`
@@ -247,27 +250,43 @@ The scripts involved:
   to the release as `macos-arm64-unsigned-build-input.tar.zst`. macOS opens an
   app without a warning only when it is signed with a Developer ID
   certificate and notarized by Apple, and no workflow in this repository
-  holds such a certificate. The project's signing step takes the archive of a
-  release whose commit is on `main`, signs and notarizes the app
-  (`build/native/sign-macos.py`), makes the disk image
-  (`build/native/package-macos.py`) and `update-darwin-arm64.tar` from the
-  stapled app, and hands them to the release host with `macos-notarized.json`,
-  a record of their sizes and hashes, and that record's signature
-  (`macos-notarized.json.sig`), made with a key that exists only on the
-  signing Mac. The release host holds the public key and takes a Mac build
-  only when the signature verifies, the record names the live release and
-  its commit, and the payload is for the architecture the record's disk
-  image names (`build/publish-distribution.py`); what can write to the place
-  the files are handed over can therefore not publish a build. The
-  release host then adds the Mac build to the live release and signs the
+  holds such a certificate. The project's signing Mac takes the archive of a
+  release whose commit is on `main` and that this workflow made and uploaded,
+  signs and notarizes the app (`build/native/sign-macos.py`), makes the disk
+  image (`build/native/package-macos.py`) and `update-darwin-arm64.tar` from
+  the stapled app, and hands them to the release host with
+  `macos-notarized.json`, a record of their sizes and hashes, and that
+  record's signature (`macos-notarized.json.sig`), made with a key that
+  exists only on the signing Mac. The release host holds the public key and
+  takes a Mac build only when the signature verifies, the record names the
+  live release and its commit, and the payload is for the architecture the
+  record's disk image names (`build/publish-distribution.py`). It adds the
+  Mac build to the live release on the download site, serves the record, its
+  signature and the update payload beside the disk image, and signs the
   channel file again with the `darwin-arm64` entry. A release is published
   for Windows and Linux without waiting for this; until the Mac build
-  arrives, the channel has no macOS entry and installed Mac clients keep the
-  version they have. In the workflow the Mac job is apart from the release
-  job, so it never delays or changes the release of its own run; a Mac job
-  that hangs keeps the run open until its timeout (60 minutes, like the
-  other build jobs), and the next run starts after that. Publishing Mac
-  builds is not switched on yet.
+  arrives, usually within the hour, the channel has no macOS entry and
+  installed Mac clients keep the version they have.
+- `.github/workflows/release-mac-files.yml` then attaches the Mac build to
+  the GitHub release, every 15 minutes or when started by hand, with its own
+  token: `build/ci/release-mac-files.py` takes the four files from the
+  download site and checks the record's signature against
+  `build/macos-record.pub.pem` (the public half of the signing Mac's key),
+  that the record is for that release's tag and commit on `main` and for a
+  notarized build, and every file's size and SHA-256 against the record. It
+  replaces nothing: a file the release already has is skipped when it is the
+  same and fails the run when it differs. Neither the signing Mac nor the
+  release host holds a GitHub credential.
+- What this does not protect against: whoever controls the release host can
+  ship anything to installed clients, because the release host signs the
+  update channel; and whoever controls the signing Mac can have any Mac build
+  published. Gatekeeper still refuses a Mac app that is not signed and
+  notarized, and an installed Mac app takes an update only from the same
+  developer's signature (see "macOS" above).
+- In the release workflow the Mac job is apart from the release job, so it
+  never delays or changes the release of its own run; a Mac job that hangs
+  keeps the run open until its timeout (60 minutes, like the other build
+  jobs), and the next run starts after that.
 - Official release builds embed `resources/bfe-release.json` with channel
   `development-preview`. Local builds without a release channel never update
   themselves or replace an installation.

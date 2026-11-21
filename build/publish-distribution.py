@@ -17,7 +17,6 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
-import urllib.request
 
 ROOT = Path(os.environ.get('BFE_DISTRIBUTION', '/deployment/distribution'))
 KEYHOME = os.environ.get('BFE_SIGNING_HOME', '/deployment/signing')
@@ -57,27 +56,6 @@ def sign(path, detached=False):
     args = ['gpg', '--homedir', KEYHOME, '--batch', '--yes', '--local-user', KEY,
             '--digest-algo', 'SHA256', '--armor', '--output', str(path) + '.asc' if detached else str(path.parent / 'InRelease')]
     run(*args, '--detach-sign' if detached else '--clearsign', str(path))
-
-def api(path):
-    # The repository whose GitHub release is published (BFE_RELEASE_REPOSITORY,
-    # else the one running this script).
-    repository = os.environ.get('BFE_RELEASE_REPOSITORY') or os.environ['GITHUB_REPOSITORY']
-    request = urllib.request.Request('https://api.github.com/repos/' + repository + path,
-        headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.load(response)
-
-def download_release(destination):
-    release = api('/releases/tags/' + os.environ['BFE_RELEASE_TAG'])
-    for asset in release['assets']:
-        if not asset['name'].endswith(('.AppImage', '.exe', '.deb', '.json', '.tar', '.tar.xz')):
-            continue
-        if Path(asset['name']).name != asset['name']:
-            raise ValueError('Invalid release asset name')
-        request = urllib.request.Request(asset['url'], headers={
-            'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/octet-stream'})
-        with urllib.request.urlopen(request, timeout=300) as response, (destination / asset['name']).open('wb') as output:
-            shutil.copyfileobj(response, output)
 
 SAFE_PART = re.compile(r'[^\\/:*?"<>|\x00-\x1f]+')
 
@@ -454,6 +432,14 @@ def verify_mac_record(record, signature):
     if not accepted:
         raise ValueError('The Mac build record is not signed by the signing Mac')
 
+def read_mac_payload(path, platform, version, store, incoming):
+    """A Mac update payload, read and checked as read_payload does, that must also hold the
+    file stapling adds: an update without it was not made from the notarized app."""
+    tree = read_payload(path, platform, version, store, incoming)
+    if not any(item['path'] == MAC_TICKET for item in tree['files']):
+        raise ValueError(f'The {platform} update lacks the notarization ticket')
+    return tree
+
 def publish_macos(source):
     """Adds a signed and notarized Mac build to the live release. `source`
     holds the disk image, one update payload per platform key, the signing
@@ -462,8 +448,12 @@ def publish_macos(source):
     Mac files and their own signed checksums are added beside it, the channel
     file is signed again with the Mac platforms added, which is when
     installed Mac clients see it, and downloads/latest-macos points at the
-    release. macos.json is written last and is what says the release has its
-    Mac build: a step that stopped anywhere before it is simply run again."""
+    release. The record, its signature and the update payloads are served
+    too, under their own names, so that anyone (the public repository's
+    release-mac-files workflow first) can check the build against the
+    signing Mac's public key. macos.json is written last and is what says the
+    release has its Mac build: a step that stopped anywhere before it is
+    simply run again."""
     os.umask(0o022)
     downloads = ROOT / 'downloads'
     raw = (source / MAC_RECORD).read_bytes()
@@ -505,15 +495,15 @@ def publish_macos(source):
     incoming = Path(tempfile.mkdtemp(prefix='.incoming-', dir=store.parent))
     try:
         # Every payload is read and checked before one blob of any reaches the store.
-        trees = {}
-        for platform in sorted(updates):
-            trees[platform] = read_payload(named(updates[platform]), platform, version, store, incoming)
-            # Stapling adds this file: an update without it was not made from the notarized app.
-            if not any(item['path'] == MAC_TICKET for item in trees[platform]['files']):
-                raise ValueError(f'The {platform} update lacks the notarization ticket')
+        trees = {platform: read_mac_payload(named(updates[platform]), platform, version, store, incoming) for platform in sorted(updates)}
         entries = {platform: store_payload(tree, platform, stage, release_id, store, incoming) for platform, tree in trees.items()}
         public = f"Battlefront-Eternal-macos-{image['arch']}.dmg"
         shutil.copyfile(image_file, stage / public)
+        # What a third party needs to check the build: the signed record and every file it names.
+        (stage / MAC_RECORD).write_bytes(raw)
+        shutil.copyfile(source / MAC_SIGNATURE, stage / MAC_SIGNATURE)
+        for platform in sorted(updates):
+            shutil.copyfile(named(updates[platform]), stage / updates[platform]['name'])
         done = (json.dumps({
             'version': version, 'release_id': release_id, 'file': public, 'sha256': image['sha256'], 'size': image['size'],
             'arch': image['arch'], 'platforms': sorted(entries), 'minimum_macos': record.get('minimum_macos'),
@@ -549,12 +539,9 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX)
         if os.environ.get('BFE_MACOS_DIR'):
             return publish_macos(Path(os.environ['BFE_MACOS_DIR']))
-        with tempfile.TemporaryDirectory(prefix='bfe-distribution-') as work:
-            source = Path(os.environ.get('BFE_RELEASE_DIR', work))
-            if 'BFE_RELEASE_DIR' not in os.environ:
-                download_release(source)
-            publish(source, os.environ['BFE_PACKAGE_VERSION'], os.environ['BFE_RELEASE_TAG'],
-                    os.environ['BFE_REVISION'], os.environ['BFE_BUILD_DATE'])
+        # The release's files, downloaded and checked by the caller (build/publish-public.py).
+        publish(Path(os.environ['BFE_RELEASE_DIR']), os.environ['BFE_PACKAGE_VERSION'], os.environ['BFE_RELEASE_TAG'],
+                os.environ['BFE_REVISION'], os.environ['BFE_BUILD_DATE'])
 
 if __name__ == '__main__':
     main()

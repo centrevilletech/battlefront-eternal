@@ -402,6 +402,13 @@ class DistributionTest(unittest.TestCase):
             subprocess.run(['gpg', '--homedir', str(keyhome), '--verify', str(mac_sums) + '.asc', str(mac_sums)], check=True, capture_output=True)
             subprocess.run(['sha256sum', '--check', str(mac_sums)], cwd=mac_sums.parent, check=True, capture_output=True)
             self.assertIn('  macos.json\n', mac_sums.read_text())
+            # The signed record and every file it names are served, so the build can be checked by anyone
+            # (the release-mac-files workflow attaches them to the GitHub release after that check).
+            record = json.loads((mac / 'macos-notarized.json').read_bytes())
+            for name in ('macos-notarized.json', 'macos-notarized.json.sig', 'update-darwin-arm64.tar'):
+                self.assertEqual((downloads / 'preview-5' / name).read_bytes(), (mac / name).read_bytes(), name)
+                self.assertIn(f'  {name}\n', mac_sums.read_text())
+            self.assertEqual(hashlib.sha256((downloads / 'preview-5/Battlefront-Eternal-macos-arm64.dmg').read_bytes()).hexdigest(), record['dmg']['sha256'])
             with self.assertRaises(ValueError):
                 distribution.publish_macos(mac)  # a release takes its Mac build once
             self.assertFalse(list(downloads.glob('.macos-*')), 'the Mac step leaves no stage behind')

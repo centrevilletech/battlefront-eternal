@@ -73,13 +73,13 @@ its settings, prepared game data and updates in
 `~/Library/Application Support/Battlefront Eternal`. Removing the app is
 dragging it to the Trash; that folder stays until it is deleted by hand.
 
-No Mac download is published yet. The app that the workflows build is signed
-ad hoc: it runs on the Mac that built it, and on another Mac Gatekeeper
-refuses it until the player allows it in System Settings, Privacy & Security.
-A published build is signed with a Developer ID certificate, uses the hardened
-runtime with no entitlements, and is notarized by Apple with the ticket
-stapled to the app and to the disk image
-(`build/native/sign-macos.py`).
+The published Mac build is signed with a Developer ID certificate, uses the
+hardened runtime with no entitlements, and is notarized by Apple with the
+ticket stapled to the app and to the disk image
+(`build/native/sign-macos.py`), so macOS opens it without a warning. The app
+that the workflows build is signed ad hoc: it runs on the Mac that built it,
+and on another Mac Gatekeeper refuses it until the player allows it in System
+Settings, Privacy & Security.
 
 ## Prepared content compatibility
 
@@ -681,7 +681,10 @@ distribution test suites, verifies each package on its runner with
 `build/publish-distribution.py`. A Windows installer without a code-signing
 certificate shows a SmartScreen warning. The same workflow builds the Mac app
 on a hosted Apple silicon runner and attaches it to the release as one build
-input archive for the signing step
+input archive; the project's signing Mac signs and notarizes it, the
+release host publishes the notarized disk image on the download site, and
+`.github/workflows/release-mac-files.yml` checks it against the signing Mac's
+public key and attaches it to the same release
 ([desktop-updates.md](desktop-updates.md)). That job is not part of the
 release job: it never delays or changes the Windows and Linux release of its
 own run. Like any build job, a Mac job that hangs keeps its run open until

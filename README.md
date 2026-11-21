@@ -59,8 +59,8 @@ ARM64), and update themselves.
 
 *Star Wars: Battlefront II* (2005) maps, units, vehicles, modes and
 interface; mixed playlists from both games; Galactic Conquest and the
-Historical Campaign; vehicle cockpits in first person; notarized macOS
-downloads; signed Windows installers; easier dedicated server setup; leaderboards; custom maps
+Historical Campaign; vehicle cockpits in first person; an Intel Mac build;
+signed Windows installers; easier dedicated server setup; leaderboards; custom maps
 and mods; a Vulkan renderer backend, followed by FSR upscaling on every GPU
 and DLSS as an optional add-on for RTX cards. Dates depend on testing and are not promised.
 The [feature audit](docs/feature-audit.md) lists what the original game's
@@ -76,11 +76,11 @@ Download the app from <https://battlefronteternal.com>:
   Windows SmartScreen warns before it first starts.
 - **Linux (x64 and ARM64):** the AppImage (runs from any folder and adds
   itself to your app launcher) or the Debian/Ubuntu package.
-- **macOS (Apple silicon):** no download yet. The app and its disk image are
-  built and checked with every change, but macOS only opens an app without a
-  warning when it is signed and notarized with an Apple developer
-  certificate, and the project does not publish such a build yet. The game
-  builds from source and plays on Apple silicon Macs
+- **macOS (Apple silicon, macOS 12.3 or later):** the disk image. Open it and
+  drag the app to Applications. It is signed with a Developer ID certificate
+  and notarized by Apple, so macOS opens it without a warning, and it updates
+  itself like the other builds. Intel Macs are not supported yet. The game
+  also builds from source on Apple silicon Macs
   ([docs/development.md](docs/development.md), "Building and running on
   macOS").
 
