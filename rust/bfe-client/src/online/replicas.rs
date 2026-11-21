@@ -24,6 +24,37 @@ use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
 // FLASH_SCALE: the flash model's size at a muzzle.
 const FLASH_SCALE: f64 = 0.6;
+
+/// A drawn droideka's muzzle flash: on the barrel tip, of all its guns' tips
+/// as drawn (`guns`: each gun's bone and its tips in that bone's frame),
+/// nearest `near` (where its round left), along that gun's barrels.
+fn walker_flash(units: &mut bfe_presentation::units::Units, guns: &[(usize, Vec<[f64; 3]>)], actor: usize, near: [f64; 3]) -> Option<Matrix4> {
+    use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
+    units.refresh_actor(actor);
+    let start = units.actor_node_start(actor);
+    let near = three::Vector3::new(near[0], near[1], near[2]);
+    // The flash's own axis turned onto the barrels' (each bone's X axis).
+    let along = bfe_pose::rig::droideka_guns::Mount::new(0, -1.0).frame;
+    let mut best: Option<(f64, Matrix4)> = None;
+    for (bone, tips) in guns {
+        let node = (start + bone + 2) * STRIDE + WORLD;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(units.nodes.get(node..node + 16)?);
+        for tip in tips {
+            let mut at = three::Vector3::new(tip[0], tip[1], tip[2]);
+            at.apply_matrix4(&matrix);
+            let distance = at.distance_to(&near);
+            if best.as_ref().is_none_or(|(d, _)| distance < *d) {
+                let mut local = Matrix4::default();
+                local.compose(&three::Vector3::new(tip[0], tip[1], tip[2]), &along, &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE));
+                let mut placed = matrix;
+                placed.multiply(&local);
+                best = Some((distance, placed));
+            }
+        }
+    }
+    best.map(|(_, placed)| placed)
+}
 struct Model {
     row: [f64; draw::REC_STRIDE],
     // The preview borrows immutable GPU geometry, but owns animation clocks
@@ -70,6 +101,9 @@ struct Slot {
     // left his hand; and whether his state says he was blown apart.
     primary: usize,
     throwing: Option<(usize, usize, bool)>,
+    // A toss whose clip outlasts its throw (a dispenser that lets go at
+    // once): the bank it plays in, kept with an empty hand until it ends.
+    toss: Option<usize>,
     blown: bool,
     // The held model drawn in his hand this frame, if any.
     held: Option<usize>,
@@ -87,6 +121,11 @@ struct Slot {
     // the tick it fired on (negative: none), how long the flash lasts and
     // its colour and alpha.
     flash: (usize, f64, f64, [f64; 4]),
+    // The tick of the round whose flash light is lit (each lit once).
+    flash_lit: f64,
+    // A droideka's last cast for its guns' point: what it was cast from
+    // (the unit, its feet, yaw, pitch, line and the tick) and the point.
+    walker_cast: ([f64; 8], Option<[f64; 3]>),
     // The charge-up glow playing at his gun, while he holds a charge.
     glow: Option<u32>,
 }
@@ -167,6 +206,13 @@ pub struct Replicas {
     dive_times: Vec<f64>,
     // By class: a droideka's AnimationSpeed, the rate its mode clips play at.
     walker_rates: Vec<f64>,
+    // A droideka class's guns, as its world rig hangs them: for each gun the
+    // bone whose frame holds its barrel tips, and the tips (one at the
+    // bone's own place for a gun with no tips found). By registry class id.
+    walker_guns: Vec<Vec<(usize, Vec<[f64; 3]>)>>,
+    // Each unit's Character (its roster slot) by unit id, with the life the
+    // unit's state summary named it for: whose droideka is a human's.
+    characters: std::collections::HashMap<u32, (u32, u16)>,
     preview_weapons: Vec<Option<usize>>,
     preview_banks: Vec<usize>,
     preview_class: usize,
@@ -177,6 +223,9 @@ pub struct Replicas {
     // The first person arms' muzzle flash: the tick of the shot it is for
     // and the seconds it has left.
     eye_flash: (f64, f64),
+    // Where the player's own droideka's last predicted round left (its drawn
+    // barrel), for that round's muzzle flash.
+    walker_flash: Option<[f64; 3]>,
     // Each registry weapon's ChargeUpEffect group, where the library has it.
     charge_effects: Vec<Option<usize>>,
     bound: Index,
@@ -204,14 +253,21 @@ impl Replicas {
         // definitions as the server. Numeric handles resolve before frames.
         let defs = content.defs()?;
         let registry = &defs.registry;
-        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.}; registry.classes.len()+1];
+        let mut aim_classes = vec![super::shot_aim::Class {track:[3.5;3],scale:1.,walker:None,sections:None}; registry.classes.len()+1];
         for class in &defs.classes {
             let Some(id)=class.registry_id else {continue};
             let cameras=class.record.get("cameras");
             let track=std::array::from_fn(|i| cameras.and_then(|c| c.get(["STAND","CROUCH","PRONE"][i]).or_else(||c.get("STAND")))
                 .and_then(|s|s.get("TrackOffset")).and_then(bfe_content::Value::as_array)
                 .and_then(|a|a.get(2)).and_then(bfe_content::Value::as_f64).unwrap_or(3.5));
-            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.)};
+            // A droideka aims from its eye height and its STAND camera, as
+            // the world's droideka does (units::class::droideka_body).
+            let walker=class.walker_clips.is_some().then(|| {
+                let body=bfe_sim::units::class::droideka_body(&class.record,-1.,0.);
+                (body.eye_height,bfe_presentation::cameras::soldier::Section {eye:[0.;3],center:body.track_center,offset:body.track_offset,tilt:body.track_tilt})
+            });
+            let sections=Some(bfe_sim::units::class::camera_def(&class.record).sections);
+            aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.),walker,sections};
         }
 
         let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
@@ -388,6 +444,17 @@ impl Replicas {
             };
             classes[id as usize] = names.iter().position(|n| n == &key);
         }
+        let mut walker_guns = vec![Vec::new(); classes.len()];
+        for class in &defs.classes {
+            let (Some(id), Some(model)) = (class.registry_id, class.registry_id.and_then(|id| classes[id as usize])) else { continue };
+            walker_guns[id as usize] = class.droideka_guns.iter().map(|gun| {
+                let parent = models[model].parents.get(gun.bone).copied().filter(|&p| p >= 0 && gun.bone != 0);
+                match (&gun.tips, parent) {
+                    (Some(tips), Some(parent)) => (parent as usize, tips.iter().map(|t| [t.x, t.y, t.z]).collect()),
+                    _ => (gun.bone, vec![[0.; 3]]),
+                }
+            }).collect();
+        }
         // buildBody: a class's OverrideTexture re-skins its body.
         // A class the world can field but no body draws would fight unseen.
         for class in &defs.classes {
@@ -467,6 +534,7 @@ impl Replicas {
                     class: 0,
                     primary: 0,
                     throwing: None,
+                    toss: None,
                     held: None,
                     blown: false,
                     bubble: None,
@@ -475,6 +543,8 @@ impl Replicas {
                     charge: 0.,
                     gone: None,
                     flash: (0, -1., 0., [0.; 4]),
+                    flash_lit: -1.,
+                    walker_cast: ([f64::NAN; 8], None),
                     glow: None,
                 });
             }
@@ -713,6 +783,8 @@ impl Replicas {
             sun_seen: 1.,
             dive_times,
             walker_rates,
+            walker_guns,
+            characters: std::collections::HashMap::with_capacity(256),
             preview_weapons,
             preview_banks,
             preview_class:usize::MAX,
@@ -721,6 +793,7 @@ impl Replicas {
             preview_held,
             slots,
             eye_flash: (-1., 0.),
+            walker_flash: None,
             charge_effects,
             bound: Index::new(POOL),
             visible: 0,
@@ -758,16 +831,29 @@ impl Replicas {
                 shot.posture,
                 shot.air,
             );
-            let (collision, world) = (&self.collision, self.world);
             let [yaw, pitch] = shot.fire;
-            let origin = if shot.walker { [shot.position[0], shot.position[1] + 1., shot.position[2]] } else { [basis.origin.x, basis.origin.y, basis.origin.z] };
+            let mut origin = [basis.origin.x, basis.origin.y, basis.origin.z];
+            let mut aim = [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()];
+            if shot.walker {
+                // As the world fires it: from the barrel its gun counter
+                // names, along that gun as it is drawn, turned toward the
+                // point under the reticle as the world's gun turns.
+                let (muzzle, feet, along) = self.walker_muzzle(receiver, shot.gun);
+                let feet = feet.unwrap_or(shot.position);
+                origin = muzzle.unwrap_or([feet[0], feet[1] + 1., feet[2]]);
+                self.walker_flash = muzzle;
+                if let Some(along) = along {
+                    aim = along;
+                }
+            }
+            let (collision, world) = (&self.collision, self.world);
             self.combat.predict(
                 shot.weapon,
                 shot.level,
                 shot.tick,
                 shot.button,
                 origin,
-                [yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos()],
+                aim,
                 shot.spread,
                 &mut |from, direction, far| {
                     let ray = bfe_sim::collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: direction[0], dy: direction[1], dz: direction[2] };
@@ -786,6 +872,7 @@ impl Replicas {
         }
         self.buildings.frame(receiver, dt, &mut self.combat.hull_fx);
         self.items.frame(receiver, tick);
+        self.items.ride(receiver, &self.hulls, dt);
         self.items.light(&mut self.lights);
         let own = (receiver.own.alive && receiver.own.mount.is_none()).then_some(receiver.own.position);
         self.combat.map_effects.wake(dt, own);
@@ -841,6 +928,7 @@ impl Replicas {
                 self.slots[slot].gone = None;
                 self.slots[slot].flash.1 = -1.;
                 self.slots[slot].throwing = None;
+                self.slots[slot].toss = None;
                 self.slots[slot].blown = false;
                 self.slots[slot].mount = None;
                 self.slots[slot].rider_resource = None;
@@ -1075,6 +1163,9 @@ impl Replicas {
                     input[i::WALKER_LEAN] = walker.pose[1];
                     input[i::WALKER_LEGS] = walker.pose[2];
                     input[i::WALKER_TIME] = walker.pose[3];
+                    // The mode of the sample drawn, not of the newest correction.
+                    input[i::WALKER_MODE] = walker.mode as f64;
+                    input[i::WALKER_REVERSE] = walker.reverse as u8 as f64;
                 }
                 if let Some(body) = &prediction.displayed {
                     input[i::POSITION..i::POSITION + 3].copy_from_slice(&body.position);
@@ -1091,6 +1182,59 @@ impl Replicas {
                 self.own_feet = Some([input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]]);
             }
             self.visible += usize::from(input[i::PRESENT] != 0. && input[i::OWN] == 0.);
+        }
+        for field in receiver.publications.iter() {
+            if field.row[r::KIND] == k::SUMMARY as f64 && field.row[r::SCHEMA] == 6. {
+                if let Some((id, slot)) = super::hud_feed::unit_slot(&field.row, &field.bytes[..field.length]) {
+                    self.characters.insert(id, (field.row[r::GENERATION] as u32, slot));
+                }
+            }
+        }
+        // Each drawn droideka's guns turn toward the point its aim is on: the
+        // player's own as the world finds it (the reticle's line); another
+        // player's by the same rule along his camera's line in third person
+        // (his view is not known here); a bot's along its eye's line from its
+        // published aim. Each to the first surface or body on that line (a
+        // bot's guns meet at its quarry, on its line). Its guns turn only
+        // while it stands, so nothing is cast for it folded, rolled,
+        // unfolding or dead; and the point is cast again only when what it
+        // is cast from changes, or the tick (the bodies it may meet move).
+        {
+            let eyes = self.first_person.enabled || receiver.own.zoom > 1.;
+            let (slots, units, scene, characters) = (&mut self.slots, &mut self.units, self.shot_aim.borrow(), &self.characters);
+            for slot in slots.iter_mut().filter(|slot| slot.active && slot.walker) {
+                let input = &units.input[f::STRIDE + slot.actor * i::STRIDE..][..i::STRIDE];
+                let feet = [input[i::POSITION], input[i::POSITION + 1], input[i::POSITION + 2]];
+                let (yaw, pitch) = (input[i::YAW], input[i::PITCH]);
+                let own = input[i::OWN] != 0.;
+                let standing = input[i::WALKER_MODE] < f64::from(bfe_pose::rig::droideka::FOLD) && input[i::DEAD] == 0.;
+                let target = match slot.identity.filter(|_| standing) {
+                    None => None,
+                    Some((id, life)) => {
+                        let eyes = if own { eyes } else { !human(characters, &receiver.roster, id, life) };
+                        let from = [f64::from(id), feet[0], feet[1], feet[2], yaw, pitch, f64::from(u8::from(eyes)), tick.floor()];
+                        if slot.walker_cast.0 != from {
+                            let point = if own {
+                                scene.walker_target(&receiver.own, feet, yaw, pitch, eyes)
+                            } else {
+                                scene.walker_point(slot.class, id, feet, yaw, pitch, eyes)
+                            };
+                            slot.walker_cast = (from, point);
+                        }
+                        slot.walker_cast.1
+                    }
+                };
+                // The player's own guns bring the barrel each fires next onto
+                // the point, as the world's do (the client's gun counter).
+                let barrels = match self.walker_guns.get(slot.class).filter(|_| own) {
+                    Some(guns) => {
+                        let counts = [0, 1].map(|g| guns.get(g).map_or(0, |(_, tips)| tips.len()));
+                        bfe_pose::rig::droideka::next_barrels(prediction.walker_next_gun(receiver), &counts[..guns.len().min(2)])
+                    }
+                    None => [usize::MAX; 2],
+                };
+                units.aim_walker(slot.actor, target, barrels);
+            }
         }
         // Every body of this frame is bound: show what the server said of them.
         self.present_states(receiver, prediction, tick);
@@ -1530,29 +1674,56 @@ impl Replicas {
                 continue;
             }
             let out = &self.units.output[slot.actor * o::STRIDE..];
-            // FirstPersonView.flash: in that view the player's own flash
-            // sits on the arms' gun, while the arms are shown.
-            let hand = if eyes {
-                self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
-            } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
-                None
+            // A droideka (seen from outside) flashes at the barrel its round
+            // left: its own predicted round's, another's newest launch.
+            let matrix = if slot.walker && !eyes {
+                let near = if slot.identity == Some(own) {
+                    self.walker_flash
+                } else {
+                    slot.identity.and_then(|id| self.combat.latest_launch(id)).map(|(point, _)| point)
+                };
+                let guns = self.walker_guns.get(slot.class);
+                near.zip(guns).and_then(|(near, guns)| walker_flash(&mut self.units, guns, slot.actor, near))
             } else {
-                self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+                // FirstPersonView.flash: in that view the player's own flash
+                // sits on the arms' gun, while the arms are shown.
+                let hand = if eyes {
+                    self.first_person.hand_node(&self.units).filter(|_| self.units.header[bfe_presentation::layout::unit_header::FIRST_PERSON_VISIBLE] != 0.)
+                } else if out[o::GONE] == -1. || slot.held.is_none() || slot.held != self.weapon_classes.get(weapon).copied().flatten() {
+                    None
+                } else {
+                    self.models[slot.model].hand.map(|hand| self.units.actor_node_start(slot.actor) + hand)
+                };
+                match (hand, self.guns.muzzles.get(weapon).copied().flatten()) {
+                    (Some(hand), Some(point)) => {
+                        self.units.refresh_actor(slot.actor);
+                        let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
+                        let mut matrix = Matrix4::default();
+                        matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+                        let mut local = Matrix4::default();
+                        local.compose(
+                            &three::Vector3::new(point[0], point[1], point[2]),
+                            &three::Quaternion::default(),
+                            &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE),
+                        );
+                        matrix.multiply(&local);
+                        Some(matrix)
+                    }
+                    _ => None,
+                }
             };
-            let (Some(hand), Some(point)) = (hand, self.guns.muzzles.get(weapon).copied().flatten()) else {
+            let Some(matrix) = matrix else {
                 continue;
             };
-            self.units.refresh_actor(slot.actor);
-            let node = hand * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD;
-            let mut matrix = Matrix4::default();
-            matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
-            let mut local = Matrix4::default();
-            local.compose(
-                &three::Vector3::new(point[0], point[1], point[2]),
-                &three::Quaternion::default(),
-                &three::Vector3::new(FLASH_SCALE, FLASH_SCALE, FLASH_SCALE),
-            );
-            matrix.multiply(&local);
+            // Its light (`FlashLightRadius` for `FlashLightDuration`), lit
+            // once for each round where the flash is.
+            if slot.flash_lit != fired {
+                slot.flash_lit = fired;
+                if let Some((rgb, radius, duration)) = self.guns.flash_lights.get(weapon).copied().flatten() {
+                    let e = &matrix.elements;
+                    self.lights.flash([e[12], e[13], e[14]], rgb, radius, duration);
+                }
+            }
             let opacity = color[3] * (2. * left / length.max(1e-3)).min(1.);
             let shown = if eyes {
                 self.combat.particles.flash_view(bridge, &matrix.elements, &color[..3], opacity)
@@ -2063,6 +2234,33 @@ impl Replicas {
 }
 
 impl Replicas {
+    /// Where the player's droideka's gun `gun` (its gun counter) is drawn,
+    /// barrels alternating as the world's nextGun takes them, the direction
+    /// that gun points along as drawn, and where its feet are drawn. None
+    /// before its body is drawn.
+    fn walker_muzzle(&mut self, receiver: &Receiver, gun: f64) -> (Option<[f64; 3]>, Option<[f64; 3]>, Option<[f64; 3]>) {
+        use bfe_presentation::layout::unit_node::{STRIDE, WORLD};
+        let own = (receiver.own.id as u32, receiver.own.generation as u32);
+        let Some(slot) = self.bound.get(&own).map(|&at| &self.slots[at]).filter(|slot| slot.active && slot.walker) else { return (None, None, None) };
+        let row = &self.units.output[slot.actor * o::STRIDE..];
+        let feet = [row[o::POSITION], row[o::POSITION + 1], row[o::POSITION + 2]];
+        let Some(guns) = self.walker_guns.get(slot.class).filter(|guns| !guns.is_empty()) else { return (None, Some(feet), None) };
+        let count = guns.len() as f64;
+        let (bone, tips) = &guns[(gun % count) as usize];
+        let tip = tips[((gun / count).floor() % tips.len() as f64) as usize];
+        let actor = slot.actor;
+        self.units.refresh_actor(actor);
+        let node = (self.units.actor_node_start(actor) + bone + 2) * STRIDE + WORLD;
+        let mut matrix = Matrix4::default();
+        matrix.elements.copy_from_slice(&self.units.nodes[node..node + 16]);
+        let mut point = three::Vector3::new(tip[0], tip[1], tip[2]);
+        point.apply_matrix4(&matrix);
+        // The blaster's barrels run along its bone's X axis.
+        let mut along = three::Vector3::default();
+        along.set_from_matrix_column(&matrix, 0).normalize();
+        (Some([point.x, point.y, point.z]), Some(feet), Some([along.x, along.y, along.z]))
+    }
+
     pub fn capture_shot_scene(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {
         use bfe_sim::units::shapes::{soldier_shapes,HitPosture,HitShape,Half};
         let mut scene=self.shot_aim.borrow_mut();
@@ -2216,4 +2414,39 @@ fn body_of<'a>(slots: &'a [Slot], models: &'a [Model], units: &'a Units, held_na
         at: (units.actor_node_start(s.actor) + 2) * bfe_presentation::layout::unit_node::STRIDE + bfe_presentation::layout::unit_node::WORLD,
         weapon,
     })
+}
+
+/// Whether unit `id`'s life `life` is a human's: the Character its state
+/// summary named for that life is a human on the roster.
+fn human(characters: &std::collections::HashMap<u32, (u32, u16)>, roster: &super::roster::Roster, id: u32, life: u32) -> bool {
+    characters
+        .get(&id)
+        .filter(|&&(named, _)| named == life)
+        .and_then(|&(_, character)| roster.rows().nth(character as usize))
+        .is_some_and(|(_, c)| c.human)
+}
+
+#[cfg(test)]
+mod walker_aim_tests {
+    use super::*;
+
+    // A droideka aims as a human's only for the life its state named a
+    // human's Character: a bot's, another life's, a unit without a
+    // Character (65535) or one never named keep a bot's eye line.
+    #[test]
+    fn a_droideka_is_a_humans_for_the_life_its_state_named() {
+        // The roster's frozen schema-4 publication: a human, then a bot.
+        let bytes = [
+            2, 0, 0, 0, 2, 1, 1, 7, 0, 1, 0, 3, 0, 4, 0, 1, 0, 1, 6, b'P', b'l', b'a', b'y', b'e',
+            b'r', 2, 0, 2, 0, 0, 0, 5, 0, 1, 0, 255, 255, 0, 3, b'B', b'o', b't',
+        ];
+        let mut roster = super::super::roster::Roster::default();
+        assert_eq!(roster.receive(4, 70000, &bytes), Some(()));
+        let characters = std::collections::HashMap::from([(7, (2, 0)), (8, (2, 1)), (9, (2, 65535))]);
+        assert!(human(&characters, &roster, 7, 2));
+        assert!(!human(&characters, &roster, 7, 3));
+        assert!(!human(&characters, &roster, 8, 2));
+        assert!(!human(&characters, &roster, 9, 2));
+        assert!(!human(&characters, &roster, 10, 2));
+    }
 }

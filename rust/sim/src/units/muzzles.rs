@@ -42,6 +42,12 @@ pub(crate) fn next_gun_in(units: &mut super::owner::Units, id: u32, unit: &mut U
 
 pub(crate) fn gun_at_in(units: &mut super::owner::Units, id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> { rigs_in(units).gun_at(id, selected) }
 
+/// The guns' aimers a tick on toward `target`; false without a prepared rig.
+pub(crate) fn turn_guns_in(units: &mut super::owner::Units, id: u32, unit: &mut Unit, target: Option<&Vector3>, dt: f64) -> bool { rigs_in(units).turn_guns(id, unit, target, dt) }
+
+/// The direction the selected gun points along (its barrels' line).
+pub(crate) fn gun_along_in(units: &mut super::owner::Units, id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> { rigs_in(units).gun_along(id, selected) }
+
 
 // UnitFactory cold construction transfers its private rig at activation.
 // No drawn skeleton or barrel query participates in the native birth.
@@ -95,13 +101,15 @@ impl MuzzleRigs {
             root, ball, spine, pose: Pose::new(n, root),
             from_q: bind_q.clone(), from_p: bind_p.clone(), bind_q, bind_p,
             facing: 0.0, legs: 0.0, mode: -1, went_up_rolled: false,
-            roll_origin: 0.0, transition: 0.0, pivot: Vector3::default(), roll_center: Vector3::default(),
+            roll_origin: 0.0, transition: 0.0, pivot: Vector3::default(), roll_center: Vector3::default(), unfold_turn: 0.0,
         };
         for v in &mut animator.pose.q { *v = r.number() as f32; }
         for v in &mut animator.pose.t { *v = r.number() as f32; }
         for v in &mut animator.pose.w { *v = r.number() as f32; }
         assert_eq!(r.at, words.len());
-        parts.rig = Some(Box::new(DroidekaRig { tree, root: 0, bones: (1..=n as u32).collect(), barrels, animator }));
+        let mut rig = DroidekaRig { tree, root: 0, bones: (1..=n as u32).collect(), barrels, animator, guns: Default::default() };
+        rig.find_guns();
+        parts.rig = Some(Box::new(rig));
         let list = &mut self.rows;
         if list.len() <= id as usize { list.resize_with(id as usize + 1, || None); }
         list[id as usize] = Some(Muzzles { parts });
@@ -125,6 +133,16 @@ impl MuzzleRigs {
             _ => None,
         };
         Some(point)
+    }
+    fn turn_guns(&mut self, id: u32, unit: &mut Unit, target: Option<&Vector3>, dt: f64) -> bool {
+        let Some(m) = (&mut self.rows).get_mut(id as usize).and_then(Option::as_mut) else { return false };
+        droideka::turn_guns(unit, dt, target, &mut m.parts);
+        true
+    }
+    fn gun_along(&mut self, id: u32, selected: (f64, f64)) -> Option<Option<Vector3>> {
+        let m = (&mut self.rows).get_mut(id as usize)?.as_mut()?;
+        let index = (selected.0 >= 0.0 && selected.0.fract() == 0.0).then_some(selected.0 as usize);
+        Some(index.and_then(|i| m.parts.rig.as_mut().unwrap().gun_along(i)))
     }
     fn take(&mut self, id: u32) -> Option<Muzzles> {
         (&mut self.rows).get_mut(id as usize).and_then(Option::take)

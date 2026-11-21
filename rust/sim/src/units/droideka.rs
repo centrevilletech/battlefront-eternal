@@ -4,6 +4,19 @@
 //! it rolls up into, its shield, and its collision against the buildings
 //! and the terrain. Its hidden gun rig, posed every tick for its muzzles, is
 //! `crate::rig::droideka`.
+//!
+//! The 2004 game moves a droideka twice a frame, in its update and again
+//! after the collision pass, gravity each time: the ball covers twice its
+//! stored velocity and a droideka falls at four times 9.8 m/s2, while the
+//! stored velocity a fall leaves (what collision damage reads) is that of a
+//! fall at 9.8. Here the move after the pass is made at the start of the
+//! next tick, in the same order, so that a tick ends where its pass left the
+//! droideka and the next pass sweeps both moves. Deployed, it meets
+//! buildings and props with two spheres: one of 1.4 m resting on the
+//! ground 0.44 m ahead of its feet along its legs, which rides it up step
+//! edges lower than 0.42 m, then the 0.65 m ball at its feet; the terrain
+//! under its feet. Rolled, the ball alone, which bounces off what it rolls
+//! into and rolls along anything flatter than MaxBallAngle.
 
 use super::damage::contact_damage;
 use super::shapes::{arr, v3};
@@ -43,17 +56,36 @@ const DEAD: f64 = 4.0;
 const TURN_STEP: f64 = std::f64::consts::PI / 6.0;
 /// 1/s, the legs' lag dying away outside idle and turns.
 const LEG_EASE: f64 = 3.2;
-/// m, p_base's radius, deployed.
-const BODY_RADIUS: f64 = 1.0;
+/// m: the deployed droideka's sphere against buildings and props
+/// (p_building), resting on the ground with its centre this far ahead of
+/// the feet.
+const BUILDING_RADIUS: f64 = 1.4;
+const BUILDING_AHEAD: f64 = 0.4363;
 /// normal.y above which a deployed contact is ground.
 const GROUND: f64 = 0.7;
+/// normal.y above which the ball is lifted straight up out of a contact
+/// rather than pushed along its normal.
 const BALL_GROUND: f64 = 0.6;
-/// The original's 13 m/s cap with one physics step.
-const TRACTION: f64 = 0.65;
+/// m/s of the ball's velocity per unit of spin along what it rolls on:
+/// BallRadius over BallSpinScale (0.65 / 2). Moved twice a tick, a spin of
+/// 20 rolls it at 13 m/s.
+const TRACTION: f64 = 0.325;
+/// The contact normals a collision pass keeps (the 2004 game keeps ten).
+const KEPT: usize = 10;
+/// The most polygons one sphere meets in a step of a pass.
+const CONTACTS: usize = 16;
+/// m: a shallower overlap is rounding after a push, not a contact.
+const TOUCH: f64 = 1e-6;
+/// m: a push up out of a ceiling stops this far short (the ball's).
+const CEILING_GAP: f64 = 0.02;
+/// m: a push out of what is above it is not made when it would be longer
+/// (the 2004 game crushes the droideka there instead).
+const CRUSH: f64 = 5.0;
+/// m: a longer move since the tick began skips collision (a teleport).
+const TELEPORT: f64 = 100.0;
 /// m of clearance the unfold test wants on an axis.
 const HEADROOM: f64 = 1.5;
 const UP: Vector3 = Vector3 { x: 0.0, y: 1.0, z: 0.0 };
-const DOWN: Vector3 = Vector3 { x: 0.0, y: -1.0, z: 0.0 };
 
 /// What a droideka's tick reads of its class's ODF definition (`def`),
 /// None where the class leaves a key unset (`??` takes the default then).
@@ -110,13 +142,16 @@ fn length(d: &Droideka, clips: &ModeClips, mode: f64) -> f64 {
 }
 
 /// travel(clip, t): DummyRoot's forward travel at a time on the mode's clock.
+/// As in the 2004 game the clip's frames are spread over the whole mode, so
+/// a step moves the droideka on every tick of it, the last one included.
 fn travel(d: &Droideka, clip: &Clip, t: f64) -> f64 {
     if d.root_index < 0.0 {
         return 0.0;
     }
     let Some(k) = clip.tracks.iter().position(|&b| b as f64 == d.root_index) else { return 0.0 };
     let frames = clip.frames as f64;
-    let f = v8math::min(v8math::max(t * d.speed * clip.fps, 0.0), frames - 1.0);
+    let length = frames / 30.0 / d.speed;
+    let f = v8math::min(v8math::max(t / length * (frames - 1.0), 0.0), frames - 1.0);
     let i0 = f.floor();
     let i1 = v8math::min(i0 + 1.0, frames - 1.0);
     let z = |i: f64| clip.data[(k * clip.frames + i as usize) * 7 + 6] as f64;
@@ -187,6 +222,8 @@ pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f
     let clips = parts.clips.clone();
     let d = body(unit);
     d.previous = d.position;
+    // The last tick's move after its collision pass, swept by this pass.
+    integrate(d, dt);
     d.state_time += dt;
     d.collision_damage = 0.0;
     let dead = d.dead;
@@ -236,10 +273,10 @@ pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f
         walk_move(id, unit, dt, mv, turn, mouse_turn, world, &clips);
     }
 
-    // Every displacement resolved, gravity included, before its place shows.
+    // The update's move, then the collision pass over both moves.
     let d = body(unit);
     integrate(d, dt);
-    collide(id, d, world);
+    collide(id, d, &def, dt, world);
     d.settled = d.position;
 
     // Dying: blasts at its nodes every 0.4 s, then it explodes.
@@ -252,8 +289,9 @@ pub fn tick_input(id: u32, unit: &mut Unit, input: &crate::gen::MoveInput, dt: f
     }
 }
 
+/// One of the two moves of a tick: by the velocity (deployed, only its
+/// vertical part: the clips walk it), then gravity.
 fn integrate(d: &mut Droideka, dt: f64) {
-    d.velocity[1] -= GRAVITY * dt;
     if d.mode == BALL {
         let mut p = v3(d.position);
         p.add_scaled_vector(&v3(d.velocity), dt);
@@ -261,6 +299,7 @@ fn integrate(d: &mut Droideka, dt: f64) {
     } else {
         d.position[1] += d.velocity[1] * dt;
     }
+    d.velocity[1] -= GRAVITY * dt;
 }
 
 /// walkMove: deployed, the clips walk it and the body turns over its legs.
@@ -355,108 +394,259 @@ fn advance(id: u32, unit: &mut Unit, dt: f64, mv: f64, moving: bool, world: &mut
     report(body(unit), walked);
 }
 
-/// ballMove: the ball's spin, turn and lean into a turn.
+/// ballMove: the ball's spin, turn and lean into a turn. The spin builds
+/// at BallAcceleration times the throttle squared, signed as the throttle,
+/// and each contact of the collision pass takes BallRollingFriction off it;
+/// what it rolls on sets its velocity there.
 fn ball_move(d: &mut Droideka, def: &DroidekaDef, dt: f64, mv: f64, turn: f64, mouse_turn: f64) {
     let rate = def.ball_turn_speed.unwrap_or(2.0);
     d.aim_yaw -= turn * rate * dt + mouse_turn;
     let target_lean = deg_to_rad(def.ball_max_lean.unwrap_or(10.0)) * turn * (d.spin / d.max_spin).abs();
     d.lean += (target_lean - d.lean) * (1.0 - v8math::exp(-12.0 * dt));
-    if mv.abs() > 1e-3 {
-        d.spin = clamp(d.spin + def.ball_acceleration.unwrap_or(100.0) * mv * dt, -d.max_spin, d.max_spin);
-    } else if d.grounded {
-        d.spin -= v8math::sign(d.spin) * v8math::min(d.spin.abs(), def.ball_rolling_friction.unwrap_or(50.0) * dt);
-    }
-    if d.grounded {
-        d.velocity[0] = v8math::sin(d.aim_yaw) * TRACTION * d.spin;
-        d.velocity[2] = v8math::cos(d.aim_yaw) * TRACTION * d.spin;
-    }
+    let acceleration = def.ball_acceleration.unwrap_or(100.0);
+    let push = if mv < 0.0 { -acceleration } else { acceleration } * mv * mv;
+    d.spin = clamp(d.spin + push * dt, -d.max_spin, d.max_spin);
     d.roll += d.spin * dt;
 }
 
-/// collide(dt): deployed, its base stands on what faces up and slides off
-/// what doesn't; rolled, its ball slides along walls and takes traction
-/// where the ground is flat enough.
-fn collide(id: u32, d: &mut Droideka, world: &mut dyn UnitsWorld) {
+/// collide(dt): the collision pass over the move since the last pass (the
+/// tick's start), in steps of at most half BallRadius. At each step the
+/// terrain under its feet, then the polygons of buildings, props and hulls,
+/// nearest contact first and each handled at once: deployed with
+/// p_building and then the ball, rolled with the ball alone. After a step
+/// with contacts the rest of the move loses its part into each contact
+/// normal of the pass. A move too long to be a move (a teleport) is not
+/// swept and meets nothing.
+fn collide(id: u32, d: &mut Droideka, def: &DroidekaDef, dt: f64, world: &mut dyn UnitsWorld) {
     let ball = d.mode == BALL;
-    let r = if ball { d.ball_radius } else { BODY_RADIUS };
-    let mut n = Vector3::default();
-    let mut grounded = false;
-    let mut position = v3(d.position);
-    let mut velocity = v3(d.velocity);
-    let mut avoidance = v3(d.avoidance);
-    for _pass in 0..4 {
-        let c = Vector3 { x: position.x, y: position.y + r, z: position.z };
-        let mut best = f64::INFINITY;
-        let mut moving = false;
-        world.visit_gathered(id, &c, r, if ball { 1 } else { 0 }, &mut |is_moving, tri| {
-            let p = closest_point_to_point(arr(&tri[0]), arr(&tri[1]), arr(&tri[2]), arr(&c));
-            let closest = v3(p);
-            let distance = closest.distance_to(&c);
-            if distance < r && distance < best && distance > 1e-5 {
-                best = distance;
-                moving = is_moving;
-                n.sub_vectors(&c, &closest).divide_scalar(distance);
-            }
-        });
-        let mut depth = if best < f64::INFINITY { r - best } else { 0.0 };
-        let mut wall = depth > 0.0;
-        // The terrain is a height field under the centre.
-        if let Some(ground) = world.cast(&c, &DOWN, r + 0.05) {
-            if ground.terrain && r - ground.distance > depth {
-                depth = r - ground.distance;
-                n.copy(&ground.normal);
-                wall = false;
-                moving = false;
-            }
+    let r = d.ball_radius;
+    let (sin, cos) = (v8math::sin(d.aim_yaw), v8math::cos(d.aim_yaw));
+    // p_building hangs on DummyRoot, which stays with the planted legs while
+    // the body turns over them.
+    let (legs_sin, legs_cos) = (v8math::sin(d.aim_yaw + d.legs), v8math::cos(d.aim_yaw + d.legs));
+    let mut pass = Pass {
+        ball,
+        position: v3(d.previous),
+        velocity: v3(d.velocity),
+        avoidance: v3(d.avoidance),
+        spin: d.spin,
+        grounded: false,
+        damage: 0.0,
+        ground: UP,
+        kept: [Vector3::default(); KEPT],
+        count: 0,
+        forward: Vector3 { x: sin, y: 0.0, z: cos },
+        right: Vector3 { x: cos, y: 0.0, z: -sin },
+        friction: def.ball_rolling_friction.unwrap_or(50.0) * dt,
+        slope: if ball { d.max_ball_slope } else { GROUND },
+    };
+    let mut step = v3(d.position);
+    step.sub(&pass.position);
+    let length = step.length();
+    if length > TELEPORT {
+        d.grounded = false;
+        return;
+    }
+    let steps = v8math::trunc(1.0 + length / (0.5 * r));
+    step.divide_scalar(steps);
+    for _ in 0..steps as usize {
+        pass.position.add(&step);
+        let mut hit = pass.terrain(world, r, d);
+        if !ball {
+            let ahead = Vector3 { x: legs_sin * BUILDING_AHEAD, y: BUILDING_RADIUS, z: legs_cos * BUILDING_AHEAD };
+            hit |= pass.sphere(id, world, ahead, BUILDING_RADIUS, 0, d);
         }
-        if depth <= 0.0 {
-            break;
-        }
-        if wall && n.y.abs() < 0.3 {
-            avoidance.add(&n);
-        }
-        if n.y > (if ball { d.max_ball_slope } else { GROUND }) {
-            grounded = true;
-            // Coming down on it too fast hurts (collision damage), only on
-            // what it stands on.
-            if !moving {
-                let facing = n.x * v8math::sin(d.aim_yaw) + n.z * v8math::cos(d.aim_yaw);
-                d.collision_damage += contact_damage(&d.collision_rule, velocity.dot(&n), n.y, facing);
-            }
-        }
-        if ball {
-            if n.y <= BALL_GROUND {
-                position.add_scaled_vector(&n, depth);
-            } else {
-                position.y += depth / n.y;
-            }
-            let into = velocity.dot(&n);
-            if into < 0.0 {
-                velocity.add_scaled_vector(&n, -into);
-            }
-            if n.y > d.max_ball_slope {
-                let right = Vector3 { x: v8math::cos(d.aim_yaw), y: 0.0, z: -v8math::sin(d.aim_yaw) };
-                let mut forward = Vector3::default();
-                forward.cross_vectors(&right, &n).normalize();
-                velocity.copy(&forward).multiply_scalar(TRACTION * d.spin);
-            }
-        } else if n.y > GROUND {
-            position.y += depth / n.y;
-            if velocity.y < 0.0 {
-                velocity.y = 0.0;
-            }
-        } else {
-            let flat = v8math::hypot(n.x, n.z);
-            if flat > 1e-4 {
-                position.x += (n.x / flat) * depth;
-                position.z += (n.z / flat) * depth;
+        hit |= pass.sphere(id, world, Vector3 { x: 0.0, y: r, z: 0.0 }, r, 1, d);
+        if hit {
+            for q in &pass.kept[..pass.count] {
+                let into = step.dot(q);
+                if into < 0.0 {
+                    step.add_scaled_vector(q, -into);
+                }
             }
         }
     }
-    d.position = arr(&position);
-    d.velocity = arr(&velocity);
-    d.avoidance = arr(&avoidance);
-    d.grounded = grounded;
+    d.position = arr(&pass.position);
+    d.velocity = arr(&pass.velocity);
+    d.avoidance = arr(&pass.avoidance);
+    d.spin = pass.spin;
+    d.grounded = pass.grounded;
+    d.collision_damage += pass.damage;
+}
+
+/// A collision pass's working state.
+struct Pass {
+    ball: bool,
+    position: Vector3,
+    velocity: Vector3,
+    avoidance: Vector3,
+    spin: f64,
+    grounded: bool,
+    damage: f64,
+    /// The last surface the ball rolled on in this pass (up before one).
+    ground: Vector3,
+    /// The pass's contact normals, as the 2004 game keeps them (ten at most).
+    kept: [Vector3; KEPT],
+    count: usize,
+    forward: Vector3,
+    right: Vector3,
+    /// Spin a contact takes off the ball.
+    friction: f64,
+    /// normal.y above which a contact is ground.
+    slope: f64,
+}
+
+impl Pass {
+    /// The terrain under the feet: a contact while its height there lies
+    /// between the bottom and the top of the ball, its depth that height
+    /// difference times the ground's normal.y.
+    fn terrain(&mut self, world: &mut dyn UnitsWorld, r: f64, d: &Droideka) -> bool {
+        let p = self.position;
+        let Some((height, normal)) = world.ground(p.x, p.z, p.y + 2.0 * r) else { return false };
+        let depth = height - p.y;
+        if !(0.0..=2.0 * r).contains(&depth) {
+            return false;
+        }
+        self.contact(normal, depth * normal.y, false, false, d);
+        true
+    }
+
+    /// One sphere (its centre `at` from the feet, radius r) against the
+    /// polygons it overlaps, the nearest first, each handled at once and
+    /// the search made again from where that left it; each polygon once.
+    fn sphere(&mut self, id: u32, world: &mut dyn UnitsWorld, at: Vector3, r: f64, cache: usize, d: &Droideka) -> bool {
+        let mut done = [0.0; CONTACTS];
+        let mut count = 0;
+        while count < CONTACTS {
+            let mut c = self.position;
+            c.add(&at);
+            let mut best = r - TOUCH;
+            let mut n = Vector3::default();
+            let mut moving = false;
+            let mut polygon = None;
+            world.visit_gathered(id, &c, r, cache, &mut |is_moving, which, tri| {
+                if done[..count].contains(&which) {
+                    return;
+                }
+                let closest = v3(closest_point_to_point(arr(&tri[0]), arr(&tri[1]), arr(&tri[2]), arr(&c)));
+                let distance = closest.distance_to(&c);
+                if distance < best && distance > 1e-5 {
+                    best = distance;
+                    moving = is_moving;
+                    polygon = Some(which);
+                    n.sub_vectors(&c, &closest).divide_scalar(distance);
+                }
+            });
+            let Some(which) = polygon else { break };
+            done[count] = which;
+            count += 1;
+            self.contact(n, r - best, true, moving, d);
+        }
+        count > 0
+    }
+
+    fn keep(&mut self, n: Vector3) {
+        if self.count < KEPT {
+            self.kept[self.count] = n;
+            self.count += 1;
+        }
+    }
+
+    /// n with its part into each contact normal of the pass taken out, and
+    /// the depth grown to match; then the push along it (none past CRUSH).
+    fn clear_of_kept(&self, n: Vector3, depth: f64) -> Vector3 {
+        let (mut m, mut depth) = (n, depth);
+        if depth > CRUSH {
+            return Vector3::default();
+        }
+        for q in &self.kept[..self.count] {
+            let into = m.dot(q);
+            if into < 0.0 {
+                m.add_scaled_vector(q, -into);
+                let length = m.length();
+                if length > 0.0 {
+                    m.divide_scalar(length);
+                    depth /= length;
+                }
+            }
+        }
+        if depth > CRUSH {
+            return Vector3::default();
+        }
+        m.multiply_scalar(depth);
+        m
+    }
+
+    /// One contact: its normal n (toward the droideka) and depth.
+    fn contact(&mut self, n: Vector3, depth: f64, wall: bool, moving: bool, d: &Droideka) {
+        if wall && n.y.abs() < 0.3 {
+            self.avoidance.add(&n);
+        }
+        // Coming into it too fast hurts (collision damage).
+        if !moving {
+            let facing = n.x * self.forward.x + n.z * self.forward.z;
+            self.damage += contact_damage(&d.collision_rule, self.velocity.dot(&n), n.y, facing);
+        }
+        if n.y > self.slope {
+            self.grounded = true;
+        }
+        if !self.ball {
+            if n.y > GROUND {
+                // Ground: lifted onto it.
+                self.velocity.y = 0.0;
+                self.position.y += depth / n.y;
+                self.keep(n);
+            } else if n.y > 0.0 {
+                // A wall: pushed back level.
+                let flat = v8math::hypot(n.x, n.z);
+                let side = Vector3 { x: n.x / flat, y: 0.0, z: n.z / flat };
+                self.position.add_scaled_vector(&side, depth / flat);
+                self.keep(side);
+            } else {
+                // Above it: pushed along the normal, clear of the ground.
+                let push = self.clear_of_kept(n, depth);
+                self.position.add(&push);
+                self.keep(n);
+            }
+            return;
+        }
+        if n.y > BALL_GROUND {
+            self.position.y += depth / n.y;
+        } else {
+            self.position.add_scaled_vector(&n, depth);
+        }
+        // A full bounce off what it moves into.
+        let into = self.velocity.dot(&n);
+        if into < 0.0 {
+            self.velocity.add_scaled_vector(&n, -2.0 * into);
+        }
+        if n.y > self.slope {
+            // Rolling on it: along it as the spin turns the ball.
+            self.velocity.cross_vectors(&self.right, &n).multiply_scalar(TRACTION * self.spin);
+            self.ground = n;
+        } else if n.y < 0.0 {
+            // Under it: pushed along it, clear of the ground and of the
+            // pass's other contacts, never quite back up.
+            let mut m = n;
+            m.add_scaled_vector(&self.ground, -self.ground.dot(&n));
+            let mut depth = depth;
+            let length = m.length();
+            if length > 0.0 {
+                m.divide_scalar(length);
+                depth /= length;
+            }
+            let mut push = self.clear_of_kept(m, depth);
+            if push.y > 0.0 {
+                push.y = v8math::max(push.y - CEILING_GAP, 0.0);
+            }
+            self.position.add(&push);
+            self.keep(m);
+        } else {
+            self.keep(n);
+        }
+        // Every contact costs the ball some spin.
+        self.spin -= v8math::sign(self.spin) * v8math::min(self.spin.abs(), self.friction);
+    }
 }
 
 /// roomToStand(): headroom straight up, and on each of four axes at 1.5 m
@@ -498,7 +688,30 @@ pub fn sample_muzzles(unit: &mut Unit, dt: f64, parts: &mut DroidekaParts) {
         position: v3(d.position),
     };
     rig.sample_muzzles(dt, &state, &parts.clips.view());
+    rig.pose_guns(&[[d.gun_yaw[0], d.gun_pitch[0]], [d.gun_yaw[1], d.gun_pitch[1]]]);
     take_animator(animator, rig);
+}
+
+/// The guns' aimers, `dt` on toward `target` (None: back to their line in
+/// the clip, as when the droideka folds, rolls or unfolds), as the 2004
+/// game's aimers turn them: the store's angles step, and the hidden rig's
+/// blasters turn so the rounds fired this tick leave along them.
+pub fn turn_guns(unit: &mut Unit, dt: f64, target: Option<&Vector3>, parts: &mut DroidekaParts) {
+    let Some(rig) = &mut parts.rig else { return };
+    let d = body(unit);
+    let aimer = crate::rig::droideka_guns::Aimer {
+        yaw_rate: d.gun_rates[0], pitch_rate: d.gun_rates[1], yaw: d.gun_yaw_limits, pitch: d.gun_pitch_limits,
+    };
+    let mut aims = [[d.gun_yaw[0], d.gun_pitch[0]], [d.gun_yaw[1], d.gun_pitch[1]]];
+    rig.aim_guns(&mut aims, d.gun, target, dt, &aimer);
+    d.gun_yaw = [aims[0][0], aims[1][0]];
+    d.gun_pitch = [aims[0][1], aims[1][1]];
+}
+
+/// Whether a droideka's guns follow its aim: not while it folds, rolls or
+/// unfolds.
+pub fn guns_ready(d: &crate::gen::Droideka) -> bool {
+    d.mode < FOLD
 }
 
 /// The store's animator into the rig's.
@@ -537,4 +750,28 @@ pub fn take_animator(a: &mut RigAnimator, rig: &DroidekaRig) {
     }
     a.pivot = arr(&r.pivot);
     a.roll_center = arr(&r.roll_center);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A walking step 17 frames long at AnimationSpeed 2 lasts 17 ticks and
+    // moves the droideka the same distance on every one of them.
+    #[test]
+    fn a_step_moves_the_droideka_on_every_tick() {
+        let frames = 17;
+        let mut data = vec![0.0f32; frames * 7];
+        for i in 0..frames {
+            data[i * 7 + 3] = 1.0;
+            data[i * 7 + 6] = 0.04 * i as f32;
+        }
+        let clip = Clip { frames, fps: 30.0, root_motion: true, tracks: vec![0], data };
+        let d = Droideka { root_index: 0.0, speed: 2.0, ..Default::default() };
+        let tick = 1.0 / 60.0;
+        let steps: Vec<f64> = (0..frames).map(|k| travel(&d, &clip, (k + 1) as f64 * tick) - travel(&d, &clip, k as f64 * tick)).collect();
+        let whole = travel(&d, &clip, frames as f64 * tick) - travel(&d, &clip, 0.0);
+        assert!((whole - 0.04 * 16.0).abs() < 1e-6, "{whole}");
+        assert!(steps.iter().all(|step| (step - whole / frames as f64).abs() < 1e-6), "{steps:?}");
+    }
 }

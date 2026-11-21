@@ -11,6 +11,7 @@ use super::world::{ArcTarget, CombatWorld, DamageInfo, LockPick, Presentation};
 use crate::gen::{Air, Attacker, Combat, Kick, PendingShot, Posture, Seen, Unit, UnitBody};
 use crate::store::{DefId, Nullable};
 use jsrt::conv::{js_max, js_min};
+use bfe_presentation::cameras::soldier::Section;
 use std::rc::Rc;
 use three::Vector3;
 
@@ -18,6 +19,9 @@ const AIM_REACH: f64 = 60.0;
 const DROIDEKA_REACH: f64 = 512.0;
 const RESPAWN_DELAY: f64 = 4.0;
 const THROWN_SPEED: f64 = 2.0;
+/// The speed a blast that kills a soldier on foot sends his body away from it
+/// (the 2004 game adds it whether or not the explosion pushes).
+const BLAST_DEATH_SPEED: f64 = 5.0;
 const KICK_RATE: f64 = 10.0;
 const KICK_FADE: f64 = 20.0;
 // PlayerCombat.updateKick keeps the original exponential fade constants.
@@ -47,7 +51,7 @@ fn gun_of(p: Posture) -> [f64; 3] {
 
 /// BLAST_BODY: the sphere a blast measures to, by stance
 /// (its centre above the feet, its radius) and the sight point's height.
-fn blast_body(p: Posture) -> [f64; 3] {
+pub(crate) fn blast_body(p: Posture) -> [f64; 3] {
     match p {
         Posture::Stand => [1.0, 1.4626, 1.4],
         Posture::Crouch => [0.75, 1.1023, 0.6],
@@ -65,7 +69,36 @@ pub struct CombatDefs {
 }
 
 #[derive(Clone, Debug, Default)]
-struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId> }
+struct ClassFacts { add_health: f64, walkerdroid: bool, loadout:Vec<DefId>, cameras: Option<[Section; 6]>, sphere: Option<ModelSphere> }
+
+/// What a blast and a mine's trigger measure a droideka to: the sphere
+/// around its model box, carried with its body (the centre in the body's
+/// frame: x to its left, z ahead), the same whether it stands or rolls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct ModelSphere { pub center: [f64; 3], pub radius: f64 }
+
+impl ModelSphere {
+    /// Where its centre is for a body at `position` facing `yaw`.
+    pub(crate) fn carried(&self, position: [f64; 3], yaw: f64) -> [f64; 3] {
+        let [x, y, z] = self.center;
+        let (sin, cos) = v8math::sin_cos(yaw);
+        [position[0] + cos * x + sin * z, position[1] + y, position[2] - sin * x + cos * z]
+    }
+}
+
+/// The sphere of a class's model box (`bounds`: its lowest and highest
+/// corners): the box's centre and half its diagonal.
+fn model_sphere(bounds: &Js) -> Option<ModelSphere> {
+    let (low, high) = (bounds.at(0), bounds.at(1));
+    let corner = |c: &Js| [c.at(0).num(), c.at(1).num(), c.at(2).num()];
+    let (low, high) = (corner(low), corner(high));
+    if !low.iter().chain(&high).all(|v| v.is_finite()) {
+        return None;
+    }
+    let size = [high[0] - low[0], high[1] - low[1], high[2] - low[2]];
+    let center = [(low[0] + high[0]) * 0.5, (low[1] + high[1]) * 0.5, (low[2] + high[2]) * 0.5];
+    Some(ModelSphere { center, radius: 0.5 * (size[0] * size[0] + size[1] * size[1] + size[2] * size[2]).sqrt() })
+}
 
 #[derive(Default)]
 pub struct Scratch {
@@ -103,8 +136,17 @@ impl CombatDefs {
         // Resolve its handles now instead of collecting a Vec on each spawn.
         let list = obj.get("weapons");
         let loadout = (0..list.len()).filter_map(|i| list.at(i).obj().and_then(|o| o.def).map(|(_,d)| d)).collect();
+        // The class's cameras as admission parsed them (units::class::camera_def):
+        // STAND, CROUCH, PRONE, then their ZOOM sections, ten numbers each.
+        let numbers = obj.get("cameras");
+        let cameras = (numbers.len() == 60).then(|| std::array::from_fn(|k| {
+            let n = |j: usize| numbers.at(k * 10 + j).num();
+            Section { eye: [n(0), n(1), n(2)], center: [n(3), n(4), n(5)], offset: [n(6), n(7), n(8)], tilt: n(9) }
+        }));
+        let walkerdroid = obj.get("base").is_str("walkerdroid");
+        let sphere = if walkerdroid { model_sphere(obj.get("bounds")) } else { None };
         self.facts[i] = ClassFacts {
-            add_health:obj.get("AddHealth").num(),walkerdroid:obj.get("base").is_str("walkerdroid"),loadout,
+            add_health:obj.get("AddHealth").num(),walkerdroid,loadout,cameras,sphere,
         };
         self.classes[i] = Some(obj);
     }
@@ -115,6 +157,12 @@ impl CombatDefs {
 
     /// A class's loadout (`def.weapons || []`), as weapon classes.
     pub fn loadout(&self, id: DefId) -> &[DefId] { &self.facts[id.0 as usize].loadout }
+
+    /// A droideka class's sphere about its model box, read once as the class
+    /// is prepared; None for any other class, or without a box.
+    pub(crate) fn model_sphere(&self, id: DefId) -> Option<ModelSphere> {
+        self.facts.get(id.0 as usize).and_then(|facts| facts.sphere)
+    }
 }
 
 /// A trigger edge a network player's press carries (unit.networkShot or
@@ -456,21 +504,68 @@ fn network_shot_direction(u: &Unit, edges: &Edges, dir: &mut Vector3, channel: f
     }
 }
 
-/// networkShotTarget(owner, eye, target, channel).
-// PlayerCombat converges the sampled press direction from its current eye.
-// This target is separate from the later muzzle's actual origin.
-// Keeping both points preserves close-range parallax for instant shots.
-// No historical body pose is copied into the live Unit.
-fn network_shot_target(u: &Unit, edges: &Edges, eye: &Vector3, target: &mut Vector3, channel: f64) {
-    if let Some((yaw, pitch)) = edge_aim(u, edges, channel) {
-        let reach = target.distance_to(eye);
-        if !reach.is_finite() || reach <= 0.0 {
-            return;
-        }
-        let (sin, cos) = v8math::sin_cos(pitch);
-        let (sy, cy) = v8math::sin_cos(yaw);
-        target.set(eye.x + sy * cos * reach, eye.y + sin * reach, eye.z + cy * cos * reach);
+/// From a gun to the point it converges on, for a world without the rig's
+/// turning guns. A surface nearer than the barrels (the droideka backed
+/// against a wall) never turns a shot back through the droideka: it fires
+/// straight along the aim then.
+fn gun_line(gun: &Vector3, target: &Vector3, forward: &Vector3) -> Vector3 {
+    let mut dir = Vector3::default();
+    dir.sub_vectors(target, gun).normalize();
+    if dir.dot(forward) <= 0.0 { *forward } else { dir }
+}
+
+/// The point a droideka's guns converge on, and the aim it lies along, as
+/// the 2004 game finds it after the droideka moved. A player's: the first
+/// thing within 512 m along the line his reticle sits on (see
+/// `bfe_presentation::aim::camera_line`: the chase camera's line from its
+/// rest place, level with the eye; the eye's own line in first person or
+/// zoomed), soldiers met where his screen showed them; the point 512 m out
+/// when nothing is there. A bot's: along its aim as far as its quarry's aim
+/// point (512 m without a quarry).
+fn droideka_target(c: &Combat, u: &Unit, edges: &Edges, channel: f64, world: &mut dyn CombatWorld) -> (Vector3, Vector3) {
+    let UnitBody::Droideka(d) = &u.soldier else { unreachable!("a droideka's target for a soldier") };
+    let eye = v(c.origin);
+    if !u.human || matches!(c.aim_override, Nullable::Value(_)) {
+        let direction = v(c.shot_dir);
+        let reach = world.bot_target_point().map_or(DROIDEKA_REACH, |point| point.distance_to(&eye));
+        let mut target = eye;
+        target.add_scaled_vector(&direction, reach);
+        return (target, direction);
     }
+    let (yaw, pitch) = edge_aim(u, edges, channel).unwrap_or((d.aim_yaw, d.aim_pitch));
+    let stand = bfe_presentation::cameras::soldier::Section { eye: [0.0; 3], center: d.track_center, offset: d.track_offset, tilt: d.track_tilt };
+    let eyes = c.first_person || c.zoom_step > 0.0;
+    let (origin, direction) = bfe_presentation::aim::camera_line::<crate::cameras::HostMath>(v(d.position), yaw, pitch, eye, (!eyes).then_some(&stand));
+    let reach = world.aim_reach(u, &origin, &direction, DROIDEKA_REACH, channel);
+    let mut target = origin;
+    target.add_scaled_vector(&direction, reach);
+    (target, direction)
+}
+
+/// A soldier player's shot converged on his crosshair's point, as the 2004
+/// game converges every round he fires in third person: the first thing
+/// within 60 m along the ray from `crosshair_start` (the posture's camera,
+/// its ZOOM section when zoomed), soldiers met where his screen showed them;
+/// the ray's end when nothing is there. None in first person, zoomed with a
+/// primary weapon whose zoom is first person (`primary`, the current one, as
+/// the client's view and the 2004 game decide it, whatever weapon fires),
+/// for bots and for a class without cameras: those fire along the aim.
+fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, primary: Option<usize>, channel: f64, world: &mut dyn CombatWorld) -> Option<Vector3> {
+    let UnitBody::Soldier(s) = &u.soldier else { return None };
+    let zoomed = c.zoom_step > 0.0;
+    let scoped = |p: usize| c.weapons[p].level(class_of(c, defs, p)).get(K::ZoomFirstPerson).truthy();
+    if !u.human || matches!(c.aim_override, Nullable::Value(_)) || c.first_person || zoomed && primary.is_some_and(scoped) {
+        return None;
+    }
+    let cameras = defs.facts.get(u.class_def.0 as usize)?.cameras.as_ref()?;
+    let posture = if s.air.is_some() { Posture::Stand } else { s.posture };
+    let section = &cameras[posture as usize + if zoomed { 3 } else { 0 }];
+    let (start, direction) = bfe_presentation::aim::crosshair_start::<crate::cameras::HostMath>(v(s.position), s.aim_yaw, s.aim_pitch, section);
+    let mut target = start;
+    target.add_scaled_vector(&direction, world.aim_reach(u, &start, &direction, AIM_REACH, channel));
+    let mut dir = Vector3::default();
+    dir.sub_vectors(&target, &v(c.origin)).normalize();
+    (dir.dot(&direction) > 0.0).then_some(dir)
 }
 
 /// regenerate(combat, dt).
@@ -596,6 +691,15 @@ pub fn update_buffered(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs,
         }
     }
     aim(c, &b, eye_height);
+    // A droideka's guns turn every tick toward the point its aim is on, as
+    // the 2004 game's aimers do (back to rest while it folds, rolls or
+    // unfolds); its rounds leave along them.
+    if let UnitBody::Droideka(d) = &u.soldier {
+        let ready = crate::units::droideka::guns_ready(d);
+        let (target, _) = droideka_target(c, u, edges, 0.0, world);
+        c.target = a(&target);
+        world.turn_guns(u, ready.then_some(&target), dt);
+    }
     // A repair weapon's lock, the trigger held widening it.
     let fixer = [current(c, defs, 0), current(c, defs, 1)].into_iter().flatten().find(|&i| c.weapons[i].repair(&defs.weapons));
     let fix_held = match fixer {
@@ -797,35 +901,12 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
         arc(c, u, defs, shot, &level.arc, edges, world, arc_scratch);
         return;
     }
-    // Collision starts at the gameplay gun origin.
-    let mut dir = v(c.shot_dir);
-    let mut from = v(c.origin);
-    // A droideka's guns take turns, each firing at the aim point.
-    let gun = if matches!(u.soldier, UnitBody::Droideka(_)) { world.next_gun(u, c) } else { None };
-    if let Some(g) = gun {
-        from = g;
-        dir.sub_vectors(&v(c.target), &g).normalize();
-        // A close surface between the eye and barrels cannot make a shot turn
-        // back through the droideka: keep firing into the forward hemisphere.
-        if dir.dot(&v(c.aim_dir)) <= 0.0 {
-            dir = v(c.aim_dir);
-        }
-    }
     let channel = c.weapons[i].channel(&defs.weapons);
-    network_shot_direction(u, edges, &mut dir, channel);
-    // The spread (and a pattern's offset, and the kick): turn about the
-    // vertical, then tip about the horizontal.
-    dir.apply_axis_angle(&UP, yaw);
-    let mut side = Vector3 { x: dir.z, y: 0.0, z: -dir.x };
-    side.normalize();
-    dir.apply_axis_angle(&side, -(pitch + c.kick.offset));
-    let level = c.weapons[i].level(class_of(c, defs, i));
-    let elevate = level.get(K::ShotElevate).clone();
-    if elevate.truthy() {
-        dir.y += elevate.num();
-        dir.normalize();
-    }
-    if gun.is_some() {
+    // A droideka's guns take turns, each round leaving its barrel along its
+    // gun, which this tick's aimer turned toward the point under the reticle
+    // (`c.target`; its press's aim, for a network player's press).
+    if matches!(u.soldier, UnitBody::Droideka(_)) && world.next_gun(u, c).is_some() {
+        let forward = v(c.shot_dir);
         let selected = match &u.soldier {
             UnitBody::Droideka(d) => d.last_gun.as_ref().map(|g| (g.index, g.barrel)),
             _ => None,
@@ -842,17 +923,41 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
             selected_index: index,
             selected_barrel: barrel,
             target: c.target,
-            forward: c.aim_dir,
+            forward: a(&forward),
             kick: c.kick.offset,
         };
         if c.defer_muzzles {
             c.pending_muzzles.push(payload);
         } else {
-            emit_gun_round(c, u, defs, &payload, edges, world);
+            emit_gun_round(c, u, defs, &payload, world);
         }
     } else {
+        // Collision starts at the gameplay gun origin. A press flies along
+        // the aim its player's screen converged; a soldier's held round
+        // converges here on his crosshair's point.
+        let mut dir = v(c.shot_dir);
+        if edge_aim(u, edges, channel).is_some() {
+            network_shot_direction(u, edges, &mut dir, channel);
+        } else if let Some(converged) = {
+            let primary = current(c, defs, 0);
+            crosshair_aim(c, u, defs, primary, channel, world)
+        } {
+            dir = converged;
+        }
+        // The spread (and a pattern's offset, and the kick): turn about the
+        // vertical, then tip about the horizontal.
+        dir.apply_axis_angle(&UP, yaw);
+        let mut side = Vector3 { x: dir.z, y: 0.0, z: -dir.x };
+        side.normalize();
+        dir.apply_axis_angle(&side, -(pitch + c.kick.offset));
+        let level = c.weapons[i].level(class_of(c, defs, i));
+        let elevate = level.get(K::ShotElevate).clone();
+        if elevate.truthy() {
+            dir.y += elevate.num();
+            dir.normalize();
+        }
         let thrown = c.weapons[i].thrown(&defs.weapons);
-        world.fire_round(&from, &dir, shot, !thrown, None, u, c);
+        world.fire_round(&v(c.origin), &dir, shot, !thrown, None, u, c);
     }
     // Each round kicks the aim.
     let level = c.weapons[i].level(class_of(c, defs, i));
@@ -865,16 +970,16 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
 
 /// PlayerCombat.flushMuzzles with a retained snapshot for synchronous effects.
 // PlayerCombat.flushMuzzles runs after Droideka's hidden aimer update.
-// Pending shots retain their original weapon, spread and captured trigger edge.
+// Pending shots retain their weapon, spread and the point their press aimed at.
 // Use the newly posed barrel while keeping that shot's earlier gameplay facts.
 // The shared buffer is cleared without releasing its construction capacity.
 // PlayerCombat does not recollect or reseed shots during this flush.
 // Its pending records describe work already admitted by Arsenal.update.
 // A later barrel pose changes only the muzzle service's sampled frame.
 // The shot buffer's lifetime ends after every retained emission completes.
-pub fn flush_muzzles_buffered(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, edges: &Edges, world: &mut dyn CombatWorld, pending: &mut Vec<PendingShot>) {
+pub fn flush_muzzles_buffered(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, world: &mut dyn CombatWorld, pending: &mut Vec<PendingShot>) {
     pending.clear(); pending.extend_from_slice(&c.pending_muzzles);
-    for payload in pending.iter() { emit_gun_round(c, u, defs, payload, edges, world); }
+    for payload in pending.iter() { emit_gun_round(c, u, defs, payload, world); }
     c.pending_muzzles.clear();
 }
 
@@ -883,18 +988,11 @@ pub fn flush_muzzles_buffered(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, e
 // The muzzle points at the retained aim target before spread is applied.
 // Alternate barrels advance once per emitted round in the original order.
 // F1 receives native service handles rather than a callback into its export.
-fn emit_gun_round(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, p: &PendingShot, edges: &Edges, world: &mut dyn CombatWorld) {
+fn emit_gun_round(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, p: &PendingShot, world: &mut dyn CombatWorld) {
     let Some(from) = world.gun_at((p.selected_index, p.selected_barrel)) else { return };
     let i = p.weapon as usize;
-    let channel = c.weapons[i].channel(&defs.weapons);
-    let mut target = v(p.target);
-    network_shot_target(u, edges, &v(c.origin), &mut target, channel);
-    let forward = v(p.forward);
-    let mut dir = Vector3::default();
-    dir.sub_vectors(&target, &from).normalize();
-    if dir.dot(&forward) <= 0.0 {
-        dir = forward;
-    }
+    let mut dir = world.gun_along((p.selected_index, p.selected_barrel))
+        .unwrap_or_else(|| gun_line(&from, &v(p.target), &v(p.forward)));
     dir.apply_axis_angle(&UP, p.yaw);
     let mut side = Vector3 { x: dir.z, y: 0.0, z: -dir.x };
     side.normalize();
@@ -1065,7 +1163,8 @@ pub fn explode(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, explosion: &Js, 
 // The caller owns live-registry traversal and depth-first fan-out ordering.
 pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs,
     explosion: &BlastPacket, health: HealthScale, position: &Vector3, owner: Attacker, scale: f64, world: &mut W) -> bool {
-    let walkerdroid = defs.facts[u.class_def.0 as usize].walkerdroid;
+    let facts = &defs.facts[u.class_def.0 as usize];
+    let walkerdroid = facts.walkerdroid;
     let was_dead = c.dead;
     // Nothing is left to throw of a droid that went up in pieces, and a
     // droideka's hull never takes the infantry launch impulse.
@@ -1073,16 +1172,28 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         return false;
     }
     let b = body(u);
-    let stance = if was_dead {
-        Posture::Prone
-    } else if b.air.is_some() {
-        Posture::Stand
-    } else {
-        b.posture
+    let (center, radius, sight_point) = match facts.sphere.filter(|_| walkerdroid) {
+        // A droideka is measured to the sphere around its model, standing or
+        // rolled, and seen at that sphere's centre.
+        Some(sphere) => {
+            let [x, y, z] = sphere.carried([b.position.x, b.position.y, b.position.z], b.aim_yaw);
+            let center = Vector3 { x, y, z };
+            (center, sphere.radius, center)
+        }
+        None => {
+            let stance = if was_dead {
+                Posture::Prone
+            } else if b.air.is_some() {
+                Posture::Stand
+            } else {
+                b.posture
+            };
+            let [middle, radius, sight] = blast_body(stance);
+            let mut center = b.position;
+            center.y += middle;
+            (center, radius, Vector3 { x: b.position.x, y: b.position.y + sight, z: b.position.z })
+        }
     };
-    let [middle, radius, sight] = blast_body(stance);
-    let mut center = b.position;
-    center.y += middle;
     let mut away = Vector3::default();
     away.sub_vectors(&center, position);
     let span = away.length();
@@ -1095,8 +1206,7 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         return false;
     }
     // Terrain or a building between the blast and his sight point shields him.
-    let sight_point = Vector3 { x: b.position.x, y: b.position.y + sight, z: b.position.z };
-    if blast_blocked(world, position, &sight_point) {
+    if world.impact_blocked(position, &sight_point) {
         return false;
     }
     // The owned publisher needs only rows whose values changed. A blast can
@@ -1111,14 +1221,34 @@ pub fn explode_prepared<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, d
         c.blow_apart = true;
         push = 0.0;
     }
+    // A rider (held by an animated prop or in a seat) is neither shoved nor
+    // pushed, alive or killed: one the blast kills leaves by his own path.
+    // Dying gives up the seat inside the damage step, so whether he rode is
+    // read first.
+    let rider = c.mounted == Some(true) || u.seat.is_some();
     if !was_dead {
         let generic = explosion.hit.shield;
         let info = DamageInfo { explosion: true, amount: Some(damage), typed: Some(typed), generic: Some(generic), known: Some(false), point: Some(None) };
         damage_with(c, u, defs, damage * typed, damage * generic, Some(*position), owner, &info, world);
+        // A soldier on foot this blast killed is sent off from it along the
+        // line from the blast to his feet, whether or not the explosion pushes.
+        if c.dead && !rider && !c.blow_apart {
+            if let UnitBody::Soldier(s) = &mut u.soldier {
+                let mut off = Vector3::default();
+                if off.sub_vectors(&b.position, position).length() > 0.0 {
+                    off.normalize();
+                    let mut velocity = v(s.velocity);
+                    velocity.add_scaled_vector(&off, BLAST_DEATH_SPEED);
+                    s.velocity = a(&velocity);
+                }
+            }
+        }
     }
     // Thrown whole, alive or killed by this blast; a droid that blew apart
-    // at its death has no body left; droidekas never take the push.
-    if push > 0.0 && c.mounted != Some(true) && !(c.dead && c.blow_apart) && !walkerdroid {
+    // at its death has no body left; droidekas never take the push, nor a
+    // rider, nor a living soldier already flying from an earlier one.
+    let flying = b.air == Some(Air::Thrown) && !c.dead;
+    if push > 0.0 && !rider && !(c.dead && c.blow_apart) && !walkerdroid && !flying {
         if let UnitBody::Soldier(s) = &mut u.soldier {
             let mut velocity = v(s.velocity);
             velocity.add_scaled_vector(&away, push);
@@ -1163,25 +1293,6 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
         return (outer - distance) / (outer - inner);
     }
     0.0
-}
-
-/// blastBlocked(collision, position, target): terrain or
-/// a building (never a moving body) between them.
-// PlayerCombat.explode uses static-only cover for its line of sight.
-// A near-zero ray cannot normalize safely and therefore stays unobstructed.
-// The final tolerance avoids treating the victim's own surface as cover.
-// Moving hulls follow their separate blast path and do not shelter this ray.
-fn blast_blocked<W: ImpactWorld + ?Sized>(world: &mut W, position: &Vector3, target: &Vector3) -> bool {
-    let mut sight = Vector3::default();
-    let span = sight.sub_vectors(target, position).length();
-    if span < 1e-3 {
-        return false;
-    }
-    sight.divide_scalar(span);
-    match world.impact_cast(position, &sight, span, true) {
-        Some(hit) => hit.distance < span - 0.05,
-        None => false,
-    }
 }
 
 /// damage(amount, onShield, source, attacker, info).

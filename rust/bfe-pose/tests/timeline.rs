@@ -136,6 +136,17 @@ fn a_shove_the_units_speed_does_not_explain_is_drawn_as_a_slide() {
     let walking=shown(&mut t,16.5,6.0)[1];assert!((walking-1.65).abs()<1e-9,"{walking}");
 }
 #[test]
+fn a_droidekas_push_out_of_a_wall_is_drawn_as_a_slide_too() {
+    // Unfolding against a wall, a droideka is pushed out of it in one tick
+    // (0.9 m here): another player sees it slide there as a shoved soldier
+    // does, never more than 0.17 m in a tick.
+    let mut t=shoved(0.0,100.0,2.0,0.9);
+    assert_eq!(shown(&mut t,15.0,5.0)[1],7.0);
+    let mut last=7.0;
+    for n in 0..=96 {let x=shown(&mut t,15.0+n as f64/12.0,5.0)[1];assert!(x>=last && x-last<1.5*0.9/8.0/12.0+1e-9 && x<=7.9,"{n}: {last} -> {x}");last=x;}
+    assert_eq!(shown(&mut t,30.0,5.0)[1],7.9);
+}
+#[test]
 fn teleports_long_steps_the_dead_and_hulls_are_not_slid() {
     // Marked by the server (a teleport, a seat change, a vehicle exit).
     let mut marked=shoved(1.0,100.0,0.0,1.0);

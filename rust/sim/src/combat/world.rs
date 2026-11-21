@@ -93,6 +93,13 @@ pub trait CombatWorld: WeaponDraws {
     /// cast(origin, direction, far, out, null, staticOnly).
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
 
+    /// Whether terrain or a building shields `to` from a blast at `from`. A
+    /// world without its own rule casts the fixed world and forgives the
+    /// last 5 cm; the battle's world tests the terrain as the 2004 game does.
+    fn blast_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        sight_cast_blocked(from, to, |origin, direction, far| self.cast(origin, direction, far, true))
+    }
+
     // ---- His recon droids, a network player's.
     /// remoteOf(weapon): the live droid the weapon at `weapon` launched.
     fn remote_of(&mut self, weapon: u32) -> Option<Droid>;
@@ -213,6 +220,27 @@ pub trait CombatWorld: WeaponDraws {
     fn next_gun(&mut self, unit: &mut Unit, combat: &mut Combat) -> Option<Vector3>;
     /// gunAt(out, selected).
     fn gun_at(&mut self, selected: (f64, f64)) -> Option<Vector3>;
+    /// How far along a player's aim line the first thing his shots can meet
+    /// lies: terrain, buildings, props and hulls, then soldiers and droids
+    /// where his screen showed them (at the view of the weapon's `channel`),
+    /// his own body left out; `far` when nothing is in the way. A world
+    /// without collision has nothing.
+    fn aim_reach(&mut self, _unit: &Unit, _origin: &Vector3, _direction: &Vector3, far: f64, _channel: f64) -> f64 {
+        far
+    }
+    /// A bot droideka's quarry's aim point (its weapon's target), if any.
+    fn bot_target_point(&mut self) -> Option<Vector3> {
+        None
+    }
+    /// A droideka's guns a tick (`dt`) on toward `target`, on its hidden gun
+    /// rig (None: back to their line in the clip). A world without the rig
+    /// turns nothing.
+    fn turn_guns(&mut self, _unit: &mut Unit, _target: Option<&Vector3>, _dt: f64) {}
+    /// The direction the gun `selected` (gunAt's) points along now; None in
+    /// a world without the rig's guns, whose rounds go straight at the target.
+    fn gun_along(&mut self, _selected: (f64, f64)) -> Option<Vector3> {
+        None
+    }
     /// (`left`: the shield's value after it took `taken`, as the hook finds it.)
     fn shield_hit(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
 
@@ -226,3 +254,18 @@ pub trait CombatWorld: WeaponDraws {
 
 /// `Admission` a world answers for a weapon with no authority over it.
 pub const ADMITTED: Admission = Admission::Yes;
+
+/// A blast's sight line by one cast of the fixed world: shielded by a hit
+/// short of the last 5 cm. A line shorter than 1 mm is never shielded.
+pub fn sight_cast_blocked(from: &Vector3, to: &Vector3, mut cast: impl FnMut(&Vector3, &Vector3, f64) -> Option<CastHit>) -> bool {
+    let mut sight = Vector3::default();
+    let span = sight.sub_vectors(to, from).length();
+    if span < 1e-3 {
+        return false;
+    }
+    sight.divide_scalar(span);
+    match cast(from, &sight, span) {
+        Some(hit) => hit.distance < span - 0.05,
+        None => false,
+    }
+}

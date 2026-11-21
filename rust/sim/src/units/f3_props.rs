@@ -565,9 +565,16 @@ impl live::World for QueryWorld<'_, '_> {
     // blastBlocked ignores the victim's current collision look. Repair LOS
     // instead accepts a hit owned by the candidate itself. The native world
     // ray retains that body identity, including a different collision look.
-    fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64, ignore: Option<usize>, static_only: bool, _: live::Out) -> Option<live::Hit> {
+    fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64, ignore: Option<usize>, static_only: bool, out: live::Out) -> Option<live::Hit> {
         let ignored = ignore.and_then(|slot| f3::props_in(&mut self.w.units).body_slots.get(slot).copied().flatten())
             .and_then(|i| f3::props_in(&mut self.w.units).entries[i].bodies.into_iter().flatten().find(|r| Some(r.slot as usize) == ignore));
+        if matches!(out, live::Out::Sight) && static_only {
+            // A blast's line of sight, the terrain tested as the 2004 game
+            // tests it: a blocked line answers with a hit at its start.
+            let world = f3::collision_world_in(&self.w.units);
+            let to = [origin.x + direction.x * far, origin.y + direction.y * far, origin.z + direction.z * far];
+            return super::native::blast_sight_blocked_in(self.w, world, a(origin), to, ignored).then_some(live::Hit { distance: 0.0, owner: None });
+        }
         super::native::ordnance_cast_in(self.w, f3::collision_world_in(&self.w.units), a(origin), a(direction), far, ignored, static_only, false).map(|hit| {
             let owner = hit.body.and_then(|b| f3::props_in(&mut self.w.units).body_slots.get(b.slot as usize).copied().flatten()
                 .or_else(|| super::f3_hulls::body_index_in(self.w, b).map(|i| f3::props_in(&mut self.w.units).entries.len() + i)));

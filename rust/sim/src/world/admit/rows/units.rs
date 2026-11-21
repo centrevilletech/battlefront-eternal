@@ -269,14 +269,14 @@ pub fn unit_items(def: &Value, class: DefId, explosion: Option<u32>,
         ammo_effect: intern(text_truthy(def,"AmmoGainEffect","Powerup_red")) })
 }
 
-/// F3Items.flush uses a body-qualified key independent of lazy owner numbering.
+/// F3Items.flush keys a dispenser's list by the character playing the body
+/// (its own life when nobody does), with the host's one key text, so a
+/// body bound here and bound again by the host name the same list.
 /// No call to ItemsWorld.ownerIds is allowed during cold construction.
-pub fn dispenser_binding(key: F3UnitKey, weapon: DefId, level: u32, def: &Value,
+pub fn dispenser_binding(key: F3UnitKey, character: Option<Ref<crate::gen::Character>>, weapon: DefId, level: u32, def: &Value,
     mut intern: impl FnMut(&str) -> StrId) -> F3DispenserBinding {
     let name = def.get("class").and_then(Value::as_str).unwrap_or("");
-    // The life word is a JavaScript Number; use its string conversion for
-    // the same key spelling, including signed zero and exponential notation.
-    let owned_key = format!("{name}:body:{}:{}:{}", key.slot,key.generation,bfe_content::js::number_to_string(key.life));
+    let owned_key = crate::items::owned_key_text(name, character, key.slot, key.generation, key.life);
     F3DispenserBinding { key, weapon, level, name: intern(name), owned_key: intern(&owned_key) }
 }
 
@@ -828,7 +828,7 @@ pub fn prepare_unit_services(cx:&mut super::Cx<'_>,class:&ClassDef,_key:F3UnitKe
 
 /// Flush per-life dispenser names after adoption, never while preparing its
 /// class. Resolving a base weapon here reads the earlier combat id only.
-pub fn dispenser_calls(cx:&mut super::Cx<'_>,class:&ClassDef,key:F3UnitKey)->Result<super::Calls,AdmitError> {
+pub fn dispenser_calls(cx:&mut super::Cx<'_>,class:&ClassDef,key:F3UnitKey,character:Option<Ref<crate::gen::Character>>)->Result<super::Calls,AdmitError> {
     let (_,calls)=super::combat::with_bindings(cx,Stage::Player,|bindings,strings| {
         let mut calls=Vec::new();
         if let Some(guns)=class.record.get("weapons").and_then(Value::as_array) {
@@ -838,7 +838,7 @@ pub fn dispenser_calls(cx:&mut super::Cx<'_>,class:&ClassDef,key:F3UnitKey)->Res
                 let weapon=bindings.combat.weapons.get(gun).ok_or_else(||error("dispenser weapon was not prepared"))?;
                 for (level,def) in weapon_levels(gun)?.iter().enumerate() {
                     if def.get("item").is_some_and(Value::truthy) {
-                        let row=dispenser_binding(key.clone(),weapon,level as u32,def,|name|strings.intern_str(name));
+                        let row=dispenser_binding(key.clone(),character,weapon,level as u32,def,|name|strings.intern_str(name));
                         calls.push(export(Entry::Dispenser(row),strings)?);
                     }
                 }

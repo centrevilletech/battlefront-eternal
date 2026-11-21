@@ -22,7 +22,7 @@ macro_rules! cold_fields {
             combat: crate::combat::module::CombatOwner::new(),
             ordnance: crate::ordnance::module::OrdnanceOwnerState::new(),
             cameras: crate::cameras::Owner::new(),
-            page_body: crate::units::page_body::Owner::new(), warmed: false,
+            warmed: false,
         }
     };
 }
@@ -64,7 +64,6 @@ pub struct World {
     pub(crate) combat: crate::combat::module::CombatOwner,
     pub(crate) ordnance: crate::ordnance::module::OrdnanceOwnerState,
     pub(crate) cameras: crate::cameras::Owner,
-    pub(crate) page_body: crate::units::page_body::Owner,
     pub(crate) warmed: bool,
 }
 impl World {

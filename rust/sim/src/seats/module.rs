@@ -221,8 +221,11 @@ impl UnitsWorld for Ground<'_> {
         legacy_ground_cast(origin,direction,far)
     }
     fn visit_gathered(&mut self, _: u32, _: &Vector3, _: f64, _: usize,
-        _: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        _: &mut dyn FnMut(bool, f64, &[Vector3; 3])) {
         unreachable!("a spawn gathers nothing")
+    }
+    fn ground(&mut self, _: f64, _: f64, _: f64) -> Option<(f64, Vector3)> {
+        unreachable!("a spawn only casts")
     }
     fn seat_exposed(&mut self, _id: u32, _unit: &Unit) -> bool {
         unreachable!("a spawn asks only for the ground")

@@ -91,6 +91,10 @@ pub struct FirstPerson {
     pub was_active: bool,
     pub model: usize,
     action: usize,
+    // The action under way is a throw: it plays to its end before the
+    // hands go down for the next weapon, as a throw can end (a dispenser's
+    // that lets go at once) before its clip does.
+    tossing: bool,
     forced_slot: usize,
     forced_left: f64,
     was_air: u32,
@@ -113,6 +117,7 @@ impl FirstPerson {
             was_active: false,
             model: NONE,
             action: NONE,
+            tossing: false,
             forced_slot: NONE,
             forced_left: 0.0,
             was_air: 0,
@@ -178,6 +183,7 @@ impl FirstPerson {
             return;
         }
         self.holding = weapon;
+        self.tossing = event != 0;
         if event == 2 {
             self.action = SHOOT;
             self.start(SHOOT, self.clip_for(SHOOT, weapon, t, weapons), false, rig);
@@ -318,17 +324,19 @@ impl FirstPerson {
             }
         }
         let slot;
-        if shown != self.holding {
+        let playing = self.action != NONE && self.clip != NONE && self.time < clips[self.clip].duration;
+        if shown != self.holding && !(self.tossing && playing) {
             slot = HANDS_DOWN;
             if self.slot == HANDS_DOWN && self.blend <= 0.0 {
                 self.holding = shown;
                 self.action = NONE;
+                self.tossing = false;
             }
-        } else if self.action != NONE && self.clip != NONE && self.time < clips[self.clip].duration
-        {
+        } else if playing {
             slot = self.action;
         } else {
             self.action = NONE;
+            self.tossing = false;
             slot = if self.holding != NONE && weapons[self.holding].reloading {
                 RELOAD
             } else if self.forced_slot != NONE {

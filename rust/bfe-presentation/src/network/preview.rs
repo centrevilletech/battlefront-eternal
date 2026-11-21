@@ -2,7 +2,7 @@
 //! smoothing join the existing page-network presentation frame. Events are
 //! inert generated records; no input or resource callback runs in this phase.
 use crate::network_layout::{
-    net_limits as lim, net_outbound_command as oc, net_outbound_look as ol, net_preview_air as air, net_preview_command as c,
+    net_limits as lim, net_preview_air as air, net_preview_command as c,
     net_preview_frame as f, net_preview_look as l, net_preview_output as o, net_preview_posture as posture, net_smooth_command as sc,
     net_smooth_input as si, net_smooth_kind as kind, net_smooth_output as so,
 };
@@ -217,76 +217,6 @@ impl Phase {
                     + arc(*yaw - a[f::HULL_YAW], a[f::VEHICLE_WRAP_YAW] != 0., a[f::VEHICLE_ARC_LOW], a[f::VEHICLE_ARC_HIGH]);
             }
         }
-    }
-    // commandBodyAim ran inside the fire transport callback. Its counts already
-    // cross with OutboundCommand, so derive the body angles there without a
-    // second call or a temporary Soldier facade. Encoding consumes this result.
-    pub fn command_aim(&self, words: &[f64], numbers: &mut [f64]) {
-        use crate::network_layout::net_outbound as out;
-        // This small stack copy permits the command's own sensitivity and
-        // dead-body semantics without mutating the display frame's facts.
-        // Its pointer samples are already in the transport exchange and are
-        // consumed individually, preserving pitch clamps across reversals.
-        let mut facts = [0.; f::STRIDE];
-        facts.copy_from_slice(&self.frame);
-        numbers[out::NEEDS_REACH]=0.;
-        if facts[f::ENABLED] == 0. {
-            return;
-        }
-        let mut yaw = facts[f::OWN_YAW];
-        let mut pitch = facts[f::OWN_PITCH];
-        facts[f::DEAD] = 0.;
-        facts[f::SCALE] = facts[f::COMMAND_SCALE];
-        facts[f::INVERT] = facts[f::COMMAND_INVERT];
-        // The variable held-name prefix precedes the raw look list. Both
-        // prefix layouts are generated; the transport reader has validated
-        // the list, and this consumer independently caps its available span.
-        let held = words.get(oc::HELD_COUNT).copied().unwrap_or(0.) as usize;
-        let start = oc::STRIDE.saturating_add(held).saturating_add(ol::STRIDE).min(words.len());
-        let count = words.get(start.saturating_sub(ol::STRIDE) + ol::COUNT).copied().unwrap_or(0.) as usize;
-        let count = count.min((words.len() - start) / l::STRIDE);
-        Self::own_look(&facts, &mut yaw, &mut pitch, &words[start..start + count * l::STRIDE]);
-        // Mounted fire reads the previously shown reticle, using the latest
-        // lease's canonical seat when no preview belongs to that identity.
-        // Keep its direction-to-angle round trip, including signed zeros.
-        if facts[f::VEHICLE_ACTIVE] != 0. || facts[f::TURRET_ACTIVE] != 0. {
-            if facts[f::VEHICLE_ACTIVE] != 0. {
-                yaw = if facts[f::INPUT_VEHICLE_PREVIEW] != 0. { facts[f::INPUT_VEHICLE_YAW] } else { facts[f::SEAT_YAW] };
-                pitch = if facts[f::INPUT_VEHICLE_PREVIEW] != 0. { facts[f::INPUT_VEHICLE_PITCH] } else { facts[f::SEAT_PITCH] };
-            } else {
-                yaw = facts[f::FACING] + facts[f::TURRET_YAW] + facts[f::INPUT_TURRET_YAW];
-                pitch = facts[f::TURRET_PITCH] + facts[f::INPUT_TURRET_PITCH];
-            }
-            yaw = atan2(sin(yaw) * cos(pitch), cos(yaw) * cos(pitch));
-            pitch = v8math::asin(clamp(sin(pitch), -1., 1.));
-        }
-        if facts[f::VEHICLE_ACTIVE]==0.&&facts[f::TURRET_ACTIVE]==0.&&numbers[out::FIRE_COUNT]!=0.{
-            use crate::{aim::{Basis,View},cameras::math::V8};use three::Vector3 as V;
-            let position=V::new(facts[f::POSITION],facts[f::POSITION+1],facts[f::POSITION+2]);
-            let posture=facts[f::POSTURE]as usize;let air=facts[f::AIR]!=air::NONE as f64;
-            let source=Basis::new::<V8>(position,facts[f::OWN_YAW],facts[f::OWN_PITCH],posture,air);
-            let aim=View{position,feet:V::new(facts[f::FEET],facts[f::FEET+1],facts[f::FEET+2]),yaw,pitch,posture,air,
-                walker:facts[f::WALKER]!=0.,rolled:facts[f::ROLLED]!=0.,eye_height:facts[f::EYE_HEIGHT],zoom:facts[f::ZOOM],
-                camera:(facts[f::HAS_CAMERA]!=0.).then(||V::new(facts[f::CAMERA],facts[f::CAMERA+1],facts[f::CAMERA+2])),
-                uses_eye:facts[f::USES_EYE]!=0.,track_offsets:facts[f::TRACK_OFFSETS..f::TRACK_OFFSETS+3].try_into().unwrap()}.sample::<V8>();
-            numbers[out::SOURCE_BASIS..out::SOURCE_BASIS+15].copy_from_slice(&source.words());
-            numbers[out::AIM_ORIGIN..out::AIM_ORIGIN+3].copy_from_slice(&[aim.basis.origin.x,aim.basis.origin.y,aim.basis.origin.z]);
-            numbers[out::AIM_DIRECTION..out::AIM_DIRECTION+3].copy_from_slice(&[aim.basis.direction.x,aim.basis.direction.y,aim.basis.direction.z]);
-            numbers[out::AIM_FROM..out::AIM_FROM+3].copy_from_slice(&[aim.from.x,aim.from.y,aim.from.z]);
-            numbers[out::NEEDS_REACH]=aim.needs_reach as u8 as f64;
-        }
-        numbers[out::BODY_YAW] = yaw;
-        numbers[out::BODY_PITCH] = pitch;
-    }
-    // The host answers every command ray before one convergence resume.
-    // This is the same command basis used by page_body's replay-shot batch.
-    pub fn resolve_command(row:&mut[f64]){
-        use crate::{aim::{Basis,CommandAim},cameras::math::V8};use crate::network_layout::net_outbound as o;use three::Vector3 as V;
-        if row[o::NEEDS_REACH]==0.{return;}
-        let mut aim=CommandAim{basis:Basis{origin:V::new(row[o::AIM_ORIGIN],row[o::AIM_ORIGIN+1],row[o::AIM_ORIGIN+2]),
-            direction:V::new(row[o::AIM_DIRECTION],row[o::AIM_DIRECTION+1],row[o::AIM_DIRECTION+2]),..Default::default()},
-            from:V::new(row[o::AIM_FROM],row[o::AIM_FROM+1],row[o::AIM_FROM+2]),needs_reach:true,..Default::default()};
-        aim.resolve::<V8>(row[o::REACH]);row[o::BODY_YAW]=aim.yaw;row[o::BODY_PITCH]=aim.pitch;
     }
     // Scratch angles begin at the current authoritative pose each frame.
     // Acknowledgements and lease changes therefore cannot double-apply look

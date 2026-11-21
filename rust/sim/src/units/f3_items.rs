@@ -3,12 +3,15 @@
 //! keys into the original first-use owner numbering after the outer return.
 //! Construction never inserts a gameplay ownership entry. Mine policy can
 //! number an owner before its first throw, so those numbers belong to JS.
-//! Native keys instead retain the pooled slot and the exact throwing life.
+//! Native keys name the character playing the body (the body's own life
+//! when nobody plays it), so one list follows a character across bodies.
 use crate::gen::*;
 use crate::ordnance::world::{ItemModel, PreparedItem};
 use crate::store::{DefId, Ref, StrId};
 
 const ITEM_ROOM: usize = 1024;
+/// A sphere's centre and radius.
+type Sphere = ([f64; 3], f64);
 // A weapon level has one owned list and one invocation's work buffer. The
 // second buffer supplies the first Map insertion without allocating on fire.
 struct Binding {
@@ -167,14 +170,7 @@ impl Items {
                 list.last_mut().unwrap()
             }
         };
-        if binding.key != row.owned_key {
-            // Keep live old-life mines in their existing insertion position.
-            // Only an already drained tombstone can disappear at rebind.
-            self.current_keys[binding.key.0 as usize] = false;
-            if !self.live_keys[binding.key.0 as usize] {
-                sim.store.items.owned.remove(binding.key);
-            }
-        }
+        let replaced = (binding.key != row.owned_key).then_some(binding.key);
         binding.life = row.key.life;
         binding.name = row.name;
         binding.key = row.owned_key;
@@ -184,6 +180,18 @@ impl Items {
         binding
             .spare
             .reserve(ITEM_ROOM.saturating_sub(binding.spare.len()));
+        // Two bodies can name one character's list (his old body and the
+        // one he lives in now): the old key stops being current only when no
+        // body names it any more. Keep live old-life mines in their existing
+        // insertion position; only an already drained tombstone can go.
+        if let Some(old) = replaced {
+            if !self.bindings.iter().flatten().any(|b| b.key == old) {
+                self.current_keys[old.0 as usize] = false;
+                if !self.live_keys[old.0 as usize] {
+                    sim.store.items.owned.remove(old);
+                }
+            }
+        }
         let count = row.owned_key.0 as usize + 1;
         if self.live_keys.len() < count {
             self.live_keys.resize(count, false);
@@ -377,17 +385,50 @@ pub(crate) fn standing_in(world_ctx: &mut crate::world::owner::World, index: usi
         [p.x,p.y,p.z]
     } else { world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap().position }
 }
+// A mine's trigger measures everyone to the sphere a blast measures him to,
+// as the 2004 game's do: a hull's about its model, turned with it.
 pub(crate) fn watch_in(world_ctx: &mut crate::world::owner::World, index: usize, team: f64) -> crate::ordnance::world::Watched {
-    let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
-    if let Some(r) = row.unit {
+    let (unit, hull) = {
+        let row = &super::f3::items_in(&mut world_ctx.units).targets[index];
+        (row.unit, row.hull)
+    };
+    if let Some(r) = unit {
+        let class = world_ctx.sim.store.unit.get(r).unwrap().class_def;
+        // A droideka's sphere is the one its blasts measure it to.
+        let model = crate::combat::module::defs_in(&mut world_ctx.combat).model_sphere(class);
         let unit = world_ctx.sim.store.unit.get(r).unwrap();
-        let p = unit.position(); let v = unit.velocity();
+        let v = unit.velocity();
+        let (center, radius) = unit_sphere(unit, model);
         crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, unit.team,team),
-            center:[p.x,p.y+1.048,p.z],radius:1.278,velocity:[v.x,v.y,v.z]}
+            center,radius,velocity:[v.x,v.y,v.z]}
     } else {
-        let v = world_ctx.sim.store.vehicle.get(row.hull.unwrap()).unwrap();
+        let hull = hull.unwrap();
+        let (center, radius) = super::f3_hulls::sphere_in(world_ctx, hull, true);
+        let v = world_ctx.sim.store.vehicle.get(hull).unwrap();
         crate::ordnance::world::Watched {relation:super::f3::relation_in(&world_ctx.units, v.team.unwrap_or(0.0),team),
-            center:v.item_center,radius:v8math::max(v.size[0],v.size[2])*0.5,velocity:v.velocity}
+            center:[center.x,center.y,center.z],radius,velocity:v.velocity}
+    }
+}
+
+/// A unit's sphere for a mine's trigger, its centre and radius: a soldier's
+/// by stance (standing while in the air); a droideka's about its model box
+/// (`model`: its class's sphere, the one a blast measures it to), carried
+/// with its body, standing or rolled, or the standing soldier's without one.
+pub(crate) fn unit_sphere(unit: &Unit, model: Option<crate::combat::combat::ModelSphere>) -> Sphere {
+    match &unit.soldier {
+        UnitBody::Soldier(s) => {
+            let stance = if s.air.is_some() { Posture::Stand } else { s.posture };
+            let [middle, radius, _] = crate::combat::combat::blast_body(stance);
+            ([s.position[0], s.position[1] + middle, s.position[2]], radius)
+        }
+        UnitBody::Droideka(d) => {
+            let Some(model) = model else {
+                let p = d.position;
+                let [middle, radius, _] = crate::combat::combat::blast_body(Posture::Stand);
+                return ([p[0], p[1] + middle, p[2]], radius);
+            };
+            (model.carried(d.position, d.aim_yaw), model.radius)
+        }
     }
 }
 
@@ -435,3 +476,87 @@ pub(crate) fn give_in(world_ctx: &mut crate::world::owner::World, index: usize, 
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn soldier(posture: Posture, air: Option<Air>) -> Unit {
+        Unit { soldier: UnitBody::Soldier(Soldier { position: [2.0, 5.0, -1.0], posture, air, ..Default::default() }), ..Default::default() }
+    }
+
+    /// The horizontal distance at which a mine lying 0.06 m up sets off on
+    /// a unit whose sphere is `sphere` (TriggerRadius 1, the land mine's).
+    fn reach(feet: [f64; 3], (center, radius): Sphere) -> f64 {
+        let rise = center[1] - (feet[1] + 0.06);
+        ((1.0 + radius) * (1.0 + radius) - rise * rise).sqrt()
+    }
+
+    #[test]
+    fn a_characters_list_stays_current_while_he_lives_in_another_body() {
+        let mut sim = crate::abi::Sim::new();
+        let mut items = Items::new();
+        items.reserve_unit(4);
+        let his = sim.strings.intern_str("mines:character:5:1");
+        let other = sim.strings.intern_str("mines:character:6:1");
+        let row = |slot: u32, life: f64, key: StrId| F3DispenserBinding {
+            key: F3UnitKey { slot, generation: 1, life }, weapon: DefId(2), level: 0, name: StrId(0), owned_key: key };
+        // He dies in body 1 and lives again in body 2: both name his list.
+        items.bind(&mut sim, row(1, 1.0, his));
+        items.bind(&mut sim, row(2, 1.0, his));
+        // Another character takes body 1: his list is still current.
+        items.bind(&mut sim, row(1, 2.0, other));
+        assert!(items.current(his) && items.current(other));
+        // Body 2 goes to that other character too: now nobody names his list.
+        items.bind(&mut sim, row(2, 2.0, other));
+        assert!(!items.current(his));
+        // A bot takes a stock body with no new life: its body list gives way
+        // to his list, the one the host binds then.
+        let stock = sim.strings.intern_str("mines:body:3:1:1");
+        items.bind(&mut sim, row(3, 1.0, stock));
+        items.bind(&mut sim, row(3, 1.0, his));
+        assert!(items.current(his) && !items.current(stock));
+        assert_eq!(items.take(3, 1.0, DefId(2), 0).key, his);
+    }
+
+    #[test]
+    fn a_mine_measures_a_soldier_by_his_stance() {
+        let feet = [2.0, 5.0, -1.0];
+        let at = |posture, air| unit_sphere(&soldier(posture, air), None);
+        assert_eq!(at(Posture::Stand, None), ([2.0, 6.0, -1.0], 1.4626));
+        assert_eq!(at(Posture::Crouch, None), ([2.0, 5.75, -1.0], 1.1023));
+        assert_eq!(at(Posture::Prone, None), ([2.0, 5.35, -1.0], 1.622));
+        assert_eq!(at(Posture::Crouch, Some(Air::Jump)), at(Posture::Stand, None));
+        // Before: one sphere 1.048 m up, radius 1.278, 2.05 m whatever the stance.
+        for (posture, distance) in [(Posture::Stand, 2.276), (Posture::Crouch, 1.986), (Posture::Prone, 2.606)] {
+            assert!((reach(feet, at(posture, None)) - distance).abs() < 5e-4, "{posture:?}");
+        }
+    }
+
+    #[test]
+    fn a_mine_measures_a_droideka_to_its_model_box_turned_with_it() {
+        use crate::combat::defs::{Js, JsObj};
+        use std::rc::Rc;
+        // cis_inf_droideka's model box, as admission sends it with the class:
+        // one sphere about it, read as the class is prepared, for its blasts
+        // and for a mine's trigger alike.
+        let list = |v: [f64; 3]| Js::Arr(Rc::new(v.iter().map(|x| Js::Num(*x)).collect()));
+        let bounds = Js::Arr(Rc::new(vec![list([-0.809129, -0.000631, -0.841644]), list([0.801283, 2.091974, 1.436694])]));
+        let class = |base: &str| Rc::new(JsObj { fields: vec![("base".into(), Js::Str(base.into())), ("weapons".into(), Js::Arr(Default::default())),
+            ("bounds".into(), bounds.clone())], def: None });
+        let mut defs = crate::combat::combat::CombatDefs::default();
+        defs.set_class(DefId(0), class("walkerdroid"));
+        defs.set_class(DefId(1), class("soldier"));
+        let model = defs.model_sphere(DefId(0)).expect("a droideka's sphere");
+        assert!(defs.model_sphere(DefId(1)).is_none());
+        let half = |i: usize, low: f64, high: f64| (model.center[i] - (low + high) * 0.5).abs() < 1e-12;
+        assert!(half(0, -0.809129, 0.801283) && half(1, -0.000631, 2.091974) && half(2, -0.841644, 1.436694), "{model:?}");
+        assert!((model.radius - 1.7438).abs() < 1e-4, "{}", model.radius);
+        // Turned a quarter round, its centre 0.3 m ahead lies along +x.
+        let turn = std::f64::consts::FRAC_PI_2;
+        let unit = Unit { soldier: UnitBody::Droideka(Droideka { position: [10.0, 0.0, 10.0], aim_yaw: turn, mode: 11.0, ..Default::default() }), ..Default::default() };
+        let (center, radius) = unit_sphere(&unit, Some(model));
+        let [x, y, z] = model.center;
+        assert!((center[0] - (10.0 + z)).abs() < 1e-12 && center[1] == y && (center[2] - (10.0 - x)).abs() < 1e-12, "{center:?}");
+        assert_eq!(radius, model.radius);
+    }
+}

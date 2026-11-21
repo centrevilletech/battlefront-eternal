@@ -8,7 +8,7 @@ use crate::collision::{
     State, MISS, TERRAIN,
 };
 use crate::combat::combat::update_kick;
-use crate::gen::{Air, Combat, Kick, MoveInput, Posture, Soldier, Unit, UnitBody};
+use crate::gen::{Air, Combat, Posture, Soldier, Unit, UnitBody};
 use crate::movement::{
     scene::{GroundCache, Scene},
     soldier::{Air as MAir, Input, Mover, Posture as MPosture, Trig, PART_CACHES, V3},
@@ -116,20 +116,10 @@ fn clip(r: &mut Reader<'_>) -> Result<Option<Rc<Clip>>, &'static str> {
     })))
 }
 
-/// Scalar commands shared by the adapter and native corpus replay.
-/// 0: kind (0 infantry, 1 droideka); droideka adds five (present,value)
-/// definition numbers, then fourteen clips (present; frames,fps,rootMotion,
-/// track count/tracks, Float32 data count/data).
-/// 1: world, ignored body slot, dt, body-flag count/flags, generated Soldier
-/// (64) or Droideka (77) row; infantry adds contactCount, contactMean xyz,
-/// stepBlocked and whether the original world uses MovementKernel. Then
-/// forward,right,turn,pitch,jump,crouch,prone,use,jetPresent,jet xyz;
-/// kick rate/hold/offset; shieldEquipped,underwater,shieldPressed,airBlocked,
-/// dive truthiness,lock. Output: the body row, infantry scratch (five words),
-/// kick-write flag, kick rate/hold/offset. No row carries live store references.
+/// The private body one client's replay steps: configured once per body
+/// (`configure`), then stepped tick by tick (`step`). It holds no live store
+/// references.
 pub struct Session {
-    pub input: Vec<f64>,
-    pub output: Vec<f64>,
     kind: Option<u32>,
     pub(crate) unit: Unit,
     pub(crate) combat: Combat,
@@ -145,8 +135,6 @@ pub struct Session {
 impl Default for Session {
     fn default() -> Self {
         Self {
-            input: Vec::new(),
-            output: Vec::new(),
             kind: None,
             unit: Unit::default(),
             combat: Combat::default(),
@@ -170,160 +158,44 @@ impl Session {
         self.gathered.reserve(256,16);self.gathered.prepare_dense(collision,world,16);
         for cache in &mut self.caches{cache.reserve(statics,0,w.order.len());}
     }
-    pub fn run(&mut self, op: u32, collision: &mut State) -> Result<(), &'static str> {
-        self.output.clear();
-        let mut r = Reader {
-            words: &self.input,
-            at: 0,
-        };
-        if op == 0 {
-            let kind = r.count()?;
-            let parts = match kind {
-                0 => None,
-                1 => {
-                    let def = DroidekaDef {
-                        max_pitch_speed: r.optional()?,
-                        ball_turn_speed: r.optional()?,
-                        ball_max_lean: r.optional()?,
-                        ball_acceleration: r.optional()?,
-                        ball_rolling_friction: r.optional()?,
-                    };
-                    let mut clips = ModeClips::default();
-                    for slot in &mut clips.by_mode {
-                        *slot = clip(&mut r)?;
-                    }
-                    Some(DroidekaParts {
-                        def,
-                        clips: Rc::new(clips),
-                        rig: None,
-                    })
-                }
-                _ => return Err(INVALID),
-            };
-            r.done()?;
-            self.kind = Some(kind as u32);
-            self.parts = parts;
-            // ActorPrediction.configure used to replace the complete scene cache.
-            // Body changes invalidate query facts, not the owned reservations.
-            for cache in &mut self.caches { cache.reset(); }
-            self.gathered.reset();
-            self.ground.reset();
-            self.mover = Mover::new(0);
-            return Ok(());
-        }
-        if op != 1 {
-            return Err(INVALID);
-        }
-        let kind = self.kind.ok_or(INVALID)?;
-        let world = r.count()?;
-        let ignored = r.word()?;
-        let dt = r.word()?;
-        if !ignored.is_finite()
-            || ignored < -1.0
-            || ignored.fract() != 0.0
-            || ignored > u32::MAX as f64
-        {
-            return Err(INVALID);
-        }
-        let count = r.count()?;
-        if collision.worlds.get(world).map(|w| w.order.len()) != Some(count)
-            || count > collision::MAX_BODIES
-        {
-            return Err(INVALID);
-        }
-        let flags = (0..count)
-            .map(|_| r.flag().map(u8::from))
-            .collect::<Result<Vec<_>, _>>()?;
-        let soldier = if kind == 0 {
-            let row = r.slice(Soldier::WORDS)?;
-            if ![0., 1., 2.].contains(&row[43])
-                || ![0., 1., 2.].contains(&row[47])
-                || ![0., 1., 2.].contains(&row[44])
-                || row[44] == 0.0 && ![0., 1., 2., 3.].contains(&row[45])
-                || row[58] == 0.0
-            {
-                return Err(INVALID);
-            }
-            UnitBody::Soldier(Soldier::take(row, &[]))
-        } else {
-            let row = r.slice(crate::gen::Droideka::WORDS)?;
-            if !row[40].is_finite()
-                || row[40] < 0.0
-                || row[40] > 13.0
-                || row[40].fract() != 0.0
-                || row[62] == 0.0
-            {
-                return Err(INVALID);
-            }
-            UnitBody::Droideka(crate::gen::Droideka::take(row, &[]))
-        };
-        let (scratch, movement_backend) = if kind == 0 {
-            (
-                (
-                    r.word()?,
-                    V3::new(r.word()?, r.word()?, r.word()?),
-                    r.flag()?,
-                ),
-                r.flag()?,
-            )
-        } else {
-            ((0.0, V3::ZERO, false), false)
-        };
-        let mut input = MoveInput {
-            forward: r.word()?,
-            right: r.word()?,
-            turn: r.word()?,
-            pitch: r.word()?,
-            jump: r.flag()?,
-            crouch: r.flag()?,
-            prone: r.flag()?,
-            r#use: r.flag()?,
-            ..MoveInput::default()
-        };
-        let jet = r.flag()?;
-        let direction = [r.word()?, r.word()?, r.word()?];
-        input.jet_direction = jet.then_some(direction);
-        let kick = Kick {
-            rate: r.word()?,
-            hold: r.word()?,
-            offset: r.word()?,
-        };
-        let shield = r.flag()?;
-        let underwater = r.flag()?;
-        let pressed = r.flag()?;
-        let airborne = r.flag()?;
-        let dive = r.flag()?;
-        let lock = r.word()?;
-        r.done()?;
-        self.unit.soldier = soldier;
-        self.unit.input = input;
-        let kick_write = truthy(kick.rate) || truthy(kick.hold) || truthy(kick.offset);
-        self.combat.kick = kick;
-        self.step(collision, world, ignored as i64, &flags, dt, scratch, movement_backend,
-            shield, underwater, pressed, airborne, dive, lock)?;
-        match &self.unit.soldier {
-            UnitBody::Soldier(s) => {
-                self.output.resize(Soldier::WORDS, 0.0);
-                s.put(&mut self.output, &mut Vec::new());
-                let (count, mean, blocked) = if movement_backend {
-                    scratch
-                } else {
-                    self.mover.prediction_scratch()
+    /// Configure the body a replay steps: its kind (0 infantry, 1 droideka);
+    /// a droideka adds five (present, value) definition numbers, then fourteen
+    /// clips (present; frames, fps, rootMotion, track count/tracks, Float32
+    /// data count/data).
+    pub fn configure(&mut self, input: &[f64]) -> Result<(), &'static str> {
+        let mut r = Reader { words: input, at: 0 };
+        let kind = r.count()?;
+        let parts = match kind {
+            0 => None,
+            1 => {
+                let def = DroidekaDef {
+                    max_pitch_speed: r.optional()?,
+                    ball_turn_speed: r.optional()?,
+                    ball_max_lean: r.optional()?,
+                    ball_acceleration: r.optional()?,
+                    ball_rolling_friction: r.optional()?,
                 };
-                self.output
-                    .extend([count, mean.x, mean.y, mean.z, blocked as u8 as f64]);
+                let mut clips = ModeClips::default();
+                for slot in &mut clips.by_mode {
+                    *slot = clip(&mut r)?;
+                }
+                Some(DroidekaParts {
+                    def,
+                    clips: Rc::new(clips),
+                    rig: None,
+                })
             }
-            UnitBody::Droideka(d) => {
-                self.output.resize(crate::gen::Droideka::WORDS, 0.0);
-                d.put(&mut self.output, &mut Vec::new());
-            }
-        }
-        self.output.extend([
-            kick_write as u8 as f64,
-            self.combat.kick.rate,
-            self.combat.kick.hold,
-            self.combat.kick.offset,
-        ]);
+            _ => return Err(INVALID),
+        };
+        r.done()?;
+        self.kind = Some(kind as u32);
+        self.parts = parts;
+        // ActorPrediction.configure used to replace the complete scene cache.
+        // Body changes invalidate query facts, not the owned reservations.
+        for cache in &mut self.caches { cache.reset(); }
+        self.gathered.reset();
+        self.ground.reset();
+        self.mover = Mover::new(0);
         Ok(())
     }
 
@@ -563,7 +435,7 @@ impl UnitsWorld for ActorWorld<'_> {
         c: &Vector3,
         radius: f64,
         cache: usize,
-        visit: &mut dyn FnMut(bool, &[Vector3; 3]),
+        visit: &mut dyn FnMut(bool, f64, &[Vector3; 3]),
     ) {
         spheres::gather(
             self.collision,
@@ -578,9 +450,12 @@ impl UnitsWorld for ActorWorld<'_> {
         );
         for p in self.gathered.list() {
             for t in &p.tris {
-                visit(p.moving, &[t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])));
+                visit(p.moving, p.id, &[t.a, t.b, t.c].map(|v| Vector3::new(v[0], v[1], v[2])));
             }
         }
+    }
+    fn ground(&mut self, x: f64, z: f64, top: f64) -> Option<(f64, Vector3)> {
+        spheres::ground(self.collision, self.world, x, z, top).map(|(height, n)| (height, Vector3::new(n[0], n[1], n[2])))
     }
     fn death_blast(&mut self, _: u32, _: &mut Unit) {}
     fn blow_apart(&mut self, _: u32, _: &mut Unit, _: f64) {}

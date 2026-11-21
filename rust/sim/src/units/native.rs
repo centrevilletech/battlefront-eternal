@@ -80,12 +80,12 @@ impl DroidekaBody {
     // prediction. Convert one borrowed triangle on the stack, not an entire
     // gather into a second set of growable vectors at each collision pass.
     pub fn visit_gathered(&mut self, s: &collision::State, flags: &[u8], world: usize, center: &Vector3, radius: f64,
-        cache: usize, visit: &mut dyn FnMut(bool, &[Vector3; 3])) {
+        cache: usize, visit: &mut dyn FnMut(bool, f64, &[Vector3; 3])) {
         spheres::gather(s, world, [center.x, center.y, center.z], radius, None,
             Some(&mut self.caches[cache]), -1, flags, &mut self.gathered);
         for polygon in self.gathered.list() {
             for triangle in &polygon.tris {
-                visit(polygon.moving, &[v3(triangle.a), v3(triangle.b), v3(triangle.c)]);
+                visit(polygon.moving, polygon.id, &[v3(triangle.a), v3(triangle.b), v3(triangle.c)]);
             }
         }
     }
@@ -123,6 +123,39 @@ pub fn cast_static_in(world_ctx: &mut crate::world::owner::World, world: usize, 
 pub fn ordnance_cast_in(world_ctx: &mut crate::world::owner::World, world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
     ordnance_cast_parts_in(&mut world_ctx.collision, &mut world_ctx.movement, &world_ctx.fleet,
         world, origin, direction, far, ignore, static_only, moving)
+}
+
+/// Whether something fixed shields a point from an explosion: a building, a
+/// prop or a fixed body between `from` and `to` (both sides of their faces,
+/// the last 5 cm forgiven), or the terrain as the 2004 game tests it
+/// (collision::terrain_cuts_sight). Vehicles and soldiers never shield, nor
+/// `ignore`, the body of the thing being hit.
+pub fn blast_sight_blocked_in(world_ctx: &mut crate::world::owner::World, world: usize, from: [f64; 3], to: [f64; 3], ignore: Option<crate::store::Ref<crate::gen::Body>>) -> bool {
+    let d = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+    let span = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+    if span < 1e-3 {
+        return false;
+    }
+    let ignored = match ignore {
+        Some(body) => match world_ctx.fleet.collision.as_ref() {
+            Some(collision) if collision.body_reference(body.slot) == Some(body) => collision.kernel_slot(body.slot).map_or(-1, |slot| slot as i64),
+            _ => -1,
+        },
+        None => -1,
+    };
+    let collision_owner = &mut world_ctx.collision;
+    let s = &mut collision_owner.state;
+    let ray = collision::Ray { ox: from[0], oy: from[1], oz: from[2], dx: d[0] / span, dy: d[1] / span, dz: d[2] / span };
+    let candidates = &mut collision_owner.candidates;
+    let enabled = &mut collision_owner.enabled;
+    let count = broad::world_candidates_near_into(s, world, &ray, span, ignored, true, false, candidates);
+    let flags = world_ctx.movement.flags_mut();
+    for (i, flag) in enabled.iter_mut().enumerate().take(count) { *flag = flags[candidates[i] as usize]; }
+    let (_, hit) = collision::world_cast_fixed_ray_in(s, world, &ray, span, &candidates[..count], &enabled[..count]);
+    if hit.is_some_and(|hit| hit.distance < span - 0.05) {
+        return true;
+    }
+    collision::terrain_cuts_sight(s, world, from, to)
 }
 
 /// Cold spawn and publication callbacks already borrow their Store. Lend

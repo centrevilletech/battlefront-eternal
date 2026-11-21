@@ -539,7 +539,7 @@ fn lan_discovery_responder_and_clean_lan_server_round_trip() {
             "name": "LAN Test Server",
             "protocol": 3,
             "profile": "snapshot-delta-v1",
-            "simulation": "bfe-sim-28",
+            "simulation": "bfe-sim-29",
             "content": "bfe-content-sha256-00",
             "fingerprint": "bfe-content-sha256-00",
             "query": "?map=nab2",

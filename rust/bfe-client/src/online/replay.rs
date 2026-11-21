@@ -223,9 +223,40 @@ pub struct Shot {
     pub fire: [f64; 2],
     pub posture: usize,
     pub air: bool,
-    // A droideka's: from its eye, a metre up, not a soldier's gun origin.
+    // A droideka's, from its gun counter's gun (`gun`) to the point its
+    // reticle is on, not from a soldier's gun origin along the aim.
     pub walker: bool,
+    pub gun: f64,
 }
+/// Which gun a droideka's predicted round leaves from: the world's gun
+/// counter at its last correction, moved on by every round shown since then
+/// (rounds the world had not fired by that correction's tick). Every such
+/// round's tick is kept until a correction covers it (room for 64 is made at
+/// the start, more only after 64 rounds without a correction).
+struct WalkerGuns {
+    fired: Vec<f64>,
+}
+impl WalkerGuns {
+    fn new() -> Self {
+        Self { fired: Vec::with_capacity(64) }
+    }
+    fn clear(&mut self) {
+        self.fired.clear();
+    }
+    /// The gun counter the next round will take, the world's having been
+    /// `gun` at its correction of `corrected` (nothing recorded).
+    fn peek(&self, gun: f64, corrected: f64) -> f64 {
+        gun + self.fired.iter().filter(|&&t| t > corrected).count() as f64
+    }
+    /// The gun counter for a round shown at `tick`, the world's counter
+    /// having been `gun` at its correction of `corrected`.
+    fn next(&mut self, gun: f64, corrected: f64, tick: f64) -> f64 {
+        self.fired.retain(|&t| t > corrected);
+        self.fired.push(tick);
+        gun + (self.fired.len() - 1) as f64
+    }
+}
+
 // ClientPrediction is the sole private gameplay continuation. This adapter
 // retains only prerequisites, acknowledged commands and generated results.
 // It cannot spawn entities, publish authoritative state or run a World tick.
@@ -275,10 +306,18 @@ pub struct Replay {
     shot_delays: Vec<f64>,
     walker_next: f64,
     walker_ahead: bool,
+    // The droideka rounds shown ahead of the world.
+    walker_guns: WalkerGuns,
     // The reason and life whose prediction last failed, logged once.
     failed: Option<(&'static str, [f64; 3])>,
 }
 impl Replay {
+    /// The gun counter the player's droideka's next round will take: the
+    /// world's at its last correction, moved on by the rounds shown since.
+    pub fn walker_next_gun(&self, r: &Receiver) -> f64 {
+        self.walker_guns.peek(r.own.walker_gun, r.own.tick)
+    }
+
     /// The mounted subject stays out of its camera and aiming rays.
     pub fn mounted_body(&self, receiver: &Receiver) -> Option<u32> {
         use bfe_presentation::network_layout::{net_kind as k, net_record as r};
@@ -328,9 +367,9 @@ impl Replay {
         }
         let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
-        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        owner.configure_actor(&[0.]).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
-        owner.configure_actor(&[0.], &mut collision.borrow_mut().state).map_err(str::to_string)?;
+        owner.configure_actor(&[0.]).map_err(str::to_string)?;
         owner.prepare_actor_collision(&collision.borrow().state, installed.world);
         let arsenal = Box::new(super::checkpoint::Arsenal::new(&defs, &mut owner)?);
         let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
@@ -357,6 +396,7 @@ impl Replay {
             shot_delays: defs.weapons.iter().map(|weapon| weapon.record.get("ShotDelay").and_then(bfe_content::Value::as_f64).unwrap_or(0.) * 60.).collect(),
             walker_next: 0.,
             walker_ahead: false,
+            walker_guns: WalkerGuns::new(),
             failed: None,
         })
     }
@@ -451,6 +491,7 @@ impl Replay {
             self.shown_tick = 0.;
             self.smoother.reset();
             self.walker_next = 0.;
+            self.walker_guns.clear();
         }
         self.life = life;
         self.weapon_count = 0;
@@ -517,6 +558,7 @@ impl Replay {
                     self.walker_next = r.latest + weapon.wait.max(0.) * 60.;
                 } else if delay > 0. && r.latest >= self.walker_next {
                     let aim = sender.fire_aim.unwrap_or([sender.yaw, sender.pitch]);
+                    let gun = self.walker_guns.next(r.own.walker_gun, r.own.tick, r.latest + 1.);
                     self.shots.push(Shot {
                         tick: r.latest + 1.,
                         weapon: index,
@@ -529,6 +571,7 @@ impl Replay {
                         posture: 0,
                         air: false,
                         walker: true,
+                        gun,
                     });
                     self.walker_next = r.latest.max(self.walker_next) + delay;
                 }
@@ -543,7 +586,7 @@ impl Replay {
         };
         let mut collision = self.collision.borrow_mut();
         if self.class != r.own.class {
-            self.owner.configure_actor(&[0.], &mut collision.state)?;
+            self.owner.configure_actor(&[0.])?;
             self.class = r.own.class;
         }
         let x = &mut self.words;
@@ -693,6 +736,7 @@ impl Replay {
                         posture: body.posture as usize,
                         air: body.air.is_some(),
                         walker: false,
+                        gun: 0.,
                     });
                 }
                 self.shots = shots;
@@ -794,6 +838,7 @@ mod history_tests {
 
 #[cfg(test)]
 mod loose_tests {
+
     use super::*;
     use bfe_presentation::network::preview::Phase;
     use bfe_presentation::network_layout::{net_preview_frame as f, net_preview_look as l, net_preview_output as o};
@@ -977,5 +1022,31 @@ mod loose_tests {
         assert!(frames.windows(2).all(|pair| pair[1] < pair[0]), "{frames:?}");
         let next_tick = shown(&[30., 24.], 0., 0.);
         assert!((frames[3] - next_tick).abs() < 1e-12, "{} {next_tick}", frames[3]);
+    }
+}
+
+#[cfg(test)]
+mod walker_gun_tests {
+    use super::*;
+    // Twenty rounds shown with no correction: each leaves the next gun, the
+    // seventeenth too. A correction that has the world past some of them
+    // moves the count on from the world's counter by those it has not had,
+    // however few it covers (the first two here, then ten).
+    #[test]
+    fn a_droidekas_predicted_rounds_take_the_guns_in_turn_past_sixteen() {
+        let mut guns = WalkerGuns::new();
+        let shown: Vec<f64> = (0..20).map(|k| guns.next(4., 100., 101. + 6. * k as f64)).collect();
+        assert_eq!(shown, (0..20).map(|k| 4. + k as f64).collect::<Vec<_>>());
+        // The world fired the first two (ticks 101 and 107) by tick 110: its
+        // counter is 6, and 18 shown rounds are still ahead of it.
+        assert_eq!(guns.peek(6., 110.), 24.);
+        assert_eq!(guns.next(6., 110., 221.), 24.);
+        // The world fired the first ten (ticks 101..155): its counter is 14,
+        // and 11 shown rounds (ticks 161..215 and 221) are ahead of it.
+        assert_eq!(guns.next(14., 155., 227.), 25.);
+        // A correction past all 22 rounds shown: the world's counter is 26.
+        assert_eq!(guns.next(26., 227., 233.), 26.);
+        guns.clear();
+        assert_eq!(guns.next(0., 300., 301.), 0.);
     }
 }

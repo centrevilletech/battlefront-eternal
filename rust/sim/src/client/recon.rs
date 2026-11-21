@@ -456,11 +456,17 @@ impl World for Environment<'_> {
             normal: Vector3::new(h.nx, h.ny, h.nz),
         })
     }
-    // The old replay environment exposed the client collision world's nearest
-    // wall query here too. Retain its filtering and tie order instead of
-    // introducing a different static-only broad phase for the chase camera.
-    fn static_cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {
-        self.cast(origin, direction, far)
+    // Blasts reach a droid only in the battle's own world, never in this
+    // prediction copy; it answers with one cast of the client collision world.
+    fn blast_blocked(&mut self, from: Vector3, to: Vector3) -> bool {
+        let mut ray = to;
+        ray.sub(&from);
+        let length = ray.length();
+        if length < 1e-3 {
+            return false;
+        }
+        ray.divide_scalar(length);
+        self.cast(from, ray, length).is_some_and(|h| h.distance < length - 0.05)
     }
     fn gather(&mut self, center: Vector3, radius: f64, out: &mut Vec<Triangle>) {
         collision::spheres::gather(

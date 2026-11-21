@@ -4,7 +4,7 @@ pub mod network_contract {
     pub const MANIFEST_VERSION: usize = 1;
     pub const PROTOCOL: usize = 3;
     pub const PROFILE: &str = "snapshot-delta-v1";
-    pub const SIMULATION: &str = "bfe-sim-28";
+    pub const SIMULATION: &str = "bfe-sim-29";
     pub const SERVER_ADAPTER_ABI: usize = 4;
     pub const OWN_CORRECTION_SCHEMA: usize = 11;
 }

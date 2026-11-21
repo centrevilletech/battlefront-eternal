@@ -93,8 +93,9 @@ pub struct Authority {
     event_epoch: u32,
     event_offset: usize,
     /// Each unit's life as the host last saw it (`binding.life`): slot,
-    /// store generation, life, for the dispenser bindings a new life needs.
-    lives: Vec<(u32, u32, f64)>,
+    /// store generation, life and the character playing it, for the
+    /// dispenser bindings a new life or a new player needs.
+    lives: Vec<(u32, u32, f64, Option<crate::store::Ref<gen::Character>>)>,
     lives_known: bool,
     /// The units' facts the host reads, refilled when it reads them.
     units: UnitTable,
@@ -382,8 +383,8 @@ fn lease_rows(context: &Context) -> Result<Vec<(u32, gen::SeatLease)>, String> {
 
 /// What the host reads of the units, straight from the store
 /// (`store.unit`, slot order): each unit's slot, its reference's generation,
-/// its life, its team and its weapons' definitions. Kept on the authority
-/// and refilled in place, so reading it allocates nothing.
+/// its life, its team, its character and its weapons' definitions. Kept on
+/// the authority and refilled in place, so reading it allocates nothing.
 #[derive(Default)]
 pub(crate) struct UnitTable {
     rows: Vec<UnitFacts>,
@@ -397,6 +398,8 @@ pub(crate) struct UnitFacts {
     /// `unit.generation`, the life.
     pub life: f64,
     pub team: f64,
+    /// The character playing it, if any.
+    pub character: Option<crate::store::Ref<gen::Character>>,
     first: u32,
     count: u32,
 }
@@ -420,6 +423,7 @@ impl UnitTable {
                         gen: r.gen,
                         life: unit.generation,
                         team: unit.team,
+                        character: unit.character,
                         first,
                         count: if with_weapons { unit.combat.weapons.len() as u32 } else { 0 },
                     });

@@ -497,6 +497,23 @@ impl Loader {
                 .iter()
                 .find(|(name, _)| name == &format!("{side_name}/{model}"))
             {
+                // Its guns turn as the world's do: each aimer's parent bone
+                // (the blaster) by the class's aimer.
+                let guns = bfe_content::derived::droideka_guns(actor, def.get("weapons"));
+                let blasters = guns
+                    .iter()
+                    .filter_map(|gun| usize::try_from(actor.bones.get(gun.bone)?.parent as i64).ok())
+                    .collect();
+                // Where each gun's rounds leave, in its blaster's frame: the
+                // barrel tips found on its mesh, else its aimer's own place.
+                let tips = guns
+                    .iter()
+                    .map(|gun| match &gun.tips {
+                        Some(tips) => tips.iter().map(|t| [t.x, t.y, t.z]).collect(),
+                        None => actor.bones.get(gun.bone).map(|b| vec![[b.local[12], b.local[13], b.local[14]]]).unwrap_or_default(),
+                    })
+                    .collect();
+                let a = bfe_pose::rig::droideka_guns::aimer_of(def);
                 units.push((
                     class.clone(),
                     crate::units::walker(
@@ -505,6 +522,9 @@ impl Loader {
                         def.get("BallRadius")
                             .and_then(Authored::as_f64)
                             .unwrap_or(bfe_pose::rig::droideka::BALL_CENTER),
+                        blasters,
+                        [a.yaw_rate, a.pitch_rate, a.yaw[0], a.yaw[1], a.pitch[0], a.pitch[1]],
+                        tips,
                     ),
                 ));
             }

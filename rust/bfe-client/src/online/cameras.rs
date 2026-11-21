@@ -86,7 +86,7 @@ impl Cameras {
         for class in &defs.classes {
             if let Some(id) = class.registry_id {
                 definitions[id as usize] = cameras.definitions.len();
-                let def = definition(&class.record);
+                let def = bfe_sim::units::class::camera_def(&class.record);
                 first_fovs.push(def.first);
                 // Droideka.eyeHeight: the standing camera section's EyePointOffset.
                 let eye_h = class
@@ -180,7 +180,12 @@ impl Cameras {
                 .copied()
                 .unwrap_or(false);
         self.scoped_eye = scoped_eye;
-        self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye);
+        // The droideka's clip as it is drawn (the newest correction's without a drawn sample).
+        let walker = receiver.own.walker.then(|| prediction.walker.map_or((receiver.own.walker_mode, receiver.own.walker_time), |w| (w.mode, w.pose[3])));
+        // As in the 2004 game, a droideka hands its own eyes to the chase camera while it folds, rolls and
+        // unfolds, and takes them back once it stands; the player's choice of view is kept for then.
+        let rolled = walker.is_some_and(|(mode, _)| mode >= 11);
+        self.eye_view = receiver.own.alive && receiver.own.remote.is_none() && (camera.first_person || scoped_eye) && !rolled;
         hulls.hidden = None;
         turrets.hidden = None;
         let body = (receiver.own.id, receiver.own.generation, receiver.own.class);
@@ -222,7 +227,7 @@ impl Cameras {
         x.fill(0.);
         x[f::VERSION] = VERSION as f64;
         x[f::DT] = dt;
-        x[f::FIRST_PERSON] = camera.first_person as u8 as f64;
+        x[f::FIRST_PERSON] = (camera.first_person && !rolled) as u8 as f64;
         x[f::OWN_EYES] = (self.eye_view && lease.is_none()) as u8 as f64;
         x[f::ZOOM] = receiver.own.zoom.max(1.);
         x[f::CAMERA_POSITION..f::CAMERA_POSITION + 3].copy_from_slice(&camera.position);
@@ -263,9 +268,11 @@ impl Cameras {
             x[f::VELOCITY..f::VELOCITY + 3].copy_from_slice(&walker.velocity);
         }
         x.copy_within(f::FEET..f::FEET + 3, f::BODY_POSITION);
-        if receiver.own.walker {
+        if let Some((mode, time)) = walker {
             x[f::EYE_KIND] = eyes::DROIDEKA as f64;
-            x[f::EYE_ROLLED] = (receiver.own.walker_mode >= 11) as u8 as f64;
+            // Its camera takes the standing section, eased into the rolled one (CROUCH) by this share.
+            x[f::POSTURE] = 0.;
+            x[f::EYE_ROLLED] = rolled_share(mode, time);
             x[f::EYE_HEIGHT] = self.eye_heights.get(def_idx).copied().unwrap_or(1.8);
         } else {
             x[f::EYE_KIND] = eyes::INFANTRY as f64;
@@ -509,38 +516,20 @@ fn remote_definition(def: &bfe_content::Value) -> (bfe_presentation::cameras::so
     (Def { first, third, sections: [section; 6] }, eye, zoom_min)
 }
 
-// Cameras.definition resolves the class's six posture/zoom sections once.
-// SoldierCamera owns horizontal FOV conversion, zoom and eye/chase behavior;
-// entering or leaving a seat selects another branch of that same phase.
-fn definition(class: &bfe_content::Value) -> bfe_presentation::cameras::soldier::Def {
-    use bfe_content::Value;
-    use bfe_presentation::cameras::soldier::{Def, Section};
-    let source = class.get("cameras");
-    let vector = |value: Option<&Value>, default: [f64; 3]| {
-        value
-            .and_then(Value::as_array)
-            .filter(|v| v.len() >= 3)
-            .map_or(default, |v| std::array::from_fn(|i| bfe_content::js::to_number(Some(&v[i]))))
+/// How far a droideka's chase camera has gone from its standing section to its rolled one (CROUCH), 0 to 1, at
+/// `time` into its drawn mode. The 2004 game takes the rolled section for the fold and the ball and the standing
+/// one again as the unfold begins, its camera place following at 27/s (as ours does); here each change of section
+/// is also spread over a tenth of a second, so the camera does not set off with a jolt.
+fn rolled_share(mode: u8, time: f64) -> f64 {
+    let ease = |x: f64| {
+        let x = (x / 0.1).clamp(0., 1.);
+        x * x * (3. - 2. * x)
     };
-    let sections = std::array::from_fn(|index| {
-        let name = ["STAND", "CROUCH", "PRONE"][index % 3];
-        let zoom = format!("{name}ZOOM");
-        let section = source
-            .and_then(|s| if index >= 3 { s.get(&zoom).filter(|v| v.truthy()) } else { None })
-            .or_else(|| source.and_then(|s| s.get(name)).filter(|v| v.truthy()))
-            .or_else(|| source.and_then(|s| s.get("STAND")));
-        let get = |key: &str| section.and_then(|s| s.get(key));
-        Section {
-            eye: vector(get("EyePointOffset").or_else(|| get("TrackCenter")), [0., 1.8, 0.]),
-            center: vector(get("TrackCenter").or_else(|| get("EyePointOffset")), [0., 1.8, 0.]),
-            offset: vector(get("TrackOffset"), [0., 0., 3.5]),
-            tilt: bfe_content::odf::num(get("TiltValue"), 5.) * std::f64::consts::PI / 180.,
-        }
-    });
-    Def {
-        first: bfe_content::odf::num(class.get("FirstPersonFOV"), 70.) * std::f64::consts::PI / 180.,
-        third: bfe_content::odf::num(class.get("ThirdPersonFOV"), 65.) * std::f64::consts::PI / 180.,
-        sections,
+    match mode {
+        11 => ease(time),
+        12 => 1.,
+        13 => 1. - ease(time),
+        _ => 0.,
     }
 }
 

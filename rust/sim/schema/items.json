@@ -267,7 +267,12 @@
         "age": "f64",
         "life": "f64",
         "health": "f64",
-        "gone": "bool|undefined"
+        "gone": "bool|undefined",
+        "carrier": "ref:vehicle|null",
+        "carrierLife": "f64",
+        "carried": "vec3",
+        "carriedUp": "vec3",
+        "carriedForward": "vec3"
       },
       "skip": {
         "mesh": "its model, made to measure it and drawn by the page",

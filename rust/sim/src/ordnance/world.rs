@@ -28,6 +28,10 @@ pub struct Hit {
     pub body: Option<Ref<Body>>,
 }
 
+/// The body part of a unit hit that met a droideka's shield bubble rather
+/// than its body: none at all (undefined), which no hit on a body carries.
+pub const BUBBLE: Nullable<HitPart> = Nullable::Undefined;
+
 /// A unit raycast's answer (raycast).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct UnitHit {
@@ -169,7 +173,10 @@ pub trait World {
     fn cast(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>, static_only: Option<bool>) -> Option<Hit>;
     /// collision.castMoving (None too when the collision world has none).
     fn cast_moving(&mut self, origin: Vec3, direction: Vec3, far: f64, out: Out, ignore_body: Nullable<Ref<Body>>) -> Option<Hit>;
-    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>) -> Option<UnitHit>;
+    /// `bubbles`: whether a droideka's shield bubble stops it too (rounds and
+    /// bolts; not beams, nor a second ray through a hull to its riders).
+    #[allow(clippy::too_many_arguments)]
+    fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>, bubbles: bool) -> Option<UnitHit>;
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount>;
     /// None when the battle's units cannot be queried.
     fn fat_query(&mut self, center: Vec3, radius: f64, owner: OrdnanceOwner, struck: &RefSet<Unit>, ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>>;
@@ -203,6 +210,10 @@ pub trait World {
     // The items (ItemsWorld).
 
     fn item_cast(&mut self, origin: Vec3, direction: Vec3, far: f64) -> Option<Hit>;
+    /// The hull a collision body belongs to, for a mine that sticks to it.
+    fn hull_of(&mut self, _body: Ref<Body>) -> Option<Ref<Vehicle>> { None }
+    /// Whether a hull is a ridden animal (met as a living body, not a hull).
+    fn creature(&mut self, _hull: Ref<Vehicle>) -> bool { false }
     fn blocked(&mut self, position: Vec3, target: Vec3) -> bool;
     fn item_water_crossing(&mut self, from: Vec3, to: Vec3) -> Option<Vec3>;
     fn item_model(&mut self, def: DefId) -> ItemModel;
@@ -218,6 +229,17 @@ pub trait World {
     fn drop_roll(&mut self) -> f64;
     fn explode(&mut self, def: &Field, position: Vec3, owner: ItemOwner);
     fn watch(&mut self, index: usize, team: f64) -> Watched;
+    /// Team `a`'s side toward team `b`: above 0 friends, below enemies, 0
+    /// neutral (a stuck mine's toward another's).
+    fn teams(&mut self, a: f64, b: f64) -> f64 {
+        if a == b {
+            if a != 0.0 && !a.is_nan() { 1.0 } else { 0.0 }
+        } else if a == 0.0 || b == 0.0 || a.is_nan() || b.is_nan() {
+            0.0
+        } else {
+            -1.0
+        }
+    }
     fn standing(&mut self, index: usize) -> Vec3;
     fn give(&mut self, index: usize, def: DefId) -> bool;
     fn pickup(&mut self, def: DefId, position: Vec3);

@@ -48,6 +48,9 @@ pub struct Own {
     pub walker_legs: f64,
     pub walker_roll: f64,
     pub walker_lean: f64,
+    // The droideka's gun counter as the world last had it (its next round
+    // comes from gun counter % guns).
+    pub walker_gun: f64,
     pub shield: Option<f64>,
     pub shield_on: bool,
     pub mount: Option<(u32, u32, usize)>,
@@ -461,6 +464,7 @@ impl Receiver {
                         self.own.walker_legs = body.numbers[4];
                         self.own.walker_roll = body.numbers[6];
                         self.own.walker_lean = body.numbers[7];
+                        self.own.walker_gun = body.numbers[11];
                         self.own.shield = body.shield;
                         self.own.shield_on = body.flags & 16 != 0;
                         // Droideka.posture: "crouch" (its rolled camera section) from FOLD on.

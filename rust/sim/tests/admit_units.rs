@@ -251,6 +251,19 @@ fn context_services_preserve_lazy_hooks_groups_and_per_class_caches() {
     assert_eq!(cx.definitions.recon.len(),2);
     let item=second.iter().find(|(_,name,_)|*name=="f3_item_class").unwrap();
     assert_eq!(F3ItemClass::take(&item.2.row,&item.2.heap).base,0);
-    let dispensers=units::dispenser_calls(&mut cx,a,key).unwrap();
+    let dispensers=units::dispenser_calls(&mut cx,a,key.clone(),None).unwrap();
     assert_eq!(dispensers.len(),1);assert_eq!(dispensers[0].1,"f3_dispenser_binding");
+    // The list a binding names: a stock body nobody plays yet keeps one of
+    // its own life; a body a character plays, that character's, the same
+    // text the host binds when a bot takes the body or lives again.
+    let named=|cx:&Cx,calls:&bfe_sim::world::admit::rows::Calls| {
+        let row=F3DispenserBinding::take(&calls[0].2.row,&calls[0].2.heap);
+        String::from_utf16(cx.strings.units(row.owned_key)).unwrap()
+    };
+    let character=Some(bfe_sim::store::Ref::new(6,2));
+    assert_eq!(named(&cx,&dispensers),bfe_sim::items::owned_key_text("dispenser",None,0,0,0.0));
+    let played=units::dispenser_calls(&mut cx,a,key.clone(),character).unwrap();
+    assert_eq!(named(&cx,&played),"dispenser:character:6:2");
+    let again=units::dispenser_calls(&mut cx,a,F3UnitKey {slot:9,generation:3,life:4.0},character).unwrap();
+    assert_eq!(named(&cx,&again),named(&cx,&played),"another body, another life, one list");
 }

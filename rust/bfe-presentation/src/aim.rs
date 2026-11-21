@@ -32,6 +32,36 @@ impl Basis {
     }
 }
 
+/// The line a player's reticle sits on, as the 2004 game draws it: in third
+/// person the chase camera's line along the aim, from where the camera rests
+/// (`camera`, its section: never pulled in at a wall, never eased), started
+/// level with the eye; with no camera (first person) the eye's own line, so
+/// the first thing along it is what the reticle is on. A droideka's shots
+/// converge on that first thing (zoomed too: from its eye). Returns the
+/// line's start and direction.
+pub fn camera_line<M:Math>(feet:V,yaw:f64,pitch:f64,eye:V,camera:Option<&crate::cameras::soldier::Section>)->(V,V) {
+    use crate::cameras::math::{euler,rotate};
+    let direction=V::new(M::sin(yaw)*M::cos(pitch),M::sin(pitch),M::cos(yaw)*M::cos(pitch));
+    let Some(section)=camera else {return (eye,direction)};
+    let pivot=crate::cameras::soldier::pivot::<M>(feet,yaw,crate::cameras::soldier::v(section.center));
+    let q=euler::<M>(pitch-section.tilt,yaw+std::f64::consts::PI,0.0,false);
+    let rest=add(pivot,rotate(crate::cameras::soldier::v(section.offset),q));
+    let along=sub(eye,rest).dot(&direction);
+    (plus(rest,direction,along),direction)
+}
+
+/// Where a soldier's crosshair ray starts in third person, and its
+/// direction, as the 2004 game finds it: the camera's line (`section`, the
+/// posture's camera, its ZOOM section when zoomed) level with the eye at the
+/// section's EyePointOffset, then TrackOffset.z + 2 m on along the aim. The
+/// ray looks 60 m from there; nearer things are passed over, so a crosshair
+/// on the ground at a soldier's feet sends his shot almost along the aim.
+pub fn crosshair_start<M:Math>(feet:V,yaw:f64,pitch:f64,section:&crate::cameras::soldier::Section)->(V,V) {
+    let eye=crate::cameras::soldier::pivot::<M>(feet,yaw,crate::cameras::soldier::v(section.eye));
+    let (line,direction)=camera_line::<M>(feet,yaw,pitch,eye,Some(section));
+    (plus(line,direction,section.offset[2]+2.0),direction)
+}
+
 // Command preview and replay use this same gun/eye geometry. Collision is
 // supplied afterwards so neither owner calls a foreign object per command.
 #[derive(Clone,Copy,Default)]
@@ -39,6 +69,11 @@ pub struct View {
     pub position:V,pub feet:V,pub yaw:f64,pub pitch:f64,pub posture:usize,pub air:bool,
     pub walker:bool,pub rolled:bool,pub eye_height:f64,pub zoom:f64,
     pub camera:Option<V>,pub uses_eye:bool,pub track_offsets:[f64;3],
+    /// The class's cameras (STAND, CROUCH, PRONE, then their ZOOM sections):
+    /// with them the crosshair ray starts as the 2004 game starts it
+    /// (`crosshair_start`), which the world's own held rounds follow too;
+    /// without them, from the drawn `camera` and `track_offsets`.
+    pub sections:Option<[crate::cameras::soldier::Section;6]>,
 }
 #[derive(Clone,Copy,Default)]
 pub struct CommandAim {pub basis:Basis,pub eye:V,pub from:V,pub needs_reach:bool,pub yaw:f64,pub pitch:f64}
@@ -49,10 +84,13 @@ impl View {
         let basis=Basis::new::<M>(self.position,self.yaw,self.pitch,self.posture,self.air);
         let eye=if self.walker{V::new(self.feet.x,self.feet.y+if self.rolled{1.0}else{self.eye_height},self.feet.z)}
             else{basis.eye(self.feet,self.position,self.posture,self.air,self.zoom)};
-        let needs_reach=self.camera.is_some()&&!self.uses_eye&&!self.walker;let mut from=V::default();
-        if let Some(camera)=self.camera.filter(|_|needs_reach){
+        let needs_reach=(self.camera.is_some()||self.sections.is_some())&&!self.uses_eye&&!self.walker;let mut from=V::default();
+        let posture=if self.air{0}else{self.posture.min(2)};
+        if let Some(sections)=self.sections.filter(|_|needs_reach){
+            from=crosshair_start::<M>(self.position,self.yaw,self.pitch,&sections[posture+if self.zoom>1.0{3}else{0}]).0;
+        }else if let Some(camera)=self.camera.filter(|_|needs_reach){
             let behind=sub(camera,basis.pivot).dot(&basis.direction);from=plus(camera,basis.direction,-behind);
-            let posture=if self.air{0}else{self.posture.min(2)};from=plus(from,basis.direction,self.track_offsets[posture]+2.0);
+            from=plus(from,basis.direction,self.track_offsets[posture]+2.0);
         }
         CommandAim{basis,eye,from,needs_reach,yaw:self.yaw,pitch:self.pitch}
     }
@@ -87,5 +125,42 @@ mod tests {
         }
         view.uses_eye=false;view.walker=true;
         assert!(!view.sample::<V8>().needs_reach);
+    }
+    // From first principles: the camera rests `z` m behind the pivot (here
+    // the eye) along the aim tipped down by the tilt `t`, so its line along
+    // the aim runs z sin t above the eye, square to the aim (the aim's own
+    // "up", n); the ray starts there, z + 2 m on along the aim.
+    #[test]
+    fn a_crosshair_ray_starts_where_the_2004_game_starts_it() {
+        use crate::cameras::soldier::Section;
+        for (eye,z,tilt) in [(1.8,3.5,7.5f64),(0.5,3.0,5.0),(1.8,2.8,3.5)] {
+            let section=Section{eye:[0.,eye,0.],center:[0.,eye,0.],offset:[0.,0.,z],tilt:tilt.to_radians()};
+            for (yaw,pitch) in [(0f64,0f64),(1.2,0.3),(-2.5,-0.4)] {
+                let feet=V::new(4.,-1.,7.);
+                let f=V::new(yaw.sin()*pitch.cos(),pitch.sin(),yaw.cos()*pitch.cos());
+                let n=V::new(-yaw.sin()*pitch.sin(),pitch.cos(),-yaw.cos()*pitch.sin());
+                let rise=z*tilt.to_radians().sin();
+                let want=V::new(feet.x+n.x*rise+f.x*(z+2.),feet.y+eye+n.y*rise+f.y*(z+2.),feet.z+n.z*rise+f.z*(z+2.));
+                let (start,direction)=crosshair_start::<V8>(feet,yaw,pitch,&section);
+                assert!(start.distance_to(&want)<1e-12,"eye {eye} z {z} tilt {tilt} yaw {yaw} pitch {pitch}: {start:?} against {want:?}");
+                assert!(direction.distance_to(&f)<1e-12);
+            }
+        }
+    }
+    #[test]
+    fn a_walkers_line_is_the_chase_cameras_level_with_its_eye() {
+        use crate::cameras::soldier::Section;
+        // The droideka's STAND camera: its line runs 0.5 cos 5 + 4.5 sin 5
+        // (0.890) m above the eye, square to the aim, whatever the aim.
+        let stand=Section{eye:[0.;3],center:[0.,1.8,0.],offset:[0.,0.5,4.5],tilt:5f64.to_radians()};
+        let rise=0.5*5f64.to_radians().cos()+4.5*5f64.to_radians().sin();
+        for (yaw,pitch) in [(0.,0.),(1.2,0.3),(-2.5,-0.4)] {
+            let (feet,eye)=(V::new(4.,-1.,7.),V::new(4.,0.8,7.));
+            let (start,direction)=camera_line::<V8>(feet,yaw,pitch,eye,Some(&stand));
+            let off=sub(start,eye);
+            assert!((off.length()-rise).abs()<1e-12&&off.dot(&direction).abs()<1e-12);
+            assert!(off.y>0.&&off.dot(&V::new(yaw.cos(),0.,-yaw.sin())).abs()<1e-12);
+            assert_eq!(camera_line::<V8>(feet,yaw,pitch,eye,None),(eye,direction));
+        }
     }
 }

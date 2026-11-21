@@ -173,6 +173,12 @@ pub(crate) fn body_index_in(world_ctx: &mut crate::world::owner::World, body: Re
     world_ctx.sim.store.vehicles.vehicles.iter().position(|&v| v == r)
 }
 
+/// The hull whose collision body this is, whether anyone rides it or not.
+pub(crate) fn hull_of_in(world_ctx: &mut crate::world::owner::World, body: Ref<Body>) -> Option<Ref<Vehicle>> {
+    let r = world_ctx.units.hulls.as_ref()?.bodies.get(body.slot as usize).copied().flatten()?;
+    (world_ctx.sim.store.vehicle.get(r)?.body == body).then_some(r)
+}
+
 /// OrdnanceWorld.riderMount resolves the collision owner without a facade.
 /// Only an occupied animal exposes riders through its hull's collision shape.
 pub(crate) fn rider_mount_in(world_ctx: &mut crate::world::owner::World, body: Ref<Body>) -> Option<crate::ordnance::world::RiderMount> {
@@ -239,14 +245,8 @@ pub(crate) fn blast_in(world_ctx: &mut crate::world::owner::World, packet: Blast
         let typed = packet.hit.scales[binding(world_ctx.units.hulls.get_or_insert_with(Hulls::default), r).health as usize];
         let damage = packet.hit.damage * crate::ordnance::defs::falloff(distance, packet.inner, packet.outer) * typed;
         if !(damage > 0.0) { continue; }
-        let mut sight = center;
-        sight.sub(&at);
-        let span = sight.length();
-        if !(span < 1e-3) {
-            sight.divide_scalar(span);
-            let hit = super::native::ordnance_cast_in(world_ctx, f3::collision_world_in(&world_ctx.units), array(at), array(sight), span, Some(body), true, false);
-            if hit.is_some_and(|hit| hit.distance < span - 0.05) { continue; }
-        }
+        let world = f3::collision_world_in(&world_ctx.units);
+        if super::native::blast_sight_blocked_in(world_ctx, world, array(at), array(center), Some(body)) { continue; }
         let (team, human, _) = crate::combat::live::owner_facts_in(&world_ctx.sim, &mut world_ctx.units, owner);
         // An earlier death can change an owner's current team. Sample it
         // per reached hull, as Game.teamDamage does in the live JS loop.

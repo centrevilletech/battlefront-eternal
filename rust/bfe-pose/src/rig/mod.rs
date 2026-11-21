@@ -21,6 +21,7 @@
 
 pub mod content;
 pub mod droideka;
+pub mod droideka_guns;
 pub mod hull;
 pub mod math;
 pub mod rider;

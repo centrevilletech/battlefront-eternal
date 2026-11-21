@@ -478,6 +478,11 @@ impl Animator {
             stopping: false,
         });
     }
+    /// The weapon action under way (a reload, a charge, a shot or a throw),
+    /// until its clip ends or it is told to stop.
+    pub fn acting(&self) -> Option<u32> {
+        self.weapon.filter(|w| !w.stopping).map(|w| w.action)
+    }
     /// SoldierAnimator.endWeaponAction accepts any current action with None.
     pub fn end_weapon_action(&mut self, action: Option<u32>) {
         if let Some(w) = self.weapon.as_mut() {

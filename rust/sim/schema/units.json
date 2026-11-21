@@ -92,50 +92,6 @@
     ]
   },
   "records": {
-    "BodyPreviewFrame": {
-      "$layout": true,
-      "aimYaw": "f64",
-      "aimPitch": "f64",
-      "sourceYaw": "f64",
-      "sourcePitch": "f64",
-      "sourceBasis": "f64x15",
-      "maxTurn": "f64",
-      "pitchLimits": "f64x2",
-      "posture": "enum:Posture",
-      "air": "enum:Air|null",
-      "dive": "f64",
-      "lock": "f64",
-      "tickLength": "f64",
-      "lookX": "f64",
-      "lookY": "f64",
-      "count": "u32",
-      "skipped": "u32",
-      "position": "vec3",
-      "feet": "vec3",
-      "zoom": "f64",
-      "walker": "bool",
-      "eyeHeight": "f64",
-      "rolled": "bool",
-      "camera": "vec3",
-      "hasCamera": "bool",
-      "usesEye": "bool",
-      "trackOffsets": "f64x3",
-      "basis": "f64x15",
-      "eye": "vec3",
-      "from": "vec3",
-      "needsReach": "bool",
-      "reach": "f64",
-      "shotYaw": "f64",
-      "shotPitch": "f64"
-    },
-    "BodyLook": {
-      "$layout": true,
-      "dx": "f64",
-      "dy": "f64",
-      "scale": "f64",
-      "invert": "bool",
-      "raw": "bool"
-    },
     "BodySpawnOutput": {
       "$layout": true,
       "$publish": [
@@ -1052,7 +1008,15 @@
       "lastGun": "rec:LastGun|undefined",
       "shield": "rec:Shield|null",
       "waterClock": "f64|undefined",
-      "muzzleAnimator": "rec:RigAnimator|undefined"
+      "muzzleAnimator": "rec:RigAnimator|undefined",
+      "trackCenter": "vec3",
+      "trackOffset": "vec3",
+      "trackTilt": "f64",
+      "gunYaw": "f64x2",
+      "gunPitch": "f64x2",
+      "gunRates": "f64x2",
+      "gunYawLimits": "f64x2",
+      "gunPitchLimits": "f64x2"
     }
   },
   "imports": {

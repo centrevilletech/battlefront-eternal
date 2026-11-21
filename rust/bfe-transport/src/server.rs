@@ -955,7 +955,7 @@ mod tests {
             serde_json::json!({
                 "protocol": 3,
                 "profile": "snapshot-delta-v1",
-                "simulation": "bfe-sim-28",
+                "simulation": "bfe-sim-29",
                 "content": "test"
             })
         }
@@ -1027,7 +1027,7 @@ mod tests {
         let mut hs = ClientHandshake::new(
             client_id,
             server_id.id,
-            br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-28","content":"test","name":"Tester"}"#,
+            br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-29","content":"test","name":"Tester"}"#,
         )?;
         let mut init_pkt = [0u8; lim::INITIATION_BYTES];
         hs.initiation(&[], &mut init_pkt)?;
@@ -1102,7 +1102,7 @@ mod tests {
             &server_addr.to_string(),
             client_id,
             server_id.id,
-            br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-28","content":"test","name":"UdpClient"}"#,
+            br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-29","content":"test","name":"UdpClient"}"#,
         )?;
 
         // Pump both the client socket and the server endpoint across simulated 10 ms

@@ -5,7 +5,7 @@ use super::{
     defs::Js,
     world::{CastHit, CombatWorld, DamageInfo},
 };
-use crate::gen::{Attacker, Combat, Unit};
+use crate::gen::{Attacker, Combat, Unit, UnitBody};
 use three::Vector3;
 
 /// The health scale PlayerCombat chooses from its immutable class.
@@ -103,6 +103,10 @@ impl BlastPacket {
 /// without constructing a battle, content bank or foreign callback adapter.
 pub trait ImpactWorld {
     fn impact_cast(&mut self, from: &Vector3, dir: &Vector3, far: f64, static_only: bool) -> Option<CastHit>;
+    /// Whether terrain or a building shields `to` from a blast at `from`.
+    fn impact_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        super::world::sight_cast_blocked(from, to, |origin, direction, far| self.impact_cast(origin, direction, far, true))
+    }
     fn impact_draw(&mut self, generator: bool) -> f64;
     fn impact_shield(&mut self, taken: f64, left: f64, source: Option<Vector3>, explosion: bool);
     fn impact_damaged(
@@ -125,6 +129,9 @@ pub trait ImpactWorld {
 impl<W: CombatWorld + ?Sized> ImpactWorld for W {
     fn impact_cast(&mut self, a: &Vector3, b: &Vector3, far: f64, fixed: bool) -> Option<CastHit> {
         self.cast(a, b, far, fixed)
+    }
+    fn impact_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
+        self.blast_blocked(from, to)
     }
     fn impact_draw(&mut self, generator: bool) -> f64 {
         self.draw_combat(generator)
@@ -236,6 +243,22 @@ pub fn hit<W: ImpactWorld + ?Sized>(
         &info,
         world,
     );
+}
+
+/// A round that struck a droideka's shield bubble rather than its body: its
+/// `Damage` x `ShieldScale` (x the team factor `scale`) comes off the shield
+/// and nothing reaches health, even when it empties the shield.
+pub fn bubble_hit<W: ImpactWorld + ?Sized>(combat: &Combat, unit: &mut Unit, packet: &HitPacket, scale: f64, point: Vector3, world: &mut W) {
+    if combat.dead || scale <= 0.0 {
+        return;
+    }
+    let UnitBody::Droideka(droideka) = &mut unit.soldier else { return };
+    let mut taken = None;
+    droideka.absorb(1.0, packet.damage * scale * packet.shield, |_, amount| taken = Some(amount));
+    if let Some(taken) = taken {
+        let left = droideka.shield.as_ref().map_or(0.0, |s| s.value);
+        world.impact_shield(taken, left, Some(point), false);
+    }
 }
 
 /// The original explosion loop observes the live registry after every nested

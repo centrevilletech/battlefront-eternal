@@ -456,7 +456,7 @@ fn settle(b: &mut Body, normal: &Vector3) {
 }
 
 /// place: the model upright on its surface, facing its way.
-fn place(up: &Vector3, yaw: f64) -> Quaternion {
+pub fn place(up: &Vector3, yaw: f64) -> Quaternion {
     // The facing is the yaw's heading made level with the surface: the part along the normal
     // is taken out, and a heading straight up the normal falls back to +z.
     let mut forward = Vector3::new(v8math::sin(yaw), 0.0, v8math::cos(yaw));
@@ -1156,7 +1156,12 @@ impl Items {
         };
         // Far apart, or at rest differently, the copy takes the world's state behind the
         // offset; close enough, it is nudged halfway so the records' rounding averages out.
-        if adopt {
+        // An item at rest that the world has moved (a mine riding a hull, or one the copy
+        // settled a little elsewhere) slides there over the tick instead, with no offset
+        // to trail behind what carries it.
+        if adopt && probe.landed && life.sim.landed {
+            Self::adopt_moved(life, &probe);
+        } else if adopt {
             Self::adopt(life, &probe);
         } else if !probe.landed && !life.sim.landed {
             life.sim.position.add_scaled_vector(&error, NUDGE);
@@ -1186,6 +1191,17 @@ impl Items {
         if life.offset.length() > MAX_OFFSET {
             life.offset.set(0.0, 0.0, 0.0);
         }
+    }
+
+    /// adopt for an item at rest in both: the world's state, drawn from where
+    /// the copy was at the tick before.
+    fn adopt_moved(life: &mut Life, state: &Body) {
+        let sim = &mut life.sim;
+        sim.position.copy(&state.position);
+        sim.previous.copy(&state.position);
+        sim.velocity.copy(&state.velocity);
+        sim.up.copy(&state.up);
+        sim.yaw = state.yaw;
     }
 
     /// The end of show: draw, then the records behind the clock go (only the

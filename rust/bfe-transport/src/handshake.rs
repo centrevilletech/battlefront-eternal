@@ -484,14 +484,14 @@ mod tests {
         let client_id = Identity::from_seed([9u8; 32]);
         let retry = RetryTokens::from_secret([31u8; 32], 10_000.0);
         let mut server = ServerHandshakes::new(server_id.clone(), retry);
-        let hello = br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-28","content":"abc","name":"Player"}"#;
+        let hello = br#"{"protocol":3,"profile":"snapshot-delta-v1","simulation":"bfe-sim-29","content":"abc","name":"Player"}"#;
         let mut client = ClientHandshake::new(client_id.clone(), server_id.id, hello)?;
         let mut init_bytes = [0u8; lim::INITIATION_BYTES];
         client.initiation(&[], &mut init_bytes)?;
         let server_hello = serde_json::json!({
             "protocol": 3,
             "profile": "snapshot-delta-v1",
-            "simulation": "bfe-sim-28",
+            "simulation": "bfe-sim-29",
             "content": "abc"
         });
         let source = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 40000).to_string();
