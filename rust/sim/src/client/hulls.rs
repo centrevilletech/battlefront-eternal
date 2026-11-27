@@ -57,6 +57,11 @@ pub struct Session {
     flight_correction: corrections::FlightState,
 }
 impl Session {
+    /// The flight environment of a match whose authority names its ceiling.
+    pub fn set_environment(&mut self, environment: Environment) {
+        self.environment = environment;
+    }
+
     /// predictionVehicle's clone is cold. Subsequent frames retain the hull,
     /// decoded row, strings and collision scratch rather than cloning them.
     pub fn new(hull: Hull, row: Vehicle, mut strings: Strings, collision: Collision,

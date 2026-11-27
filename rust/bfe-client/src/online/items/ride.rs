@@ -35,6 +35,7 @@ struct Record {
 #[derive(Clone, Copy)]
 struct Item {
     generation: f64,
+    radius: f64,
     // Its two newest records, newest first.
     records: [Option<Record>; 2],
     // The hull it rides and its frame in that hull's frame.
@@ -49,7 +50,7 @@ struct Item {
 
 impl Default for Item {
     fn default() -> Self {
-        Self { generation: f64::NAN, records: [None; 2], on: None, drawn: None, released: false, offset: Vector3::default(), fade: 0.0 }
+        Self { generation: f64::NAN, radius: 0., records: [None; 2], on: None, drawn: None, released: false, offset: Vector3::default(), fade: 0.0 }
     }
 }
 
@@ -139,12 +140,12 @@ impl Riders {
 
     /// An item in this frame's records: its newest record's tick and frame,
     /// and whether it has no velocity of its own.
-    pub fn item(&mut self, id: usize, generation: f64, active: bool, tick: f64, frame: Matrix4, still: bool) {
+    pub fn item(&mut self, id: usize, generation: f64, active: bool, tick: f64, frame: Matrix4, still: bool, radius: f64) {
         let Some(item) = self.items.get_mut(id) else {
             return;
         };
         if item.generation != generation {
-            *item = Item { generation, ..Item::default() };
+            *item = Item { generation, radius, ..Item::default() };
         }
         if !active {
             if item.on.take().is_some() {
@@ -159,10 +160,16 @@ impl Riders {
         item.records[0] = Some(Record { tick, frame, still });
     }
 
+    pub fn forget(&mut self, id: usize) {
+        if let Some(item) = self.items.get_mut(id).filter(|item| item.records[0].is_some()) {
+            *item = Item::default();
+        }
+    }
+
     /// After the frame's records: hulls gone from the records are forgotten,
     /// an item that no longer rides is let go, and one its records moved
     /// while it lay still takes the hull that moved it.
-    pub fn settle(&mut self) {
+    pub fn settle(&mut self, touches: impl Fn(Key, [f64; 3], f64) -> bool) {
         let now = self.frame;
         self.hulls.retain(|_, hull| hull.0 == now);
         let hulls = &self.hulls;
@@ -203,8 +210,15 @@ impl Riders {
                     continue;
                 }
                 let place = local(&now_frame, &later.frame);
-                let gap = position(&place).distance_to(&position(&local(&then_frame, &earlier.frame)));
-                if gap <= MATCH && best.as_ref().is_none_or(|b| gap < b.0) {
+                let here = position(&place);
+                let then = position(&local(&then_frame, &earlier.frame));
+                let gap = here.distance_to(&then);
+                // A settled mine's centre is 0.3 radii off the face it hit.
+                // Allow the same record rounding as the relative-motion test.
+                let reach = item.radius * 0.3 + MATCH;
+                if gap <= MATCH && best.as_ref().is_none_or(|b| gap < b.0 || (gap == b.0 && *key < b.1))
+                    && touches(*key, [here.x, here.y, here.z], reach)
+                    && touches(*key, [then.x, then.y, then.z], reach) {
                     best = Some((gap, *key, place));
                 }
             }
@@ -275,9 +289,9 @@ mod tests {
             }
         };
         if let Some((t, p)) = at {
-            riders.item(7, 1.0, true, t, item_frame(p, [0.0, 1.0, 0.0], yaw), still);
+            riders.item(7, 1.0, true, t, item_frame(p, [0.0, 1.0, 0.0], yaw), still, 0.4);
         }
-        riders.settle();
+        riders.settle(|_, point, reach| (point[1] - 0.4).abs() <= reach);
     }
 
     fn drawn_at(riders: &mut Riders, copy: [f64; 3], hull: Option<Matrix4>) -> Vector3 {
@@ -342,5 +356,35 @@ mod tests {
         // The hull drives on; the mine's record stays behind, still.
         tick(&mut riders, 19.0, 3.0, 0.0, Some((19.0, [1.0, 0.5, 1.5], true)));
         assert!(riders.items[7].on.is_none());
+    }
+
+    #[test]
+    fn only_a_mine_in_contact_can_ride_and_equal_motion_chooses_the_lower_id() {
+        use super::super::{d, riding_radius};
+        let mut definition = [0.; d::STRIDE];
+        definition[d::RADIUS] = 0.5;
+        assert_eq!(riding_radius(&definition), None);
+        definition[d::MINE] = 1.;
+        let radius = riding_radius(&definition).unwrap();
+
+        for ids in [&[1][..], &[8, 1, 4], &[4, 1, 8]] {
+            let mut riders = Riders::new(1);
+            for x in [0., 2., 4.] {
+                riders.begin();
+                for &id in ids {
+                    let offset = if id == 1 { 40. } else { 0. };
+                    riders.hull((id, 3), x, [x + offset, 0., 0.], [0., 0., 0., 1.], false);
+                }
+                let frame = item_frame([x, 0.15, 0.], [0., 1., 0.], 0.);
+                riders.item(0, 9., true, x, frame, true, radius);
+                riders.settle(|_, point, reach| {
+                    point[0].abs() < 2. && point[2].abs() < 2. && point[1].abs() <= reach
+                });
+            }
+            let expected = (ids.len() > 1).then_some((4, 3));
+            assert_eq!(riders.items[0].on.map(|(key, _)| key), expected);
+            riders.forget(0);
+            assert!(riders.items[0].on.is_none());
+        }
     }
 }

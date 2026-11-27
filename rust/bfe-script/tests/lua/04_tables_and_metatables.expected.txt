@@ -1,0 +1,15 @@
+big	40	1	32	33	40
+sorted	5	6	1,2,3,4,6,9
+revsorted	9,6,4,3,2,1
+setn	2	nil
+field_n	5
+field_n_after	3	3
+foreachi	b!
+delete_iter	10	4
+oop	unit:base:hero
+proxy	get_foo	42
+mt_arith	V(8)	V(4)	V(12)	V(3)	V(36)	V(-6)
+mt_cmp	true	false	true	true	true	false
+mt_other	V(6)+V(2)	30
+mt_prot	locked
+mt_prot_set	false

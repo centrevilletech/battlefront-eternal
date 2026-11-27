@@ -91,6 +91,38 @@ pub fn run_bounded_update_check(
     }
 }
 
+fn has_prepared_sound(dir: &Path, swbf2: bool, enhanced: bool) -> bool {
+    enhanced && dir.join("audio/enhanced").is_dir()
+        || !swbf2 && (dir.join("audio/index.json").is_file()
+            || dir.join(".prepare.json").is_file() && dir.join("audio").is_dir())
+}
+
+/// The menu owns this optional preparation session. Dropping it also stops its encoders.
+pub(super) fn prepared_sound_session(dir: &Path, store: &AppSettingsStore) -> Option<PrepareSession> {
+    let swbf2 = dir.join(".prepare-swbf2.json").is_file();
+    let enhanced = store.desktop.enhanced_sound != Some(false);
+    if !has_prepared_sound(dir, swbf2, enhanced) {
+        return None;
+    }
+    let resources = super::settings::application_resources();
+    let platform = current_platform_str().to_string();
+    let tools = toolchain_paths(&ToolchainOptions {
+        packaged: resources.is_some(), resources_path: resources,
+        project_root: store.paths.project_root.clone(), platform: platform.clone(), arch: current_arch_str().to_string(),
+    });
+    let mut env: BTreeMap<_, _> = env::vars().collect();
+    env.insert("BFE_FAMILY".into(), if swbf2 { "swbf2" } else { "swbf1" }.into());
+    let options = PrepareSpawnOptions {
+        toolchain: tools, game_dir: store.desktop.game_dir.as_ref().map(PathBuf::from).unwrap_or_default(),
+        content_dir: dir.to_owned(), env, platform, include_add_ons: true, enhanced_sound: enhanced, plan_only: false,
+        family: if swbf2 { bfe_family::GameFamily::Swbf2 } else { bfe_family::GameFamily::Swbf1 },
+    };
+    let log = store.paths.prepare_log_file.with_file_name("sound-maintenance.log");
+    PrepareSession::start_sound_maintenance(options, log).map_err(|error| {
+        eprintln!("Sound maintenance deferred: {error}");
+    }).ok()
+}
+
 /// Reads, parses, and verifies a local Ed25519-signed release feed JSON file (`path`)
 /// and selects any newer update target for the running version.
 fn check_local_feed_file(path: &Path, _channel: &str) -> UpdateCheckOutcome {
@@ -128,10 +160,12 @@ fn fetch_and_check_feed(feed_url: &str, channel: &str) -> UpdateCheckOutcome {
     UpdateCheckOutcome::OfflineSkipped("offline or no local feed configured".to_string())
 }
 
-/// Checks for the common manifest required to load prepared content.
+/// Checks for the common manifest required to load prepared 2004 content.
 pub fn is_usable_content_dir(dir: &Path) -> bool {
-    // Prepared content always contains `common/common.json` and per-map directories under `maps/`.
-    dir.join("common").join("common.json").is_file()
+    // Prepared 2004 content always contains a regular `common/common.json` file
+    // and never carries a `swbf2` family marker.
+    !bfe_content::layout::is_swbf2_marked_dir(dir)
+        && dir.join("common").join("common.json").is_file()
 }
 
 /// High-level state of startup content resolution and background preparation.
@@ -243,8 +277,15 @@ impl StartupContentState {
                         copies, store,
                     )));
                 }
-                Self::FirstRun(Box::new(super::first_run::Setup::missing(
+                let roots = cli_content_dir.into_iter()
+                    .chain(store.desktop.content_dir.as_deref().map(Path::new))
+                    .chain(store.desktop.chosen_content_dir.as_deref().map(Path::new))
+                    .chain(env_map.get("BFE_CONTENT_DIR").map(Path::new))
+                    .chain([store.paths.content_root.as_path(), store.paths.managed_content_dir.as_path()])
+                    .chain(likely.iter().map(PathBuf::as_path));
+                Self::FirstRun(Box::new(super::first_run::Setup::missing_with_content(
                     res.mode == StartupMode::Outdated,
+                    roots,
                 )))
             }
             Err(err) => {
@@ -279,6 +320,7 @@ impl StartupContentState {
         // Spawn the background preparation pipeline and record its initial snapshot.
         let session = PrepareSession::start_with_timings(
             PrepareSpawnOptions {
+                family: bfe_family::GameFamily::Swbf1,
                 toolchain: tc,
                 game_dir: game_dir.to_path_buf(),
                 content_dir: target_dir.to_path_buf(),
@@ -296,7 +338,10 @@ impl StartupContentState {
             .lock()
             .map(|g| g.clone())
             .unwrap_or_else(|_| bfe_desktop::prepare::create_snapshot());
-        store.desktop.game_dir = Some(game_dir.to_string_lossy().into_owned());
+        store.desktop.set_game_dir_for(
+            bfe_family::GameFamily::Swbf1,
+            Some(game_dir.to_string_lossy().into_owned()),
+        );
         store.desktop.preparing_content_dir = Some(target_dir.to_string_lossy().into_owned());
         let _ = store.save_desktop();
         Ok(Self::Preparing {
@@ -320,7 +365,7 @@ impl StartupContentState {
 
         if let Self::Searching(rx) = self {
             if let Ok((state, desktop)) = rx.try_recv() {
-                store.desktop = desktop;
+                store.adopt_desktop(desktop);
                 *self = *state;
             }
             return None;
@@ -622,6 +667,16 @@ fn glyph_5x7(ch: char) -> [u8; 7] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn original_sound_maintenance_can_restore_a_missing_battle_index() {
+        let root = env::temp_dir().join(format!("bfe-sound-index-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("audio")).unwrap();
+        std::fs::write(root.join(".prepare.json"), b"{}").unwrap();
+        assert!(has_prepared_sound(&root, false, false));
+        assert!(!has_prepared_sound(&root, true, false));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     /// Verifies that the fallback font atlas produces valid non-empty RGBA pixels and glyph entries.
     #[test]
     fn fallback_font_builds_nonempty_glyphs_and_pixels() {
@@ -659,5 +714,155 @@ mod tests {
         let outcome = run_bounded_update_check(&store, true);
         assert_eq!(outcome, UpdateCheckOutcome::UpToDate);
         assert!(start.elapsed() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn is_usable_content_dir_requires_regular_file() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "bfe-usable-dir-check-{}-{nanos}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        // An empty directory literally named `common/common.json` must NOT be accepted.
+        std::fs::create_dir_all(dir.join("common/common.json")).unwrap();
+        assert!(
+            !is_usable_content_dir(&dir),
+            "is_usable_content_dir must require common/common.json to be a regular file"
+        );
+        // A regular file under a swbf2-marked `.content` directory must be rejected as 2004,
+        // while a genuine 2004 folder literally named `swbf2` stays accepted.
+        let bf2_marked = dir.join("bf2-marked");
+        let inner = bfe_content::layout::family_dir(&bf2_marked, bfe_family::GameFamily::Swbf2);
+        bfe_desktop::swbf2_tree::mark_new_tree(&inner).unwrap();
+        std::fs::create_dir_all(inner.join("common")).unwrap();
+        std::fs::write(inner.join("common/common.json"), b"{}").unwrap();
+        assert!(
+            !is_usable_content_dir(&inner),
+            "is_usable_content_dir must reject swbf2-marked .content dir"
+        );
+        let container = bf2_marked.join("swbf2");
+        std::fs::create_dir_all(container.join("common")).unwrap();
+        std::fs::write(container.join("common/common.json"), b"{}").unwrap();
+        assert!(
+            is_usable_content_dir(&container),
+            "a 2004 folder literally named swbf2 must never be refused"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn client_2004_import_declines_swbf2_archive_and_keeps_settings_unchanged() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "bfe-client-import-swbf2-{}-{nanos}",
+            std::process::id()
+        ));
+        let user_data = root.join("user-data");
+        std::fs::create_dir_all(&user_data).unwrap();
+        let paths = bfe_desktop::paths::DesktopPaths {
+            user_data_dir: user_data.clone(),
+            user_data: user_data.clone(),
+            managed_content_dir: user_data.join("game-data"),
+            content_root: user_data.join("game-data"),
+            settings_file: user_data.join("desktop-settings.json"),
+            player_settings_file: user_data.join("player-settings.json"),
+            timings_file: user_data.join("prepare-timings.json"),
+            prepare_log_file: user_data.join("logs").join("prepare.log"),
+            update_root: None,
+            project_root: user_data.clone(),
+        };
+        let saved_2004 = root.join("existing-2004");
+        std::fs::create_dir_all(saved_2004.join("common")).unwrap();
+        std::fs::write(saved_2004.join("common/common.json"), b"{}").unwrap();
+        let initial_settings = serde_json::json!({
+            "chosenContentDir": saved_2004.to_string_lossy(),
+            "contentDir": saved_2004.to_string_lossy(),
+        });
+        let initial_bytes = serde_json::to_string_pretty(&initial_settings).unwrap();
+        std::fs::write(&paths.settings_file, &initial_bytes).unwrap();
+        let store = AppSettingsStore::load(paths.clone());
+
+        // Export a synthetic 2005 archive.
+        let src_root = root.join("src-swbf2");
+        let bf2_dir = bfe_content::layout::family_dir(&src_root, bfe_family::GameFamily::Swbf2);
+        let ver = bfe_desktop::prepare::checkout_content_version().unwrap();
+        std::fs::create_dir_all(bf2_dir.join("common")).unwrap();
+        std::fs::create_dir_all(bf2_dir.join("maps/testmap1")).unwrap();
+        std::fs::write(bf2_dir.join("common/common.json"), b"{}").unwrap();
+        std::fs::write(bf2_dir.join("maps/testmap1/map.json"), b"{}").unwrap();
+        std::fs::write(bf2_dir.join("maps/testmap1/geom.bin"), [1]).unwrap();
+        let prep = serde_json::json!({
+            "family": "swbf2",
+            "version": ver.state,
+            "mapImportVersion": ver.maps,
+            "muzzleVersion": ver.sides,
+            "commonVersion": ver.common,
+            "swbf2Version": 8,
+            "complete": true,
+            "game": "/games/test-swbf2/GameData/data/_lvl_pc",
+            "addOns": [],
+            "plan": ["map:testmap1", "common"],
+            "done": ["common", "map:testmap1"],
+            "outputs": {
+                "map:testmap1": [["maps/testmap1/map.json", 2], ["maps/testmap1/geom.bin", 1]],
+                "common": [["common/common.json", 2]],
+                "*": [],
+            },
+            "failed": [],
+            "skipped": [],
+        });
+        std::fs::write(
+            bf2_dir.join(bfe_content::layout::SWBF2_PREPARE_STATE_FILE),
+            serde_json::to_vec(&prep).unwrap(),
+        )
+        .unwrap();
+        // Tools that prepare the 2005 game publish its generation, the lock handover and the
+        // inventory format.
+        let tools = root.join("tools");
+        let mut published: serde_json::Value =
+            serde_json::from_str(bfe_desktop::prepare::CHECKOUT_CONTENT_VERSION_JSON).unwrap();
+        published["swbf2"] = serde_json::json!(8);
+        published["swbf2Lock"] = serde_json::json!("stdin");
+        published["swbf2Outputs"] = serde_json::json!(1);
+        std::fs::create_dir_all(&tools).unwrap();
+        std::fs::write(tools.join("content-version.json"), published.to_string()).unwrap();
+        let archive = root.join("swbf2.bfecontent");
+        bfe_desktop::archive::export_content_for(
+            &src_root,
+            bfe_family::GameFamily::Swbf2,
+            &archive,
+            Some(&tools),
+        )
+        .unwrap();
+
+        // Client's 2004 import must decline the 2005 archive and leave settings untouched.
+        let mut work = crate::app::first_run::TransferWork::start_import(
+            archive,
+            &store,
+            Some(saved_2004.clone()),
+        );
+        let outcome = loop {
+            if let Some(done) = work.poll() {
+                break done;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        };
+        assert!(
+            outcome.is_err(),
+            "2004 client import must decline a 2005 archive"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&paths.settings_file).unwrap(),
+            initial_bytes,
+            "declined 2005 archive must never repoint or modify saved 2004 settings"
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

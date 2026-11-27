@@ -29,6 +29,15 @@ pub fn input_codes() -> Vec<String> {
     codes
 }
 
+/// The battle's held code table. The 2004 game's is the protocol's fixed
+/// registry above; the 2005 game's appends its virtual block code, so every
+/// shared code keeps its bitmap position.
+pub fn input_codes_for(_family: bfe_family::GameFamily) -> Vec<String> {
+    // Both games hold the same physical codes; the 2005 game's extra inputs
+    // are durable actions, not held codes.
+    input_codes()
+}
+
 /// createEntityRegistry's unsorted inputs, in authored encounter order.
 /// Keep duplicates here: wire_registry_run performs the UTF-16 sort/dedup.
 #[derive(Clone, Debug, Default)]
@@ -153,6 +162,8 @@ impl SourceDefinitions {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Registry {
     pub classes: Vec<String>, pub weapons: Vec<String>, pub posts: Vec<String>, pub combat_paths: Vec<String>,
+    /// The battle's game: it chooses the registry's held code table.
+    pub family: bfe_family::GameFamily,
 }
 impl Registry {
     fn table(names: Vec<WrName>, cx: &Cx) -> Result<Vec<String>, AdmitError> {
@@ -162,15 +173,134 @@ impl Registry {
     /// Descriptor field order matters to JSON.stringify's registry check.
     pub fn descriptor(&self) -> Value {
         json!({"combatDefinitions": self.combat_paths, "contentEpoch": 1, "classes": pairs(&self.classes),
-            "weapons": pairs(&self.weapons), "posts": pairs(&self.posts), "inputCodes": input_codes(), "bindingProfiles": [[0, {}]]})
+            "weapons": pairs(&self.weapons), "posts": pairs(&self.posts), "inputCodes": input_codes_for(self.family), "bindingProfiles": [[0, {}]]})
     }
     pub fn descriptor_text(&self) -> Result<String, AdmitError> {
         Ok(format!("{{\"combatDefinitions\":{},\"contentEpoch\":1,\"classes\":{},\"weapons\":{},\"posts\":{},\"inputCodes\":{},\"bindingProfiles\":[[0,{{}}]]}}",
-            encode(&json!(self.combat_paths))?, encode(&json!(pairs(&self.classes)))?, encode(&json!(pairs(&self.weapons)))?, encode(&json!(pairs(&self.posts)))?, encode(&json!(input_codes()))?))
+            encode(&json!(self.combat_paths))?, encode(&json!(pairs(&self.classes)))?, encode(&json!(pairs(&self.weapons)))?, encode(&json!(pairs(&self.posts)))?, encode(&json!(input_codes_for(self.family)))?))
     }
 }
 fn pairs(names: &[String]) -> Vec<(usize, &str)> { names.iter().enumerate().map(|(i, n)| (i + 1, n.as_str())).collect() }
 fn encode(value: &Value) -> Result<String, AdmitError> { serde_json::to_string(value).map_err(|e| error(e.to_string())) }
+
+/// Places on the battle's rosters. Each is a bot's or a player's: a player who
+/// joins takes a bot's place, one who leaves hands it back.
+fn places(world: &World) -> usize {
+    world.sim.store.spawning.teams.iter().map(|team| team.characters.len()).sum()
+}
+
+/// Everything a 2005 battle's capture can publish at once: the bodies of its
+/// rosters' places, hulls, pooled items, turrets, remote droids (one per body
+/// when the battle has a remote weapon), and its world fields.
+fn census(world: &World, cx: &Cx, values: &DefinitionValues) -> crate::wire::bounds::Census {
+    let store = &world.sim.store;
+    let pools = cx.battle.world.get("mission").and_then(|m| m.get("pools"));
+    let pool = |name: &str, fallback: f64| pools.and_then(|p| p.get(name)).filter(|v| !matches!(v, ContentValue::Null))
+        .map(|v| bfe_content::js::to_number(Some(v))).unwrap_or(fallback);
+    let items = pool("mine", 50.0) + pool("powerupitem", 25.0);
+    let places = places(world);
+    let bodies = 2 * places;
+    let hulls = store.vehicle.slots() as usize;
+    let fields = producers(world, cx, bodies, hulls).iter().map(|producer| producer.count).try_fold(0, usize::checked_add).unwrap_or(usize::MAX);
+    let identities = jsrt::to_uint32(store.units.next_id) as usize + crate::units::f3_hulls::unborn_in(&world.units) + places;
+    crate::wire::bounds::Census { bodies, hulls,
+        items: if items.is_finite() && items > 0.0 { items as usize } else { 0 },
+        turrets: crate::vehicles::module::f2::live_seats::wire_turret_count_in(&world.fleet),
+        remotes: if values.remotes.is_empty() { 0 } else { bodies },
+        fields, identities }
+}
+
+/// The battle's world field producers at their counts and their largest
+/// payloads: a unit field and a soldier display per body, a field per prop,
+/// animated prop, trap and hull, the common summaries and a mission's state.
+fn producers(world: &World, cx: &Cx, bodies: usize, hulls: usize) -> Vec<crate::wire::bounds::Producer> {
+    use crate::wire::bounds::{json_field_largest, summaries, unit_field_largest, Producer};
+    let weapons = cx.defs.classes.iter().filter(|c| c.record.get("base").and_then(ContentValue::as_str) == Some("soldier"))
+        .map(|c| c.weapons.len().min(12)).max().unwrap_or(0);
+    let (animations, traps) = crate::battle::f4_live::census_counts_in(&world.battle);
+    let props = crate::units::f3_props::census_count_in(&world.units);
+    let store = &world.sim.store;
+    let players = store.battle.characters.len();
+    let mut producers = vec![
+        Producer { schema: 6, count: bodies, largest: unit_field_largest(weapons) },
+        Producer { schema: crate::movement::soldier::swbf2::body::DISPLAY_SCHEMA, count: bodies, largest: 11 },
+        // A prop's state and its station's mode.
+        Producer { schema: 7, count: props, largest: json_field_largest(6, 1, &["destroyed".len(), "waiting".len()], 2) },
+        Producer { schema: 9, count: animations, largest: json_field_largest(7, 1, &[], 0) },
+        Producer { schema: 10, count: traps, largest: json_field_largest(3, 1, &[], 0) },
+        // A hull's tow: its own id and its target's, with the target's life,
+        // the point on it (an array in the array) and the leg it winds round.
+        Producer { schema: 8, count: hulls, largest: json_field_largest(8, 0, &[64], 0) + 4 },
+    ];
+    producers.extend(summaries(store.command_posts.posts.len(), players));
+    producers.extend(mission_producers(world, players));
+    producers.extend(space_producers(cx));
+    producers
+}
+
+/// Space Assault world field producers; empty for non-Space battles.
+fn space_producers(cx: &Cx) -> Vec<crate::wire::bounds::Producer> {
+    use crate::wire::{bounds::Producer, space as s};
+    if !crate::space::SpaceBattlefield::should_attach(cx.content) {
+        return Vec::new();
+    }
+    let fighters = cx
+        .battle
+        .swbf2
+        .as_ref()
+        .map(|data| {
+            data.map_admission
+                .placed
+                .iter()
+                .filter(|obj| obj.base.eq_ignore_ascii_case("vehiclespawn"))
+                .map(|obj| {
+                    crate::space::flight::placed_prop_ci(&obj.properties, "SpawnCount", "88923ff7")
+                        .and_then(|v| v.trim().parse::<f64>().ok())
+                        .filter(|v| v.is_finite() && *v >= 1.0)
+                        .map(|v| v as usize)
+                        .unwrap_or(1)
+                })
+                .sum::<usize>()
+        })
+        .unwrap_or(0);
+    let chunks = fighters
+        .div_ceil(s::FIGHTERS_PER_CHUNK)
+        .clamp(1, s::MAX_FIGHTER_CHUNKS);
+    vec![
+        Producer { schema: s::FIGHTER_SCHEMA, count: chunks, largest: s::FIGHTER_CHUNK_BYTES },
+        Producer { schema: s::FIGHTER_SCHEMA, count: 1, largest: s::SEATS_BYTES },
+        Producer { schema: s::FRIGATES_SCHEMA, count: 1, largest: s::FRIGATES_BYTES },
+        Producer { schema: s::ORDNANCE_SCHEMA, count: 1, largest: s::GUIDED_BYTES },
+        Producer { schema: s::ORDNANCE_SCHEMA, count: 1, largest: s::EVENTS_BYTES },
+        Producer { schema: s::PROPS_SCHEMA, count: 1, largest: s::TURRETS_BYTES },
+        Producer { schema: s::PROPS_SCHEMA, count: 1, largest: s::DOORS_BYTES },
+    ]
+}
+
+/// The most mission state a scripted battle publishes at once; nothing in any
+/// other battle. What the script will add (objectives, systems, points) is
+/// counted at the most the records carry.
+fn mission_producers(world: &World, players: usize) -> Vec<crate::wire::bounds::Producer> {
+    use crate::wire::{bounds::Producer, mission as m};
+    if !world.has_mission() { return Vec::new(); }
+    let state = |count, largest| Producer { schema: m::STATE_SCHEMA, count, largest };
+    vec![state(1, m::MATCH_BYTES), state(1, m::TIMER_BYTES), state(players.div_ceil(m::PERSONAL_SLOTS).min(m::PERSONAL_FIELDS), m::PERSONAL_BYTES),
+        state(players.div_ceil(m::PERSONAL_SLOTS).min(m::DEPLOYMENT_FIELDS), m::DEPLOYMENTS_BYTES),
+        state(players.div_ceil(m::PERSONAL_SLOTS).min(m::CLASSES_FIELDS), m::CLASSES_BYTES),
+        state(players.div_ceil(m::PERSONAL_SLOTS).min(m::LEAVING_FIELDS), m::LEAVING_BYTES),
+        state(1, m::CLASS_ROOM_BYTES),
+        state(m::OBJECTIVE_FIELDS, m::OBJECTIVES_BYTES), Producer { schema: m::SYSTEM_SCHEMA, count: m::SYSTEMS, largest: m::SYSTEM_BYTES }]
+}
+
+/// Whether a side of the battle carries `class` as a soldier.
+fn soldier_class(cx: &Cx, class: &str) -> bool {
+    cx.battle.sides.iter().filter_map(|side| side.units.get(class))
+        .any(|def| def.get("base").and_then(ContentValue::as_str) == Some("soldier"))
+}
+/// Whether the world holds 2005 movement numbers for `class`.
+fn has_numbers(world: &World, class: &str) -> bool {
+    world.movement.swbf2.classes().iter().any(|&(id, _)| world.sim.strings.units(id).iter().copied().eq(class.encode_utf16()))
+}
 
 /// LocalServer's retained connection, after the F4 spawn command returns.
 /// Player ids are Unit ids on the wire; mailbox/player keys are separate.
@@ -185,6 +315,7 @@ pub struct LocalPlayer {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Session {
     pub handles: Handles, pub player_id: f64, pub registry: Value, pub packets: [String; 2], pub calls: Calls,
+    pub wire_bounds: crate::wire::PositionBounds,
     /// The construction owner's stages, retained for Rows::cold_stages.
     pub cold_stages: Vec<F3ColdStage>,
 }
@@ -240,7 +371,7 @@ fn intern_names(cx: &mut Cx, call: &mut Call, names: &[String]) -> Vec<WrName> {
 /// Rust ordering algorithm. Outputs become the only protocol name tables.
 pub fn create_registry(world: &mut World, cx: &mut Cx, input: &RegistryInput, calls: &mut Calls) -> Result<Registry, AdmitError> {
     let mut call = scalar(&[0.0]);
-    let codes = intern_names(cx, &mut call, &input_codes());
+    let codes = intern_names(cx, &mut call, &input_codes_for(cx.options.family));
     let row = WrInputs { epoch: 1.0, epoch_valid: true, codes_valid: true, profiles_valid: true, codes,
         profiles: vec![WrProfile { id: 0.0, id_valid: true, valid: true, bindings: Vec::new() }] };
     call.row.resize(WrInputs::WORDS, 0.0); row.put(&mut call.row, &mut call.heap);
@@ -266,7 +397,8 @@ pub fn create_registry(world: &mut World, cx: &mut Cx, input: &RegistryInput, ca
     }
     let mut tables = tables.into_iter();
     let registry = Registry { classes: tables.next().unwrap_or_default(), weapons: tables.next().unwrap_or_default(),
-        posts: tables.next().unwrap_or_default(), combat_paths: input.combat.iter().map(|(path, _)| path.clone()).collect() };
+        posts: tables.next().unwrap_or_default(), combat_paths: input.combat.iter().map(|(path, _)| path.clone()).collect(),
+        family: cx.options.family };
     if registry.classes.is_empty() { return Err(error("entity registry has no classes")); }
     Ok(registry)
 }
@@ -285,12 +417,15 @@ fn store_setup(cx: &mut Cx, registry: &Registry, definitions: &SourceDefinitions
         .map(|v| bfe_content::js::to_number(Some(v))).unwrap_or(fallback);
     let items = capacity("mine", 50.0) + capacity("powerupitem", 25.0);
     if !items.is_finite() || items < 0.0 || items > 256.0 || items.fract() != 0.0 { return Err(error("invalid item capture capacity")); }
+    // The identities and rows capture tracks: the released 256 and 512 for a
+    // 2004 battle, the wire's whole slot domain for a 2005 one.
+    let capture = crate::wire::bounds::Capacity::for_battle(cx.options.family);
     let seats = entries(cx.battle.vehicle_def.as_ref().and_then(|v| v.get("classes"))).into_iter()
         .map(|(_, value)| array(value.get("seats")).len()).max().unwrap_or(0);
     let row = WireStoreSetup { unbuilt, built, destroyed, classes, weapon_names, posts,
         weapons: definitions.weapons.clone(), items: definitions.items.clone(), remotes: definitions.remotes.clone(), ordnance: definitions.ordnance.clone(),
         peers: vec![WireStorePeer { id: 1, character: player.character.clone(), mailbox: player.mailbox }],
-        item_capacity: items as u32, remote_capacity: 4096, entity_capacity: 256, record_capacity: 512, seat_capacity: seats as u32 };
+        item_capacity: items as u32, remote_capacity: 4096, entity_capacity: capture.known as u32, record_capacity: capture.rows as u32, seat_capacity: seats as u32 };
     call.row.resize(WireStoreSetup::WORDS, 0.0); row.put(&mut call.row, &mut call.heap);
     Ok(call)
 }
@@ -300,14 +435,47 @@ fn store_setup(cx: &mut Cx, registry: &Registry, definitions: &SourceDefinitions
 /// Content can extend at admission, so source configuration runs again at
 /// addClient even when this is the first and only peer.
 pub fn create_host(world: &mut World, cx: &mut Cx, player: &LocalPlayer, input: &RegistryInput,
-    values: &DefinitionValues, at: f64) -> Result<Session, AdmitError>
+    values: &DefinitionValues, at: f64, family: bfe_family::GameFamily) -> Result<Session, AdmitError>
 {
+    let wire_bounds = crate::wire::bounds::for_battle(family, &cx.battle.map_data).map_err(error)?;
     let mut calls = Calls::new();
-    let runtime = key(world, cx, &mut calls, "wire_create", scalar(&[]), crate::wire::module::wire_create_in)?;
+    let mut create = scalar(&[]);
+    let swbf2 = family != bfe_family::GameFamily::Swbf1;
+    // A 2005 battle's recorded creation names its box and its slot domain, so
+    // a replay rebuilds the same runtime; a 2004 battle records the released call.
+    if wire_bounds != crate::wire::PositionBounds::LEGACY || swbf2 {
+        let (min, extent) = wire_bounds.padded_axes();
+        create.args.extend(min);
+        create.args.extend(extent);
+    }
+    // A 2005 battle reserves the wire's whole slot domain, and must fit it.
+    let capacity = crate::wire::bounds::Capacity::for_battle(family);
+    if swbf2 { create.args.push(capacity.slots as f64); }
+    if swbf2 {
+        let census = census(world, cx, values);
+        census.check(capacity).map_err(error)?;
+        let seats = cx.defs.vehicles.iter().map(|v| v.seats.len()).max().unwrap_or(0);
+        census.check_keyframe(&producers(world, cx, census.bodies, census.hulls), seats, &wire_bounds, capacity).map_err(error)?;
+        // Every soldier class the battle's sides carry has its numbers before
+        // the battle goes ready: no 2005 life steps or publishes without them.
+        if let Some(class) = input.classes.iter().find(|class| soldier_class(cx, class) && !has_numbers(world, class)) {
+            let why = crate::movement::soldier::swbf2::classes::refusal(cx.content, cx.defs, class);
+            return Err(error(format!("the Battlefront II class {class} has no movement numbers{why}")));
+        }
+        // One 2005 life per slot, so no tick grows the table.
+        world.movement.swbf2.reserve(capacity.slots);
+    }
+    let runtime = key(world, cx, &mut calls, "wire_create", create,
+        |world| crate::wire::module::wire_create_for_battle_in(world, wire_bounds, capacity))?;
     let presentation = key(world, cx, &mut calls, "wire_presentation_create", scalar(&[]), crate::wire::presentation::wire_presentation_create_in)?;
     let host = key(world, cx, &mut calls, "wire_host_create", scalar(&[1.0, f64::INFINITY, f64::INFINITY, 1.0]),
         |world| crate::wire::host::wire_host_create_in(world, 1, f64::INFINITY, f64::INFINITY, 1.0))?;
-    let stagger = key(world, cx, &mut calls, "wire_stagger_create", scalar(&[]), crate::wire::stagger::wire_stagger_create_in)?;
+    let stagger = if swbf2 {
+        key(world, cx, &mut calls, "wire_stagger_create", scalar(&[capacity.fields as f64]),
+            |world| crate::wire::stagger::wire_stagger_create_with_in(world, capacity.fields))?
+    } else {
+        key(world, cx, &mut calls, "wire_stagger_create", scalar(&[]), crate::wire::stagger::wire_stagger_create_in)?
+    };
     let registry = create_registry(world, cx, input, &mut calls)?;
     // Capture subscribes before any publication can observe a shot. The
     // combat queue shares the simulation's ordered event namespace; creating
@@ -323,6 +491,11 @@ pub fn create_host(world: &mut World, cx: &mut Cx, player: &LocalPlayer, input: 
     })?;
     let call = store_setup(cx, &registry, &definitions, player)?;
     let source = key(world, cx, &mut calls, "wire_store_source_create", call, crate::wire::store_source::wire_store_source_create_in)?;
+    // Its capture stage swaps with the committed one, so both hold as many fields.
+    if swbf2 {
+        key(world, cx, &mut calls, "wire_store_source_fields", scalar(&[source as f64, capacity.fields as f64]),
+            |world| crate::wire::store_source::wire_store_source_fields_in(world, source, capacity.fields))?;
+    }
     key(world, cx, &mut calls, "wire_shots_attach", scalar(&[shots as f64]), |world| crate::wire::shots::wire_shots_attach_in(world, shots) as usize)?;
     let seats = world.wire.as_deref().and_then(|w| w.sources.get(source)).map(|s| s.capture.seat_capacity());
     key(world, cx, &mut calls, "wire_bind_store", scalar(&[runtime as f64, source as f64]),
@@ -379,7 +552,7 @@ pub fn create_host(world: &mut World, cx: &mut Cx, player: &LocalPlayer, input: 
     }
     let packets = Session::welcome(&registry, player)?;
     Ok(Session { handles: Handles { mailbox: player.mailbox, player: player.player, publication: publication as u32, host: host as u32,
-        edges: edges as u32, client: 1, combat: combat as u32, presentation: presentation as u32, store_source: source as u32 }, player_id: player.unit_id as f64, registry: registry.descriptor(), packets, calls, cold_stages: Vec::new() })
+        edges: edges as u32, client: 1, combat: combat as u32, presentation: presentation as u32, store_source: source as u32 }, player_id: player.unit_id as f64, registry: registry.descriptor(), packets, calls, wire_bounds, cold_stages: Vec::new() })
 }
 
 /// The shared random bindings and recon identity assigned by earlier owners.
@@ -578,7 +751,8 @@ pub fn run_with(world: &mut World, cx: &mut Cx, bindings: &PlayerBindings, at: f
     // Read the shared tables after addPlayer, exactly when SnapshotHost binds
     // its source, so late-prepared classes retain their actual definition ids.
     let values = DefinitionValues::from_context(cx)?;
-    let mut session = create_host(world, cx, &player, &input, &values, at)?;
+    // The resolved battle family supplies the position bounds.
+    let mut session = create_host(world, cx, &player, &input, &values, at, cx.battle.family)?;
     for (_, name, call) in &calls {
         if *name == "f3_factory_stage" {
             if call.row.len() < F3ColdStage::WORDS { return Err(refused("f3_factory_stage")); }
@@ -593,7 +767,7 @@ pub fn run_with(world: &mut World, cx: &mut Cx, bindings: &PlayerBindings, at: f
 /// can reference it. The same helper admits the very first local peer.
 pub fn create_mailbox(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<u32, AdmitError> {
     let mut call = Call::default();
-    let codes = input_codes().iter().map(|code| cx.intern(&mut call, code)).collect();
+    let codes = input_codes_for(cx.options.family).iter().map(|code| cx.intern(&mut call, code)).collect();
     let setup = InputMailboxSetup { epoch: 1.0, capacity: 256.0, codes };
     call.row.resize(InputMailboxSetup::WORDS, 0.0); setup.put(&mut call.row, &mut call.heap);
     key(world, cx, calls, "input_mailbox_create", call, |world| crate::input::module::input_mailbox_create_in(world) as usize).map(|key| key as u32)

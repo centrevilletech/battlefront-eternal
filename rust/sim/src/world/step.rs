@@ -17,6 +17,19 @@ impl World {
     /// Calling existing owner entries preserves their independent event epochs,
     /// numeric substeps and publication banks without a host phase dispatcher.
     pub fn step(&mut self, input: &WorldTickInput) -> WorldTickOutput {
+        let Some(infantry) = &mut self.units.infantry else { return self.step_world(input) };
+        let previous = infantry.tick;
+        infantry.tick = input.tick as u32;
+        let outcome = self.step_world(input);
+        if outcome.accepted {
+            crate::units::infantry::contact::observe_lives(self);
+        } else if let Some(infantry) = &mut self.units.infantry {
+            infantry.tick = previous;
+        }
+        outcome
+    }
+
+    fn step_world(&mut self, input: &WorldTickInput) -> WorldTickOutput {
         let mut output = WorldTickOutput {clock:input.clock.clone(),..Default::default()};
         if input.dt.is_finite() && input.dt >= 0.0 && input.tick.is_finite() && !self.tick.running
             && crate::units::f3::registered_viewpoint_in(&self.units).is_some_and(|r|self.sim.store.unit.get(r).is_some())
@@ -52,10 +65,18 @@ impl World {
                 }
             }
             crate::vehicles::module::f2::world_level_in(self,if level.is_finite() {level}else{0.0});
+            crate::space::step_world_in(self, input.dt);
             crate::battle::f4_live::f4_viewpoint_clock_in(self);
             if input.camera!=0 {crate::cameras::world_frame(self,input.camera,input.offline_camera);}
             let ai = !input.ai || crate::ai::owned::entry::ai_world_phase_in(self) != 0;
-            if ai && crate::units::f3::f3_step_in(self, input.units, input.dt, level, input.tick) != 0 {
+            if !input.ai {
+                self.ai.begin_nav_tick(input.tick as u32);
+            }
+            // 2005 space battles only: the bot pilots send their controls.
+            if ai && input.ai { crate::space::pilots::after_ai_in(self, input.dt); }
+            // 2005 space battles only: soldiers meet a craft's bodies for soldiers.
+            let units = |w: &mut World| crate::units::f3::f3_step_in(w, input.units, input.dt, level, input.tick);
+            if ai && crate::space::hulls_meet(self, crate::space::flight::HullMeets::Soldiers, units) != 0 {
                 if input.live { crate::battle::f4_live::f4_live_in(self); }
                 output.ordnance = crate::ordnance::module::ord_update_in(self,input.dt);
                 let targets = crate::units::f3_items::world_targets_in(self);

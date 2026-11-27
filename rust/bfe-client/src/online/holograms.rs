@@ -9,6 +9,10 @@
 //! post's capture progress and the teams standing in it (the world summary,
 //! through the HUD), and fades it in again when its owner changes. Each
 //! hologram's point light joins the frame's lights (super::lights).
+//!
+//! A 2005 battle builds its holograms from the 2005 game's own data
+//! (swbf2.rs) and draws them through the same present below.
+mod swbf2;
 use crate::render_bridge::Bridge;
 use bfe_content::Value;
 use bfe_content_native::BattleContent;
@@ -96,10 +100,19 @@ pub struct Holograms {
     drawn: usize,
     /// Draws handed to the renderer, for the frame summary.
     pub draws: u64,
+    // A 2005 battle's logos by side slot, given to the teams once the
+    // mission has named them (swbf2.rs).
+    swbf2: Option<Box<swbf2::Teams>>,
 }
 /// Every texture the holograms draw with, for the particle owner to load
 /// with its own.
 pub fn textures(content: &BattleContent) -> Vec<String> {
+    if content.family == bfe_content_native::GameFamily::Swbf2 {
+        return swbf2::textures(content);
+    }
+    textures_released(content)
+}
+fn textures_released(content: &BattleContent) -> Vec<String> {
     let mut names = vec![FLARE_TEXTURE.to_string(), LOGO_TEXTURE.to_string()];
     let common = &content.content.battle.common;
     for (_, model) in logo_models(content) {
@@ -159,6 +172,21 @@ impl Holograms {
         data: usize,
         matrices: usize,
     ) -> Result<Self, String> {
+        if content.family == bfe_content_native::GameFamily::Swbf2 {
+            return swbf2::new(content, bridge, resources, textures, images, data, matrices);
+        }
+        Self::new_released(content, bridge, resources, textures, images, data, matrices)
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn new_released(
+        content: &BattleContent,
+        bridge: &mut Bridge,
+        resources: &mut crate::resources::Resources,
+        textures: &[u32],
+        images: &BTreeMap<String, usize>,
+        data: usize,
+        matrices: usize,
+    ) -> Result<Self, String> {
         let map = &content.map;
         let look: Look = serde_json::from_value(map["hologram"].clone()).unwrap_or_default();
         let listed = map["commandPosts"].as_array().cloned().unwrap_or_default();
@@ -199,6 +227,7 @@ impl Holograms {
             matrices,
             drawn: 0,
             draws: 0,
+            swbf2: None,
         };
         for &(name, size) in layout::PRODUCERS[layout::ACTOR_BASIC].1 {
             let at = holograms.fields.length;

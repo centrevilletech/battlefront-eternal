@@ -76,7 +76,8 @@ pub const REC_STRIDE: usize = 88;
 // drawn with the view's camera.
 pub const KIND_PROXY: f64 = 1.0;
 pub const KIND_LOCKED: f64 = 2.0;
-pub const MAX_RECORDS: usize = 256;
+pub const MAX_RECORDS: usize = 512;
+pub const INITIAL_RECORDS: usize = 256;
 // The bone textures' rows (as wide as the instances pass's).
 pub const BONE_TEXELS: usize = 1024;
 pub const BONE_ROWS: usize = 32;
@@ -129,6 +130,14 @@ pub struct MotionPass<C: HasContext> {
     rows_texture: C::Texture,
     bones_texture: C::Texture,
     previous_texture: C::Texture,
+    pack_cols: usize,
+    tex_height: usize,
+    max_tex_height: usize,
+    max_records: usize,
+    pub(crate) extended: bool,
+    bone_texels: usize,
+    bone_rows: usize,
+    max_bones: usize,
     rows: Vec<f32>,
     pub input: Vec<f64>,
     pub bones: Vec<f32>,
@@ -156,17 +165,41 @@ fn as_f32(v: &[f64]) -> [f32; 16] {
 }
 
 impl<C: HasContext> MotionPass<C> {
-    pub fn texture_bytes(&self) -> u64 { ((ROW_TEXELS*MAX_RECORDS+2*BONE_TEXELS*BONE_ROWS)*16) as u64 }
+    pub fn record_capacity(&self) -> usize {
+        if self.extended { self.max_records } else { self.max_records.min(INITIAL_RECORDS) }
+    }
+    /// Select the larger velocity bank during scene admission, before frame packets are reserved.
+    pub fn enable_extended_records(&mut self) {
+        self.input.resize(IN_RECORDS + self.max_records * REC_STRIDE, 0.);
+        self.rows.resize(self.max_tex_height * self.pack_cols * ROW_TEXELS * 4, 0.);
+        self.extended = true;
+    }
+    pub fn bone_capacity(&self) -> usize { self.max_bones }
+    pub fn texture_bytes(&self) -> u64 {
+        ((self.pack_cols * ROW_TEXELS * self.tex_height + 2 * self.bone_texels * self.bone_rows) * 16) as u64
+    }
     pub fn new<M: MultiDraw>(core: &mut Core<C, M>) -> MotionPass<C> {
         let gl = &core.gl;
-        let rows_texture = core.hold_texture(upload_texture(gl, ROW_TEXELS as i32, MAX_RECORDS as i32));
-        let bones_texture = core.hold_texture(upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32));
-        let previous_texture = core.hold_texture(upload_texture(gl, BONE_TEXELS as i32, BONE_ROWS as i32));
+        let raw_max = unsafe { gl.get_parameter_i32(glow::MAX_TEXTURE_SIZE) };
+        let max_tex = if raw_max > 0 { raw_max as usize } else { 1024 };
+        let (pack_cols, tex_height, max_tex_height, max_records) =
+            crate::instances::row_layout(max_tex, MAX_RECORDS, INITIAL_RECORDS);
+        let (bone_texels, bone_rows, max_bones) = crate::instances::bone_layout(max_tex, MAX_BONES);
+        let rows_texture = core.hold_texture(upload_texture(gl, (pack_cols * ROW_TEXELS) as i32, tex_height as i32));
+        let bones_texture = core.hold_texture(upload_texture(gl, bone_texels as i32, bone_rows as i32));
+        let previous_texture = core.hold_texture(upload_texture(gl, bone_texels as i32, bone_rows as i32));
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
+        let bone_floats = (bone_rows * bone_texels * 4).max(MAX_BONES * 16);
         MotionPass {
             actor_descriptors:vec![],
-            rows_texture, bones_texture, previous_texture, rows: vec![0.0; MAX_RECORDS * ROW_TEXELS * 4], input: vec![0.0; INPUT_LEN],
-            bones: vec![0.0; MAX_BONES * 16], previous: vec![0.0; MAX_BONES * 16], uniforms: HashMap::new(),
+            rows_texture, bones_texture, previous_texture,
+            pack_cols, tex_height, max_tex_height, max_records,
+            extended: false,
+            bone_texels, bone_rows, max_bones,
+            rows: vec![0.0; tex_height * pack_cols * ROW_TEXELS * 4],
+            input: vec![0.0; IN_RECORDS + INITIAL_RECORDS.min(max_records) * REC_STRIDE],
+            bones: vec![0.0; bone_floats], previous: vec![0.0; bone_floats],
+            uniforms: HashMap::new(),
             extras: vec![], extras_input: vec![0.0; EXTRAS_LEN], extra_values: vec![0.0; EXTRA_VALUES], matrices: HashMap::new(),
         }
     }
@@ -282,8 +315,8 @@ impl<C: HasContext> MotionPass<C> {
     pub fn draw<M: MultiDraw>(&mut self, core: &mut Core<C, M>, records: usize) {
         // Retained actor descriptors fill immutable draw fields in native
         // storage; the host transports only current/previous pose and skin.
-        for r in 0..records.min(MAX_RECORDS){let row=&mut self.input[IN_RECORDS+r*REC_STRIDE..IN_RECORDS+(r+1)*REC_STRIDE];if row[REC_PROGRAM]==crate::actor_layout::kind::RETAINED as f64{if let Some(d)=self.actor_descriptors.get(row[REC_GEOMETRY] as usize){d.publish(row);}else{row[REC_PROGRAM]=u32::MAX as f64;row[REC_COUNT]=0.;}}}
-        let records = records.min(MAX_RECORDS);
+        let records = records.min(self.record_capacity());
+        for r in 0..records{let row=&mut self.input[IN_RECORDS+r*REC_STRIDE..IN_RECORDS+(r+1)*REC_STRIDE];if row[REC_PROGRAM]==crate::actor_layout::kind::RETAINED as f64{if let Some(d)=self.actor_descriptors.get(row[REC_GEOMETRY] as usize){d.publish(row);}else{row[REC_PROGRAM]=u32::MAX as f64;row[REC_COUNT]=0.;}}}
         let target = self.input[IN_TARGET];
         if target < 0.0 {
             return;
@@ -333,23 +366,35 @@ impl<C: HasContext> MotionPass<C> {
             row[shader::ROW_COUNTS * 4 + 1] = rec[REC_BONE_AT] as f32;
             row[shader::ROW_COUNTS * 4 + 2] = rec[REC_PREVIOUS_AT] as f32;
         }
-        let bones = (input[IN_BONES] as usize).min(MAX_BONES);
-        let previous = (input[IN_PREVIOUS_BONES] as usize).min(MAX_BONES);
+        let bones = (input[IN_BONES] as usize).min(self.max_bones);
+        let previous = (input[IN_PREVIOUS_BONES] as usize).min(self.max_bones);
         let gl = &core.gl;
         let (state, stats) = (&mut core.state, &mut core.stats);
         unsafe {
+            let tex_width = self.pack_cols * ROW_TEXELS;
+            let upload_height = records.div_ceil(self.pack_cols);
             state.bind_texture(gl, stats, UNIT_INSTANCES, Some(self.rows_texture));
+            if upload_height > self.tex_height {
+                let new_height = upload_height.next_power_of_two().min(self.max_tex_height);
+                gl.tex_image_2d(
+                    glow::TEXTURE_2D, 0, glow::RGBA32F as i32,
+                    tex_width as i32, new_height as i32, 0,
+                    glow::RGBA, glow::FLOAT, glow::PixelUnpackData::Slice(None),
+                );
+                self.tex_height = new_height;
+                stats.gl_calls += 1;
+            }
             crate::core::spare_view_slot();
-            gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, ROW_TEXELS as i32, records as i32, glow::RGBA, glow::FLOAT,
-                glow::PixelUnpackData::Slice(Some(bytes(&self.rows[..records * ROW_TEXELS * 4]))));
+            gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, tex_width as i32, upload_height as i32, glow::RGBA, glow::FLOAT,
+                glow::PixelUnpackData::Slice(Some(bytes(&self.rows[..upload_height * tex_width * 4]))));
             stats.gl_calls += 1;
             for (texture, unit, data, n) in [(self.bones_texture, UNIT_BONES, &self.bones, bones), (self.previous_texture, UNIT_PREVIOUS_BONES, &self.previous, previous)] {
                 state.bind_texture(gl, stats, unit, Some(texture));
                 if n > 0 {
-                    let rows = (n * 4).div_ceil(BONE_TEXELS);
+                    let rows = (n * 4).div_ceil(self.bone_texels);
                     crate::core::spare_view_slot();
-                    gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, BONE_TEXELS as i32, rows as i32, glow::RGBA, glow::FLOAT,
-                        glow::PixelUnpackData::Slice(Some(bytes(&data[..rows * BONE_TEXELS * 4]))));
+                    gl.tex_sub_image_2d(glow::TEXTURE_2D, 0, 0, 0, self.bone_texels as i32, rows as i32, glow::RGBA, glow::FLOAT,
+                        glow::PixelUnpackData::Slice(Some(bytes(&data[..rows * self.bone_texels * 4]))));
                     stats.gl_calls += 1;
                 }
             }

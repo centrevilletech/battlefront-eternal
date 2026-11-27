@@ -10,26 +10,31 @@ use ed25519_dalek::{Signer, SigningKey};
 use serde_json::{json, Value};
 
 use bfe_desktop::archive::{
-    export_content, import_content, import_content_with_progress, inspect_archive,
-    read_zip_entries, relocate_preparation, safe_path, RECEIPT_NAME,
+    export_content, export_content_for, import_content, import_content_for,
+    import_content_with_progress, inspect_archive, read_zip_entries, relocate_preparation,
+    relocate_preparation_for, safe_path, RECEIPT_NAME,
 };
 use bfe_desktop::discover::{
-    find_content, find_game_install, find_game_installs, find_gog_install, find_steam_install,
-    inspect_content, inspect_install, installed_add_ons, parse_gog_registry,
-    parse_heroic_installed, parse_install_dir, parse_library_folders, search_content,
-    steam_libraries, FindContentOptions, FindGameOptions, SearchContentOptions, BF1_STEAM_APP,
+    find_content, find_content_for, find_game_install, find_game_install_for, find_game_installs,
+    find_game_installs_for, find_gog_install, find_gog_install_for, find_steam_install,
+    find_steam_install_for, inspect_any_install, inspect_content, inspect_content_for,
+    inspect_install, inspect_install_for, installed_add_ons, parse_gog_registry,
+    parse_gog_registry_for, parse_heroic_installed, parse_heroic_installed_for, parse_install_dir,
+    parse_library_folders, search_content, steam_libraries, FindContentOptions, FindGameOptions,
+    SearchContentOptions, BF1_STEAM_APP, BF2_STEAM_APP,
 };
+use bfe_family::GameFamily;
 use bfe_desktop::launch::{settle_with, SettleOptions};
 use bfe_desktop::paths::{
     content_candidates, default_prepared_dir, parse_content_arg, ContentCandidateEnv,
 };
 use bfe_desktop::prepare::{
-    apply_event, checkout_content_version, clear_prepared_for, create_snapshot, estimate,
-    parse_content_version, plan_estimate, prepared_content_current, prepared_for, prepared_from,
-    prepared_summary, read_content_version, record_timing, resolve_startup_content, tool_env,
-    toolchain_paths, ContentVersion, PlanCounts, PrepareFailureRecord, PrepareState,
-    PrepareStateExtras, PrepareStep, StartupMode, StepTimings, ToolEnvOptions, ToolchainOptions,
-    WantedPrepareOptions,
+    apply_event, checkout_content_version, clear_prepared_for,
+    create_snapshot, estimate, parse_content_version, plan_estimate, prepared_content_current,
+    prepared_for, prepared_from, prepared_from_for, prepared_summary, read_content_version,
+    read_prepare_state_for, record_timing, resolve_startup_content, tool_env, toolchain_paths,
+    ContentVersion, PlanCounts, PrepareFailureRecord, PrepareState, PrepareStateExtras,
+    PrepareStep, StartupMode, StepTimings, ToolEnvOptions, ToolchainOptions, WantedPrepareOptions,
 };
 use bfe_desktop::presence::activity::{
     format_discord_activity, format_steam_rich_presence, normalize_presence_state, RawPresenceInput,
@@ -39,8 +44,8 @@ use bfe_desktop::presence::discord::{
 };
 use bfe_desktop::presence::PresenceController;
 use bfe_desktop::settings::{
-    DesktopSettings, PlayerSettingsPatch, PlayerSettingsStore, PreparationRecord, SettingsPatch,
-    SettingsStore,
+    DesktopSettings, PlayerSettingsPatch, PlayerSettingsStore, PreparationRecord,
+    PresenceSettingsRecord, SettingsPatch, SettingsStore, SteamSettingsRecord,
 };
 use bfe_desktop::steam::client::{
     decide_steam_relaunch, find_overlay_library, launched_under_steam, prepare_steam_environment,
@@ -184,6 +189,44 @@ fn make_install(root: &Path, lowercase: bool) {
     .unwrap();
 }
 
+/// Creates a synthetic Star Wars Battlefront II (2005) install directory with
+/// `GameData/BattlefrontII.exe` and root `.lvl` files under `GameData/data/_lvl_pc/`.
+fn make_swbf2_install(root: &Path, mixed_case: bool) {
+    let gamedata = root.join(if mixed_case { "GAMEDATA" } else { "GameData" });
+    let lvl = gamedata.join(if mixed_case {
+        "Data/_LVL_PC"
+    } else {
+        "data/_lvl_pc"
+    });
+    fs::create_dir_all(lvl.join(if mixed_case { "SIDE" } else { "side" })).unwrap();
+    fs::create_dir_all(lvl.join("load")).unwrap();
+    fs::create_dir_all(lvl.join("sound")).unwrap();
+    fs::create_dir_all(lvl.join("movies")).unwrap();
+    fs::write(
+        gamedata.join(if mixed_case {
+            "battlefrontii.exe"
+        } else {
+            "BattlefrontII.exe"
+        }),
+        "exe",
+    )
+    .unwrap();
+    for name in ["common.lvl", "core.lvl", "mission.lvl", "ingame.lvl", "shell.lvl"] {
+        let fname = if mixed_case {
+            name.to_ascii_uppercase()
+        } else {
+            name.to_string()
+        };
+        fs::write(lvl.join(fname), "lvl").unwrap();
+    }
+    fs::write(
+        lvl.join(if mixed_case { "SIDE" } else { "side" })
+            .join("rep.lvl"),
+        "lvl",
+    )
+    .unwrap();
+}
+
 /// Creates a synthetic `GameData/AddOn/<id>` directory with `Data/_LVL_PC` and
 /// (when `valid` is true) `addme.script`.
 fn make_add_on(root: &Path, id: &str, valid: bool) {
@@ -245,31 +288,54 @@ fn discover_searches_home_folder_within_depth_and_skips_heavy_dirs() {
     assert_eq!(found.dir, nested);
 }
 
-/// Verifies `inspect_install` accepts retail SWBF1 regardless of casing and rejects SWBF2.
-///
-/// Mirrors the SWBF1 vs SWBF2 `Common/<LANG>/common.lvl` check in the desktop host.
+/// Verifies `inspect_install_for` validates 2004 and 2005 installs case-insensitively
+/// and keeps the two validators mutually exclusive.
 #[test]
 fn discover_validates_classic_swbf1_installs_case_insensitively() {
     let tmp = TempDir::new("discover-install");
     let win_install = tmp.path().join("swbf1");
     let linux_install = tmp.path().join("swbf1-lower");
     let swbf2_install = tmp.path().join("swbf2");
+    let swbf2_mixed = tmp.path().join("swbf2-mixed");
 
-    // Standard mixed-case Windows layout and all-lowercase Linux/Wine layout both pass.
+    // Standard mixed-case Windows layout and all-lowercase Linux/Wine layout both pass as swbf1.
     make_install(&win_install, false);
     make_install(&linux_install, true);
-    // SWBF2 places `common.lvl` directly under `Common/` rather than `Common/<LANG>/common.lvl`.
-    fs::create_dir_all(swbf2_install.join("GameData/Data/_LVL_PC/SIDE")).unwrap();
-    fs::create_dir_all(swbf2_install.join("GameData/Data/_LVL_PC/Common")).unwrap();
-    fs::write(
-        swbf2_install.join("GameData/Data/_LVL_PC/Common/common.lvl"),
-        "swbf2",
-    )
-    .unwrap();
+    // Genuine 2005 installs place `BattlefrontII.exe` in `GameData/` and root `.lvl` files
+    // directly under `GameData/data/_lvl_pc/`.
+    make_swbf2_install(&swbf2_install, false);
+    make_swbf2_install(&swbf2_mixed, true);
 
     assert_eq!(inspect_install(&win_install).unwrap().dir, win_install);
+    assert_eq!(inspect_install(&win_install).unwrap().family, GameFamily::Swbf1);
     assert_eq!(inspect_install(&linux_install).unwrap().dir, linux_install);
     assert_eq!(inspect_install(&swbf2_install), None);
+    assert_eq!(inspect_install(&swbf2_mixed), None);
+
+    // 2005 installs pass the swbf2 validator and fail the swbf1 validator; 2004 installs
+    // fail the swbf2 validator.
+    assert_eq!(
+        inspect_install_for(&swbf2_install, GameFamily::Swbf2)
+            .unwrap()
+            .family,
+        GameFamily::Swbf2
+    );
+    assert_eq!(
+        inspect_install_for(&swbf2_mixed, GameFamily::Swbf2)
+            .unwrap()
+            .dir,
+        swbf2_mixed
+    );
+    assert_eq!(inspect_install_for(&win_install, GameFamily::Swbf2), None);
+    assert_eq!(inspect_install_for(&linux_install, GameFamily::Swbf2), None);
+    assert_eq!(
+        inspect_any_install(&swbf2_install).unwrap().family,
+        GameFamily::Swbf2
+    );
+    assert_eq!(
+        inspect_any_install(&win_install).unwrap().family,
+        GameFamily::Swbf1
+    );
 }
 
 /// Verifies `inspect_install` accepts a copy in any language: the shared archive is in a
@@ -670,13 +736,15 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
         base_env.insert("PYTHONPATH".to_string(), "/bad".to_string());
 
         let env_out = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf1,
             toolchain: tmp.path().to_path_buf(),
             game: Some(PathBuf::from("/games/swbf1")),
             content: Some(PathBuf::from("/data/content")),
-            env: base_env,
+            env: base_env.clone(),
             platform: "linux".to_string(),
         });
         assert!(env_out["PATH"].starts_with(&format!("{}:{}", bin.display(), ktx_bin.display())));
+        assert_eq!(env_out["BFE_FAMILY"], "swbf1");
         assert_eq!(env_out["BFE_GAME_DIR"], "/games/swbf1");
         assert_eq!(env_out["BFE_CONTENT_DIR"], "/data/content");
         assert_eq!(
@@ -689,6 +757,18 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
         );
         assert!(!env_out.contains_key("PYTHONHOME"));
         assert!(!env_out.contains_key("PYTHONPATH"));
+
+        let bf2_out = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf2,
+            toolchain: tmp.path().to_path_buf(),
+            game: Some(PathBuf::from("/games/swbf2")),
+            content: Some(PathBuf::from("/data/content")),
+            env: base_env,
+            platform: "linux".to_string(),
+        });
+        assert_eq!(bf2_out["BFE_FAMILY"], "swbf2");
+        assert_eq!(bf2_out["BFE_GAME_DIR"], "/games/swbf2");
+        assert_eq!(bf2_out["BFE_CONTENT_DIR"], "/data/content/swbf2/.content");
     }
 
     // Verify Windows (`";"`-joined `PATH` and `ktx.exe`) across platforms.
@@ -699,6 +779,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
         win_base_env.insert("PYTHONPATH".to_string(), r"C:\bad".to_string());
 
         let win_out = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf1,
             toolchain: tmp.path().to_path_buf(),
             game: Some(PathBuf::from(r"C:\games\swbf1")),
             content: Some(PathBuf::from(r"C:\data\content")),
@@ -706,8 +787,21 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
             platform: "win32".to_string(),
         });
         assert!(win_out["PATH"].starts_with(&format!("{};{}", bin.display(), ktx_bin.display())));
+        assert_eq!(win_out["BFE_FAMILY"], "swbf1");
         assert_eq!(win_out["BFE_GAME_DIR"], r"C:\games\swbf1");
         assert_eq!(win_out["BFE_CONTENT_DIR"], r"C:\data\content");
+
+        let win_bf2 = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf2,
+            toolchain: tmp.path().to_path_buf(),
+            game: Some(PathBuf::from(r"C:\games\swbf2")),
+            content: Some(PathBuf::from(r"C:\data\content")),
+            env: BTreeMap::new(),
+            platform: "win32".to_string(),
+        });
+        assert_eq!(win_bf2["BFE_FAMILY"], "swbf2");
+        assert_eq!(win_bf2["BFE_GAME_DIR"], r"C:\games\swbf2");
+        assert_eq!(win_bf2["BFE_CONTENT_DIR"], r"C:\data\content\swbf2\.content");
         assert_eq!(
             win_out["KTX2_ENCODER"],
             ktx_bin.join("ktx.exe").to_string_lossy().as_ref()
@@ -726,6 +820,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
         win_base_env.insert("bfe_game_dir".to_string(), r"C:\elsewhere".to_string());
 
         let win_out = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf1,
             toolchain: tmp.path().to_path_buf(),
             game: Some(PathBuf::from(r"C:\games\swbf1")),
             content: None,
@@ -744,6 +839,7 @@ fn prepare_builds_isolated_tool_environment_with_bundled_binaries() {
 
         // Elsewhere `Path` is a variable of its own and stays as it is.
         let unix_out = tool_env(&ToolEnvOptions {
+            family: GameFamily::Swbf1,
             toolchain: tmp.path().to_path_buf(),
             game: None,
             content: None,
@@ -778,6 +874,7 @@ fn prepare_tools_find_a_bundled_program_on_windows() {
     base_env.insert("Path".to_string(), system_path);
 
     let env_out = tool_env(&ToolEnvOptions {
+        family: GameFamily::Swbf1,
         toolchain: tmp.path().to_path_buf(),
         game: None,
         content: None,
@@ -1120,6 +1217,10 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
     assert_eq!(res.mode, StartupMode::Confirm);
     assert_eq!(res.content, None);
     assert_eq!(res.selected.as_deref(), Some(steam_game.as_path()));
+    // 2004 content stays in place at the flat root with no move.
+    assert!(content_dir.join(".prepare.json").is_file());
+    assert!(content_dir.join("maps").is_dir());
+    assert!(!content_dir.join("swbf1").exists());
 
     // Previously prepared game install recorded in settings -> Prepare.
     let mut recs = BTreeMap::new();
@@ -1149,8 +1250,13 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
     .unwrap();
     assert_eq!(res_prep.mode, StartupMode::Prepare);
 
-    // Current prepared content -> Menu.
+    // Current prepared content at the flat root -> Menu (including when read-only).
     make_content(&content_dir, &["bes2a"], true, Some(&steam_game));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&content_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    }
     let res_menu = resolve_startup_content(
         &settings,
         std::slice::from_ref(&content_dir),
@@ -1160,6 +1266,11 @@ fn startup_content_resolves_menu_confirm_prepare_and_outdated_modes() {
         None,
     )
     .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&content_dir, fs::Permissions::from_mode(0o755)).unwrap();
+    }
     assert_eq!(res_menu.mode, StartupMode::Menu);
     assert!(res_menu.content.is_some());
 }
@@ -1339,6 +1450,181 @@ fn settings_stores_persist_sanitize_and_merge_patches() {
     assert_eq!(dloaded.update_channel, "stable");
     assert!(dloaded.auto_check_updates);
     assert!(dloaded.discord_presence);
+}
+
+// Exercise the same write on a missing, empty, readable and damaged record.
+fn check_record_backup(path: &Path, readable: &[u8], damaged: &[u8], save: impl Fn()) {
+    let backup = path.with_added_extension("bak");
+    save();
+    let initial = fs::read(path).unwrap();
+    fs::write(path, []).unwrap();
+    save();
+    assert_eq!(fs::read(path).unwrap(), initial);
+    fs::write(path, readable).unwrap();
+    save();
+    assert!(!backup.exists());
+    for _ in 0..2 {
+        fs::write(path, damaged).unwrap();
+        save();
+        assert_eq!(fs::read(path).unwrap(), initial);
+        assert!(fs::read(&backup).is_ok_and(|bytes| bytes == damaged), "original bytes missing from backup");
+    }
+    assert!(!path.with_added_extension("bak.1").exists());
+}
+
+#[test]
+fn unreadable_desktop_preferences_survive_patches_and_direct_saves() {
+    use bfe_desktop::settings::write_desktop_settings;
+    let dir = TempDir::new("desktop-record");
+    let file = dir.path().join("desktop-settings.json");
+    check_record_backup(&file, br#"{"futurePreference":19}"#, br#"{"discordPresence":[]}"#, || {
+        SettingsStore::new(&file).save(&SettingsPatch::default()).unwrap();
+    });
+    let other = br#"{"enhancedSound":17}"#;
+    fs::write(&file, other).unwrap();
+    write_desktop_settings(dir.path(), &DesktopSettings::default()).unwrap();
+    assert_eq!(fs::read(file.with_added_extension("bak.1")).unwrap(), other);
+}
+
+#[cfg(unix)]
+#[test]
+fn empty_desktop_preferences_need_no_read_permission_for_replacement() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = TempDir::new("empty-preferences");
+    let path = dir.path().join("desktop-settings.json");
+    fs::write(&path, []).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+    let store = SettingsStore::new(&path);
+    store.save(&SettingsPatch::default()).unwrap();
+    assert_eq!(fs::read(path).unwrap(), serde_json::to_vec_pretty(&DesktopSettings::default()).unwrap());
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+}
+
+#[test]
+fn concurrent_desktop_saves_share_a_complete_backup() {
+    use bfe_desktop::settings::write_desktop_settings;
+    let dir = TempDir::new("shared-preferences");
+    let file = dir.path().join("desktop-settings.json");
+    let damaged = b"{unfinished";
+    let start = std::sync::Barrier::new(2);
+    fs::write(&file, damaged).unwrap();
+    let choices = [true, false].map(|launch| DesktopSettings {
+        auto_check_updates: launch,
+        ..Default::default()
+    });
+    std::thread::scope(|scope| {
+        for settings in &choices {
+            scope.spawn(|| {
+                start.wait();
+                write_desktop_settings(dir.path(), settings).unwrap();
+            });
+        }
+    });
+    let saved = fs::read(&file).unwrap();
+    assert!(choices.iter().any(|s| serde_json::to_vec_pretty(s).unwrap() == saved));
+    assert_eq!(fs::read(file.with_added_extension("bak")).unwrap(), damaged);
+    assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 2);
+}
+
+#[test]
+fn unreadable_structured_player_documents_survive_patches() {
+    let dir = TempDir::new("structured-record");
+    let file = dir.path().join("player-settings.json");
+    let store = PlayerSettingsStore::new(&file);
+    let readable = serde_json::to_vec(&store.load()).unwrap();
+    check_record_backup(&file, &readable, br#"{"complete":true,"values":{}}"#, || {
+        store.save(&PlayerSettingsPatch::default()).unwrap();
+    });
+}
+
+#[test]
+fn unreadable_compact_player_records_survive_replacement() {
+    use bfe_desktop::settings::{write_player_settings_value, LIMIT};
+    let dir = TempDir::new("compact-record");
+    let file = dir.path().join("player-settings.json");
+    let record = json!({"complete": false, "values": {"cloud": "silver"}});
+    let oversized = serde_json::to_vec(&json!({"complete":true,"values":{"note":"p".repeat(LIMIT)}})).unwrap();
+    check_record_backup(&file, br#"{"complete":true,"values":{},"extra":9}"#, &oversized, || {
+        assert!(write_player_settings_value(dir.path(), &record));
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn two_unconfirmed_launches_set_aside_an_update_even_with_unreadable_state() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new("launch-history");
+    let root = dir.path();
+    let version = "3.4.0";
+    let installed = versions_dir(root).join(version);
+    fs::create_dir_all(&installed).unwrap();
+    fs::write(installed.join("runner"), []).unwrap();
+    let record = json!({"version": version, "executable": "runner"});
+    fs::write(installed.join(INSTALL_RECORD), record.to_string()).unwrap();
+
+    let state = root.join("state.json");
+    fs::write(&state, b"{unfinished").unwrap();
+    fs::set_permissions(&state, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let next = || choose_launch(root, "3.3.0", None, None).map(|build| build.version);
+    assert_eq!(next().as_deref(), Some(version));
+    record_attempt(root, version).unwrap();
+    assert_eq!(next().as_deref(), Some(version));
+    record_attempt(root, version).unwrap();
+    assert_eq!(next(), None);
+    assert!(read_state(root).bad.iter().any(|bad| bad == version));
+    assert!(!state.with_added_extension("bak").exists());
+}
+
+#[test]
+fn unreadable_steam_shortcuts_survive_registration() {
+    let dir = TempDir::new("shortcut-list");
+    let config = dir.path().join("userdata/791/config");
+    fs::create_dir_all(&config).unwrap();
+    let path = config.join("shortcuts.vdf");
+    let opts = ResolveTargetOptions {
+        platform: "linux".into(),
+        env: BTreeMap::new(),
+        exec_path: dir.path().join("application"),
+        packaged: true,
+        project_root: dir.path().into(),
+        resources_path: None,
+    };
+    let write = || {
+        let result = ensure_steam_shortcut(&opts, Some(dir.path()), &[dir.path().to_path_buf()]);
+        assert_eq!(result.updated_files.as_slice(), std::slice::from_ref(&path));
+    };
+    // A readable binary map with no shortcut entries is accepted by Steam's reader.
+    check_record_backup(&path, &[8], &[2, b'x', 0, 1], write);
+}
+
+#[test]
+fn unreadable_launcher_command_survives_desktop_registration() {
+    use bfe_desktop::linux_integration::integrate;
+    let dir = TempDir::new("launcher-command");
+    let icon = dir.path().join("source.png");
+    fs::write(&icon, b"artwork").unwrap();
+    let bin = dir.path().join("bin");
+    fs::create_dir(&bin).unwrap();
+    let file = bin.join("battlefront");
+    let original = [0xff, 31, 7];
+    fs::write(&file, original).unwrap();
+    integrate(&dir.path().join("application"), &icon, &dir.path().join("data"), &bin).unwrap();
+    assert!(fs::read_to_string(&file).unwrap().starts_with("#!/bin/sh"));
+    assert_eq!(fs::read(file.with_added_extension("bak")).ok().as_deref(), Some(&original[..]));
+}
+
+#[test]
+fn exporting_replaces_the_chosen_file_without_a_backup() {
+    let dir = TempDir::new("content-copy");
+    let source = dir.path().join("source");
+    let file = dir.path().join("saved.bfepack");
+    make_content(&source, &["copper"], true, None);
+    fs::write(&file, b"incomplete archive").unwrap();
+    export_content(&source, &file, None).unwrap();
+    assert!(inspect_archive(&file).is_ok());
+    assert!(!file.with_added_extension("bak").exists());
 }
 
 // ---------------------------------------------------------------------------
@@ -1869,8 +2155,9 @@ fn content_archive_exports_imports_deduplicates_hardlinks_and_relocates() {
     assert_eq!(result.unwrap_err(), "cancelled");
     assert!(fs::read_dir(&cancelled_dest).unwrap().next().is_none());
 
-    // Import the archive into a fresh parent directory and verify `.bfe-import.json`.
+    // Import the archive into a fresh parent directory and verify `<dir>/.bfe-import.json`.
     let imported = import_content(&archive, &dest).unwrap();
+    assert_eq!(imported.family, GameFamily::Swbf1);
     assert_eq!(imported.maps, vec!["bes1a", "tat1i"]);
     assert!(imported.content_dir.join(RECEIPT_NAME).exists());
 
@@ -2078,6 +2365,7 @@ fn content_archive_imports_the_browser_builds_archive_form() {
                 total_bytes
             )
         );
+        assert_eq!(imported.family, GameFamily::Swbf1);
         assert_eq!(imported.maps, vec!["bes1"]);
 
         let dir = &imported.content_dir;
@@ -2231,7 +2519,7 @@ fn content_archive_export_is_the_browser_builds_form() {
         "{created}"
     );
 
-    // The archive imports back, and a re-export of the import is the same set of records.
+    // The archive imports back into `<dir>/`, and a re-export of the import is the same set of records.
     let imported = import_content(&archive, &tmp.path().join("dest")).unwrap();
     assert_eq!(
         fs::read(imported.content_dir.join("audio/b-link.bin")).unwrap(),
@@ -2440,4 +2728,939 @@ fn discover_gog_honors_the_browser_xdg_config_manifest_location() {
     )]);
     let records = bfe_desktop::discover::gog_records("linux", Some(&home), &env);
     assert_eq!(records, vec![game]);
+}
+
+#[test]
+fn discover_finds_swbf2_across_steam_gog_and_heroic_without_cross_matching() {
+    let tmp = TempDir::new("discover-swbf2");
+    let steam_root = tmp.path().join(".local/share/Steam");
+    let bf1_steam = steam_root.join("steamapps/common/Star Wars Battlefront (Classic, 2004)");
+    let bf2_steam = steam_root.join("steamapps/common/Star Wars Battlefront II");
+    let bf2_heroic = tmp.path().join("Games/Heroic/Star Wars - Battlefront II");
+    let wine_prefix = tmp.path().join(".wine");
+    let bf1_wine = wine_prefix.join("drive_c/GOG Games/Star Wars - Battlefront");
+    let bf2_wine = wine_prefix.join("drive_c/GOG Games/Star Wars - Battlefront II");
+
+    fs::create_dir_all(steam_root.join("steamapps")).unwrap();
+    make_install(&bf1_steam, false);
+    make_swbf2_install(&bf2_steam, false);
+    make_swbf2_install(&bf2_heroic, false);
+    make_install(&bf1_wine, false);
+    make_swbf2_install(&bf2_wine, false);
+
+    fs::write(
+        steam_root
+            .join("steamapps")
+            .join(format!("appmanifest_{BF1_STEAM_APP}.acf")),
+        "\"AppState\" { \"installdir\" \"Star Wars Battlefront (Classic, 2004)\" }\n",
+    )
+    .unwrap();
+    fs::write(
+        steam_root
+            .join("steamapps")
+            .join(format!("appmanifest_{BF2_STEAM_APP}.acf")),
+        "\"AppState\" { \"installdir\" \"Star Wars Battlefront II\" }\n",
+    )
+    .unwrap();
+
+    // Registry parsing keeps released 2004 candidate extraction (no name vetoes;
+    // on-disk `inspect_install` separates families) while 2005 parsing isolates 2005.
+    let reg = r#"
+[Software\\Wow6432Node\\GOG.com\\Games\\1421404581] 1700000001
+"gameName"="STAR WARS Battlefront"
+"path"="C:\\GOG Games\\Star Wars - Battlefront"
+
+[Software\\Wow6432Node\\GOG.com\\Games\\1421404582] 1700000002
+"gameName"="STAR WARS Battlefront II"
+"path"="C:\\GOG Games\\Star Wars - Battlefront II"
+"#;
+    assert_eq!(
+        parse_gog_registry_for(reg, Some(&wine_prefix), GameFamily::Swbf1),
+        vec![bf1_wine.clone(), bf2_wine.clone()]
+    );
+    assert_eq!(
+        parse_gog_registry_for(reg, Some(&wine_prefix), GameFamily::Swbf2),
+        vec![bf2_wine.clone()]
+    );
+
+    // Heroic installed.json keeps released 2004 candidate extraction while 2005 isolates 2005.
+    let heroic_json = serde_json::to_string(&json!({
+        "installed": [
+            { "title": "STAR WARS Battlefront", "install_path": bf1_steam },
+            { "title": "STAR WARS Battlefront II", "install_path": bf2_heroic }
+        ]
+    }))
+    .unwrap();
+    assert_eq!(
+        parse_heroic_installed_for(&heroic_json, GameFamily::Swbf1),
+        vec![bf1_steam.clone(), bf2_heroic.clone()]
+    );
+    assert_eq!(
+        parse_heroic_installed_for(&heroic_json, GameFamily::Swbf2),
+        vec![bf2_heroic.clone()]
+    );
+    fs::create_dir_all(tmp.path().join(".config/heroic/gog_store")).unwrap();
+    fs::write(
+        tmp.path().join(".config/heroic/gog_store/installed.json"),
+        &heroic_json,
+    )
+    .unwrap();
+
+    let opts = FindGameOptions {
+        platform: "linux".to_string(),
+        home: Some(tmp.path().to_path_buf()),
+        env: BTreeMap::new(),
+        extra: vec![],
+    };
+
+    let all_bf1 = find_game_installs_for(&opts, GameFamily::Swbf1);
+    assert!(all_bf1.iter().all(|i| i.family == GameFamily::Swbf1));
+    assert!(all_bf1.iter().any(|i| i.dir == bf1_steam));
+    assert!(all_bf1.iter().any(|i| i.dir == bf1_wine));
+    assert!(!all_bf1.iter().any(|i| i.dir == bf2_steam || i.dir == bf2_heroic || i.dir == bf2_wine));
+
+    let found_steam_bf1 = find_steam_install_for(&opts, GameFamily::Swbf1).unwrap();
+    assert_eq!(found_steam_bf1.dir, bf1_steam);
+    assert_eq!(found_steam_bf1.family, GameFamily::Swbf1);
+
+    let found_steam_bf2 = find_steam_install_for(&opts, GameFamily::Swbf2).unwrap();
+    assert_eq!(found_steam_bf2.dir, bf2_steam);
+    assert_eq!(found_steam_bf2.family, GameFamily::Swbf2);
+
+    let found_gog_bf2 = find_gog_install_for(&opts, GameFamily::Swbf2).unwrap();
+    assert_eq!(found_gog_bf2.dir, bf2_heroic);
+    assert_eq!(found_gog_bf2.source, "gog");
+    assert_eq!(found_gog_bf2.family, GameFamily::Swbf2);
+
+    let all_bf2 = find_game_installs_for(&opts, GameFamily::Swbf2);
+    assert!(all_bf2.iter().all(|i| i.family == GameFamily::Swbf2));
+    assert_eq!(all_bf2[0].dir, bf2_steam);
+    assert!(all_bf2.iter().any(|i| i.dir == bf2_heroic));
+    assert!(!all_bf2.iter().any(|i| i.dir == bf1_steam));
+    assert_eq!(
+        find_game_install_for(&opts, GameFamily::Swbf2).unwrap().dir,
+        bf2_steam
+    );
+}
+
+#[test]
+fn settings_load_legacy_as_swbf1_without_rewriting_and_save_per_family() {
+    let tmp = TempDir::new("settings-per-family");
+    let file = tmp.path().join("desktop-settings.json");
+    let legacy_json = serde_json::to_string_pretty(&json!({
+        "contentDir": "/data/content",
+        "gameDir": "/games/bf1",
+        "preparations": {
+            "/data/content": {
+                "gameDir": "/games/bf1",
+                "addOns": ["zz9"],
+                "updatedAt": "2026-01-01T00:00:00Z"
+            }
+        }
+    }))
+    .unwrap();
+    fs::write(&file, &legacy_json).unwrap();
+
+    let store = SettingsStore::new(&file);
+    let loaded = store.load();
+    assert_eq!(loaded.game_dir_for(GameFamily::Swbf1), Some("/games/bf1"));
+    assert_eq!(loaded.game_dir_for(GameFamily::Swbf2), None);
+    assert_eq!(
+        loaded.preparations_for(GameFamily::Swbf1)["/data/content"].game_dir,
+        "/games/bf1"
+    );
+    assert!(loaded.preparations_for(GameFamily::Swbf2).is_empty());
+    assert!(!loaded.extra.contains_key("games"));
+    // Loading alone must not rewrite the existing settings file on disk.
+    assert_eq!(fs::read_to_string(&file).unwrap(), legacy_json);
+
+    // Saving a swbf2 game_dir and preparation writes only `games.swbf2` while
+    // keeping top-level swbf1 fields as the single source of truth (no `games.swbf1`).
+    let mut game_dirs = BTreeMap::new();
+    game_dirs.insert(GameFamily::Swbf2, Some("/games/bf2".to_string()));
+    let mut bf2_preps = BTreeMap::new();
+    bf2_preps.insert(
+        "/data/content".to_string(),
+        PreparationRecord {
+            game_dir: "/games/bf2".to_string(),
+            add_ons: vec![],
+            updated_at: "2026-02-01T00:00:00Z".to_string(),
+        },
+    );
+    let mut game_preparations = BTreeMap::new();
+    game_preparations.insert(GameFamily::Swbf2, bf2_preps);
+
+    let saved = store
+        .save(&SettingsPatch {
+            game_dirs,
+            game_preparations,
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(saved.game_dir_for(GameFamily::Swbf1), Some("/games/bf1"));
+    assert_eq!(saved.game_dir_for(GameFamily::Swbf2), Some("/games/bf2"));
+    let games = saved.extra.get("games").and_then(Value::as_object).unwrap();
+    assert!(!games.contains_key("swbf1"));
+    assert!(games.contains_key("swbf2"));
+
+    let reloaded = store.load();
+    assert_eq!(reloaded.game_dir.as_deref(), Some("/games/bf1"));
+    assert_eq!(reloaded.game_dir_for(GameFamily::Swbf1), Some("/games/bf1"));
+    assert_eq!(reloaded.game_dir_for(GameFamily::Swbf2), Some("/games/bf2"));
+    assert_eq!(
+        reloaded.preparations_for(GameFamily::Swbf1)["/data/content"].add_ons,
+        vec!["zz9"]
+    );
+    assert_eq!(
+        reloaded.preparations_for(GameFamily::Swbf2)["/data/content"].game_dir,
+        "/games/bf2"
+    );
+}
+
+#[test]
+fn settings_and_prepare_state_golden_round_trip_with_released_shape() {
+    // The released build's DesktopSettings and PrepareState structs, so golden
+    // byte-for-byte equality and downgrade and re-upgrade round trips are checked
+    // against the released schema itself.
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ReleasedDesktopSettings {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        chosen_content_dir: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        content_dir: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        found_content_dir: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        preparing_content_dir: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        game_dir: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        enhanced_sound: Option<bool>,
+        #[serde(default = "default_chan")]
+        update_channel: String,
+        #[serde(default = "default_yes")]
+        auto_check_updates: bool,
+        #[serde(default = "default_yes")]
+        discord_presence: bool,
+        #[serde(default)]
+        preparations: BTreeMap<String, PreparationRecord>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        presence: Option<PresenceSettingsRecord>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        steam: Option<SteamSettingsRecord>,
+        #[serde(flatten)]
+        extra: BTreeMap<String, Value>,
+    }
+    fn default_chan() -> String {
+        "stable".to_string()
+    }
+    fn default_yes() -> bool {
+        true
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ReleasedPrepareState {
+        version: Option<u32>,
+        map_import_version: Option<u32>,
+        muzzle_version: Option<u32>,
+        common_version: Option<u32>,
+        complete: Option<bool>,
+        game: Option<String>,
+        add_ons: Option<Vec<String>>,
+        failed: Option<Vec<Value>>,
+        skipped: Option<Vec<Value>>,
+        failures: Option<Vec<PrepareFailureRecord>>,
+        extras: Option<PrepareStateExtras>,
+    }
+
+    let tmp = TempDir::new("settings-golden");
+
+    // 1. Released-shape desktop-settings.json golden cases: default, chosen game dir,
+    //    preparation records, and unknown extra keys must read and resave byte-for-byte
+    //    identically to the released struct.
+    let settings_cases = [
+        ("default", json!({})),
+        (
+            "chosen-game",
+            json!({
+                "contentDir": "/data/content",
+                "chosenContentDir": "/data/content",
+                "gameDir": "/games/bf1",
+                "enhancedSound": true
+            }),
+        ),
+        (
+            "with-preparations",
+            json!({
+                "contentDir": "/data/content",
+                "chosenContentDir": "/data/content",
+                "gameDir": "/games/bf1",
+                "preparations": {
+                    "/data/content": {
+                        "gameDir": "/games/bf1",
+                        "addOns": ["zz9"],
+                        "updatedAt": "2026-01-01T00:00:00Z"
+                    }
+                }
+            }),
+        ),
+        (
+            "with-extra",
+            json!({
+                "gameDir": "/games/bf1",
+                "futureTopLevelFlag": true,
+                "customNested": { "a": 1, "b": "two" }
+            }),
+        ),
+    ];
+
+    for (label, input_val) in settings_cases {
+        let input = serde_json::to_string_pretty(&input_val).unwrap();
+        let expected_released: ReleasedDesktopSettings = serde_json::from_str(&input).unwrap();
+        let expected_bytes = serde_json::to_string_pretty(&expected_released).unwrap();
+
+        let file = tmp.path().join(format!("settings-{label}.json"));
+        fs::write(&file, &input).unwrap();
+        let store = SettingsStore::new(&file);
+        store.save(&SettingsPatch::default()).unwrap();
+        let actual_bytes = fs::read_to_string(&file).unwrap();
+        assert_eq!(
+            actual_bytes, expected_bytes,
+            "desktop-settings golden mismatch for {label}"
+        );
+    }
+
+    // 2. Released-shape .prepare.json golden cases: read and resaved by PrepareState
+    //    must equal what the released struct produces byte-for-byte.
+    let prepare_cases = [
+        ("default", json!({})),
+        (
+            "chosen-game",
+            json!({
+                "version": 2,
+                "mapImportVersion": 3,
+                "muzzleVersion": 4,
+                "commonVersion": 5,
+                "complete": true,
+                "game": "/games/bf1/GameData/Data/_LVL_PC",
+                "addOns": [],
+                "failed": [],
+                "skipped": []
+            }),
+        ),
+        (
+            "with-failures-and-extra",
+            json!({
+                "version": 2,
+                "complete": false,
+                "game": "/games/bf1/GameData/Data/_LVL_PC",
+                "addOns": ["zz9"],
+                "failed": ["map:qq3a"],
+                "skipped": [],
+                "failures": [{ "id": "map:qq3a", "label": "Made-up map", "error": "bad" }],
+                "extras": { "enhancedSound": true, "soundSteps": 4 },
+                "unknownFutureKey": { "nested": true }
+            }),
+        ),
+    ];
+
+    for (label, input_val) in prepare_cases {
+        let input = serde_json::to_string_pretty(&input_val).unwrap();
+        let expected_released: ReleasedPrepareState = serde_json::from_str(&input).unwrap();
+        let expected_bytes = serde_json::to_string_pretty(&expected_released).unwrap();
+
+        let parsed: PrepareState = serde_json::from_str(&input).unwrap();
+        let actual_bytes = serde_json::to_string_pretty(&parsed).unwrap();
+        assert_eq!(
+            actual_bytes, expected_bytes,
+            ".prepare.json golden mismatch for {label}"
+        );
+    }
+
+    // 3. Downgrade and re-upgrade round-trip:
+    //    New build writes a 2005-only change -> released struct loads it with every 2004 value
+    //    intact, edits 2004 gameDir and preparations, resaves -> new build loads it and sees
+    //    BOTH the released build's 2004 edits AND the untouched 2005 values.
+    let rt_file = tmp.path().join("roundtrip-settings.json");
+    let store = SettingsStore::new(&rt_file);
+    let mut initial_bf1_preps = BTreeMap::new();
+    initial_bf1_preps.insert(
+        "/data/content".to_string(),
+        PreparationRecord {
+            game_dir: "/games/bf1-old".to_string(),
+            add_ons: vec!["zz9".to_string()],
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+        },
+    );
+    store
+        .save(&SettingsPatch {
+            game_dir: Some(Some("/games/bf1-old".to_string())),
+            preparations: Some(initial_bf1_preps),
+            ..Default::default()
+        })
+        .unwrap();
+
+    // New build makes a 2005-only change.
+    let mut bf2_dirs = BTreeMap::new();
+    bf2_dirs.insert(GameFamily::Swbf2, Some("/games/bf2".to_string()));
+    let mut bf2_preps = BTreeMap::new();
+    bf2_preps.insert(
+        "/data/content".to_string(),
+        PreparationRecord {
+            game_dir: "/games/bf2".to_string(),
+            add_ons: vec![],
+            updated_at: "2026-02-01T00:00:00Z".to_string(),
+        },
+    );
+    let mut game_preps = BTreeMap::new();
+    game_preps.insert(GameFamily::Swbf2, bf2_preps);
+    store
+        .save(&SettingsPatch {
+            game_dirs: bf2_dirs,
+            game_preparations: game_preps,
+            ..Default::default()
+        })
+        .unwrap();
+
+    // Released build loads the file, sees all 2004 fields intact, edits 2004 gameDir & preps, and resaves.
+    let mut released: ReleasedDesktopSettings =
+        serde_json::from_str(&fs::read_to_string(&rt_file).unwrap()).unwrap();
+    assert_eq!(released.game_dir.as_deref(), Some("/games/bf1-old"));
+    assert_eq!(
+        released.preparations["/data/content"].game_dir,
+        "/games/bf1-old"
+    );
+    assert!(released.extra.contains_key("games"));
+
+    released.game_dir = Some("/games/bf1-downgraded-edit".to_string());
+    released.preparations.insert(
+        "/data/content".to_string(),
+        PreparationRecord {
+            game_dir: "/games/bf1-downgraded-edit".to_string(),
+            add_ons: vec!["newaddon".to_string()],
+            updated_at: "2026-03-01T00:00:00Z".to_string(),
+        },
+    );
+    fs::write(&rt_file, serde_json::to_string_pretty(&released).unwrap()).unwrap();
+
+    // Re-upgraded new build loads the file: 2004 edits win AND 2005 values survive intact.
+    let after_reupgrade = store.load();
+    assert_eq!(
+        after_reupgrade.game_dir_for(GameFamily::Swbf1),
+        Some("/games/bf1-downgraded-edit")
+    );
+    assert_eq!(
+        after_reupgrade.preparations_for(GameFamily::Swbf1)["/data/content"].game_dir,
+        "/games/bf1-downgraded-edit"
+    );
+    assert_eq!(
+        after_reupgrade.preparations_for(GameFamily::Swbf1)["/data/content"].add_ons,
+        vec!["newaddon"]
+    );
+    assert_eq!(
+        after_reupgrade.game_dir_for(GameFamily::Swbf2),
+        Some("/games/bf2")
+    );
+    assert_eq!(
+        after_reupgrade.preparations_for(GameFamily::Swbf2)["/data/content"].game_dir,
+        "/games/bf2"
+    );
+
+    // 4. Unknown family IDs and unknown keys under `games` must never fail load
+    //    and must be preserved untouched on save.
+    let unknown_file = tmp.path().join("unknown-games.json");
+    fs::write(
+        &unknown_file,
+        serde_json::to_string_pretty(&json!({
+            "gameDir": "/games/bf1",
+            "games": {
+                "swbf2": {
+                    "gameDir": "/games/bf2",
+                    "futureFlag": true
+                },
+                "swbf3": {
+                    "gameDir": "/games/future",
+                    "extraOption": 42
+                },
+                "customScalar": "keep-me"
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let unknown_store = SettingsStore::new(&unknown_file);
+    let loaded_unknown = unknown_store.load();
+    assert_eq!(
+        loaded_unknown.game_dir_for(GameFamily::Swbf1),
+        Some("/games/bf1")
+    );
+    assert_eq!(
+        loaded_unknown.game_dir_for(GameFamily::Swbf2),
+        Some("/games/bf2")
+    );
+    let mut update_bf2 = BTreeMap::new();
+    update_bf2.insert(GameFamily::Swbf2, Some("/games/bf2-moved".to_string()));
+    unknown_store
+        .save(&SettingsPatch {
+            game_dirs: update_bf2,
+            ..Default::default()
+        })
+        .unwrap();
+    let raw_saved: Value =
+        serde_json::from_str(&fs::read_to_string(&unknown_file).unwrap()).unwrap();
+    assert_eq!(raw_saved["gameDir"], "/games/bf1");
+    assert_eq!(raw_saved["games"]["swbf2"]["gameDir"], "/games/bf2-moved");
+    assert_eq!(raw_saved["games"]["swbf2"]["futureFlag"], true);
+    assert_eq!(raw_saved["games"]["swbf3"]["gameDir"], "/games/future");
+    assert_eq!(raw_saved["games"]["swbf3"]["extraOption"], 42);
+    assert_eq!(raw_saved["games"]["customScalar"], "keep-me");
+}
+
+/// A tools folder publishing the 2005 generation, the lock handover and the inventory format,
+/// as tools that can prepare the 2005 game do.
+fn swbf2_tools_dir(at: &Path) -> PathBuf {
+    let mut value: Value =
+        serde_json::from_str(bfe_desktop::prepare::CHECKOUT_CONTENT_VERSION_JSON).unwrap();
+    value["swbf2"] = json!(8);
+    value["swbf2Lock"] = json!("stdin");
+    value["swbf2Outputs"] = json!(1);
+    fs::create_dir_all(at).unwrap();
+    fs::write(at.join("content-version.json"), value.to_string()).unwrap();
+    at.to_path_buf()
+}
+
+#[cfg(unix)]
+#[test]
+fn a_linked_spelling_of_the_2005_game_folder_counts_as_the_same_game() {
+    let tmp = TempDir::new("linked-game");
+    let game = tmp.path().join("real");
+    make_swbf2_install(&game, false);
+    let link = tmp.path().join("link");
+    std::os::unix::fs::symlink(&game, &link).unwrap();
+    let state = PrepareState {
+        game: Some(
+            fs::canonicalize(bfe_desktop::prepare::game_lvl_pc_path(&game, GameFamily::Swbf2))
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        ),
+        ..Default::default()
+    };
+    for folder in [&game, &link] {
+        assert!(prepared_from_for(
+            Some(&state),
+            Some(folder),
+            GameFamily::Swbf2,
+            "linux"
+        ));
+    }
+    let other = tmp.path().join("other");
+    make_swbf2_install(&other, false);
+    assert!(!prepared_from_for(
+        Some(&state),
+        Some(&other),
+        GameFamily::Swbf2,
+        "linux"
+    ));
+}
+
+#[test]
+fn clearing_and_archives_keep_each_game_to_its_own_folder() {
+    let tmp = TempDir::new("family-isolation");
+    let content = tmp.path().join("content");
+    let bf1_game = tmp.path().join("bf1");
+    let bf2_game = tmp.path().join("bf2");
+    let bf2_other = tmp.path().join("bf2-other");
+    make_install(&bf1_game, false);
+    make_swbf2_install(&bf2_game, false);
+    make_swbf2_install(&bf2_other, false);
+    let tools = swbf2_tools_dir(&tmp.path().join("tools"));
+
+    // Populate both flat `<content>` (swbf1) and `<content>/swbf2/.content`.
+    make_content(&content, &["qq7"], true, Some(&bf1_game));
+    let ver = checkout_content_version().unwrap();
+    let bf2_root = bfe_content::layout::family_dir(&content, GameFamily::Swbf2);
+    bfe_desktop::swbf2_tree::mark_new_tree(&bf2_root).unwrap();
+    fs::create_dir_all(bf2_root.join("common")).unwrap();
+    let common = "{\"ok\":true}\n";
+    fs::write(bf2_root.join("common/common.json"), common).unwrap();
+    fs::create_dir_all(bf2_root.join("maps/testmap1")).unwrap();
+    let map = "{\"id\":\"testmap1\"}\n";
+    fs::write(bf2_root.join("maps/testmap1/map.json"), map).unwrap();
+    fs::write(bf2_root.join("maps/testmap1/geom.bin"), b"mesh").unwrap();
+    fs::write(
+        bf2_root.join(bfe_content::layout::SWBF2_PREPARE_STATE_FILE),
+        serde_json::to_string_pretty(&json!({
+            "family": "swbf2",
+            "version": ver.state,
+            "mapImportVersion": ver.maps,
+            "muzzleVersion": ver.sides,
+            "commonVersion": ver.common,
+            "swbf2Version": 8,
+            "complete": true,
+            "game": fs::canonicalize(bf2_game.join("GameData/data/_lvl_pc")).unwrap().to_string_lossy(),
+            "addOns": [],
+            "plan": ["map:testmap1", "common"],
+            "done": ["common", "map:testmap1"],
+            "outputs": {
+                "map:testmap1": [["maps/testmap1/map.json", map.len()], ["maps/testmap1/geom.bin", 4]],
+                "common": [["common/common.json", common.len()]],
+                "*": [],
+            },
+            "failed": [],
+            "skipped": [],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    // Per-family content inspection and prepare state reading stay isolated.
+    assert_eq!(
+        inspect_content_for(&content, GameFamily::Swbf1)
+            .unwrap()
+            .maps,
+        vec!["qq7"]
+    );
+    assert_eq!(
+        inspect_content_for(&content, GameFamily::Swbf2)
+            .unwrap()
+            .maps,
+        vec!["testmap1"]
+    );
+    let bf2_state = read_prepare_state_for(Some(&content), GameFamily::Swbf2).unwrap();
+    assert!(prepared_from_for(
+        Some(&bf2_state),
+        Some(&bf2_game),
+        GameFamily::Swbf2,
+        "linux"
+    ));
+    assert!(!prepared_from_for(
+        Some(&bf2_state),
+        Some(&bf2_game),
+        GameFamily::Swbf1,
+        "linux"
+    ));
+
+    // Export a swbf2 archive: 2004 inspect/import must decline it, while 2005 import extracts
+    // into <dest>/content-<id>/swbf2/.content/.
+    let archive = tmp.path().join("bf2.bfecontent");
+    let exported =
+        export_content_for(&content, GameFamily::Swbf2, &archive, Some(&tools)).unwrap();
+    assert_eq!(exported.family, GameFamily::Swbf2);
+    assert_eq!(exported.maps, vec!["testmap1"]);
+    assert!(inspect_archive(&archive).is_err());
+    assert!(import_content(&archive, &tmp.path().join("dest-2004")).is_err());
+    let imported = import_content_for(
+        &archive,
+        GameFamily::Swbf2,
+        &tmp.path().join("dest"),
+        Some(&tools),
+    )
+    .unwrap();
+    assert_eq!(imported.family, GameFamily::Swbf2);
+    assert!(bfe_content::layout::family_dir(&imported.content_dir, GameFamily::Swbf2)
+        .join("maps/testmap1/map.json")
+        .is_file());
+    let reloc = relocate_preparation_for(
+        &imported.content_dir,
+        GameFamily::Swbf2,
+        &bf2_game,
+        Some(&tools),
+    )
+    .unwrap();
+    assert!(reloc.ok, "{reloc:?}");
+
+    // A 2005 start for another copy clears only the 2005 tree and leaves the 2004 data.
+    let swbf2_tools = bfe_desktop::swbf2_tree::swbf2_tools(Some(&tools)).unwrap();
+    let start = bfe_desktop::swbf2_tree::begin(&content, &bf2_other, &swbf2_tools).unwrap();
+    drop(start);
+    assert!(!bf2_root.join("maps").exists());
+    assert!(content.join("maps/qq7/map.json").is_file());
+    // Clearing 2004 data for another copy removes the flat 2004 outputs and leaves the 2005 tree.
+    fs::create_dir_all(bf2_root.join("maps/testmap1")).unwrap();
+    fs::write(
+        bf2_root.join("maps/testmap1/map.json"),
+        "{\"id\":\"testmap1\"}\n",
+    )
+    .unwrap();
+    assert!(clear_prepared_for(
+        Some(&content),
+        Some(Path::new("/games/other-bf1")),
+        "linux"
+    ));
+    assert!(!content.join("maps").exists());
+    assert!(bf2_root.join("maps/testmap1/map.json").is_file());
+    // Re-seed flat swbf1 so find_content_for check below confirms swbf1 is found while swbf2 is not.
+    make_content(&content, &["qq7"], true, Some(&bf1_game));
+    fs::remove_dir_all(&bf2_root).unwrap();
+    assert!(find_content_for(
+        &FindContentOptions {
+            explicit: vec![content.clone()],
+            ..Default::default()
+        },
+        GameFamily::Swbf1
+    )
+    .is_some());
+    assert!(find_content_for(
+        &FindContentOptions {
+            explicit: vec![content],
+            ..Default::default()
+        },
+        GameFamily::Swbf2
+    )
+    .is_none());
+}
+
+#[test]
+fn validators_accept_complete_markers_per_game_including_stray_exe_and_merged_trees() {
+    let tmp = TempDir::new("validators-markers");
+
+    // 1. Complete 2004 tree with a stray BattlefrontII.exe still validates as 2004 (and not 2005).
+    let bf1_stray = tmp.path().join("bf1-with-stray-exe");
+    make_install(&bf1_stray, false);
+    fs::write(bf1_stray.join("GameData/BattlefrontII.exe"), "stray").unwrap();
+    assert_eq!(
+        inspect_install_for(&bf1_stray, GameFamily::Swbf1)
+            .unwrap()
+            .family,
+        GameFamily::Swbf1
+    );
+    assert!(inspect_install_for(&bf1_stray, GameFamily::Swbf2).is_none());
+
+    // 2. Pure 2005 tree (including empty COMMON/ as in Steam) validates only as 2005.
+    let bf2_pure = tmp.path().join("bf2-pure");
+    make_swbf2_install(&bf2_pure, false);
+    fs::create_dir_all(bf2_pure.join("GameData/data/_lvl_pc/COMMON")).unwrap();
+    assert!(inspect_install_for(&bf2_pure, GameFamily::Swbf1).is_none());
+    assert_eq!(
+        inspect_install_for(&bf2_pure, GameFamily::Swbf2)
+            .unwrap()
+            .family,
+        GameFamily::Swbf2
+    );
+
+    // 3. A 2005 tree that also ships COMMON/<lang>/common.lvl (or a merged folder holding
+    //    complete markers for both games in one _LVL_PC tree) is accepted by each validator
+    //    for its own game.
+    let merged = tmp.path().join("merged-both");
+    make_install(&merged, false);
+    fs::write(merged.join("GameData/BattlefrontII.exe"), "exe").unwrap();
+    for name in ["common.lvl", "core.lvl", "mission.lvl", "ingame.lvl", "shell.lvl"] {
+        fs::write(merged.join("GameData/Data/_LVL_PC").join(name), "lvl").unwrap();
+    }
+    assert_eq!(
+        inspect_install_for(&merged, GameFamily::Swbf1)
+            .unwrap()
+            .family,
+        GameFamily::Swbf1
+    );
+    assert_eq!(
+        inspect_install_for(&merged, GameFamily::Swbf2)
+            .unwrap()
+            .family,
+        GameFamily::Swbf2
+    );
+}
+
+#[test]
+fn gog_and_heroic_parsers_have_zero_losses_for_2004_vs_released_behavior() {
+    // The released build's GOG registry and Heroic parsers.
+    fn released_parse_gog_registry(text: &str) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        for line in text.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix('"') {
+                if let Some(eq_idx) = rest.find("\"=\"") {
+                    let key = &rest[..eq_idx];
+                    let val_part = &rest[eq_idx + 3..];
+                    if let Some(end_quote) = val_part.rfind('"') {
+                        let k_lower = key.to_lowercase();
+                        if k_lower == "path" || k_lower == "installlocation" {
+                            let value = val_part[..end_quote].replace("\\\\", "\\");
+                            if value.to_lowercase().contains("battlefront") {
+                                dirs.push(PathBuf::from(value));
+                            }
+                        }
+                    }
+                }
+            }
+            let tokens: Vec<&str> = trimmed.split_whitespace().collect();
+            if tokens.len() >= 3 {
+                let key_lower = tokens[0].to_lowercase();
+                let reg_type = tokens[1].to_uppercase();
+                if (key_lower == "path" || key_lower == "installlocation")
+                    && (reg_type == "REG_SZ" || reg_type == "REG_EXPAND_SZ")
+                {
+                    if let Some(pos) = trimmed.find(tokens[1]) {
+                        let value = trimmed[pos + tokens[1].len()..].trim();
+                        if value.to_lowercase().contains("battlefront") {
+                            dirs.push(PathBuf::from(value));
+                        }
+                    }
+                }
+            }
+        }
+        dirs
+    }
+
+    fn released_parse_heroic_installed(text: &str) -> Vec<PathBuf> {
+        let Ok(data) = serde_json::from_str::<Value>(text) else {
+            return Vec::new();
+        };
+        let mut entries = Vec::new();
+        if let Some(arr) = data.as_array() {
+            entries.extend(arr.iter());
+        } else if let Some(obj) = data.as_object() {
+            if let Some(installed) = obj.get("installed").and_then(|v| v.as_array()) {
+                entries.extend(installed.iter());
+            } else {
+                entries.extend(obj.values());
+            }
+        }
+        let mut out = Vec::new();
+        for item in entries {
+            let Some(install_path) = item.get("install_path").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            if install_path.is_empty() {
+                continue;
+            }
+            let title = item
+                .get("title")
+                .or_else(|| item.get("appName"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            if format!("{title} {install_path}")
+                .to_lowercase()
+                .contains("battlefront")
+            {
+                out.push(PathBuf::from(install_path));
+            }
+        }
+        out
+    }
+
+    // Corpus of 2004-only registry inputs (Wine system.reg + Windows reg.exe):
+    // new Swbf1 parser must match every single path the released parser found.
+    let reg_2004_corpus = [
+        r#"
+[Software\\Wow6432Node\\GOG.com\\Games\\1421404581]
+"gameName"="STAR WARS Battlefront"
+"path"="C:\\GOG Games\\Star Wars - Battlefront"
+"#,
+        r#"
+[Software\\Wow6432Node\\GOG.com\\Games\\1421404581]
+"path"="D:\\Battlefront\\InstallRoot"
+"gameName"="STAR WARS Battlefront (Classic, 2004)"
+"#,
+        r#"
+[Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BF1]
+"InstallLocation"="E:\\Games\\Battlefront2004\\Files"
+"#,
+        r#"
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\1000
+    gameName    REG_SZ    Some Other Space Game
+    path    REG_SZ    C:\GOG Games\Other
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\1421404581
+    path    REG_SZ    C:\GOG Games\Star Wars Battlefront\Root
+    gameName    REG_SZ    STAR WARS Battlefront
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\BF1
+    InstallLocation    REG_EXPAND_SZ    D:\Classic Battlefront\Game
+"#,
+    ];
+    for (idx, sample) in reg_2004_corpus.iter().enumerate() {
+        let base_hits = released_parse_gog_registry(sample);
+        let new_hits = parse_gog_registry_for(sample, None, GameFamily::Swbf1);
+        assert_eq!(new_hits, base_hits, "reg 2004 parity mismatch at case {idx}");
+        assert!(
+            parse_gog_registry_for(sample, None, GameFamily::Swbf2).is_empty(),
+            "reg 2004 case {idx} should not match swbf2"
+        );
+    }
+
+    // Reg.exe multi-key block where a 2005 key precedes a 2004 key without [section] headers:
+    // the 2005 gameName must NOT leak into the 2004 key, and path-before-gameName must still work.
+    let reg_mixed = r#"
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\1421404582
+    gameName    REG_SZ    STAR WARS Battlefront II
+    path    REG_SZ    C:\GOG Games\CustomBF2Folder
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\1421404581
+    path    REG_SZ    C:\GOG Games\Star Wars Battlefront\Sub
+    gameName    REG_SZ    STAR WARS Battlefront
+HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\GOG.com\Games\9999999999
+    path    REG_SZ    C:\GOG Games\MyGame
+    gameName    REG_SZ    STAR WARS Battlefront II (Classic, 2005)
+"#;
+    assert_eq!(
+        parse_gog_registry_for(reg_mixed, None, GameFamily::Swbf1),
+        vec![PathBuf::from(r"C:\GOG Games\Star Wars Battlefront\Sub")]
+    );
+    assert_eq!(
+        parse_gog_registry_for(reg_mixed, None, GameFamily::Swbf2),
+        vec![
+            PathBuf::from(r"C:\GOG Games\CustomBF2Folder"),
+            PathBuf::from(r"C:\GOG Games\MyGame"),
+        ]
+    );
+
+    // Corpus of 2004-only Heroic JSON inputs (array, { installed: [...] }, map by appName):
+    // zero losses compared to released parser, including parent-folder "Battlefront" paths.
+    let heroic_2004_corpus = [
+        json!([
+            { "title": "STAR WARS Battlefront", "install_path": "/games/custom-folder" },
+            { "title": "Unrelated", "install_path": "/games/unrelated" }
+        ]),
+        json!({
+            "installed": [
+                { "install_path": "/srv/Battlefront/install" },
+                { "appName": "Battlefront2004", "install_path": "/opt/gog/sw" }
+            ]
+        }),
+        json!({
+            "1421404581": {
+                "title": "STAR WARS Battlefront (Classic, 2004)",
+                "install_path": "/games/disk/gog/bf"
+            },
+            "other": {
+                "title": "Other",
+                "install_path": "/games/disk/Battlefront/current"
+            }
+        }),
+    ];
+    for (idx, val) in heroic_2004_corpus.iter().enumerate() {
+        let text = serde_json::to_string(val).unwrap();
+        let base_hits = released_parse_heroic_installed(&text);
+        let new_hits = parse_heroic_installed_for(&text, GameFamily::Swbf1);
+        assert_eq!(
+            new_hits, base_hits,
+            "heroic 2004 parity mismatch at case {idx}"
+        );
+        assert!(
+            parse_heroic_installed_for(&text, GameFamily::Swbf2).is_empty(),
+            "heroic 2004 case {idx} should not match swbf2"
+        );
+    }
+}
+
+#[test]
+fn prepared_from_and_clear_preserve_lowercase_2004_tree_on_linux() {
+    let tmp = TempDir::new("prepared-from-lowercase");
+    let game = tmp.path().join("swbf1-lower");
+    let content = tmp.path().join("content");
+    make_install(&game, true); // creates lowercase gamedata/data/_lvl_pc
+    // `.prepare.json` records canonical GameData/Data/_LVL_PC (matching tools/zero_paths.py).
+    make_content(&content, &["qq7"], true, Some(&game));
+
+    let state = read_prepare_state_for(Some(&content), GameFamily::Swbf1).unwrap();
+    assert!(
+        prepared_from(Some(&state), Some(&game), "linux"),
+        "released Linux comparison must match canonical GameData/Data/_LVL_PC"
+    );
+    assert!(
+        !clear_prepared_for(Some(&content), Some(&game), "linux"),
+        "clear_prepared_for must not delete prepared outputs for a lowercase 2004 tree"
+    );
+    assert!(content.join("maps/qq7/map.json").is_file());
 }

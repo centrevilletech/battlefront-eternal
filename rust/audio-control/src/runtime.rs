@@ -28,6 +28,11 @@ impl Runtime {
             events: Vec::with_capacity(RECORDS), body_flags: vec![0; 65536], planes: Vec::new(), candidates: vec![0; 65536], enabled: vec![0; 65536],
             requests: vec![0.0; 128 * request::STRIDE], debug: vec![0.0; CAPACITY * debug_voice::STRIDE], follows: vec![0; RECORDS] }
     }
+    pub fn new_for_family(seed: u32, family: bfe_family::GameFamily) -> Self {
+        Self { phase: Phase::new_for_family(seed, family), resources: Resources::default(), input: vec![0.0; INPUT_CAPACITY], info: [0.0; info::STRIDE],
+            events: Vec::with_capacity(RECORDS), body_flags: vec![0; 65536], planes: Vec::new(), candidates: vec![0; 65536], enabled: vec![0; 65536],
+            requests: vec![0.0; 128 * request::STRIDE], debug: vec![0.0; CAPACITY * debug_voice::STRIDE], follows: vec![0; RECORDS] }
+    }
     pub fn import(&mut self, kind: usize, length: usize) {
         assert!(length <= self.input.len());
         if kind == import::PLANE { for row in self.input[..length].as_chunks::<{ plane::STRIDE }>().0 { self.planes.push(*row); } }
@@ -67,6 +72,13 @@ impl Runtime {
         }
     }
     pub fn step(&mut self, collision: &mut impl Collision) { self.phase.step(collision, &self.events); self.publish(); }
+    pub fn refuse_stream(&mut self, request: crate::streams::Request) {
+        self.phase.streams.refused(&self.phase.engine, request.voice, request.generation);
+        let handle = request.generation * crate::streams::STREAM_VOICES as u64 + request.voice as u64;
+        if self.phase.swbf2().is_some_and(|s| s.director.script_music_voice == handle) {
+            self.phase.stop_in_game_music(0.0);
+        }
+    }
     /// Asset readiness does not advance gameplay. Generation checks prevent
     /// a cancelled decoder from reviving a reused stream row.
     pub fn ready(&mut self) {
@@ -75,13 +87,16 @@ impl Runtime {
         let accepted = if r[ready::FAILED] != 0.0 {
             let accepted = self.phase.streams.failed(&self.phase.engine, voice, generation); if accepted && r[ready::FAILED] == 2.0 { self.info[info::ERROR] = 1.0; } accepted
         } else { self.phase.streams.ready(&mut self.phase.engine, voice, generation, r[ready::PART] as usize, r[ready::SAMPLE] as usize, r[ready::DURATION], r[ready::CHANNELS] as usize) };
-        self.info[info::ACCEPTED] = accepted as u8 as f64; self.phase.streams_ended(); self.publish();
+        self.info[info::ACCEPTED] = accepted as u8 as f64;
+        if self.phase.swbf2().is_some() { self.phase.swbf2_streams_ended(); }
+        else { self.phase.streams_ended(); }
+        self.publish();
     }
     pub fn publish(&mut self) {
         let p = &self.phase; let i = &mut self.info;
         i[info::COMMANDS] = p.engine.commands.len() as f64; i[info::PLACEMENTS] = p.engine.placements.len() as f64; i[info::REQUESTS] = p.streams.requests.len() as f64;
         for n in 0..6 { i[info::REAL + n] = p.engine.stats[n] as f64; } i[info::SEED] = p.engine.random.0 as f64; i[info::TIME] = p.engine.time; i[info::ROOM_CHANGED] = p.room_pending as f64;
-        let r = if p.engine.enhanced { p.acoustics.room } else { p.original_room };
+        let r = p.published_room();
         i[info::ROOM] = r.room; i[info::ROOM_HF] = r.room_hf; i[info::DECAY] = r.decay; i[info::HF_RATIO] = r.hf_ratio; i[info::REFLECTIONS] = r.reflections; i[info::REFL_DELAY] = r.refl_delay; i[info::REVERB] = r.reverb; i[info::REVERB_DELAY] = r.reverb_delay; i[info::DIFFUSION] = r.diffusion; i[info::DENSITY] = r.density; i[info::HF_REFERENCE] = r.hf_reference;
         for (n, r) in p.streams.requests.iter().enumerate() {
             let row = &mut self.requests[n * request::STRIDE..(n + 1) * request::STRIDE]; row[request::VOICE] = r.voice as f64; row[request::GENERATION] = r.generation as f64; row[request::SEGMENT] = if r.segment == crate::engine::NONE { -1.0 } else { r.segment as f64 }; row[request::PART] = r.part as f64; row[request::SAMPLE] = r.sample as f64; row[request::OPERATION] = r.operation as f64; row[request::VARIANT] = if r.variant == crate::engine::NONE { -1.0 } else { r.variant as f64 };

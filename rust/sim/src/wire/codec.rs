@@ -1,5 +1,6 @@
 //! Snapshot delta encoding, in publication and field order. Integer checks
 //! deliberately happen at writes, as in the JavaScript codec.
+use bfe_presentation::network::position::PositionWidth;
 use crate::gen::{
     WireClass as Class, WireEntry as Entry, WireField as Field, WireOwn, WireSnapshot as Snapshot,
 };
@@ -33,6 +34,12 @@ impl Writer {
     }
     pub fn u32(&mut self, v: f64) -> Result<()> {
         self.int(v, 0., 4294967295., 4)
+    }
+    pub(super) fn position_code(&mut self, v: f64, width: PositionWidth) -> Result<()> {
+        match width {
+            PositionWidth::Narrow => self.u16(v),
+            PositionWidth::Wide => self.int(v, 0., width.max_code(), 3),
+        }
     }
     pub fn f32(&mut self, v: f64) -> Result<()> {
         if !v.is_finite() {
@@ -170,17 +177,18 @@ fn write_status(w: &mut Writer, e: &Entry) -> Result<()> {
     })?;
     w.u8(e.seat_index)
 }
-fn write_group(w: &mut Writer, e: &Entry, base: Option<&Entry>, group: usize) -> Result<()> {
+fn write_group(w: &mut Writer, e: &Entry, base: Option<&Entry>, group: usize, width: PositionWidth) -> Result<()> {
     if e.cls != Class::Turret {
         if group == 0 {
             let small =
                 base.is_some_and(|b| e.pos.iter().zip(b.pos).all(|(a, b)| (*a - b).abs() <= 127.));
-            w.u8((if small { 0 } else { 1 } | if e.disc { 128 } else { 0 }) as f64)?;
+            let mode = (!small as u8) | ((width == PositionWidth::Wide) as u8) << 1 | (e.disc as u8) << 7;
+            w.u8(mode as f64)?;
             for i in 0..3 {
                 if small {
                     w.i8(e.pos[i] - base.unwrap().pos[i])?;
                 } else {
-                    w.u16(e.pos[i])?;
+                    w.position_code(e.pos[i], width)?;
                 }
             }
             return Ok(());
@@ -280,14 +288,14 @@ fn write_group(w: &mut Writer, e: &Entry, base: Option<&Entry>, group: usize) ->
     }
     Ok(())
 }
-fn record(e: &Entry, baseline: Option<&Entry>) -> Result<Vec<u8>> {
+fn record(e: &Entry, baseline: Option<&Entry>, width: PositionWidth) -> Result<Vec<u8>> {
     let mut w = Writer::default();
-    record_into(&mut w, e, baseline)?;
+    record_into(&mut w, e, baseline, width)?;
     Ok(w.0)
 }
 /// The host retains one writer per protocol slot. Pure codec callers still
 /// return an owned Vec, using the same group ordering and validation above.
-pub(crate) fn record_into(w: &mut Writer, e: &Entry, baseline: Option<&Entry>) -> Result<()> {
+pub(crate) fn record_into(w: &mut Writer, e: &Entry, baseline: Option<&Entry>, width: PositionWidth) -> Result<()> {
     w.0.clear();
     let groups = group_count(e.cls);
     let new = baseline.is_none_or(|b| {
@@ -306,7 +314,7 @@ pub(crate) fn record_into(w: &mut Writer, e: &Entry, baseline: Option<&Entry>) -
         w.u16(e.class_id)?;
         w.u8(e.team)?;
         for g in 0..groups {
-            write_group(w, e, None, g)?;
+            write_group(w, e, None, g, width)?;
         }
     } else {
         let base = baseline.unwrap();
@@ -314,7 +322,7 @@ pub(crate) fn record_into(w: &mut Writer, e: &Entry, baseline: Option<&Entry>) -
         for g in 0..groups {
             if !same_group(e, base, g) {
                 mask |= 1 << g;
-                write_group(w, e, Some(base), g)?;
+                write_group(w, e, Some(base), g, width)?;
             }
         }
         if mask == 0 {
@@ -488,6 +496,7 @@ pub fn encode_entities(
     current: &Snapshot,
     baseline: Option<&Snapshot>,
     interval: f64,
+    width: PositionWidth,
 ) -> Result<Vec<Vec<u8>>> {
     let mut entries: Vec<Option<&Entry>> = vec![None; 512];
     let mut bases = entries.clone();
@@ -505,7 +514,7 @@ pub fn encode_entities(
     let mut touched = Vec::new();
     for i in 0..512 {
         records[i] = match entries[i] {
-            Some(e) => record(e, bases[i])?,
+            Some(e) => record(e, bases[i], width)?,
             None if bases[i].is_some() => vec![2],
             _ => Vec::new(),
         };

@@ -57,6 +57,8 @@ pub enum ErrorKind {
     InvalidKind,
     ExchangeCapacity,
     Host,
+    /// A scripted battle ended in a draw during mission setup.
+    MissionSetup,
     /// The entry has no native body yet. Its message names the entry.
     Unavailable,
     /// A panic escaped an owning entry; only `dispose` still succeeds.

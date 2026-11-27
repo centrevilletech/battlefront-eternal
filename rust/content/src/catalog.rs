@@ -3,8 +3,10 @@
 //! makes).
 
 use crate::json;
+use crate::layout::family_dir;
 use crate::mission::{battles_of, utf16_cmp};
 use crate::value::Value;
+use bfe_family::GameFamily;
 use std::path::Path;
 
 pub struct Planned {
@@ -21,7 +23,14 @@ impl Planned {
     }
 }
 
-pub fn plan(root: &Path, only_map: Option<&str>, only_mission: Option<&str>, only_side: Option<&str>) -> Vec<Planned> {
+pub fn plan(
+    root: &Path,
+    family: GameFamily,
+    only_map: Option<&str>,
+    only_mission: Option<&str>,
+    only_side: Option<&str>,
+) -> Vec<Planned> {
+    let root = family_dir(root, family);
     let mut maps: Vec<String> = std::fs::read_dir(root.join("maps"))
         .map(|dir| dir.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect())
         .unwrap_or_default();

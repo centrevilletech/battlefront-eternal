@@ -1,12 +1,11 @@
 //! Local dedicated server orchestrator.
 
-use crate::browser_info::{browser_info, map_names, BrowserInfo};
+use crate::browser_info::{browser_info, map_names_for, BrowserInfo};
 use crate::config::{check_content, check_state_budget, ServerConfig};
 use crate::identity::ServerIdentity;
 use crate::lan::LanDiscoveryResponder;
 use crate::udp_server::{UdpGameServer, WorldPeerEvent};
-use crate::world_worker::{build_welcome_message, FaultWatch, NativeWorldHost};
-use bfe_content_native::fingerprint;
+use crate::world_worker::{FaultWatch, NativeWorldHost};
 use bfe_sim::abi::context_step::Publication;
 use bfe_transport::crypto::random;
 use bfe_transport::layout::{close_code, network_contract};
@@ -28,6 +27,28 @@ pub enum WorldCommand {
     RemovePlayer(String),
     /// Enqueue a recorded `Publication` frame for deterministic transport/wire testing.
     PushPublication(Publication),
+}
+
+/// What the world thread's loop shares with the service, handed to it once
+/// the service's sockets and listings exist.
+struct WorldLoop {
+    udp_c: Arc<Mutex<UdpGameServer>>,
+    info_c: Arc<RwLock<Value>>,
+    tick_c: Arc<AtomicU64>,
+    finished_c: Arc<AtomicBool>,
+    world_ticks_c: Arc<WorldTickCounters>,
+    stop_c: Arc<AtomicBool>,
+    world_rx: mpsc::Receiver<WorldCommand>,
+    server_id: String,
+    server_name: String,
+    content_for_tick: String,
+    rotation: Vec<String>,
+    auto_spawn: bool,
+    auto_assign_teams: bool,
+    browser_c: BrowserInfo,
+    is_banned: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    max_players: usize,
+    actual_port: u16,
 }
 
 /// Generates a 16-byte (32-hex) random `match` token (`randomBytes(16).toString('hex')`).
@@ -76,6 +97,7 @@ pub struct GamePort {
 
 /// Running local dedicated server instance (`export async function startLocalServer`).
 pub struct LocalDedicatedServer {
+    pub family: bfe_family::GameFamily,
     pub id: String,
     pub port: u16,
     pub query: String,
@@ -102,6 +124,588 @@ pub struct LocalDedicatedServer {
     tick_thread: Option<JoinHandle<()>>,
 }
 
+fn released_world_loop(w: &mut NativeWorldHost, state: WorldLoop) {
+    let WorldLoop { udp_c, info_c, tick_c, finished_c, world_ticks_c, stop_c, world_rx, server_id, server_name,
+        content_for_tick, rotation, auto_spawn, auto_assign_teams, browser_c, is_banned, max_players, actual_port } = state;
+    let mut next_tick = Instant::now();
+    let mut world_tick_failed = false;
+    let mut faults = FaultWatch::default();
+    // The score table peers sitting the battle out were sent, and which.
+    let mut board = crate::lobby::Board::default();
+    let mut final_board = false;
+    while !stop_c.load(Ordering::Relaxed) {
+        while let Ok(cmd) = world_rx.try_recv() {
+            match cmd {
+                WorldCommand::RemovePlayer(id) => w.remove_player(&id),
+                WorldCommand::PushPublication(pub_frame) => {
+                    w.recorded_publications.push(pub_frame);
+                }
+            }
+        }
+
+        let now = Instant::now();
+        if now < next_tick {
+            thread::sleep((next_tick - now).min(Duration::from_millis(2)));
+            continue;
+        }
+        next_tick += TICK_DURATION;
+        // Cap catch-up debt to 4 ticks (`count < 4` and `debt > 8 / 60`).
+        // Any excess backlog beyond `4 * TICK_DURATION` is dropped and recorded in `w.dropped_ticks`
+        // so `WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped` reflect the late tick bound.
+        if now > next_tick + TICK_DURATION * 4 {
+            let overdue_ns = (now - (next_tick + TICK_DURATION * 4)).as_nanos();
+            let dropped = ((overdue_ns / TICK_DURATION.as_nanos()) as u32).max(1);
+            w.dropped_ticks = w.dropped_ticks.saturating_add(dropped);
+            next_tick = now + TICK_DURATION;
+        }
+
+        let events = {
+            let mut u = udp_c.lock().unwrap();
+            let banned_fn = Arc::clone(&is_banned);
+            u.poll(|peer_id| banned_fn(peer_id))
+        };
+
+        {
+            let mut u = udp_c.lock().unwrap();
+            let now_ms = u.now_ms();
+            w.last_now_ms = w.last_now_ms.max(now_ms);
+            for ev in events {
+                match ev {
+                    WorldPeerEvent::Joined { id, name, plan, .. } => {
+                        // The battle is over and the next one is announced: the finished
+                        // world has no spawn for a newcomer, so send it on to the next battle.
+                        if let Some(next) = u.joiner_match_event() {
+                            u.send_events(&id, &next);
+                            continue;
+                        }
+                        // Send `entity-registry` before `welcome` (`handle("join")`).
+                        u.send_events(&id, &w.registry_message());
+                        match w.add_player(
+                            &id,
+                            &name,
+                            false,
+                            auto_spawn,
+                            !auto_assign_teams,
+                        ) {
+                            Ok(player_welcome) => {
+                                w.set_plan(&id, plan);
+                                let cur_info = info_c.read().unwrap().clone();
+                                let welcome_msg = w.welcome_message(
+                                    &cur_info,
+                                    &server_id,
+                                    &player_welcome,
+                                );
+                                u.send_events(&id, &welcome_msg);
+                                // Joined during the end table: follow the announced battle.
+                                if let Some(next) = u.joiner_match_event() {
+                                    u.send_events(&id, &next);
+                                }
+                            }
+                            Err(err) => {
+                                // Refuse join with `gameplay-error` (`GameSession.refuse`).
+                                u.send_events(
+                                    &id,
+                                    &json!({"type": "gameplay-error", "message": err}),
+                                );
+                                u.close_peer(
+                                    &id,
+                                    close_code::REJECTED as u16,
+                                    &format!("admission failed: {err}"),
+                                    now_ms,
+                                );
+                            }
+                        }
+                    }
+                    WorldPeerEvent::SatOut { id, reason, .. } => {
+                        // No world for this peer: the sit-out notice in place of the
+                        // registry and welcome, the score table, and any announced next
+                        // battle, which it may have content for.
+                        let query = info_c.read().unwrap().get("query").and_then(Value::as_str).unwrap_or("").to_string();
+                        let token = crate::lobby::match_token(&query).to_string();
+                        let notice = crate::lobby::sit_out_message(&token, &u.battle, reason);
+                        u.send_events(&id, &notice);
+                        let tick = w.tick;
+                        // The current table at once, through the same cache every
+                        // other peer is sent from.
+                        if let Ok(table) = w.context.owned(|world| bfe_sim::world::lobby::table(world, tick)) {
+                            board.update(&token, table, lobby_pings(w, &u));
+                            board.forget(&id);
+                            board.send(std::slice::from_ref(&id), |peer, bytes| u.send_events_bytes(peer, bytes));
+                        }
+                        if let Some(next) = u.joiner_match_event() {
+                            u.send_events(&id, &next);
+                        }
+                    }
+                    WorldPeerEvent::Left { id } => {
+                        faults.forget(&id);
+                        w.remove_player(&id);
+                    }
+                    WorldPeerEvent::Start { id, call_id, .. } => {
+                        w.handle_start(&id, now_ms);
+                        u.send_events(
+                            &id,
+                            &json!({
+                                "type": "reply",
+                                "id": call_id,
+                                "ok": true,
+                                "result": {"ok": true},
+                            }),
+                        );
+                    }
+                    WorldPeerEvent::Chat { id, text, team } => {
+                        // A peer sitting the battle out speaks on the global channel only,
+                        // to everyone who reads it.
+                        if let Some(peer) = u.peers.get(&id).filter(|p| p.sitting_out.is_some()) {
+                            if team {
+                                continue;
+                            }
+                            let message = json!({"type":"chat", "sender":peer.peer.name.clone(), "text":text, "team":false});
+                            let recipients: Vec<_> = u.peers.iter()
+                                .filter(|(_, state)| state.session.started || state.sitting_out.is_some())
+                                .map(|(peer, _)| peer.clone()).collect();
+                            for peer in recipients {
+                                u.send_events(&peer, &message);
+                            }
+                            continue;
+                        }
+                        // routes only started players, and a
+                        // team line follows current teams after a side switch.
+                        if !u.peers.get(&id).is_some_and(|p| p.session.started) {
+                            continue;
+                        }
+                        let Some(sender_team) = w.player_team(&id) else {
+                            continue;
+                        };
+                        let sender = u.peers[&id].peer.name.clone();
+                        let recipients: Vec<_> = u
+                            .peers
+                            .iter()
+                            .filter(|(peer, state)| {
+                                state.session.started
+                                    && (!team || w.player_team(peer) == Some(sender_team))
+                                    // Global chat also reaches peers sitting the battle out.
+                                    || !team && state.sitting_out.is_some()
+                            })
+                            .map(|(peer, _)| peer.clone())
+                            .collect();
+                        let message = json!({"type":"chat", "sender":sender, "text":text, "team":team});
+                        for peer in recipients {
+                            u.send_events(&peer, &message);
+                        }
+                    }
+                    WorldPeerEvent::EdgeAck { id, message } => {
+                        w.handle_edge_ack(&id, &message, now_ms);
+                    }
+                    WorldPeerEvent::Input { id, bytes } => {
+                        w.handle_input(&id, &bytes, now_ms);
+                    }
+                    WorldPeerEvent::Resync { id } => {
+                        w.handle_resync(&id, now_ms);
+                    }
+                }
+            }
+
+            w.links.clear();
+            for (id, peer) in &u.peers {
+                if let Some(&native_id) = w.native_by_client.get(id) {
+                    w.links.push(bfe_sim::gen::WirePublicationLink {
+                        id: native_id,
+                        discarded_actions: 0.,
+                        rtt: peer.session.rtt.or(peer.peer.last_rtt).unwrap_or(f64::NAN),
+                        has_kind: true,
+                        relay: peer.peer.path.kind == "relay",
+                        has_family: true,
+                        family_six: peer.peer.path.address.is_ipv6(),
+                    });
+                }
+            }
+            let unix_ms = UdpGameServer::unix_ms();
+            world_ticks_c.attempted.fetch_add(1, Ordering::Relaxed);
+            let publication = match w.step(now_ms, unix_ms) {
+                Ok(publication) => {
+                    world_tick_failed = false;
+                    publication
+                }
+                Err(error) => {
+                    if error == "native world refused authoritative tick" {
+                        world_ticks_c.refused.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        world_ticks_c.errors.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if !world_tick_failed {
+                        eprintln!("authoritative world tick failed: {error}");
+                    }
+                    world_tick_failed = true;
+                    None
+                }
+            };
+            if let Some(pub_out) = publication {
+                // A player whose updates have failed for a second is told why and
+                // leaves; the battle goes on for everyone else.
+                for (id, reason) in faults.note(&pub_out.faults, unix_ms) {
+                    eprintln!("ending player {id}'s session: their updates failed for a second: {reason}");
+                    let now_ms = u.now_ms();
+                    u.close_peer(&id, close_code::APPLICATION as u16, &format!("your updates failed: {reason}"), now_ms);
+                    faults.forget(&id);
+                    w.remove_player(&id);
+                }
+                for ev in pub_out.events {
+                    match ev.message.get("type").and_then(serde_json::Value::as_str) {
+                        Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),
+                        _ => u.send_events(&ev.peer_id, &ev.message),
+                    };
+                }
+                // Shared baseline parts are sent before per-client own packets
+                // (`sendSnapshot`).
+                // A snapshot is only useful whole: once one of its parts cannot go to a
+                // client, the rest of it is not sent to that client either. A player's own
+                // datagram (its body, spawn answer, summaries) is never held back here.
+                for group in pub_out.shared {
+                    for cid in &group.clients {
+                        for part in &group.parts {
+                            if !u.send_state(cid, part, Some(group.captured_at_unix_ms), false) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                for own in pub_out.own_packets {
+                    u.send_state(&own.peer_id, &own.bytes, Some(own.captured_at_unix_ms), true);
+                }
+            }
+            // Peers sitting the battle out see its score table once a second while
+            // it changes, and again when the battle ends.
+            // The end of the battle sends its final table at once.
+            let final_table = w.ended && !final_board;
+            if !w.ended { final_board = false; }
+            if w.tick.is_multiple_of(60) || final_table {
+                if final_table { final_board = true; }
+                let peers = u.sit_out_peers();
+                if !peers.is_empty() {
+                    let tick = w.tick;
+                    if let Ok(table) = w.context.owned(|world| bfe_sim::world::lobby::table(world, tick)) {
+                        // The table and its pings sampled together: a change of either is
+                        // a new revision, serialized once; each peer that has not taken it,
+                        // or whose queue refused it, is sent it.
+                        let query = info_c.read().unwrap().get("query").and_then(Value::as_str).unwrap_or("").to_string();
+                        board.update(crate::lobby::match_token(&query), table, lobby_pings(w, &u));
+                    }
+                }
+                board.send(&peers, |peer, bytes| u.send_events_bytes(peer, bytes));
+            }
+            u.flush();
+
+            tick_c.store(w.tick as u64, Ordering::Relaxed);
+            finished_c.store(w.ended, Ordering::Release);
+            let mut updated_info = build_info_json(
+                &server_id,
+                &server_name,
+                &content_for_tick,
+                &rotation,
+                u.peers.len(),
+                max_players,
+                &w.fingerprint,
+                &w.query,
+                actual_port,
+                &browser_c,
+            );
+            // After a battle ends, a joiner learns which battle comes next, so it loads
+            // that one instead of the finished one.
+            if let (Some(next), Some(fields)) = (u.pending_match_event(), updated_info.as_object_mut()) {
+                fields.insert("next".to_string(), json!({"query": next["query"], "delayMs": next["delayMs"]}));
+            }
+            *info_c.write().unwrap() = updated_info;
+        }
+    }
+}
+
+fn swbf2_world_loop(w: &mut NativeWorldHost, state: WorldLoop) {
+    let WorldLoop { udp_c, info_c, tick_c, finished_c, world_ticks_c, stop_c, world_rx, server_id, server_name,
+        content_for_tick, rotation, auto_spawn, auto_assign_teams, browser_c, is_banned, max_players, actual_port } = state;
+    let mut next_tick = Instant::now();
+    let mut world_tick_failed = false;
+    let mut faults = FaultWatch::default();
+    let mut board = crate::lobby::Board::default();
+    let mut final_board = false;
+    while !stop_c.load(Ordering::Relaxed) {
+        while let Ok(cmd) = world_rx.try_recv() {
+            match cmd {
+                WorldCommand::RemovePlayer(id) => w.remove_player(&id),
+                WorldCommand::PushPublication(pub_frame) => {
+                    w.recorded_publications.push(pub_frame);
+                }
+            }
+        }
+
+        let now = Instant::now();
+        if now < next_tick {
+            thread::sleep((next_tick - now).min(Duration::from_millis(2)));
+            continue;
+        }
+        next_tick += TICK_DURATION;
+        if now > next_tick + TICK_DURATION * 4 {
+            let overdue_ns = (now - (next_tick + TICK_DURATION * 4)).as_nanos();
+            let dropped = ((overdue_ns / TICK_DURATION.as_nanos()) as u32).max(1);
+            w.dropped_ticks = w.dropped_ticks.saturating_add(dropped);
+            next_tick = now + TICK_DURATION;
+        }
+
+        let events = {
+            let mut u = udp_c.lock().unwrap();
+            let banned_fn = Arc::clone(&is_banned);
+            u.poll(|peer_id| banned_fn(peer_id))
+        };
+
+        {
+            let mut u = udp_c.lock().unwrap();
+            let now_ms = u.now_ms();
+            w.last_now_ms = w.last_now_ms.max(now_ms);
+            for ev in events {
+                match ev {
+                    WorldPeerEvent::Joined { id, name, plan, .. } => {
+                        if let Some(next) = u.joiner_match_event() {
+                            u.send_events(&id, &next);
+                            continue;
+                        }
+                        u.send_events(&id, &w.registry_message());
+                        match w.add_player(
+                            &id,
+                            &name,
+                            false,
+                            auto_spawn,
+                            !auto_assign_teams,
+                        ) {
+                            Ok(player_welcome) => {
+                                w.set_plan(&id, plan);
+                                let cur_info = info_c.read().unwrap().clone();
+                                let welcome_msg = w.welcome_message(
+                                    &cur_info,
+                                    &server_id,
+                                    &player_welcome,
+                                );
+                                u.send_events(&id, &welcome_msg);
+                                if let Some(next) = u.joiner_match_event() {
+                                    u.send_events(&id, &next);
+                                }
+                            }
+                            Err(err) => {
+                                u.send_events(
+                                    &id,
+                                    &json!({"type": "gameplay-error", "message": err}),
+                                );
+                                u.close_peer(
+                                    &id,
+                                    close_code::REJECTED as u16,
+                                    &format!("admission failed: {err}"),
+                                    now_ms,
+                                );
+                            }
+                        }
+                    }
+                    WorldPeerEvent::SatOut { id, reason, .. } => {
+                        let query = info_c.read().unwrap().get("query").and_then(Value::as_str).unwrap_or("").to_string();
+                        let token = crate::lobby::match_token(&query).to_string();
+                        let notice = crate::lobby::sit_out_message(&token, &u.battle, reason);
+                        u.send_events(&id, &notice);
+                        let tick = w.tick;
+                        if let Ok(table) = w.context.owned(|world| bfe_sim::world::lobby::table(world, tick)) {
+                            board.update(&token, table, lobby_pings(w, &u));
+                            board.forget(&id);
+                            board.send(std::slice::from_ref(&id), |peer, bytes| u.send_events_bytes(peer, bytes));
+                        }
+                        if let Some(next) = u.joiner_match_event() {
+                            u.send_events(&id, &next);
+                        }
+                    }
+                    WorldPeerEvent::Left { id } => {
+                        faults.forget(&id);
+                        w.remove_player(&id);
+                    }
+                    WorldPeerEvent::Start { id, call_id, .. } => {
+                        w.handle_start(&id, now_ms);
+                        u.send_events(
+                            &id,
+                            &json!({
+                                "type": "reply",
+                                "id": call_id,
+                                "ok": true,
+                                "result": {"ok": true},
+                            }),
+                        );
+                    }
+                    WorldPeerEvent::Chat { id, text, team } => {
+                        if let Some(peer) = u.peers.get(&id).filter(|p| p.sitting_out.is_some()) {
+                            if team {
+                                continue;
+                            }
+                            let message = json!({"type":"chat", "sender":peer.peer.name.clone(), "text":text, "team":false});
+                            let recipients: Vec<_> = u.peers.iter()
+                                .filter(|(_, state)| state.session.started || state.sitting_out.is_some())
+                                .map(|(peer, _)| peer.clone()).collect();
+                            for peer in recipients {
+                                u.send_events(&peer, &message);
+                            }
+                            continue;
+                        }
+                        if !u.peers.get(&id).is_some_and(|p| p.session.started) {
+                            continue;
+                        }
+                        let Some(sender_team) = w.player_team(&id) else {
+                            continue;
+                        };
+                        let sender = u.peers[&id].peer.name.clone();
+                        let recipients: Vec<_> = u
+                            .peers
+                            .iter()
+                            .filter(|(peer, state)| {
+                                state.session.started
+                                    && (!team || w.player_team(peer) == Some(sender_team))
+                                    || !team && state.sitting_out.is_some()
+                            })
+                            .map(|(peer, _)| peer.clone())
+                            .collect();
+                        let message = json!({"type":"chat", "sender":sender, "text":text, "team":team});
+                        for peer in recipients {
+                            u.send_events(&peer, &message);
+                        }
+                    }
+                    WorldPeerEvent::EdgeAck { id, message } => {
+                        w.handle_edge_ack(&id, &message, now_ms);
+                    }
+                    WorldPeerEvent::Input { id, bytes } => {
+                        w.handle_input(&id, &bytes, now_ms);
+                    }
+                    WorldPeerEvent::Resync { id } => {
+                        w.handle_resync(&id, now_ms);
+                    }
+                }
+            }
+
+            w.links.clear();
+            for (id, peer) in &u.peers {
+                if let Some(&native_id) = w.native_by_client.get(id) {
+                    w.links.push(bfe_sim::gen::WirePublicationLink {
+                        id: native_id,
+                        discarded_actions: 0.,
+                        rtt: peer.session.rtt.or(peer.peer.last_rtt).unwrap_or(f64::NAN),
+                        has_kind: true,
+                        relay: peer.peer.path.kind == "relay",
+                        has_family: true,
+                        family_six: peer.peer.path.address.is_ipv6(),
+                    });
+                }
+            }
+            let unix_ms = UdpGameServer::unix_ms();
+            world_ticks_c.attempted.fetch_add(1, Ordering::Relaxed);
+            let publication = match w.step(now_ms, unix_ms) {
+                Ok(publication) => {
+                    world_tick_failed = false;
+                    publication
+                }
+                Err(error) => {
+                    if error == "native world refused authoritative tick" {
+                        world_ticks_c.refused.fetch_add(1, Ordering::Relaxed);
+                    } else {
+                        world_ticks_c.errors.fetch_add(1, Ordering::Relaxed);
+                    }
+                    if !world_tick_failed {
+                        eprintln!("authoritative world tick failed: {error}");
+                    }
+                    world_tick_failed = true;
+                    None
+                }
+            };
+            if let Some(pub_out) = publication {
+                for (id, reason) in faults.note(&pub_out.faults, unix_ms) {
+                    eprintln!("ending player {id}'s session: their updates failed for a second: {reason}");
+                    let now_ms = u.now_ms();
+                    u.close_peer(&id, close_code::APPLICATION as u16, &format!("your updates failed: {reason}"), now_ms);
+                    faults.forget(&id);
+                    w.remove_player(&id);
+                }
+                for ev in pub_out.events {
+                    match ev.message.get("type").and_then(serde_json::Value::as_str) {
+                        Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),
+                        _ => u.send_events(&ev.peer_id, &ev.message),
+                    };
+                }
+                for group in pub_out.shared {
+                    for cid in &group.clients {
+                        for part in &group.parts {
+                            if !u.send_state(cid, part, Some(group.captured_at_unix_ms), false) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                for own in pub_out.own_packets {
+                    u.send_state(&own.peer_id, &own.bytes, Some(own.captured_at_unix_ms), true);
+                }
+            }
+            w.send_notices(|peer, bytes| u.send_events_bytes(peer, bytes));
+            let final_table = w.ended && !final_board;
+            if !w.ended { final_board = false; }
+            if w.tick.is_multiple_of(60) || final_table {
+                if final_table { final_board = true; }
+                let peers = u.sit_out_peers();
+                if !peers.is_empty() {
+                    let tick = w.tick;
+                    if let Ok(table) = w.context.owned(|world| bfe_sim::world::lobby::table(world, tick)) {
+                        let query = info_c.read().unwrap().get("query").and_then(Value::as_str).unwrap_or("").to_string();
+                        board.update(crate::lobby::match_token(&query), table, lobby_pings(w, &u));
+                    }
+                }
+                board.send(&peers, |peer, bytes| u.send_events_bytes(peer, bytes));
+            }
+            u.flush();
+
+            tick_c.store(w.tick as u64, Ordering::Relaxed);
+            finished_c.store(w.ended, Ordering::Release);
+            let mut updated_info = build_info_json(
+                &server_id,
+                &server_name,
+                &content_for_tick,
+                &rotation,
+                u.peers.len(),
+                max_players,
+                &w.fingerprint,
+                &w.query,
+                actual_port,
+                &browser_c,
+            );
+            if let (Some(next), Some(fields)) = (u.pending_match_event(), updated_info.as_object_mut()) {
+                fields.insert("next".to_string(), json!({"query": next["query"], "delayMs": next["delayMs"]}));
+            }
+            *info_c.write().unwrap() = updated_info;
+        }
+    }
+}
+
+/// A fresh round or the exact round already announced to connected players.
+#[derive(Clone, Copy)]
+pub enum MatchStart<'a> {
+    New(Option<&'a str>),
+    Announced { family: bfe_family::GameFamily, token: &'a str, query: &'a str },
+}
+
+impl MatchStart<'_> {
+    fn query(self, family: bfe_family::GameFamily, first: &str, friendly_fire: bool) -> Result<String, String> {
+        let query = |token: &str| with_match_param(&crate::config::with_friendly_fire(first, friendly_fire), token);
+        match self {
+            Self::New(token) => {
+                let token = token.map(str::to_owned).unwrap_or_else(random_match_hex);
+                Ok(query(&token))
+            }
+            Self::Announced { family: previous, token, query: announced } => {
+                if previous != family || query(token) != announced {
+                    return Err("announced battle disagrees with the rotation".into());
+                }
+                Ok(announced.to_owned())
+            }
+        }
+    }
+}
+
 impl LocalDedicatedServer {
     /// Starts the local dedicated server (`export async function startLocalServer`).
     pub fn start<B, S>(
@@ -115,6 +719,33 @@ impl LocalDedicatedServer {
         S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
     {
         Self::start_with_match_token(config, identity, is_banned, on_score, None, None)
+    }
+
+    /// Starts a fresh round, or the round the service's `rotate` announced:
+    /// that one must be the game and the exact query the rotation now names,
+    /// or nothing starts.
+    pub fn start_match<B, S>(
+        config: &ServerConfig,
+        identity: &ServerIdentity,
+        is_banned: B,
+        on_score: S,
+        start: MatchStart<'_>,
+        port: Option<GamePort>,
+    ) -> Result<Self, String>
+    where
+        B: Fn(&str) -> bool + Send + Sync + 'static,
+        S: Fn(&str, &str, &str, i64, i64, i64) + Send + Sync + 'static,
+    {
+        let token = match start {
+            MatchStart::New(token) => token,
+            MatchStart::Announced { family, token, .. } => {
+                config.gate.require(family).map_err(|err| err.to_string())?;
+                let checked = check_content(&config.data, &config.rotation, &config.ai, config.gate)?;
+                start.query(checked.family, &checked.first_query, config.friendly_fire)?;
+                Some(token)
+            }
+        };
+        Self::start_with_match_token(config, identity, is_banned, on_score, token, port)
     }
 
     /// Admit the exact match previously announced by the service's `rotate`.
@@ -135,24 +766,44 @@ impl LocalDedicatedServer {
         // Validate outbound per-peer state budget (`checkStateBudget`).
         let state_bytes_per_second = check_state_budget(Some(config.state_bytes_per_second))?;
         // Verify prepared content manifest and map rotation (`checkContent`).
-        let checked = check_content(&config.data, &config.rotation, &config.ai)?;
+        let checked = check_content(&config.data, &config.rotation, &config.ai, config.gate)?;
+        match checked.family {
+            bfe_family::GameFamily::Swbf1 => {
+                Self::released_start_with_match_token(config, identity, is_banned, match_token, port, state_bytes_per_second, checked)
+            }
+            bfe_family::GameFamily::Swbf2 => {
+                Self::swbf2_start_with_match_token(config, identity, is_banned, match_token, port, state_bytes_per_second, checked)
+            }
+        }
+    }
+
+    fn released_start_with_match_token<B>(
+        config: &ServerConfig,
+        identity: &ServerIdentity,
+        is_banned: B,
+        match_token: Option<&str>,
+        port: Option<GamePort>,
+        state_bytes_per_second: usize,
+        checked: crate::config::CheckedContent,
+    ) -> Result<Self, String>
+    where
+        B: Fn(&str) -> bool + Send + Sync + 'static,
+    {
         let match_token = match_token
             .map(str::to_owned)
             .unwrap_or_else(random_match_hex);
         let active_query = with_match_param(&crate::config::with_friendly_fire(&checked.first_query, config.friendly_fire), &match_token);
 
         // info() includes the active battle, bot and team policy.
-        let browser = browser_info(config, &active_query, 0, &map_names(&config.data), 0);
+        let browser = browser_info(config, &active_query, 0, &map_names_for(&config.data, checked.family), 0);
 
         // Compute the 64-hex content fingerprint for the active map query (`fingerprint::hash`).
-        let files = bfe_content::files::DirFiles::new(&checked.root);
-        let fp = fingerprint::hash(&files, &active_query)?;
+        let fp = crate::config::battle_digest(&checked.root, checked.family, &active_query)?;
         let content_id = config.content.clone().unwrap_or_else(|| fp.clone());
         let max_players = config.max_players.unwrap_or(64);
         let max_per_addr = config.max_players_per_address.unwrap_or(8);
         let game_port = config.game_port.unwrap_or(18451);
 
-        // The game uses one port number for the authoritative `BFE-UDP/1` socket and the `/info` TCP listener.
         let bind_udp = |port: u16| {
             UdpGameServer::bind(
                 port,
@@ -166,22 +817,15 @@ impl LocalDedicatedServer {
             )
         };
         let (udp, info_listener) = if let Some(port) = port {
-            // The previous battle's port: the same sockets, set for this battle. Its announcement
-            // of this battle (pending_match) is cleared by the caller once the online
-            // registration names this battle.
             {
                 let mut u = port.udp.lock().unwrap();
                 u.content = content_id.clone();
                 u.fingerprint = fp.clone();
+                // A battle started on a handed-over port is the one its predecessor announced.
+                u.announced_running = u.pending_match.is_some();
             }
             (port.udp, port.info)
         } else if game_port == 0 {
-            // Any port: one number that is free for the UDP game socket and for the TCP /info listener.
-            // Windows reserves ranges of ports per protocol (for Hyper-V and others). The system hands
-            // out its own choices one after the other, so twenty TCP ports in a row can all lie in a
-            // range reserved for UDP, and the other way round. The number is therefore taken from each
-            // protocol in turn: a port that UDP chose is never reserved for UDP, one that TCP chose
-            // never for TCP.
             let mut attempt = 0;
             loop {
                 attempt += 1;
@@ -207,13 +851,12 @@ impl LocalDedicatedServer {
             let listener = bind_info_tcp(udp.port, config.bind.as_deref())?;
             (Arc::new(Mutex::new(udp)), listener)
         };
+        udp.lock().unwrap().set_match(None);
         let actual_port = udp.lock().unwrap().port;
-        // Kept so that `hand_over` can pass the listener on while this battle's thread stops.
         let info_keep = info_listener
             .try_clone()
             .map_err(|e| format!("/info listener: {e}"))?;
 
-        // Build the initial `/info` and LAN discovery snapshot (`const info = () => ({ ... })`).
         let initial_info = build_info_json(
             &identity.id,
             &config.name,
@@ -228,7 +871,6 @@ impl LocalDedicatedServer {
         );
         let info_snapshot = Arc::new(RwLock::new(initial_info));
 
-        // Start the `GET /info` HTTP listener on the same TCP port number (`actual_port`).
         let info_http_stop = Arc::new(AtomicBool::new(false));
         let info_http_thread = start_info_http_listener(
             info_listener,
@@ -236,7 +878,6 @@ impl LocalDedicatedServer {
             Arc::clone(&info_http_stop),
         );
 
-        // Start the `BFE-LAN/1` UDP broadcast/multicast responder on `discovery_port` (default `18452`).
         let lan = if config.discovery {
             let info_for_lan = Arc::clone(&info_snapshot);
             Some(LanDiscoveryResponder::start(
@@ -255,30 +896,30 @@ impl LocalDedicatedServer {
         let (world_tx, world_rx) = mpsc::channel::<WorldCommand>();
         let (init_tx, init_rx) = mpsc::sync_channel::<Result<bool, String>>(1);
 
-        let udp_c = Arc::clone(&udp);
-        let info_c = Arc::clone(&info_snapshot);
-        let tick_c = Arc::clone(&tick);
-        let finished_c = Arc::clone(&finished);
-        let world_ticks_c = Arc::clone(&world_ticks);
-        let stop_c = Arc::clone(&tick_stop);
-        let server_id = identity.id.clone();
-        let server_name = config.name.clone();
-        let content_for_tick = content_id.clone();
-        let rotation = checked.rotation.clone();
-        let auto_spawn = config.auto_spawn;
-        let auto_assign_teams = config.auto_assign_teams;
-        let browser_c = browser.clone();
-        let is_banned = Arc::new(is_banned);
         let root_for_tick = checked.root.clone();
         let query_for_tick = active_query.clone();
-
-        // Spawn the 60 Hz authoritative world thread.
-        // `NativeWorldHost` owns a non-`Send` `bfe_sim::abi::context::Context` on this thread and
-        // reports `host.world_admitted` over `init_tx` so `LocalDedicatedServer::start` sets `ready`
-        // (`multiplayerReady`) to `true` only when `Context::world_admit` succeeded.
+        let gate_for_tick = config.gate;
+        let state = WorldLoop {
+            udp_c: Arc::clone(&udp),
+            info_c: Arc::clone(&info_snapshot),
+            tick_c: Arc::clone(&tick),
+            finished_c: Arc::clone(&finished),
+            world_ticks_c: Arc::clone(&world_ticks),
+            stop_c: Arc::clone(&tick_stop),
+            world_rx,
+            server_id: identity.id.clone(),
+            server_name: config.name.clone(),
+            content_for_tick: content_id.clone(),
+            rotation: checked.rotation.clone(),
+            auto_spawn: config.auto_spawn,
+            auto_assign_teams: config.auto_assign_teams,
+            browser_c: browser.clone(),
+            is_banned: Arc::new(is_banned),
+            max_players,
+            actual_port,
+        };
         let tick_thread = thread::spawn(move || {
-            let mut w = match NativeWorldHost::load_from_content(&root_for_tick, &query_for_tick, 1)
-            {
+            let mut w = match NativeWorldHost::load_battle(&root_for_tick, bfe_family::GameFamily::Swbf1, &query_for_tick, 1, gate_for_tick) {
                 Ok(mut host) => {
                     host.set_state_budget(state_bytes_per_second as f64);
                     let _ = init_tx.send(Ok(host.world_admitted));
@@ -289,248 +930,212 @@ impl LocalDedicatedServer {
                     return;
                 }
             };
-
-            let mut next_tick = Instant::now();
-            let mut world_tick_failed = false;
-            let mut faults = FaultWatch::default();
-            while !stop_c.load(Ordering::Relaxed) {
-                while let Ok(cmd) = world_rx.try_recv() {
-                    match cmd {
-                        WorldCommand::RemovePlayer(id) => w.remove_player(&id),
-                        WorldCommand::PushPublication(pub_frame) => {
-                            w.recorded_publications.push(pub_frame);
-                        }
-                    }
-                }
-
-                let now = Instant::now();
-                if now < next_tick {
-                    thread::sleep((next_tick - now).min(Duration::from_millis(2)));
-                    continue;
-                }
-                next_tick += TICK_DURATION;
-                // Cap catch-up debt to 4 ticks (`count < 4` and `debt > 8 / 60`).
-                // Any excess backlog beyond `4 * TICK_DURATION` is dropped and recorded in `w.dropped_ticks`
-                // so `WireWorldFacts::DROPPED_TICKS` and `input-ack.dropped` reflect the late tick bound.
-                if now > next_tick + TICK_DURATION * 4 {
-                    let overdue_ns = (now - (next_tick + TICK_DURATION * 4)).as_nanos();
-                    let dropped = ((overdue_ns / TICK_DURATION.as_nanos()) as u32).max(1);
-                    w.dropped_ticks = w.dropped_ticks.saturating_add(dropped);
-                    next_tick = now + TICK_DURATION;
-                }
-
-                let events = {
-                    let mut u = udp_c.lock().unwrap();
-                    let banned_fn = Arc::clone(&is_banned);
-                    u.poll(|peer_id| banned_fn(peer_id))
-                };
-
-                {
-                    let mut u = udp_c.lock().unwrap();
-                    let now_ms = u.now_ms();
-                    w.last_now_ms = w.last_now_ms.max(now_ms);
-                    for ev in events {
-                        match ev {
-                            WorldPeerEvent::Joined { id, name, .. } => {
-                                // The battle is over and the next one is announced: the finished
-                                // world has no spawn for a newcomer, so send it on to the next battle.
-                                if let Some(next) = u.pending_match_event() {
-                                    u.send_events(&id, &next);
-                                    continue;
-                                }
-                                // Send `entity-registry` before `welcome` (`handle("join")`).
-                                let reg_msg = json!({
-                                    "type": "entity-registry",
-                                    "registry": w.registry_descriptor,
-                                });
-                                u.send_events(&id, &reg_msg);
-                                match w.add_player(
-                                    &id,
-                                    &name,
-                                    false,
-                                    auto_spawn,
-                                    !auto_assign_teams,
-                                ) {
-                                    Ok(player_welcome) => {
-                                        let cur_info = info_c.read().unwrap().clone();
-                                        let welcome_msg = build_welcome_message(
-                                            &cur_info,
-                                            &server_id,
-                                            &player_welcome,
-                                        );
-                                        u.send_events(&id, &welcome_msg);
-                                        // Joined during the end table: follow the announced battle.
-                                        if let Some(next) = u.pending_match_event() {
-                                            u.send_events(&id, &next);
-                                        }
-                                    }
-                                    Err(err) => {
-                                        // Refuse join with `gameplay-error` (`GameSession.refuse`).
-                                        u.send_events(
-                                            &id,
-                                            &json!({"type": "gameplay-error", "message": err}),
-                                        );
-                                        u.close_peer(
-                                            &id,
-                                            close_code::REJECTED as u16,
-                                            &format!("admission failed: {err}"),
-                                            now_ms,
-                                        );
-                                    }
-                                }
-                            }
-                            WorldPeerEvent::Left { id } => {
-                                faults.forget(&id);
-                                w.remove_player(&id);
-                            }
-                            WorldPeerEvent::Start { id, call_id, .. } => {
-                                w.handle_start(&id, now_ms);
-                                u.send_events(
-                                    &id,
-                                    &json!({
-                                        "type": "reply",
-                                        "id": call_id,
-                                        "ok": true,
-                                        "result": {"ok": true},
-                                    }),
-                                );
-                            }
-                            WorldPeerEvent::Chat { id, text, team } => {
-                                // routes only started players, and a
-                                // team line follows current teams after a side switch.
-                                if !u.peers.get(&id).is_some_and(|p| p.session.started) {
-                                    continue;
-                                }
-                                let Some(sender_team) = w.player_team(&id) else {
-                                    continue;
-                                };
-                                let sender = u.peers[&id].peer.name.clone();
-                                let recipients: Vec<_> = u
-                                    .peers
-                                    .iter()
-                                    .filter(|(peer, state)| {
-                                        state.session.started
-                                            && (!team || w.player_team(peer) == Some(sender_team))
-                                    })
-                                    .map(|(peer, _)| peer.clone())
-                                    .collect();
-                                let message = json!({"type":"chat", "sender":sender, "text":text, "team":team});
-                                for peer in recipients {
-                                    u.send_events(&peer, &message);
-                                }
-                            }
-                            WorldPeerEvent::EdgeAck { id, message } => {
-                                w.handle_edge_ack(&id, &message, now_ms);
-                            }
-                            WorldPeerEvent::Input { id, bytes } => {
-                                w.handle_input(&id, &bytes, now_ms);
-                            }
-                            WorldPeerEvent::Resync { id } => {
-                                w.handle_resync(&id, now_ms);
-                            }
-                        }
-                    }
-
-                    w.links.clear();
-                    for (id, peer) in &u.peers {
-                        if let Some(&native_id) = w.native_by_client.get(id) {
-                            w.links.push(bfe_sim::gen::WirePublicationLink {
-                                id: native_id,
-                                discarded_actions: 0.,
-                                rtt: peer.session.rtt.or(peer.peer.last_rtt).unwrap_or(f64::NAN),
-                                has_kind: true,
-                                relay: peer.peer.path.kind == "relay",
-                                has_family: true,
-                                family_six: peer.peer.path.address.is_ipv6(),
-                            });
-                        }
-                    }
-                    let unix_ms = UdpGameServer::unix_ms();
-                    world_ticks_c.attempted.fetch_add(1, Ordering::Relaxed);
-                    let publication = match w.step(now_ms, unix_ms) {
-                        Ok(publication) => {
-                            world_tick_failed = false;
-                            publication
-                        }
-                        Err(error) => {
-                            if error == "native world refused authoritative tick" {
-                                world_ticks_c.refused.fetch_add(1, Ordering::Relaxed);
-                            } else {
-                                world_ticks_c.errors.fetch_add(1, Ordering::Relaxed);
-                            }
-                            if !world_tick_failed {
-                                eprintln!("authoritative world tick failed: {error}");
-                            }
-                            world_tick_failed = true;
-                            None
-                        }
-                    };
-                    if let Some(pub_out) = publication {
-                        // A player whose updates have failed for a second is told why and
-                        // leaves; the battle goes on for everyone else.
-                        for (id, reason) in faults.note(&pub_out.faults, unix_ms) {
-                            eprintln!("ending player {id}'s session: their updates failed for a second: {reason}");
-                            let now_ms = u.now_ms();
-                            u.close_peer(&id, close_code::APPLICATION as u16, &format!("your updates failed: {reason}"), now_ms);
-                            faults.forget(&id);
-                            w.remove_player(&id);
-                        }
-                        for ev in pub_out.events {
-                            match ev.message.get("type").and_then(serde_json::Value::as_str) {
-                                Some("input-ack" | "entity-edge-results") => u.send_superseding(&ev.peer_id, &ev.message),
-                                _ => u.send_events(&ev.peer_id, &ev.message),
-                            };
-                        }
-                        // Shared baseline parts are sent before per-client own packets
-                        // (`sendSnapshot`).
-                        // A snapshot is only useful whole: once one of its parts cannot go to a
-                        // client, the rest of it is not sent to that client either. A player's own
-                        // datagram (its body, spawn answer, summaries) is never held back here.
-                        for group in pub_out.shared {
-                            for cid in &group.clients {
-                                for part in &group.parts {
-                                    if !u.send_state(cid, part, Some(group.captured_at_unix_ms), false) {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        for own in pub_out.own_packets {
-                            u.send_state(&own.peer_id, &own.bytes, Some(own.captured_at_unix_ms), true);
-                        }
-                    }
-                    u.flush();
-
-                    tick_c.store(w.tick as u64, Ordering::Relaxed);
-                    finished_c.store(w.ended, Ordering::Release);
-                    let mut updated_info = build_info_json(
-                        &server_id,
-                        &server_name,
-                        &content_for_tick,
-                        &rotation,
-                        u.peers.len(),
-                        max_players,
-                        &w.fingerprint,
-                        &w.query,
-                        actual_port,
-                        &browser_c,
-                    );
-                    // After a battle ends, a joiner learns which battle comes next, so it loads
-                    // that one instead of the finished one.
-                    if let (Some(next), Some(fields)) = (u.pending_match_event(), updated_info.as_object_mut()) {
-                        fields.insert("next".to_string(), json!({"query": next["query"], "delayMs": next["delayMs"]}));
-                    }
-                    *info_c.write().unwrap() = updated_info;
-                }
-            }
+            released_world_loop(&mut w, state);
         });
-
         let world_admitted = init_rx
             .recv()
             .map_err(|e| format!("world thread failed to initialize: {e}"))??;
         ready.store(world_admitted, Ordering::SeqCst);
 
         Ok(Self {
+            family: checked.family,
+            id: identity.id.clone(),
+            port: actual_port,
+            query: active_query,
+            content: content_id,
+            fingerprint: fp,
+            ready,
+            tick,
+            finished,
+            world_ticks,
+            info_snapshot,
+            udp,
+            world_tx,
+            info_http_stop,
+            info_http_thread: Some(info_http_thread),
+            info_keep: Some(info_keep),
+            lan,
+            tick_stop,
+            tick_thread: Some(tick_thread),
+        })
+    }
+
+    fn swbf2_start_with_match_token<B>(
+        config: &ServerConfig,
+        identity: &ServerIdentity,
+        is_banned: B,
+        match_token: Option<&str>,
+        port: Option<GamePort>,
+        state_bytes_per_second: usize,
+        checked: crate::config::CheckedContent,
+    ) -> Result<Self, String>
+    where
+        B: Fn(&str) -> bool + Send + Sync + 'static,
+    {
+        let match_token = match_token
+            .map(str::to_owned)
+            .unwrap_or_else(random_match_hex);
+        let active_query = with_match_param(&crate::config::with_friendly_fire(&checked.first_query, config.friendly_fire), &match_token);
+
+        // A 2005 battle starts only after its one verified admission: its world
+        // loads first and computes the battle's one content digest, and until
+        // it is admitted nothing is bound, signed, listed or welcomed. Its
+        // admission's refusal is this start's error.
+        let (init_tx, init_rx) = mpsc::sync_channel::<Result<(bool, String, bool), String>>(1);
+        let (go_tx, go_rx) = mpsc::channel::<WorldLoop>();
+        let root_for_tick = checked.root.clone();
+        let query_for_tick = active_query.clone();
+        let gate_for_tick = config.gate;
+        // A mission's callbacks re-enter the script interpreter, which a
+        // debug build gives up to 4 MiB of stack.
+        let tick_thread = thread::Builder::new()
+            .stack_size(4 << 20)
+            .spawn(move || {
+                let mut w = match NativeWorldHost::load_battle(&root_for_tick, bfe_family::GameFamily::Swbf2, &query_for_tick, 1, gate_for_tick) {
+                    Ok(mut host) => {
+                        host.set_state_budget(state_bytes_per_second as f64);
+                        let _ = init_tx.send(Ok((host.world_admitted, host.fingerprint.clone(), host.has_space())));
+                        host
+                    }
+                    Err(e) => {
+                        let _ = init_tx.send(Err(e));
+                        return;
+                    }
+                };
+                let Ok(state) = go_rx.recv() else {
+                    return;
+                };
+                swbf2_world_loop(&mut w, state);
+            })
+            .map_err(|e| format!("world thread failed to start: {e}"))?;
+        let (admitted, fp, has_space) = init_rx
+            .recv()
+            .map_err(|e| format!("world thread failed to initialize: {e}"))??;
+        if !admitted {
+            return Err("the Battlefront II battle's world was not admitted".into());
+        }
+
+        let browser = browser_info(config, &active_query, 0, &map_names_for(&config.data, checked.family), 0);
+        let content_id = config.content.clone().unwrap_or_else(|| fp.clone());
+        let max_players = config.max_players.unwrap_or(64);
+        let max_per_addr = config.max_players_per_address.unwrap_or(8);
+        let game_port = config.game_port.unwrap_or(18451);
+
+        let bind_udp = |port: u16| {
+            UdpGameServer::bind(
+                port,
+                config.bind.as_deref(),
+                identity.inner.clone(),
+                max_players,
+                max_per_addr,
+                state_bytes_per_second,
+                content_id.clone(),
+                fp.clone(),
+            )
+        };
+        let (udp, info_listener) = if let Some(port) = port {
+            {
+                let mut u = port.udp.lock().unwrap();
+                u.content = content_id.clone();
+                u.fingerprint = fp.clone();
+                // A battle started on a handed-over port is the one its predecessor announced.
+                u.announced_running = u.pending_match.is_some();
+            }
+            (port.udp, port.info)
+        } else if game_port == 0 {
+            let mut attempt = 0;
+            loop {
+                attempt += 1;
+                let pair = if attempt % 2 == 1 {
+                    let listener = bind_info_tcp(0, config.bind.as_deref())?;
+                    let port = listener
+                        .local_addr()
+                        .map_err(|e| format!("/info listener address: {e}"))?
+                        .port();
+                    bind_udp(port).map(|udp| (udp, listener))
+                } else {
+                    let udp = bind_udp(0)?;
+                    bind_info_tcp(udp.port, config.bind.as_deref()).map(|listener| (udp, listener))
+                };
+                match pair {
+                    Ok((udp, listener)) => break (Arc::new(Mutex::new(udp)), listener),
+                    Err(e) if attempt >= 20 => return Err(e),
+                    Err(_) => {}
+                }
+            }
+        } else {
+            let udp = bind_udp(game_port)?;
+            let listener = bind_info_tcp(udp.port, config.bind.as_deref())?;
+            (Arc::new(Mutex::new(udp)), listener)
+        };
+        // A 2005 battle names its game, mode, map, match and record table in the signed hello.
+        udp.lock().unwrap().set_match(match_descriptor_for(&checked, &match_token, has_space));
+        let actual_port = udp.lock().unwrap().port;
+        let info_keep = info_listener
+            .try_clone()
+            .map_err(|e| format!("/info listener: {e}"))?;
+
+        let initial_info = build_info_json(
+            &identity.id,
+            &config.name,
+            &content_id,
+            &checked.rotation,
+            0,
+            max_players,
+            &fp,
+            &active_query,
+            actual_port,
+            &browser,
+        );
+        let info_snapshot = Arc::new(RwLock::new(initial_info));
+
+        let info_http_stop = Arc::new(AtomicBool::new(false));
+        let info_http_thread = start_info_http_listener(
+            info_listener,
+            Arc::clone(&info_snapshot),
+            Arc::clone(&info_http_stop),
+        );
+
+        let lan = if config.discovery {
+            let info_for_lan = Arc::clone(&info_snapshot);
+            Some(LanDiscoveryResponder::start(
+                config.discovery_port,
+                move || info_for_lan.read().unwrap().clone(),
+            ))
+        } else {
+            None
+        };
+
+        let ready = Arc::new(AtomicBool::new(false));
+        let tick = Arc::new(AtomicU64::new(0));
+        let finished = Arc::new(AtomicBool::new(false));
+        let world_ticks = Arc::new(WorldTickCounters::default());
+        let tick_stop = Arc::new(AtomicBool::new(false));
+        let (world_tx, world_rx) = mpsc::channel::<WorldCommand>();
+
+        let _ = go_tx.send(WorldLoop {
+            udp_c: Arc::clone(&udp),
+            info_c: Arc::clone(&info_snapshot),
+            tick_c: Arc::clone(&tick),
+            finished_c: Arc::clone(&finished),
+            world_ticks_c: Arc::clone(&world_ticks),
+            stop_c: Arc::clone(&tick_stop),
+            world_rx,
+            server_id: identity.id.clone(),
+            server_name: config.name.clone(),
+            content_for_tick: content_id.clone(),
+            rotation: checked.rotation.clone(),
+            auto_spawn: config.auto_spawn,
+            auto_assign_teams: config.auto_assign_teams,
+            browser_c: browser.clone(),
+            is_banned: Arc::new(is_banned),
+            max_players,
+            actual_port,
+        });
+        ready.store(true, Ordering::SeqCst);
+
+        Ok(Self {
+            family: checked.family,
             id: identity.id.clone(),
             port: actual_port,
             query: active_query,
@@ -591,15 +1196,14 @@ impl LocalDedicatedServer {
     }
 
     /// Broadcasts a `match` rotation event to all connected players (`match(value)`).
+    /// A 2005 next battle is named by its query alone (`map=swbf2/...`): the client
+    /// decides what it joins from the server's fresh reply when the battle starts.
     pub fn match_rotate(&self, query: &str, delay_ms: u64) {
         let mut u = self.udp.lock().unwrap();
         let deadline = u.now_ms() + delay_ms as f64;
         u.pending_match = Some((query.to_string(), deadline));
-        u.broadcast_events(&json!({
-            "type": "match",
-            "query": query,
-            "delayMs": delay_ms,
-        }));
+        u.announced_running = false;
+        u.broadcast_events(&crate::udp_server::match_event(query, delay_ms));
         u.flush();
     }
 
@@ -728,6 +1332,27 @@ pub fn build_info_json(
     Value::Object(map)
 }
 
+/// The signed-hello descriptor of a battle: for a 2005 battle its mode,
+/// qualified map, this match's token and the record table this build writes;
+/// none for a 2004 battle.
+pub fn match_descriptor(checked: &crate::config::CheckedContent, token: &str) -> Option<bfe_sim::wire::revisions::Descriptor> {
+    match_descriptor_for(checked, token, false)
+}
+
+/// Same as [`match_descriptor`], selecting [`WRITES_SPACE`] when the admitted
+/// world carries a 2005 Space Assault battlefield.
+pub fn match_descriptor_for(
+    checked: &crate::config::CheckedContent,
+    token: &str,
+    has_space: bool,
+) -> Option<bfe_sim::wire::revisions::Descriptor> {
+    use bfe_sim::wire::revisions::{Descriptor, Table, WRITES, WRITES_SPACE};
+    if checked.family != bfe_family::GameFamily::Swbf2 { return None; }
+    let entry = bfe_family::swbf2::Entry::parse_complete(checked.rotation.first()?)?;
+    let writes = if has_space { WRITES_SPACE } else { WRITES };
+    Some(Descriptor { mode: entry.mode.clone(), map: entry.qualified_map(), token: token.to_string(), records: Table::of(writes) })
+}
+
 /// Spawns the non-blocking HTTP server serving `GET /info` on the TCP game port
 /// (`http.createServer` in `startLocalServer`).
 fn start_info_http_listener(
@@ -809,4 +1434,35 @@ fn handle_info_request(stream: &mut TcpStream, info: &Arc<RwLock<Value>>) -> std
         stream.write_all(b"HTTP/1.1 404 Not Found\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")?;
     }
     Ok(())
+}
+
+/// Each battle peer's measured round trip in milliseconds, by the roster slot
+/// of its character: the sit-out score table's ping column.
+fn lobby_pings(w: &crate::world_worker::NativeWorldHost, u: &UdpGameServer) -> Vec<(u16, u16)> {
+    let mut pings = Vec::with_capacity(w.native_by_client.len());
+    for (id, peer) in &u.peers {
+        let Some(player) = w.native_by_client.get(id).and_then(|native| w.player_by_native.get(native)) else { continue };
+        let Some(rtt) = peer.session.rtt.or(peer.peer.last_rtt).filter(|rtt| rtt.is_finite() && *rtt >= 0.) else { continue };
+        if let Ok(Some(slot)) = w.context.owned(|world| bfe_sim::world::lobby::player_slot(world, *player)) {
+            pings.push((slot, rtt.round().min(65_534.) as u16));
+        }
+    }
+    pings
+}
+
+#[cfg(test)]
+mod match_start_tests {
+    use super::MatchStart;
+    use bfe_family::GameFamily::{Swbf1, Swbf2};
+
+    #[test]
+    fn announced_rotation_reuses_the_game_and_exact_query() {
+        let first = "?map=co%75rt&side=imp&seed=2";
+        let raw = "?map=co%75rt&side=imp&seed=2&ff=0&match=abc";
+        let announced = || MatchStart::Announced { family: Swbf1, token: "abc", query: raw };
+        assert_eq!(announced().query(Swbf1, first, false).unwrap(), raw);
+        assert!(announced().query(Swbf1, "?map=court&side=imp&seed=2", false).is_err());
+        assert!(announced().query(Swbf1, first, true).is_err());
+        assert!(announced().query(Swbf2, first, false).is_err());
+    }
 }

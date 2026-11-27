@@ -357,6 +357,15 @@ pub fn event_payload(words: &[f64], strings: &Strings) -> std::result::Result<Ve
     let mut out = Vec::with_capacity(2048);
     event_payload_into(words, strings, &mut out)?; Ok(out)
 }
+pub fn event_payload_for_family(
+    family: bfe_family::GameFamily,
+    words: &[f64],
+    strings: &Strings,
+) -> std::result::Result<Vec<u8>, (Error, u32)> {
+    let mut out = Vec::with_capacity(2048);
+    event_payload_into_for_family(family, words, strings, &mut out)?;
+    Ok(out)
+}
 fn event_field(key: &[u16], value: &EventValue<'_>, strings: &Strings) -> Option<Error> {
     let error = if one_of(
         key,
@@ -431,12 +440,45 @@ fn event_field(key: &[u16], value: &EventValue<'_>, strings: &Strings) -> Option
     };
     error
 }
+fn event_field_swbf2(key: &[u16], value: &EventValue<'_>, strings: &Strings) -> Option<Error> {
+    if named(key, "forward") {
+        let valid = matches!(value, EventValue::Null)
+            || matches!(value, EventValue::Array(3, values) if {
+                let mut input = Tokens { words: values, at: 0, strings };
+                (0..3).all(|_| input.event_value().is_ok_and(|v| matches!(v, EventValue::Hole) || event_number(&v).is_some_and(f64::is_finite)))
+            });
+        if valid { None } else { Some(Error::EventVector) }
+    } else if named(key, "duration") {
+        if event_number(value).is_some_and(f64::is_finite) {
+            None
+        } else {
+            Some(Error::EventNumber)
+        }
+    } else if one_of(key, &["targetId", "targetGeneration"]) {
+        // A power event's target, by the same identity rule as its owner.
+        if event_number(value).is_some_and(|n| n.is_finite() && n >= 0. && n <= 4294967295. && n.fract() == 0.) {
+            None
+        } else {
+            Some(Error::EventIdentity)
+        }
+    } else {
+        event_field(key, value, strings)
+    }
+}
 /// presentationRecord parses the complete exchange before validating fields.
 /// Borrow names and vector tokens, then replay the small input for validation
 /// and JSON. This avoids one UTF-16 allocation per key plus entry/vector lists.
 /// The admitted output bank holds 2048 bytes: after each field the 900-byte
 /// protocol limit is checked, and a single valid field fits the spare bank.
 pub fn event_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>) -> std::result::Result<(), (Error, u32)> {
+    event_payload_into_for_family(bfe_family::GameFamily::Swbf1, words, strings, out)
+}
+pub fn event_payload_into_for_family(
+    family: bfe_family::GameFamily,
+    words: &[f64],
+    strings: &Strings,
+    out: &mut Vec<u8>,
+) -> std::result::Result<(), (Error, u32)> {
     out.clear();
     let mut input = Tokens { words, at: 0, strings };
     let raw_kind = input.event_value().map_err(|e| (e, 0))?;
@@ -455,7 +497,9 @@ pub fn event_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>) -
         if amount_at.is_none() && named(key, "amount") { amount_at = Some(index); }
     }
     if input.at != words.len() { return Err((Error::Shape, 0)); }
-    let valid_kind = matches!(&kind, EventValue::String(id) if text(strings, *id).is_ok_and(|s| one_of(s, &["weaponAction","endWeaponAction","shot","remoteShot","shieldHit","deathBlast","blowApart","remoteBlast","effect","lightning","vo","bounce","pickup","serve","towAttach","towRelease","squad"])));
+    let valid_kind = matches!(&kind, EventValue::String(id) if text(strings, *id).is_ok_and(|s| one_of(s, &["weaponAction","endWeaponAction","shot","remoteShot","shieldHit","deathBlast","blowApart","remoteBlast","effect","lightning","vo","bounce","pickup","serve","towAttach","towRelease","squad"])
+        // A Battlefront II power event (cast, hit, throw, block) is that game's alone.
+        || (family == bfe_family::GameFamily::Swbf2 && named(s, "power"))));
     if !valid_kind { return Err((Error::EventKind, 0)); }
     let clamped = EventValue::Number(jsrt::js_max(-50., amount));
     // Blow-apart replaces only the first amount entry. A missing amount is
@@ -467,7 +511,11 @@ pub fn event_payload_into(words: &[f64], strings: &Strings, out: &mut Vec<u8>) -
         let key = text(strings, id).map_err(|e| (e, 0))?;
         let parsed = input.event_value().map_err(|e| (e, 0))?;
         let value = if blow && amount_at == Some(index) { clamped } else { parsed };
-        if let Some(error) = event_field(key, &value, strings) { return Err((error, jsrt::to_uint32(id))); }
+        let field_err = match family {
+            bfe_family::GameFamily::Swbf1 => event_field(key, &value, strings),
+            bfe_family::GameFamily::Swbf2 => event_field_swbf2(key, &value, strings),
+        };
+        if let Some(error) = field_err { return Err((error, jsrt::to_uint32(id))); }
     }
     if blow && amount_at.is_none() && !event_number(&clamped).is_some_and(f64::is_finite) { return Err((Error::EventNumber, 0)); }
     out.push(b'{'); input.at = entries_at;
@@ -537,7 +585,7 @@ if owner.presentation.get(p as usize).is_none() {return 0;}
     let result = match op {
         0 => unit_payload_into(&p.input, &w.sim.strings, &mut p.output, &mut p.repair),
         1 => world_payload_into(&p.input, &w.sim.strings, &mut p.output),
-        2 => event_payload_into(&p.input, &w.sim.strings, &mut p.output).map_err(|(error, field)| {
+        2 => event_payload_into_for_family(w.movement.family(), &p.input, &w.sim.strings, &mut p.output).map_err(|(error, field)| {
             p.error_field = field;
             error
         }),
@@ -626,6 +674,67 @@ mod tests {
         assert_eq!(
             event_payload(&words, &strings),
             Err((Error::EventField, unknown_key.0))
+        );
+    }
+    #[test]
+    fn effect_event_accepts_forward_vector_and_duration_seconds() {
+        let mut strings = Strings::default();
+        let kind = strings.intern_str("effect").0 as f64;
+        let kind_key = strings.intern_str("kind").0 as f64;
+        let name_key = strings.intern_str("name").0 as f64;
+        let name_val = strings.intern_str("torch_jet").0 as f64;
+        let pos_key = strings.intern_str("position").0 as f64;
+        let fwd_key = strings.intern_str("forward").0 as f64;
+        let dur_key = strings.intern_str("duration").0 as f64;
+        let words = [
+            3., kind, 0., 5.,
+            kind_key, 3., kind,
+            name_key, 3., name_val,
+            pos_key, 4., 3., 1., 1., 1., 2., 1., 3.,
+            fwd_key, 4., 3., 1., 0., 1., 0., 1., 1.,
+            dur_key, 1., 0.35,
+        ];
+        assert_eq!(
+            event_payload(&words, &strings),
+            Err((Error::EventField, fwd_key as u32))
+        );
+        assert_eq!(
+            event_payload_for_family(bfe_family::GameFamily::Swbf2, &words, &strings).unwrap(),
+            br#"{"kind":"effect","name":"torch_jet","position":[1,2,3],"forward":[0,0,1],"duration":0.35}"#
+        );
+    }
+    #[test]
+    fn a_power_event_travels_in_the_2005_game_only() {
+        let mut strings = Strings::default();
+        let kind = strings.intern_str("power").0 as f64;
+        let mut key = |s: &str| strings.intern_str(s).0 as f64;
+        let (kind_key, action_key, weapon_key, owner_key, owner_gen_key, target_key, target_gen_key, pos_key) = (
+            key("kind"), key("action"), key("weaponId"), key("ownerId"), key("ownerGeneration"), key("targetId"),
+            key("targetGeneration"), key("position"),
+        );
+        let hit = strings.intern_str("hit").0 as f64;
+        let words = [
+            3., kind, 0., 8.,
+            kind_key, 3., kind,
+            action_key, 3., hit,
+            weapon_key, 1., 3_000_000_007.,
+            owner_key, 1., 12.,
+            owner_gen_key, 1., 4.,
+            target_key, 1., 31.,
+            target_gen_key, 1., 2.,
+            pos_key, 4., 3., 1., -5., 1., 0.5, 1., 7.25,
+        ];
+        assert_eq!(event_payload(&words, &strings), Err((Error::EventKind, 0)), "a 2004 battle refuses it");
+        assert_eq!(
+            event_payload_for_family(bfe_family::GameFamily::Swbf2, &words, &strings).unwrap(),
+            br#"{"kind":"power","action":"hit","weaponId":3000000007,"ownerId":12,"ownerGeneration":4,"targetId":31,"targetGeneration":2,"position":[-5,0.5,7.25]}"#
+        );
+        let mut bad = words;
+        bad[24] = 2.5;
+        assert_eq!(
+            event_payload_for_family(bfe_family::GameFamily::Swbf2, &bad, &strings),
+            Err((Error::EventIdentity, target_gen_key as u32)),
+            "a target is a whole identity"
         );
     }
     #[test]

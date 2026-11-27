@@ -66,3 +66,22 @@ impl super::host::OwnedItems for &ItemOwners {
         row_store!(rows).items.owned.get(key).map_or(0,Vec::len)
     }
 }
+
+pub struct Swbf2Items<'a>(pub &'a ItemOwners);
+impl super::host::OwnedItems for Swbf2Items<'_> {
+    const SWBF2: bool = true;
+    fn count(&self,rows:&mut Rows<'_,super::weapons::F3,super::arsenals::Live>,unit:Obj,weapon:(crate::store::DefId,u32))->usize {
+        if let Some(record)=self.0.observe(rows,unit) {record.emit(&mut rows.w.sim.events);}
+        let Some(Entity::Unit(reference))=rows.state.entities.get(unit) else {
+            // ItemOwner admits physical bodies, player and null. A SeatUnit
+            // has its own ownerKey; borrowing a rider's arsenal cannot make
+            // that rider's item lists belong to the proxy.
+            return 0;
+        };
+        let life=row_store!(rows).unit.get(reference).expect("current native dispenser body").generation;
+        let Some(key)=crate::units::f3::items_read(&rows.w.units).owned_key(reference.slot,life,weapon.0,weapon.1) else {
+            return 0;
+        };
+        row_store!(rows).items.owned.get(key).map_or(0,Vec::len)
+    }
+}

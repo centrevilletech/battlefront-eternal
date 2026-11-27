@@ -7,7 +7,7 @@ use crate::ai::{
 #[derive(Default)]
 pub struct Process {
     retained: Option<Retained>,
-    active: bool,
+    pub(super) active: bool,
 }
 #[derive(Default)]
 struct Retained {

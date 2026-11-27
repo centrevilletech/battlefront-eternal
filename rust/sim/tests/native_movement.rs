@@ -24,8 +24,10 @@ fn install(cx: &Context, y: f32) -> u32 {
         positions: positions.into(),
         indices: indices.clone().into(),
         polygons: vec![0, 1].into(),
+        masks: Vec::new().into(),
         terrain_positions: terrain.into(),
         terrain_indices: indices.into(),
+        has_terrain: true,
         kill_y: -200.,
     };
     let b = build(Positions::F32(&c.positions), &c.indices);

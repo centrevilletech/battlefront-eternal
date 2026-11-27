@@ -6,13 +6,18 @@
 
 use crate::fonts::{Fonts, TextDraw, FONT_MEDIUM};
 use crate::space::{anchor_matrix, interface_height, Matrix, Point, IH, IW};
+use bfe_family::GameFamily;
 pub use bfe_render::interface::{Batch, Draw, Font, QUADS};
 use std::collections::HashMap;
 
 /// Resolves a texture name in `common.json`'s `textures` list (`commonTextureUrl`).
 /// Matches case-insensitively because `common.lvl` scripts refer to textures with mixed case,
-/// and prefixes the resolved relative path with `/assets/swbf1/`.
-pub fn common_texture_url(common: &serde_json::Value, name: &str) -> Option<String> {
+/// and prefixes the resolved relative path with `/assets/<family>/`.
+pub fn common_texture_url(
+    common: &serde_json::Value,
+    family: GameFamily,
+    name: &str,
+) -> Option<String> {
     let target = name.to_lowercase();
     let list = common.get("textures")?.as_array()?;
     for entry in list {
@@ -21,7 +26,11 @@ pub fn common_texture_url(common: &serde_json::Value, name: &str) -> Option<Stri
         };
         if entry_name.to_lowercase() == target {
             if let Some(file) = entry.get("file").and_then(|v| v.as_str()) {
-                return Some(format!("/assets/swbf1/{}", file.trim_start_matches('/')));
+                return Some(format!(
+                    "/assets/{}/{}",
+                    family.as_str(),
+                    file.trim_start_matches('/')
+                ));
             }
         }
     }
@@ -197,5 +206,28 @@ impl InterfaceSurface {
             ((client_x - rect_left) / w) * IW,
             ((client_y - rect_top) / h) * self.surface.height,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::common_texture_url;
+    use bfe_family::GameFamily;
+
+    #[test]
+    fn common_texture_url_uses_family_prefix() {
+        let common = serde_json::json!({
+            "textures": [
+                { "name": "ButtonLeft", "file": "/common/buttonleft.png" }
+            ]
+        });
+        assert_eq!(
+            common_texture_url(&common, GameFamily::Swbf1, "buttonleft").as_deref(),
+            Some("/assets/swbf1/common/buttonleft.png")
+        );
+        assert_eq!(
+            common_texture_url(&common, GameFamily::Swbf2, "buttonleft").as_deref(),
+            Some("/assets/swbf2/common/buttonleft.png")
+        );
     }
 }

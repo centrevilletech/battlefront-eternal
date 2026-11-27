@@ -88,19 +88,31 @@ pub struct SignalTicket {
     pub expires: u64,
 }
 
-// JSON envelope returned by `GET /v1/servers` (`{ "servers": [...] }`).
+// JSON envelope returned by `GET /v1/servers` (`{ "servers": [...] }`). An entry this
+// client cannot read is left out: one bad entry never empties the whole list.
 #[derive(Debug, Deserialize)]
 struct ServersEnvelope {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "readable_servers")]
     servers: Vec<ServerEntry>,
 }
 
-// `GET /v1/servers/:id`: the listing, or `{ "server": { ... } }`.
+// Each listed server read on its own, as the whole list was read before.
+fn readable_servers<'de, D: serde::Deserializer<'de>>(entries: D) -> Result<Vec<ServerEntry>, D::Error> {
+    let entries = Vec::<Box<serde_json::value::RawValue>>::deserialize(entries)?;
+    Ok(entries.iter().filter_map(|entry| serde_json::from_str::<ServerEntry>(entry.get()).ok()).collect())
+}
+
+// `GET /v1/servers/:id`: `{ "server": { ... } }`, or the listing itself.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum SingleServerReply {
     Envelope { server: ServerEntry },
     Listing(ServerEntry),
+}
+
+#[derive(Deserialize)]
+struct SingleServerEnvelope {
+    server: ServerEntry,
 }
 
 // Error JSON body returned by the master on HTTP 4xx/5xx (`{ "error": "..." }`
@@ -267,11 +279,15 @@ impl MasterClient {
         let route = format!("/v1/servers/{server_id}");
         // The master answers with the listing itself; an envelope
         // `{ "server": ... }` is accepted too.
-        let env: SingleServerReply = self.request_master("GET", &route, None)?;
-        Ok(match env {
-            SingleServerReply::Envelope { server } => server,
-            SingleServerReply::Listing(server) => server,
-        })
+        let reply: Box<serde_json::value::RawValue> = self.request_master("GET", &route, None)?;
+        let shape = crate::declared::master_shape(reply.get().as_bytes());
+        let invalid = |_| "Master returned an invalid response".to_string();
+        let released: SingleServerReply = serde_json::from_slice(&shape).map_err(invalid)?;
+        match (shape, released) {
+            (std::borrow::Cow::Borrowed(_), SingleServerReply::Envelope { server } | SingleServerReply::Listing(server)) => Ok(server),
+            (_, SingleServerReply::Envelope { .. }) => serde_json::from_str::<SingleServerEnvelope>(reply.get()).map(|e| e.server).map_err(invalid),
+            (_, SingleServerReply::Listing(_)) => serde_json::from_str(reply.get()).map_err(invalid),
+        }
     }
 
     // Requests short-lived TURN relay credentials (`POST /v1/relay-credentials`),
@@ -422,6 +438,20 @@ mod tests {
     use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    // A listed server this client cannot read (a null map title, which a released 2005
+    // server could write) is left out; the others are listed, in order.
+    #[test]
+    fn an_unreadable_server_entry_leaves_the_rest_of_the_list() {
+        let list = r#"{"servers":[
+            {"id":"a","name":"First","battle":{"map":"nab2","mapName":"NABOO: THEED","mode":"conquest"}},
+            {"id":"b","name":"Unreadable","battle":{"family":"swbf2","map":"swbf2/tat2","mapName":null,"mode":"eli"}},
+            {"id":"c","name":"Third","battle":{"map":"kas2","mapName":"KASHYYYK: DOCKS","mode":"conquest"}}]}"#;
+        let read: ServersEnvelope = serde_json::from_str(list).expect("the list is read");
+        assert_eq!(read.servers.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["a", "c"]);
+        let empty: ServersEnvelope = serde_json::from_str("{}").unwrap();
+        assert!(empty.servers.is_empty());
+    }
 
     // Minimal HTTP/1.1 request reader for loopback mock master tests: reads
     // until `\r\n\r\n`, parses the request line and lowercase header map, and
@@ -671,6 +701,29 @@ mod tests {
             .join()
             .map_err(|_| "mock master thread panicked")??;
         Ok(())
+    }
+
+    #[test]
+    fn single_server_uses_the_released_shape_check() {
+        let cases = [
+            (r#"[{"id":"listed"}]"#, false),
+            (r#"{"id":"listed","extra":1e999}"#, false),
+            (r#"{"server":{"id":"listed","battle":{"family":1e999}}}"#, true),
+            (r#"{"id":"listed","battle":{"family":"swbf2"},"extra":1e999}"#, false),
+        ];
+        for (body, accepted) in cases {
+            let listener = TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let addr = listener.local_addr().unwrap();
+            let responder = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                read_http_request(&mut stream).unwrap();
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            });
+            let client = MasterClient::new(format!("http://{addr}"), PlayerIdentity::from_seed([7; 32]));
+            let result = client.server_info(&"ab".repeat(32));
+            responder.join().unwrap();
+            assert_eq!(result.map(|row| row.id), if accepted { Ok("listed".into()) } else { Err("Master returned an invalid response".into()) }, "{body}");
+        }
     }
 
     // Verifies that when the first `GET /v1/servers` connection drops before

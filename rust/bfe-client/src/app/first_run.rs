@@ -100,9 +100,15 @@ const OUTDATED_DETAIL: &str = "This content was prepared for a different version
 #[cfg(target_os = "macos")]
 const OUTDATED_DETAIL: &str = "This content was prepared for a different version. Choose the folder of your copy of Star Wars: Battlefront (2004) to update automatically, or import a current content export from your other computer.";
 pub const REPAIR: &str = "In Steam: the game's Properties > Installed Files > Verify integrity of game files. In GOG Galaxy: the game's settings > Manage installation > Verify / Repair.";
-/// Ports failureMessage: use the tool's saved receipt, including skipped tools.
-pub fn failure_message(target: &Path, snapshot: &PrepareSnapshot) -> String {
-    let state: Value = std::fs::read_to_string(target.join(".prepare.json"))
+/// Ports failureMessage: use the tool's saved receipt for `family`, including skipped tools.
+pub fn failure_message_for(
+    target: &Path,
+    family: bfe_family::GameFamily,
+    snapshot: &PrepareSnapshot,
+) -> String {
+    let state_path = bfe_content::layout::family_dir(target, family)
+        .join(bfe_content::layout::prepare_state_file(family));
+    let state: Value = std::fs::read_to_string(&state_path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or(Value::Null);
@@ -142,6 +148,11 @@ pub fn failure_message(target: &Path, snapshot: &PrepareSnapshot) -> String {
     lines.join("\n")
 }
 
+/// Ports failureMessage for 2004 (`swbf1`): reads `<target>/.prepare.json`.
+pub fn failure_message(target: &Path, snapshot: &PrepareSnapshot) -> String {
+    failure_message_for(target, bfe_family::GameFamily::Swbf1, snapshot)
+}
+
 #[derive(Clone, Copy)]
 pub enum Action {
     Choose,
@@ -174,6 +185,7 @@ pub struct Setup {
     /// Set when this screen reports the end of a content transfer: done, cancelled or failed.
     pub transfer: Option<TransferEnd>,
     pub outdated: bool,
+    found_battlefront_ii: bool,
     pub show_details: bool,
     pub logs: Vec<String>,
     pub enhanced_sound: bool,
@@ -194,12 +206,28 @@ impl Setup {
             stopped: false,
             transfer: None,
             outdated,
+            found_battlefront_ii: false,
             show_details: false,
             logs: Vec::new(),
             enhanced_sound: true,
             failed_snapshot: None,
             timings: Default::default(),
         }
+    }
+    pub fn missing_with_content<'a>(outdated: bool, mut roots: impl Iterator<Item = &'a Path>) -> Self {
+        use bfe_content::layout::{family_dir, is_swbf2_marked_dir, SWBF2_PREPARE_STATE_FILE};
+        let mut setup = Self::missing(outdated);
+        let family = bfe_family::GameFamily::Swbf2;
+        if !outdated && !family.is_available() {
+            setup.found_battlefront_ii = roots.any(|root| {
+                let dir = family_dir(root, family);
+                std::fs::symlink_metadata(dir.join(SWBF2_PREPARE_STATE_FILE)).is_ok_and(|m| m.is_file())
+                    && is_swbf2_marked_dir(&dir)
+                    && bfe_desktop::prepare::read_prepare_state_for(Some(root), family)
+                        .is_some_and(|s| s.version.is_some() && s.complete.is_some())
+            });
+        }
+        setup
     }
     pub fn confirm(copies: Vec<GameInstall>, store: &AppSettingsStore) -> Self {
         let mut model = Self::missing(false);
@@ -216,6 +244,7 @@ impl Setup {
         if let Some(dir) = game {
             model.copies.push(GameInstall {
                 dir,
+                family: bfe_family::GameFamily::Swbf1,
                 source: "chosen".into(),
                 how: "the folder you chose".into(),
                 chosen: true,
@@ -450,7 +479,13 @@ impl Setup {
                 "STAR WARS BATTLEFRONT NOT FOUND"
             }
             .into();
-            v.detail=if self.outdated{OUTDATED_DETAIL}else{MISSING_DETAIL}.into();
+            v.detail = if self.found_battlefront_ii {
+                format!("Battlefront II (2005) content was found. It is not available in this build.\n{MISSING_DETAIL}")
+            } else if self.outdated {
+                OUTDATED_DETAIL.into()
+            } else {
+                MISSING_DETAIL.into()
+            };
             return v;
         };
         v.listing = true;
@@ -654,6 +689,7 @@ pub fn options(
 ) -> PrepareSpawnOptions {
     let resources = application_resources();
     PrepareSpawnOptions {
+        family: bfe_family::GameFamily::Swbf1,
         toolchain: toolchain_paths(&ToolchainOptions {
             packaged: resources.is_some(),
             resources_path: resources,
@@ -1111,6 +1147,7 @@ mod tests {
     fn copy(dir: &str) -> GameInstall {
         GameInstall {
             dir: dir.into(),
+            family: bfe_family::GameFamily::Swbf1,
             source: "steam".into(),
             how: "in your Steam library".into(),
             chosen: false,
@@ -1137,6 +1174,26 @@ mod tests {
         install.source = "folder".into();
         install.how = "a folder next to the game".into();
         assert_eq!(found_in(&install), "A folder next to the game");
+    }
+
+    #[test]
+    fn missing_game_mentions_only_a_recorded_battlefront_ii_copy() {
+        use bfe_content::layout::{family_dir, SWBF2_MARKER_FILE, SWBF2_PREPARE_STATE_FILE};
+        let root = std::env::temp_dir().join(format!("bfe-missing-game-{}", std::process::id()));
+        let dir = family_dir(&root, bfe_family::GameFamily::Swbf2);
+        std::fs::create_dir_all(&dir).unwrap();
+        let view = |outdated| Setup::missing_with_content(outdated, std::iter::once(root.as_path())).view();
+        std::fs::write(dir.join(SWBF2_MARKER_FILE), br#"{"family":"swbf2","format":1}"#).unwrap();
+        assert_eq!(view(false).detail, MISSING_DETAIL);
+        let receipt = dir.join(SWBF2_PREPARE_STATE_FILE);
+        std::fs::write(&receipt, br#"{"family":"swbf1","version":2,"complete":true}"#).unwrap();
+        assert_eq!(view(false).detail, MISSING_DETAIL);
+        std::fs::write(&receipt, br#"{"family":"swbf2","swbf2Version":8,"version":2,"complete":true}"#).unwrap();
+        let found = view(false);
+        assert_eq!(found.detail, format!("Battlefront II (2005) content was found. It is not available in this build.\n{MISSING_DETAIL}"));
+        assert_eq!(found.title, Setup::missing(false).view().title);
+        assert_eq!(view(true).detail, OUTDATED_DETAIL);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     fn notice(failed: bool, operation: TransferKind, content: Option<&str>) -> Setup {
@@ -1209,5 +1266,35 @@ mod tests {
         let focus = setup.focus.unwrap();
         assert!(matches!(setup.actions()[focus].1, Action::Import));
         assert_eq!(setup.cursor, focus);
+    }
+
+    #[test]
+    fn failure_message_reads_prepare_receipt_through_family_dir() {
+        let root = std::env::temp_dir().join(format!(
+            "bfe-first-run-failmsg-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let bf2_dir = bfe_content::layout::family_dir(&root, bfe_family::GameFamily::Swbf2);
+        std::fs::create_dir_all(&bf2_dir).unwrap();
+
+        std::fs::write(
+            root.join(".prepare.json"),
+            r#"{"failures":[{"key":"map:qq7","label":"Made-up map","reason":"bad lvl"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            bf2_dir.join(bfe_content::layout::SWBF2_PREPARE_STATE_FILE),
+            r#"{"skipped":["textures"]}"#,
+        )
+        .unwrap();
+
+        let snap = bfe_desktop::prepare::create_snapshot();
+        let msg1 = failure_message(&root, &snap);
+        assert!(msg1.contains("Made-up map (map:qq7): bad lvl"), "{msg1}");
+        let msg2 = failure_message_for(&root, bfe_family::GameFamily::Swbf2, &snap);
+        assert!(msg2.contains("missing (textures)"), "{msg2}");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

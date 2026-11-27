@@ -20,6 +20,37 @@ impl DroidDef {
             "TrackCenter",
             vector(def, "EyePointOffset", [0.0, 0.5, 0.0]),
         );
+        let guided = (def.get("GuidedMissile").num() > 0.0).then(|| {
+            let min_speed = max(def.get("MinSpeed").nn(0.0), 0.0);
+            let max_speed = max(def.get("MaxSpeed").nn(min_speed), min_speed);
+            let boost_speed = max(def.get("BoostSpeed").nn(max_speed), max_speed);
+            let accel = max(def.get("Acceleraton").nn(0.0), 0.0);
+            let boost_accel = max(def.get("BoostAcceleration").nn(accel), 0.0);
+            let direct_damage = max(def.get("GuidedMissileDamage").nn(0.0), 0.0);
+            let boost_damage = max(def.get("GuidedMissileDamageBoost").nn(direct_damage), direct_damage);
+            let boost_threshold = clamp(
+                def.get("GuidedMissileBoostExplosionSpeedThreshold")
+                    .nn(crate::space::flight::PROVISIONAL_WEAPON_DEFAULTS.guided_boost_threshold),
+                0.0,
+                1.0,
+            );
+            GuidedMissileDef {
+                min_speed,
+                max_speed,
+                boost_speed,
+                accel,
+                boost_accel,
+                energy_bar: max(def.get("EnergyBar").nn(0.0), 0.0),
+                energy_restore: def.get("EnergyAutoRestore").nn(0.0),
+                boost_drain: max(def.get("EnergyBoostDrain").nn(0.0), 0.0),
+                pitch_rate: max(def.get("PitchRate").nn(0.0), 0.0),
+                turn_rate: max(def.get("TurnRate").nn(0.0), 0.0),
+                direct_damage,
+                boost_damage,
+                boost_threshold,
+                explosion_critical: None,
+            }
+        });
         Self {
             health: def.get("MaxHealth").nn(40.0),
             add_health: def.get("AddHealth").nn(0.0),
@@ -55,6 +86,7 @@ impl DroidDef {
             first_fov: def.get("FirstPersonFOV").nn(48.0) * (std::f64::consts::PI / 180.0),
             explosion,
             loadout,
+            guided,
         }
     }
 }

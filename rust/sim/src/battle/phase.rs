@@ -9,7 +9,7 @@ use super::mobile::{self, MobileEvent};
 use super::objectives::{kill_region_built, KillRegionHost};
 use super::regions::build_region;
 use super::posts::{self, Capturer, Change};
-use super::rules::{self, RulesWorld};
+use super::rules::{self, events::Event, RuleSet, RulesWorld};
 use super::stats::ContextText;
 use super::spawning::{self, ContextDraws};
 use super::world::{BattleWorld, Member, SpawningWorld, Victim};
@@ -84,25 +84,20 @@ impl Scratch {
 /// `gameplay`: the gameplay stream (a kill region's draws).
 #[allow(clippy::too_many_arguments)]
 pub fn update_battle<W: PhaseWorld + ?Sized>(
-    dt: f64,
-    s: &mut Store,
-    strings: &dyn ContextText<W>,
-    ai: bool,
-    stats_active: impl Fn(Ref<Character>, &Character) -> bool,
-    world: &mut W,
-    random: &mut dyn ContextDraws<W>,
-    gameplay: &mut dyn ContextDraws<W>,
+    dt: f64, s: &mut Store, strings: &dyn ContextText<W>, ai: bool,
+    stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W,
+    random: &mut dyn ContextDraws<W>, gameplay: &mut dyn ContextDraws<W>, rules: &mut RuleSet,
 ) {
-    update_battle_with_scratch(dt, s, strings, ai, stats_active, world, random, gameplay, &mut Scratch::default());
+    update_battle_with_scratch(dt, s, strings, ai, stats_active, world, random, gameplay, &mut Scratch::default(), rules);
 }
 
-/// The owned battle-tail span. All observations and selected events retain
-/// their source order while callbacks can change the next observation.
+/// Run the admitted rules in the battle phase with caller-owned work buffers.
 #[allow(clippy::too_many_arguments)]
 pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
     dt: f64, s: &mut Store, strings: &dyn ContextText<W>, ai: bool,
     stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W,
     random: &mut dyn ContextDraws<W>, gameplay: &mut dyn ContextDraws<W>, scratch: &mut Scratch,
+    rules: &mut RuleSet,
 ) {
     // Who counts toward a post: living soldiers on foot whose class captures;
     // never anyone seated, held, or the player in a hull or at a gun.
@@ -119,6 +114,14 @@ pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
         let post = event.post;
         // The native award pass revisits the capture region's first 64
         // objects, crediting the living Characters among them.
+        if let Some(queue) = world.rule_events() {
+            let change = match change_of(event) {
+                Change::Captured { by } => Event::PostCaptured { post, team: by },
+                Change::Neutralized { from } => Event::PostNeutralized { post, from },
+                Change::Destroyed { from } => Event::PostLost { post, from },
+            };
+            queue.push(change);
+        }
         if event.kind == PostChange::Captured {
             world.award_capture(s, post);
         }
@@ -133,6 +136,12 @@ pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
     mobile::events_into(s, world, &mut scratch.mobile);
     for i in 0..scratch.mobile.len() {
         let event = scratch.mobile[i];
+        if let Some(queue) = world.rule_events() {
+            queue.push(match event {
+                MobileEvent::Lost { post, from, .. } => Event::MobilePostLost { post, from },
+                MobileEvent::Owner { post, from, to } => Event::MobilePostOwner { post, from, to },
+            });
+        }
         if let MobileEvent::Lost { vehicle, from, .. } = event {
             let destroyer = vehicle.and_then(|v| world.vehicle_attacker(s, v));
             if let Some(d) = destroyer {
@@ -144,11 +153,13 @@ pub fn update_battle_with_scratch<W: PhaseWorld + ?Sized>(
         world.mobile_event(s, &event);
     }
     if ai {
-        spawning::clock(s, dt, world);
+        if let Some(waves) = rules.mission_waves() { if dt > 0.0 { waves.advance(s); } }
+        else { spawning::clock(s, dt, world); }
     }
-    rules::update(s, dt, strings, &stats_active, world);
+    rules.tick(s, dt, strings, &stats_active, world);
     if ai {
-        spawning::update_characters_with_scratch(s, dt, strings, world, random, &mut scratch.spawning);
+        if let Some(waves) = rules.mission_waves() { if dt > 0.0 { waves.update(s, strings, world, random, &mut scratch.spawning); } }
+        else { spawning::update_characters_with_scratch(s, dt, strings, world, random, &mut scratch.spawning); }
     }
 }
 

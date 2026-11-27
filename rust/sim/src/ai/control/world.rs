@@ -958,6 +958,9 @@ pub trait AiWorld: Characters {
     fn nav_planner_idle(&mut self) -> bool;
     fn nav_service(&mut self, budget: f64);
     fn nav_point_clear(&mut self, point: Vec3, radius: f64, mask: f64) -> bool;
+    fn nav_route_distance(&mut self, _from: Vec3, _to: Vec3, _radius: f64, _mask: u32) -> crate::ai::nav::route::RouteQuery {
+        crate::ai::nav::route::RouteQuery::UNKNOWN
+    }
     fn nav_clip_segment(&mut self, from: Vec3, to: Vec3, radius: f64, mask: f64) -> (bool, Vec3);
     fn nav_in_danger_region(&mut self, point: Vec3, pad: f64) -> bool;
     fn nav_query_hints(&mut self, mask: f64, center: Vec3, half_extent: f64, cap: f64, requester: Option<UKey>) -> List<usize>;

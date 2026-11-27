@@ -34,6 +34,36 @@ impl Layers {
         let handle = handle & !GROUP_TAG; let id = handle as usize % GROUPS;
         (self.groups[id].serial == handle / GROUPS as u64).then_some(id)
     }
+    pub fn active_non_param_count(&self) -> usize {
+        self.groups.iter().filter(|g| g.active && !g.parameterized).count()
+    }
+    pub fn active_param_count(&self) -> usize {
+        self.groups.iter().filter(|g| g.active && g.parameterized).count()
+    }
+    pub fn has_group_room(&self, parameterized: bool, max_non_param: usize) -> bool {
+        if !parameterized && self.active_non_param_count() >= max_non_param {
+            return false;
+        }
+        self.groups.iter().any(|g| !g.active)
+    }
+    /// Bounded 2005 start: never panics when group capacity is exhausted and
+    /// caps non-parameterized layered groups so explosions cannot starve engines.
+    pub fn try_start(&mut self, engine: &mut Engine, options: Ask, parameterized: bool, max_non_param: usize) -> Option<u64> {
+        let Some(definition) = self.definitions.get(options.sound) else { return Some(SILENT); };
+        if !parameterized && self.active_non_param_count() >= max_non_param {
+            return None;
+        }
+        let id = self.groups.iter().position(|g| !g.active)?;
+        let count = definition.layers.len().min(LAYERS);
+        let mut group = Group { serial: engine.next_serial(), active: true, parameterized, definition: options.sound, options, count, ..Group::default() };
+        if !parameterized {
+            for (i, layer) in definition.layers.iter().take(count).enumerate() {
+                group.waits[i] = (layer.delay + layer.deviation * (2.0 * engine.random.next() - 1.0)).max(0.0);
+            }
+        }
+        self.groups[id] = group;
+        Some(GROUP_TAG | (group.serial * GROUPS as u64 + id as u64))
+    }
     /// ports AudioEngine.playLayered. Even a zero-deviation delay consumes
     /// its random draw, preserving subsequent sample and gain selections.
     pub fn start(&mut self, engine: &mut Engine, options: Ask, parameterized: bool) -> u64 {

@@ -66,6 +66,24 @@ fn view_rotation(view: &crate::scene::View) -> Quaternion {
     rotation.normalize();
     rotation
 }
+fn zoom_first_person_released(weapon: &bfe_content::Value) -> bool {
+    weapon.get("ZoomFirstPerson").is_some_and(|value| value.truthy())
+}
+
+fn zoom_first_person_swbf2(weapon: &bfe_content::Value) -> bool {
+    match weapon.get("ZoomFirstPerson") {
+        Some(bfe_content::Value::Bool(b)) => *b,
+        other => bfe_content::odf::num(other, 0.) != 0.,
+    }
+}
+
+fn zoom_first_person_for_family(family: bfe_family::GameFamily, weapon: &bfe_content::Value) -> bool {
+    match family {
+        bfe_family::GameFamily::Swbf1 => zoom_first_person_released(weapon),
+        bfe_family::GameFamily::Swbf2 => zoom_first_person_swbf2(weapon),
+    }
+}
+
 impl Cameras {
     pub fn new(content: &bfe_content_native::BattleContent, collision: Collision, world: u32) -> Result<Self, String> {
         let defs = content.defs()?;
@@ -111,7 +129,12 @@ impl Cameras {
             cameras.definitions.push(cam_def);
             remote_defs[i + 1] = Some((idx, eye, zoom_min));
         }
-        let zoom_eyes = defs.weapons.iter().map(|weapon| weapon.record.get("ZoomFirstPerson").is_some_and(|value| value.truthy())).collect();
+        let family = content.content.battle.family;
+        let zoom_eyes = defs
+            .weapons
+            .iter()
+            .map(|weapon| zoom_first_person_for_family(family, &weapon.record))
+            .collect();
         let weapon_channels = defs
             .weapons
             .iter()
@@ -162,7 +185,7 @@ impl Cameras {
         if drawn.held_camera.is_some() {
             camera.first_person = false;
         }
-        camera.set_flight_mode(receiver.in_aircraft());
+        camera.set_flight_mode(receiver.uses_flight_controls());
         // PlayerCombat.usesEyeView also selects eyes for an authored scoped
         // weapon; zooming must not change the player's saved perspective.
         let scoped_eye = receiver.own.zoom > 1.
@@ -391,6 +414,7 @@ impl Cameras {
             eprintln!("camera subject: mount={lease:?} kind={} ignored={ignored}", receiver.own.mount_kind);
         }
         self.ignored = ignored;
+        self.owner.set_near_clearance(receiver.control_family == bfe_family::GameFamily::Swbf2);
         let mut queries = Queries { collision: self.collision.clone(), world: self.world, ignored };
         self.owner.frame::<V8, _>(&mut queries);
         if self.owner.output[o::STATUS] == 0. {
@@ -404,6 +428,29 @@ impl Cameras {
         }
         if self.owner.output[o::STATUS] == 0. { self.owner.output[o::CUE] } else { 0. }
     }
+    /// The 2005 chase solver stops the near plane at an obstruction and keeps
+    /// the eye at least the near distance from TrackCenter. Hide the local
+    /// third-person silhouette only when the soldier's torso target point is
+    /// nearer the eye than the near plane (`depth < near`), the 2005 game's
+    /// cutoff for drawing the soldier.
+    pub fn hides_infantry(
+        &self, receiver: &Receiver, camera: &crate::scene::MapCamera, scale: f64,
+    ) -> bool {
+        if self.eye_view {
+            return true;
+        }
+        if !receiver.own.alive || receiver.own.mount.is_some() || receiver.own.remote.is_some() {
+            return false;
+        }
+        let input = &self.owner.input;
+        let feet = Vector3::new(input[f::FEET], input[f::FEET + 1], input[f::FEET + 2]);
+        let snapshot = camera.snapshot();
+        obstructs_body(
+            feet, input[f::POSTURE] as u8, scale,
+            camera.position, &snapshot.values[..16], &snapshot.values[16..32],
+        )
+    }
+
     // PlayerCombat.updateHud projects a mounted direction from the displayed
     // camera. Ground seats project both axes; a flying pilot keeps x centered.
     pub fn mounted_aim(&mut self, camera: &crate::scene::MapCamera) -> Option<super::hud::Aim> {
@@ -489,6 +536,23 @@ impl Cameras {
     }
 }
 
+fn obstructs_body(
+    feet: Vector3, posture: u8, scale: f64, eye: [f64; 3], projection: &[f64], view: &[f64],
+) -> bool {
+    let target_y = match posture {
+        2 => 0.2,
+        1 => 0.6,
+        _ => 1.4,
+    } * scale.max(0.1);
+    let dx = feet.x - eye[0];
+    let dy = (feet.y + target_y) - eye[1];
+    let dz = feet.z - eye[2];
+    // Row 2 of the column-major view matrix is camera +Z (back); negate for forward depth.
+    let depth = -(dx * view[2] + dy * view[6] + dz * view[10]);
+    let near = projection[14] / (projection[10] - 1.);
+    depth < near
+}
+
 // RemoteDroids.enter builds a SoldierCamera from the droid's STAND parameters.
 fn remote_definition(def: &bfe_content::Value) -> (bfe_presentation::cameras::soldier::Def, [f64; 3], f64) {
     use bfe_content::Value;
@@ -537,6 +601,63 @@ fn rolled_share(mode: u8, time: f64) -> f64 {
 mod mounted_tests {
     use super::*;
     use bfe_content::install::CollisionKernel;
+
+    fn view_looking_at(eye: [f64; 3], target: [f64; 3]) -> [f64; 16] {
+        let mut back = Vector3::new(eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]);
+        let len = back.length();
+        if len > 1e-9 {
+            back.multiply_scalar(1. / len);
+        } else {
+            back = Vector3::new(0., 0., 1.);
+        }
+        let mut view = [0.; 16];
+        view[2] = back.x;
+        view[6] = back.y;
+        view[10] = back.z;
+        view[15] = 1.;
+        view
+    }
+
+    #[test]
+    fn chase_hides_the_subject_when_the_near_plane_reaches_its_body() {
+        let mut projection = [0.; 16];
+        projection[0] = 1.;
+        projection[5] = 1.8;
+        projection[10] = -1.;
+        projection[14] = -0.6;
+        let mut forward_neg_z = [0.; 16];
+        forward_neg_z[0] = 1.;
+        forward_neg_z[5] = 1.;
+        forward_neg_z[10] = 1.;
+        forward_neg_z[15] = 1.;
+        // Eye 0.20 m behind torso along -Z (depth 0.20 m < near 0.30 m): hidden.
+        assert!(obstructs_body(Vector3::default(), 0, 1., [0.3, 1.8, 0.2], &projection, &forward_neg_z));
+        // Normal chase and overhead views looking at the soldier stay visible.
+        assert!(!obstructs_body(Vector3::default(), 0, 1., [0., 2.9, 5.], &projection, &view_looking_at([0., 2.9, 5.], [0., 1.7, 0.])));
+        assert!(!obstructs_body(Vector3::default(), 0, 1., [0., 5., 0.], &projection, &view_looking_at([0., 5., 0.], [0., 1.4, 0.])));
+    }
+
+    #[test]
+    fn chase_keeps_soldier_visible_when_wall_pulls_camera_within_one_metre() {
+        let mut projection = [0.; 16];
+        projection[0] = 1.;
+        projection[5] = 1.8;
+        projection[10] = -1.;
+        projection[14] = -0.6;
+        let blocked = |posture, eye: [f64; 3], aim_y: f64| {
+            let view = view_looking_at(eye, [0., aim_y, 0.]);
+            obstructs_body(Vector3::default(), posture, 1., eye, &projection, &view)
+        };
+        // Wall pullback distances (0.35 m..1.40 m behind standing torso) stay above the 0.30 m near plane.
+        assert!(!blocked(0, [0., 1.73, 0.28], 1.70), "soldier should stay visible when backed flush against wall");
+        assert!(!blocked(0, [0., 1.85, 0.65], 1.70), "soldier should stay visible at 0.65 m wall pullback");
+        assert!(!blocked(0, [0., 1.90, 1.00], 1.70), "soldier should stay visible at 1.0 m wall pullback");
+        assert!(!blocked(0, [0., 2.00, 1.40], 1.70), "soldier should stay visible at 1.4 m wall pullback");
+        // Crouch (0.6 m) and prone (0.2 m) targets stay visible at 0.65 m and hide when depth < 0.30 m.
+        assert!(!blocked(1, [0., 1.15, 0.65], 1.10));
+        assert!(!blocked(2, [0., 0.55, 0.65], 0.50));
+        assert!(blocked(0, [0., 1.40, 0.20], 1.40));
+    }
 
     // A finite wall catches convergence from an obstructed camera without
     // retail content or a GL context. It faces the turret's +Z sight line.
@@ -662,5 +783,21 @@ mod mounted_tests {
         expected.normalize();
         assert!(actual.distance_to(&expected) < 1e-10);
         assert!(!aim.project_x);
+    }
+
+    #[test]
+    fn zoom_first_person_keeps_released_truthy_for_2004_and_parses_strings_for_2005() {
+        let parse = |text: &str| bfe_content::json::parse(text).unwrap();
+        let flag_true = parse(r#"{"ZoomFirstPerson":true}"#);
+        let str_zero = parse(r#"{"ZoomFirstPerson":"0"}"#);
+        let str_one = parse(r#"{"ZoomFirstPerson":"1"}"#);
+        assert!(zoom_first_person_for_family(bfe_family::GameFamily::Swbf1, &flag_true));
+        // Released 2004 truthy() treats any non-empty string as truthy.
+        assert!(zoom_first_person_for_family(bfe_family::GameFamily::Swbf1, &str_zero));
+        assert!(zoom_first_person_for_family(bfe_family::GameFamily::Swbf1, &str_one));
+        // 2005 parses numeric strings and booleans accurately.
+        assert!(zoom_first_person_for_family(bfe_family::GameFamily::Swbf2, &flag_true));
+        assert!(!zoom_first_person_for_family(bfe_family::GameFamily::Swbf2, &str_zero));
+        assert!(zoom_first_person_for_family(bfe_family::GameFamily::Swbf2, &str_one));
     }
 }

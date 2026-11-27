@@ -23,6 +23,7 @@ import struct
 
 from ucfb import child, nodes, node_name
 from zero_hash import crc
+from zero_paths import write_text_lf  # noqa: E402
 
 FPS = 30
 ROOT_MOTION = 1
@@ -294,6 +295,6 @@ def write_anims(data, skeleton, out_dir, banks=BANKS, names=None, file="anims"):
     meta = {"fps": FPS, "bones": skeleton, "clips": clips}
     if file == "anims":
         meta["sets"] = clip_sets(set(clips))
-    (out_dir / f"{file}.json").write_text(json.dumps(meta))
+    write_text_lf(out_dir / f"{file}.json", json.dumps(meta))
     (out_dir / f"{file}.bin").write_bytes(floats.tobytes())
     return clips

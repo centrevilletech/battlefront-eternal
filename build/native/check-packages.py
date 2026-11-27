@@ -34,6 +34,8 @@ Checks performed:
   9. Prints a human-readable size report for all verified artifacts.
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json

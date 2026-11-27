@@ -1,0 +1,20 @@
+gsub_pcall	false	bad argument #3 to `?' (string or function expected)
+err_pcall	false	E
+tail_err	false	14_errors_and_frames.lua:7: E
+err_neg	string	5
+err_raw_byte	255
+assert_msg	false	14_errors_and_frames.lua:16: e
+assert_def	false	14_errors_and_frames.lua:17: assertion failed!
+arith_local	false	14_errors_and_frames.lua:19: attempt to perform arithmetic on local `x' (a table value)
+cmp_same	false	14_errors_and_frames.lua:22: attempt to compare two table values
+cmp_diff	false	14_errors_and_frames.lua:23: attempt to compare table with number
+arg_len	false	14_errors_and_frames.lua:24: bad argument #1 to `len' (string expected, got table)
+for_bad	false	14_errors_and_frames.lua:25: attempt to perform arithmetic on a table value
+xpcall_env	true
+call_field	false	14_errors_and_frames.lua:33: attempt to call field `foo' (a nil value)
+call_method	false	14_errors_and_frames.lua:34: attempt to call method `bar' (a nil value)
+call_global	false	14_errors_and_frames.lua:35: attempt to call global `nope' (a nil value)
+index_local	false	14_errors_and_frames.lua:36: attempt to index local `a' (a nil value)
+concat_local	false	14_errors_and_frames.lua:37: attempt to concatenate local `a' (a table value)
+xpcall_bad_h	false	error in error handling
+xpcall_err_h	false	error in error handling

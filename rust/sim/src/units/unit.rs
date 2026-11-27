@@ -262,7 +262,9 @@ impl Unit {
         }
         // What hitting the ground or a wall too hard did to him, or a fall
         // past saving.
-        take_impacts(id, self, world);
+        if !world.carried_in_space(id, self.generation) {
+            take_impacts(id, self, world);
+        }
         // The aimer runs between moving and firing (a bot's Classic Aimer).
         if self.alive {
             world.aim(id, self, h);

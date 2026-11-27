@@ -53,7 +53,11 @@ macro_rules! row_body {($r:expr,$sampler:expr,$unit:expr)=>{($sampler).sphere(($
 
 pub(crate) use {row_hull,row_body};
 
-macro_rules! row_nav {($r:expr,$method:ident,$($a:expr),* $(,)?)=>{($r).state.navigation.$method(($r).w,$($a),*)};}
+macro_rules! row_nav {
+    ($r:expr,command,$($a:expr),*) => { ($r).state.navigation.phase_command(($r).w,$($a),*) };
+    ($r:expr,command_for,$($a:expr),*) => { ($r).state.navigation.phase_command_for(($r).w,$($a),*) };
+    ($r:expr,input,$($a:expr),*) => { ($r).state.navigation.phase_input(($r).w,$($a),*) };
+    ($r:expr,$method:ident,$($a:expr),* $(,)?)=>{($r).state.navigation.$method(($r).w,$($a),*)};}
 
 pub(crate) use row_nav;
 

@@ -21,6 +21,11 @@ impl std::fmt::Display for JsonError {
 
 impl std::error::Error for JsonError {}
 
+/// Maximum container nesting accepted by [`parse`]. Real prepared content of
+/// both games peaks at depth 11; 256 leaves ample headroom while preventing a
+/// deeply nested malformed file from overflowing the thread stack.
+pub const MAX_NESTING_DEPTH: usize = 256;
+
 /// Parses a file's bytes as the server does.
 pub fn parse_bytes(bytes: &[u8]) -> Result<Value, JsonError> {
     let text = String::from_utf8_lossy(bytes);
@@ -58,7 +63,7 @@ impl<'a> Parser<'a> {
     }
 
     fn value(&mut self, depth: usize) -> Result<Value, JsonError> {
-        if depth > 10_000 {
+        if depth > MAX_NESTING_DEPTH {
             return Err(self.error("too deep"));
         }
         match self.b.get(self.i) {
@@ -272,5 +277,41 @@ mod tests {
         for text in ["", "01", "1.", ".5", "-", "+1", "[1,]", "{\"a\":1,}", "NaN", "Infinity", "\"a\nb\"", "[1] x", "\u{feff}1", "'a'"] {
             assert!(parse(text).is_err(), "{text:?}");
         }
+    }
+
+    #[test]
+    fn rejects_excessive_nesting_without_stack_overflow() {
+        let mut arrays = String::with_capacity(200_000);
+        for _ in 0..100_000 {
+            arrays.push('[');
+        }
+        for _ in 0..100_000 {
+            arrays.push(']');
+        }
+        let err = parse(&arrays).expect_err("100,000 nested arrays must fail cleanly");
+        assert_eq!(err.message, "too deep");
+
+        let mut objects = String::with_capacity(600_000);
+        for _ in 0..100_000 {
+            objects.push_str("{\"a\":");
+        }
+        objects.push('0');
+        for _ in 0..100_000 {
+            objects.push('}');
+        }
+        let err = parse(&objects).expect_err("100,000 nested objects must fail cleanly");
+        assert_eq!(err.message, "too deep");
+    }
+
+    #[test]
+    fn accepts_nesting_up_to_limit() {
+        let ok = format!("{}0{}", "[".repeat(MAX_NESTING_DEPTH), "]".repeat(MAX_NESTING_DEPTH));
+        assert!(parse(&ok).is_ok());
+        let too_deep = format!(
+            "{}0{}",
+            "[".repeat(MAX_NESTING_DEPTH + 1),
+            "]".repeat(MAX_NESTING_DEPTH + 1)
+        );
+        assert_eq!(parse(&too_deep).unwrap_err().message, "too deep");
     }
 }

@@ -6,6 +6,9 @@
 //! navigation, live setting updates, key-capture popup rebinding, and per-frame
 //! screen state synchronization.
 
+mod battle_controls;
+pub use battle_controls::CapturePointer;
+use bfe_family::GameFamily;
 use crate::fonts::{FONT_LARGE, FONT_MEDIUM, FONT_TINY};
 use crate::hotkeys::{
     default_flight_bindings, flat_bindings, flight_bindings, hotkey_rows, player_bindings, rebind,
@@ -112,6 +115,8 @@ pub const CONTROLS_TABS: [(&str, f64, f64, bool); 3] = [
 pub struct OptionsContext {
     /// Localized string table (`common.json` keys mapped to translated labels).
     pub strings: HashMap<String, String>,
+    /// Controls labels from the player's prepared Battlefront II text.
+    pub swbf2_control_strings: HashMap<String, String>,
     /// True when the options menu is opened over a paused battle rather than the front end.
     pub in_battle: bool,
     /// Optional battle camera viewpoint (`Some(true)` for 1st person, `Some(false)` for 3rd person).
@@ -151,6 +156,7 @@ impl Default for OptionsContext {
         Self {
             // Empty localization dictionary (falls back to built-in English strings).
             strings: HashMap::new(),
+            swbf2_control_strings: HashMap::new(),
             // Front-end shell mode by default (`in_battle: false`).
             in_battle: false,
             // No active battle camera viewpoint toggle in the front-end shell.
@@ -783,6 +789,8 @@ pub struct OptionsController {
     pub input: MenuInput,
     /// Currently selected tab id (`"infantry"`, `"vehicle"`, or `"starfighter"`) on `CONTROL OPTIONS`.
     pub controls_tab: String,
+    controls_family: GameFamily,
+    game_selector: bool,
     /// Most recent host-handled named action (`"online"`, `"integrations"`, `"audioPanel"`).
     pub last_named_action: Option<String>,
     /// A display resolution being tried: the value to go back to and the seconds left to keep it. The host
@@ -811,13 +819,15 @@ impl OptionsController {
             context,
             input: MenuInput::new(),
             controls_tab: "infantry".to_string(),
+            controls_family: GameFamily::Swbf1,
+            game_selector: GameFamily::Swbf2.is_available(),
             last_named_action: None,
             display_trial: None,
         }
     }
 
     /// Opens a specific sub-page (`"game"`, `"video"`, `"audio"`, `"controls"`).
-    pub fn open_page(&mut self, page: &str) {
+    fn open_released_page(&mut self, page: &str) {
         // Construct the requested sub-page screen from current settings and context.
         let screen = match page {
             // `GAME OPTIONS` (`options-game`).
@@ -835,7 +845,7 @@ impl OptionsController {
     }
 
     /// Synchronizes the active screen's option values and footer note after a setting change.
-    pub fn refresh_active_screen(&mut self) {
+    fn refresh_released_screen(&mut self) {
         let Some(top) = self.stack.top_mut() else {
             return;
         };
@@ -925,7 +935,7 @@ impl OptionsController {
     }
 
     /// Dispatches a [`MenuInputEvent`] produced by [`MenuInput`].
-    pub fn apply_event(&mut self, event: MenuInputEvent) {
+    fn apply_released_event(&mut self, event: MenuInputEvent) {
         match event {
             MenuInputEvent::None => {}
             MenuInputEvent::SelectionChanged => {
@@ -1080,7 +1090,7 @@ impl OptionsController {
     }
 
     /// Processes a keyboard key press through [`MenuInput`] and applies the resulting event.
-    pub fn on_key_down(&mut self, code: &str, shift: bool) {
+    fn on_released_key_down(&mut self, code: &str, shift: bool) {
         let ev = self.input.on_key_down(&mut self.stack, code, shift);
         self.apply_event(ev);
     }
@@ -1089,6 +1099,68 @@ impl OptionsController {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hotkeys::ControlContext;
+
+    #[test]
+    fn controls_selector_gates_pages_and_edits_only_the_selected_game() {
+        let mut ctx = OptionsContext::default();
+        ctx.strings.insert("ifs.Controls.SoldierTab".into(), "old tab".into());
+        ctx.swbf2_control_strings.insert("ifs.Controls.SoldierTab".into(), "new tab".into());
+        let mut ctrl = OptionsController::new(Settings::new(), ctx);
+        let switch = || MenuInputEvent::StepOption { key: "controlsFamily".into(), dir: 1 };
+        ctrl.open_page("controls");
+        assert_eq!(ctrl.game_selector, GameFamily::Swbf2.is_available());
+        if !ctrl.game_selector {
+            ctrl.apply_event(switch());
+            assert_eq!(ctrl.controls_family, GameFamily::Swbf1);
+            let Some(Widget::Options(opts)) = ctrl.stack.top().unwrap().widget("rows") else { panic!() };
+            assert!(opts.items.iter().all(|r| r.id != "controlsFamily"));
+        }
+        // Exercise the same controller and menu events with both games available.
+        ctrl.game_selector = true;
+        ctrl.stack.replace(ctrl.controls_screen());
+        ctrl.apply_rebind("infantry", "presses.jump", Some("KeyI"));
+        ctrl.apply_rebind("starfighter", "takeoff", Some("KeyJ"));
+        ctrl.on_key_down("Tab", false); // From the tab strip to the game selector.
+        ctrl.on_key_down("ArrowRight", false);
+        assert_eq!(ctrl.controls_family, GameFamily::Swbf2);
+        ctrl.on_key_down("ArrowLeft", false);
+        assert_eq!(ctrl.controls_family, GameFamily::Swbf1);
+        ctrl.on_key_down("ArrowRight", false);
+        let Some(Widget::Tabs(tabs)) = ctrl.stack.top().unwrap().widget("tabs") else { panic!() };
+        assert_eq!(tabs.tabs.len(), 5);
+        assert_eq!(tabs.tabs[0].label, "new tab");
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::SelectTab("jedi".into())));
+        let Some(Widget::List(list)) = ctrl.stack.top().unwrap().widget("bindings") else { panic!() };
+        let block = list.rows.iter().find(|r| r.id == "holds.block").unwrap().action.clone().unwrap();
+        ctrl.apply_event(MenuInputEvent::Action(block));
+        ctrl.on_key_down("KeyW", false);
+        ControlContext::Starfighter.rebind(&mut ctrl.settings, "takeoff", Some("KeyI"));
+        let ground = ControlContext::Jedi.bindings(&ctrl.settings);
+        assert_eq!(ground["holds.block"], ["KeyW"]);
+        assert_eq!(ground["axes.forward+"], ["ArrowUp"]);
+        assert_eq!(ControlContext::Infantry.bindings(&ctrl.settings)["axes.forward+"], ["KeyW", "ArrowUp"]);
+        assert_eq!(ControlContext::Infantry.bindings(&ctrl.settings)["presses.zoom"], ["KeyZ", "Mouse1"]);
+        ctrl.apply_event(switch());
+        assert_eq!(ctrl.controls_tab, "infantry");
+        assert_eq!(player_bindings(ctrl.settings.get_bindings_ref("keyBindings"))["presses.jump"], ["KeyI"]);
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::ResetPage("controls".into())));
+        assert_eq!(ControlContext::Jedi.bindings(&ctrl.settings), ground);
+        ctrl.apply_rebind("starfighter", "takeoff", Some("KeyJ"));
+        ctrl.apply_event(switch());
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::SelectTab("jedi".into())));
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::ResetPage("controls".into())));
+        assert_eq!(ControlContext::Jedi.bindings(&ctrl.settings), ControlContext::Jedi.defaults());
+        assert_eq!(ControlContext::Starfighter.bindings(&ctrl.settings)["takeoff"], ["KeyI"]);
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::SelectTab("starfighter".into())));
+        ctrl.apply_event(MenuInputEvent::Action(WidgetAction::ResetPage("controls".into())));
+        for context in ControlContext::ALL {
+            assert_eq!(context.bindings(&ctrl.settings), context.defaults());
+        }
+        assert_eq!(flight_bindings(ctrl.settings.get_bindings_ref("flightBindings"))["takeoff"], ["KeyJ"]);
+    }
+
+
 
     #[test]
     fn a_new_resolution_goes_back_unless_the_player_keeps_it() {
@@ -1203,16 +1275,18 @@ mod tests {
         ctrl.on_key_down("Escape", false);
         assert_eq!(ctrl.stack.top().ok_or("missing options top")?.id, "options");
 
-        // Open VIDEO OPTIONS and verify all 32 rendering rows (`performancePreset`..`deathCamera`).
+        // Open VIDEO OPTIONS and verify all 33 rendering rows (`performancePreset`..`deathCamera`).
         ctrl.open_page("video");
         let top = ctrl.stack.top().ok_or("missing options-video top")?;
         assert_eq!(top.id, "options-video");
         if let Some(Widget::Options(opts)) = top.widget("rows") {
-            // The browser build's 31 video options in its order, with the native RESOLUTION second.
-            assert_eq!(opts.items.len(), 32);
+            // The browser build's 31 video options in its order, the native RESOLUTION second and
+            // the 2005 game's LIGHT BLOOM after BLOOM AND GLOW.
+            assert_eq!(opts.items.len(), 33);
             assert_eq!(opts.items[0].id, "performancePreset");
             assert_eq!(opts.items[1].id, "displayMode");
-            assert_eq!(opts.items[31].id, "deathCamera");
+            assert!(opts.items.windows(2).any(|w| w[0].id == "bloom" && w[1].id == "bloomSwbf2"));
+            assert_eq!(opts.items[32].id, "deathCamera");
         } else {
             return Err("expected Options widget on videoPage".into());
         }

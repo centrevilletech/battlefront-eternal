@@ -59,7 +59,8 @@ pub mod ordnance_style {
     pub const LOOK_LIGHT_RADIUS: usize = 23;
     pub const FLIGHT: usize = 24;
     pub const GRAVITY: usize = 25;
-    pub const STRIDE: usize = 26;
+    pub const BEAM_GLOW_WIDTH: usize = 26;
+    pub const STRIDE: usize = 27;
 }
 pub mod net_command {
     pub const KIND: usize = 0;

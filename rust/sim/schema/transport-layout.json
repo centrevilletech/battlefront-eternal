@@ -2,9 +2,9 @@
   "version": 1,
   "contract": {
     "manifestVersion": 1,
-    "protocol": 3,
+    "protocol": 4,
     "profile": "snapshot-delta-v1",
-    "simulation": "bfe-sim-29",
+    "simulation": "bfe-sim-30",
     "serverAdapterABI": 4,
     "ownCorrectionSchema": 11
   },
@@ -250,5 +250,11 @@
     "trick",
     "immelmann",
     "targetLock"
+  ],
+  "swbf2InputCodes": [],
+  "swbf2InputActions": [
+    "roll",
+    "blockPress",
+    "blockRelease"
   ]
 }

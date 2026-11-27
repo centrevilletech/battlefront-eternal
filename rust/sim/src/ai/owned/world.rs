@@ -24,6 +24,7 @@ pub struct Facts {pub time:f64,pub paused:bool,pub network_views:bool,pub lod_di
 /// Cross-owner actions run inside the native phase. Implementations do not
 /// invoke host AI or publish mirrors between controller decisions.
 pub trait Services<C:Changes+?Sized,M:Mounted>:super::vehicle_frame::Hooks<C,M>+Environment+Sized {
+    const GOAL_BOTS: bool = false;
     /// Items.ownedBy is one shared first-use owner authority. Its native
     /// implementation must retain observation order even for empty lists.
     /// Active callbacks retain their Core through a physical F2 operation.
@@ -195,6 +196,43 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> World<'_,'_,C,M,S> {
     fn combat<R>(&mut self,run:impl FnOnce(&mut Frame<'_,'_,C,M,S>,&mut CombatAi)->R)->R {
         let mut frame=Frame {rows:self.rows,hooks:self.services,random:self.random,settings:self.settings,time:self.facts.time,response:None};
         run(&mut frame,self.combat)
+    }
+    pub(crate) fn can_engage_at_any_range(&mut self, unit: UKey, target: UKey) -> bool {
+        self.combat(|frame, combat| {
+            crate::ai::combat::weapons_ai::has_weapon_for_target(frame, &combat.shared.weapons, unit, target)
+        })
+    }
+    /// Advance the 2005 aim-error sphere for every living human-controlled unit
+    /// (bots update theirs in `CombatAi::update_aim`).
+    pub(super) fn step_human_aim_miss(&mut self, dt: f64) {
+        if !(dt > 0.0) {
+            return;
+        }
+        self.combat(|frame, _| {
+            let living = CombatWorld::living(frame);
+            for &unit in living.iter() {
+                let scalars = CombatWorld::unit_scalars(frame, unit);
+                if !scalars.alive || !scalars.human || CombatWorld::unit_controller(frame, unit).is_some() {
+                    continue;
+                }
+                let gen = scalars.generation;
+                let vel = CombatWorld::unit_velocity(frame, unit).unwrap_or_default();
+                let (kind, max_speed) = CombatWorld::unit_weapon_motion(frame, unit);
+                let radius = crate::ai::combat::perception::bound_radius(frame, unit);
+                let opp_skill = CombatWorld::opposing_team_skill(frame, scalars.team);
+                let is_vehicle = !matches!(kind, 0.0 | 1.0 | 3.0);
+                let rz = (crate::ai::combat::world::Draws::uniform_a(frame) - 0.5) * 2.0;
+                let ry = (crate::ai::combat::world::Draws::uniform_a(frame) - 0.5) * 2.0;
+                let rx = (crate::ai::combat::world::Draws::uniform_a(frame) - 0.5) * 2.0;
+                let motion_flags = CombatWorld::unit_evasion_flags(frame, unit);
+                if let Some(slot) = frame.rows.state.human_miss.get_mut((unit as u32) as usize) {
+                    if slot.0 != unit || slot.1.to_bits() != gen.to_bits() {
+                        *slot = (unit, gen, crate::ai::combat::aim::AimMiss::default());
+                    }
+                    slot.2.step(dt, &vel, max_speed, radius, kind, is_vehicle, opp_skill, (rx, ry, rz), motion_flags);
+                }
+            }
+        });
     }
 }
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Characters for World<'_,'_,C,M,S> {
@@ -549,7 +587,10 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
         let mut hooks=super::active::Active {core,services:self.services,facts:self.facts,settings:self.settings};
         let mut frame=Frame {rows:self.rows,hooks:&mut hooks,random:self.random,settings:self.settings,time:self.facts.time,response:None};
         let (state,pending)=frame.run_combat(agent,self.combat,|frame,machine,combat| {
-            machine.tick(frame,combat,dt,if phase==0. {crate::ai::combat::agent::Phase::Behave}else{crate::ai::combat::agent::Phase::Rank});
+            let phase = if phase == 0. { crate::ai::combat::agent::Phase::Behave } else { crate::ai::combat::agent::Phase::Rank };
+            if !(S::GOAL_BOTS && machine.saber_engagement(frame, combat, dt, phase)) {
+                machine.tick(frame, combat, dt, phase);
+            }
             (machine.state,machine.pending)
         });
         let replaced=frame.rows.state.agents.key(controller)!=Some(agent);
@@ -595,6 +636,10 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> AiWorld for World<'_,'_,C,M,S> 
     fn nav_planner_idle(&mut self) -> bool { self.rows.state.navigation.nav.planner_idle() }
     fn nav_service(&mut self, budget: f64) { self.rows.state.navigation.nav.service(budget); }
     fn nav_point_clear(&mut self, point: Vec3, radius: f64, mask: f64) -> bool { self.rows.state.navigation.nav.barriers.point_clear(point,radius,v8math::to_uint32(mask)).0 }
+    fn nav_route_distance(&mut self, from: Vec3, to: Vec3, radius: f64, mask: u32) -> crate::ai::nav::route::RouteQuery {
+        self.rows.state.navigation.route_distance(self.rows.w, self.services, from, to,
+            radius, mask, false)
+    }
     fn nav_clip_segment(&mut self, from: Vec3, to: Vec3, radius: f64, mask: f64) -> (bool, Vec3) { let mut end=to;let hit=self.rows.state.navigation.nav.barriers.obstruct(from,&mut end,radius,v8math::to_uint32(mask),None,None);(hit,end) }
     fn nav_in_danger_region(&mut self, point: Vec3, pad: f64) -> bool { let _=(point,pad);false }
     fn nav_query_hints(&mut self, mask: f64, center: Vec3, half_extent: f64, cap: f64, requester: Option<UKey>) -> List<usize> { self.rows.state.hints.as_ref().expect("prepared native hints").query(&self.rows.state.navigation.nav,v8math::to_uint32(mask),center,half_extent,cap,requester,self.facts.time) }

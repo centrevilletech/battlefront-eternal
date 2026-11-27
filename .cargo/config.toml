@@ -1,0 +1,3 @@
+[env]
+# Debug mission callbacks can re-enter the Lua interpreter on libtest threads.
+RUST_MIN_STACK = "4194304"

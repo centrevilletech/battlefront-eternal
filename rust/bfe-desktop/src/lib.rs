@@ -16,4 +16,7 @@ pub mod prepare;
 pub mod presence;
 pub mod settings;
 pub mod steam;
+pub mod swbf2_tree;
 pub mod update;
+#[cfg(all(test, unix))]
+mod test_programs;

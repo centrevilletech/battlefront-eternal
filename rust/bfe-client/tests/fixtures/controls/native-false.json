@@ -1,0 +1,58 @@
+{
+  "profileName": "PLAYER 1",
+  "privacyNoticeAccepted": false,
+  "nativeSettingsVersion": 2,
+  "complete": false,
+  "values": {
+    "aiDifficulty": "medium",
+    "battleSize": "full",
+    "effectsVolume": 1,
+    "flightBindings": {
+      "takeoff": [
+        "Mouse3"
+      ]
+    },
+    "interfaceVolume": 1,
+    "invertMouse": false,
+    "keyBindings": {
+      "presses.jump": [
+        "KeyI"
+      ]
+    },
+    "masterVolume": 0.800000011920929,
+    "menuTheme": "eternal",
+    "mouseSensitivity": 3.75,
+    "musicVolume": 1,
+    "playerName": "PLAYER 1",
+    "showStats": false
+  },
+  "shell": {
+    "master_volume": 0.8,
+    "music_volume": 1.0,
+    "interface_volume": 1.0,
+    "effects_volume": 1.0,
+    "menu_theme": "eternal",
+    "battle_size": "full",
+    "difficulty": "medium",
+    "mouse_sensitivity": 3.75,
+    "invert_y": false
+  },
+  "pauseKv": {
+    "aiDifficulty": "medium",
+    "battleSize": "full",
+    "effectsVolume": "100",
+    "flightBindings": "{\"takeoff\":[\"Mouse3\"]}",
+    "interfaceVolume": "100",
+    "invertMouse": "false",
+    "invertY": "false",
+    "keyBindings": "{\"presses.jump\":[\"KeyI\"]}",
+    "masterVolume": "80",
+    "menuTheme": "eternal",
+    "mouseSensitivity": "3.75",
+    "musicVolume": "100",
+    "playerName": "PLAYER 1",
+    "showStats": "false"
+  },
+  "iaPlaylist": [],
+  "iaRandom": false
+}

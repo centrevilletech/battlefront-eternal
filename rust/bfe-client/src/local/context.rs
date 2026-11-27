@@ -53,6 +53,17 @@ const OUTCOME_ACK: f64 = 7.;
 /// all run natively in lockstep.
 pub struct Native {
     context: OwnedContext,
+    pub(super) infantry: bool,
+    pub(super) space_counts: super::space::Counts,
+    space_audio: super::space::AudioClasses,
+    space_names: Option<std::sync::Arc<super::space::instruments::Names>>,
+    prepare_space_crew: bool,
+    space_trace: Option<super::space::Trace>,
+    pub(super) space_door_count: usize,
+    /// Recordings and headless launches may confirm their admitted class automatically.
+    automatic_deployment: bool,
+    mission_view: Option<super::mission_view::History>,
+    mission_score: Option<bfe_sim::battle::script::MissionScore>,
     handles: Handles,
     commands: Commands,
     args: Arguments,
@@ -71,15 +82,24 @@ pub struct Native {
     /// BFE_AI_TRACE: a census of the bots every ten seconds on stderr.
     census: Option<bfe_sim::host::census::Census>,
     graphics_trace: bool,
+    check_mission_start: bool,
 }
 
 impl Native {
+    pub fn use_mission_spawn_screen(&mut self) {
+        self.automatic_deployment = false;
+    }
+
     pub fn new(context: Context, admission: &Admitted) -> Result<Self, String> {
+        Self::with_definitions(context, admission, None)
+    }
+
+    pub(super) fn with_definitions(context: Context, admission: &Admitted, definitions: Option<&bfe_content::defs::Defs>) -> Result<Self, String> {
         let context = OwnedContext {
             value: context,
             closed: false,
         };
-        let commands = Commands::new(Names::new(&context.value)?);
+        let commands = Commands::new(Names::new(&context.value, bfe_client::input_family::WireInputs::new(admission.family))?);
         let host_op = arguments::required("wireHostOp")?;
         let edges_op = arguments::required("wireEdgesRun")?;
         // Mirror the shared publisher's admitted arenas, using its reservation
@@ -93,10 +113,42 @@ impl Native {
             },
             bytes: Vec::with_capacity(policy.bytes.capacity()),
         };
+        let (space_counts, space_audio, space_names) = if admission.family == bfe_family::GameFamily::Swbf2 {
+            context.value.owned(|w| w.space().map(|space| (super::space::Counts::of(space),
+                super::space::AudioClasses::from_space(space),
+                Some(std::sync::Arc::new(super::space::instruments::Names::new(space, definitions))))))
+                .map_err(|e| e.to_string())?.unwrap_or_default()
+        } else { Default::default() };
+        let space_trace = if space_counts.fighters > 0 { super::space::Trace::open(&context.value, admission.handles.player)? } else { None };
+        let space_door_count = context.value.space_door_count().map_err(|e| e.to_string())?;
+        let mission_score = if admission.family == bfe_family::GameFamily::Swbf2 {
+            context.value.owned(|world| world.mission_view().map(|view| view.score())).map_err(|e| e.to_string())?
+        } else { None };
+        let mission_deployment = mission_score.is_some() && {
+            let query = bfe_content::mission::Query::parse(&admission.query);
+            query.get("spawnscreen") == "1"
+        };
+        if mission_deployment {
+            context.value.owned(|w| w.bind_mission_deployment(admission.handles.player))
+                .map_err(|e| e.to_string())??;
+        }
+        let mission_view = if mission_score.is_some() {
+            context.value.owned(|w| super::mission_view::History::admit(w)).map_err(|e| e.to_string())?
+        } else { None };
         Ok(Self {
+            space_door_count,
+            prepare_space_crew: space_counts.fighters > 0,
+            space_counts,
+            space_audio,
+            space_names,
+            space_trace,
             context,
+            mission_view,
+            mission_score,
             handles: admission.handles,
             commands,
+            infantry: admission.family == bfe_family::GameFamily::Swbf2,
+            automatic_deployment: mission_deployment,
             args: Arguments::new(),
             published,
             ack: WeCall {
@@ -121,7 +173,16 @@ impl Native {
             explosions: admission.explosions.clone(),
             census: std::env::var_os("BFE_AI_TRACE").map(|_| Default::default()),
             graphics_trace: std::env::var_os("BFE_GRAPHICS_TRACE").is_some(),
+            check_mission_start: false,
         })
+    }
+
+    /// The engine of a mission-script battle: until the script has started, each step also asks
+    /// the authority for a setup failure.
+    pub(super) fn scripted(context: Context, admission: &Admitted, definitions: Option<&bfe_content::defs::Defs>) -> Result<Self, String> {
+        let mut engine = Self::with_definitions(context, admission, definitions)?;
+        engine.check_mission_start = true;
+        Ok(engine)
     }
 
     pub fn handles(&self) -> Handles {
@@ -175,6 +236,59 @@ impl Native {
 }
 
 impl Engine for Native {
+    fn mission_view(&mut self, tick: u32, dest: &mut Option<Box<super::mission_view::Observation>>) {
+        if let Some(history) = self.mission_view.as_mut() {
+            let _ = self.context.value.owned(|world| { history.sample(world,tick); history.current.copy_into(dest); });
+        }
+    }
+    fn mission_score(&self) -> Option<bfe_sim::battle::script::MissionScore> { self.mission_score }
+    fn infantry_input(&mut self, sequence: f64, input: bfe_sim::units::infantry::Controls) -> Result<(), String> {
+        self.context.value.owned(|w| w.local_infantry_input(sequence, input)).map_err(|e| e.to_string())
+    }
+    fn pilot_input(&mut self, sequence: f64, input: bfe_sim::space::local::PilotControls) -> Result<(), String> {
+        let player = self.handles.player;
+        self.context.value.owned(|w| { w.queue_space_pilot_input(player, sequence, input); }).map_err(|e| e.to_string())
+    }
+    fn space_sample(&mut self, frame: &mut super::space::Frame) -> Result<(), String> {
+        if self.space_counts.fighters == 0 { return Ok(()); }
+        let player = self.handles.player;
+        self.context.value.owned(|w| {
+            if let Some(space) = w.space() {
+                frame.write(w, space, &self.space_audio, &self.space_names, player);
+                if let Some(trace) = &mut self.space_trace { trace.sample(w, space, frame).map_err(|e| e.to_string())?; }
+            }
+            Ok(())
+        }).map_err(|e| e.to_string())?
+    }
+    fn infantry_contacts(&self, dest: &mut Option<Box<bfe_sim::units::infantry::contact::Contacts>>) {
+        if self.infantry {
+            let _ = self.context.value.owned(|w| {
+                if let Some(source) = w.infantry_contacts() { **dest.get_or_insert_with(Default::default) = *source; }
+            });
+        }
+    }
+    fn infantry_powers(&self, dest: &mut Option<Box<bfe_sim::combat::powers::PowerFrame>>) {
+        if self.infantry {
+            let _ = self.context.value.owned(|w| {
+                w.infantry_power_frame(dest);
+            });
+        }
+    }
+    fn hero_audio(&self, dest: &mut Option<Box<bfe_sim::units::infantry::hero_audio::HeroAudioSnapshot>>) {
+        if self.infantry {
+            let _ = self.context.value.owned(|w| {
+                let target = dest.get_or_insert_with(Default::default);
+                if !w.hero_audio(target) {
+                    target.clear();
+                }
+            });
+        }
+    }
+    fn infantry_sample(&self) -> Option<bfe_sim::units::infantry::Sample> {
+        if !self.infantry { return None; }
+        self.context.value.owned(|w| w.local_infantry_sample()).ok().flatten()
+    }
+
     // The admission's own impact rule export, run again on the live world.
     fn friendly_fire(&mut self, on: bool) -> Result<(), String> {
         let rules = bfe_sim::gen::F3ImpactRules { friendly_fire: on };
@@ -214,6 +328,13 @@ impl Engine for Native {
         let sequence = input.command.sequence;
         if sequence <= self.last_input_sequence {
             return Ok(());
+        }
+        if self.automatic_deployment && self.actions.human.is_empty() {
+            let choice = self.context.value.owned(|world| world.mission_deployment_choice())
+                .map_err(|e| e.to_string())?;
+            if let Some(command) = choice {
+                self.actions.human.push(IaHuman { command, valid: true });
+            }
         }
         self.submit(input, |context, arguments, op| arguments.run(context, op))?;
         self.last_input_sequence = sequence;
@@ -262,6 +383,9 @@ impl Engine for Native {
     }
 
     fn step(&mut self, mut input: WorldTickInput) -> Result<WorldTickOutput, String> {
+        if self.prepare_space_crew {
+            self.context.value.owned(|w| w.prepare_local_space_crew()).map_err(|e| e.to_string())?;
+        }
         input.units = self
             .context
             .value
@@ -273,6 +397,13 @@ impl Engine for Native {
         let tick = input.tick;
         match self.context.value.world_tick(input) {
             Ok(output) => {
+                if self.check_mission_start {
+                    self.check_mission_start = !self.context.value.world_mission_started().map_err(|e| e.to_string())?;
+                }
+                if self.mission_score.is_some() {
+                    self.mission_score = Some(self.context.value.owned(|world| world.mission_view().map(|view| view.score()))
+                        .map_err(|e| e.to_string())?.ok_or("mission rules disappeared")?);
+                }
                 self.sample_host_journal();
                 if self.graphics_trace&&tick as u64%60==0{eprintln!("graphics living: tick={} teams={:?}",tick,self.context.value.world_living_units().unwrap_or_default());}
                 if let Some(census) = &mut self.census {
@@ -293,6 +424,10 @@ impl Engine for Native {
 
     // Context retains its encoder while this caller retains only the borrowed
     // result arenas. No generated take() rebuilds nested lists for delivery.
+    fn door_frame(&self, out: &mut Vec<bfe_sim::space::SpaceDoorSnapshot>) -> Result<(), String> {
+        if self.space_door_count > 0 { self.context.value.space_doors_into(out).map_err(|e|e.to_string())?; }
+        Ok(())
+    }
     fn publish(&mut self, facts: &[f64]) -> Result<Publication<'_>, String> {
         if let Err(error) = self.context.value.world_publish_into(
             self.handles.publication,

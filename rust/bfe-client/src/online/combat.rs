@@ -1,6 +1,7 @@
 //! Network combat admission feeds Ordnance and Presentation directly. The
 //! retained wire identity is independent of a trigger: pellets, terminals and
 //! automatic rounds keep their own visual lives without an authoritative World.
+pub mod swbf2;
 use super::{
     index::Index,
     models::Model,
@@ -102,6 +103,11 @@ impl Cosmetic {
     }
 }
 const COSMETICS: usize = 32;
+// How many head shots, and how many waiting impacts, a frame hands the sniper trace.
+const RAIL_EVENTS: usize = 64;
+// Every round drawn may be a fading one, and a battle of ships has hundreds in the air: a
+// round left out of the trace is not drawn at all. The trace's commands hold them all.
+const _: () = assert!(BOLTS + COSMETICS + 2 * RAIL_EVENTS <= sn::COMMANDS);
 struct Style {
     model: Option<Model>,
     impact: [Option<usize>; 6],
@@ -112,6 +118,8 @@ struct Style {
     // colour (`LaserGlowColor || LightColor`, 0 to 255) and how far a round
     // can reach (Velocity times LifeSpan).
     rail: Option<([f64; 3], f64)>,
+    // Extra post-end lifetime in 60 Hz ticks for beams with FadeOutTime.
+    fade_out_ticks: f64,
 }
 #[derive(Clone, Copy, Default)]
 // Dynamic projectiles carry samples only. The shared Ordnance net owner
@@ -134,6 +142,8 @@ struct Net {
 // lifetime and particle sampling. Resource handles remain numeric after load.
 // Retiring a visual returns only its host slot, not a gameplay entity lease.
 pub struct Combat {
+    /// Optional authored observations for a Battlefront II mission.
+    pub mission_effects: Option<Box<swbf2::MissionEffects>>,
     // Where the frame's drawn, living, unmounted soldiers within shadow range stand, and the sun's direction
     // toward the scene: their drop shadows (Replicas fills both before drawing).
     pub drop_feet: Vec<[f64; 3]>,
@@ -221,6 +231,9 @@ pub struct Combat {
     flames: Vec<Flame>,
     /// Classic jet exhaust effects started so far.
     pub total_flames: u64,
+    timed_effects: Vec<TimedEffect>,
+    missing_effects: MissingEffects,
+    family: bfe_family::GameFamily,
     /// The droids' Enhanced deaths.
     pub destruction: super::destruction::Destructions,
     droid_explosions: Vec<usize>,
@@ -238,6 +251,32 @@ struct Flame {
     handle: Option<u32>,
     seen: bool,
 }
+struct TimedEffect {
+    owner: Option<(u32, u32)>,
+    group: usize,
+    handle: u32,
+    stop_at: f64,
+}
+const MISSING_EFFECT_LOG_CAP: usize = 64;
+#[derive(Default)]
+struct MissingEffects {
+    logged: Vec<String>,
+}
+impl MissingEffects {
+    fn note(&mut self, source: &str, name: &str) -> Option<String> {
+        if name.is_empty() || name.eq_ignore_ascii_case("headshot") {
+            return None;
+        }
+        if self.logged.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+            return None;
+        }
+        if self.logged.len() >= MISSING_EFFECT_LOG_CAP {
+            return None;
+        }
+        self.logged.push(name.to_ascii_lowercase());
+        Some(format!("Missing effect '{name}' in loaded battle effect pack (requested by {source})"))
+    }
+}
 const STREAK_FLOATS: usize = sn::STREAKS * streak::STRIDE + 1;
 const FLARE_FLOATS: usize = sn::FLARES * flare::STRIDE;
 // The Enhanced capsules' floats: head, tail, colour and size for each, then
@@ -250,10 +289,34 @@ fn wall() -> f64 {
 fn number(v: &bfe_content::Value, key: &str) -> f64 {
     v.get(key).and_then(bfe_content::Value::as_f64).unwrap_or(0.)
 }
+/// A definition's colour, 0 to 255 a channel. A 2004 definition holds a list; a Battlefront II
+/// one still holds its file's line of numbers.
+fn channels(v: &bfe_content::Value, key: &str) -> Option<Vec<f64>> {
+    match v.get(key)? {
+        bfe_content::Value::Array(list) => Some(list.iter().map(|n| n.as_f64().unwrap_or(255.)).collect()),
+        bfe_content::Value::String(line) => line.split_whitespace().map(|n| n.parse().ok()).collect(),
+        _ => None,
+    }
+}
 fn color(v: &bfe_content::Value, key: &str) -> [f64; 3] {
-    let a = v.get(key).and_then(bfe_content::Value::as_array);
-    let alpha = a.and_then(|a| a.get(3)).and_then(bfe_content::Value::as_f64).unwrap_or(255.) / 255.;
-    std::array::from_fn(|i| a.and_then(|a| a.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or(255.) / 255. * alpha)
+    let a = channels(v, key).unwrap_or_default();
+    let channel = |i: usize| a.get(i).copied().unwrap_or(255.) / 255.;
+    std::array::from_fn(|i| channel(i) * channel(3))
+}
+/// The numbers a round's look is drawn from, with each colour as a list.
+fn authored_look(def: &bfe_content::Value) -> serde_json::Value {
+    let mut record = authored_json(def);
+    for key in ["LaserGlowColor", "LightColor"] {
+        if let Some(list) = channels(def, key) {
+            record[key] = list.into();
+        }
+    }
+    record
+}
+/// The colour of a fading round's tracer, 0 to 255 a channel.
+fn rail_color(def: &bfe_content::Value) -> [f64; 3] {
+    let rgb = ["LaserGlowColor", "LightColor"].iter().find_map(|key| channels(def, key)).unwrap_or_default();
+    std::array::from_fn(|i| rgb.get(i).copied().unwrap_or([120., 160., 255.][i]))
 }
 impl Combat {
     /// The start of the newest round `owner` fired that is still flying (its
@@ -274,6 +337,28 @@ impl Combat {
         resources: &mut Resources,
         collision: super::replay::Collision,
         world: u32,
+    ) -> Result<Self, String> {
+        let rounds = (content.content.battle.family == bfe_content::GameFamily::Swbf2)
+            .then(|| swbf2::prepare_rounds(content, &mut prepared)).transpose()?;
+        let particles = if rounds.is_some() {
+            swbf2::particle_limit(content.visual_effects())
+        } else { 16384 };
+        let mut combat = Self::new_shared(content, prepared, bridge, textures, resources, collision, world, particles).await?;
+        if let Some(rounds) = rounds {
+            let effects = swbf2::MissionEffects::new(content, &mut combat, bridge, textures, rounds)?;
+            combat.mission_effects = Some(Box::new(effects));
+        }
+        Ok(combat)
+    }
+    async fn new_shared(
+        content: &BattleContent,
+        mut prepared: particles::Prepared,
+        bridge: &mut Bridge,
+        textures: &[u32],
+        resources: &mut Resources,
+        collision: super::replay::Collision,
+        world: u32,
+        particle_limit: usize,
     ) -> Result<Self, String> {
         let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
@@ -355,7 +440,7 @@ impl Combat {
             // heavy gun (no GlowLength) takes its hue from its laser
             // texture's saturated texels when that texture has one
             // (textureHue).
-            let authored: style::Content = serde_json::from_value(authored_json(def)).unwrap_or_default();
+            let authored: style::Content = serde_json::from_value(authored_look(def)).unwrap_or_default();
             let look = style::row(&authored, true);
             row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&look[s::LOOK_COLOR..s::LOOK_COLOR + 3]);
             for at in [s::LOOK_GLOW, s::LOOK_CORE, s::LOOK_LENGTH, s::LOOK_BRIGHTNESS, s::LOOK_LIGHT_RADIUS] {
@@ -365,6 +450,10 @@ impl Combat {
                 .and_then(|image|content.textures.cpu_pixels(*image).ok()).map(|pixels|style::texture_hue(&pixels));
             if let Some(hue) = hue.filter(|hue| !hue.is_empty()) {
                 row[s::LOOK_COLOR..s::LOOK_COLOR + 3].copy_from_slice(&style::vivid(&hue, 1.6));
+            }
+            // Only a 2005 beam draws a second pass; a 2004 style keeps its zero.
+            if base == "beam" && content.content.battle.family == bfe_content::GameFamily::Swbf2 {
+                row[s::BEAM_GLOW_WIDTH] = swbf2::beam_glow_width(def);
             }
             ordnance.set_style(index);
             let terrain = def.get("ImpactEffectTerrain").and_then(bfe_content::Value::as_str);
@@ -389,12 +478,9 @@ impl Combat {
             .map(|name| name.and_then(effect));
             let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
             let trail = def.get("TrailEffect").and_then(bfe_content::Value::as_str).and_then(effect);
-            let rail = (number(def, "FadeOutTime") > 0.).then(|| {
-                let rgb = ["LaserGlowColor", "LightColor"].iter().find_map(|key| def.get(key).and_then(bfe_content::Value::as_array));
-                let color = std::array::from_fn(|i| rgb.and_then(|c| c.get(i)).and_then(bfe_content::Value::as_f64).unwrap_or([120., 160., 255.][i]));
-                (color, number(def, "Velocity") * number(def, "LifeSpan"))
-            });
-            styles.push(Style { model: Model::new(content, bridge, textures, name, shadow_cascades)?, impact, explosion, trail, rail });
+            let fade_out_ticks = if base == "beam" { number(def, "FadeOutTime").max(0.) * 60. } else { 0. };
+            let rail = (number(def, "FadeOutTime") > 0.).then(|| (rail_color(def), number(def, "Velocity") * number(def, "LifeSpan")));
+            styles.push(Style { model: Model::new(content, bridge, textures, name, shadow_cascades)?, impact, explosion, trail, rail, fade_out_ticks });
         }
         // PredictedShots.fire: only a bolt flies straight enough to draw
         // ahead of the world.
@@ -431,7 +517,7 @@ impl Combat {
         bridge.r.core.state.reset();
         let effects = bfe_presentation::Presentation::new(
             serde_json::from_value(library.descriptor.clone()).map_err(|e| e.to_string())?,
-            bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: 16384, commands: 2048, events: 32768 },
+            bfe_presentation::Limits { effects: 1024, emitters: 4096, particles: particle_limit, commands: 2048, events: 32768 },
         );
         let mut particles = prepared.admit(content, bridge, textures, resources)?;
         // BlasterBatch: one instanced draw of every Enhanced bolt, after the
@@ -481,6 +567,7 @@ impl Combat {
         let mut scratch = bfe_sim::wire::cosmetics::Compact::default();
         scratch.offset.reserve(3);
         Ok(Self {
+            mission_effects: None,
             drop_feet: Vec::with_capacity(256),
             drop_sun: [0., -1., 0.],
             ordnance,
@@ -526,9 +613,9 @@ impl Combat {
             streaks,
             flares,
             streaks_at,
-            rail_touches: Vec::with_capacity(64),
-            rail_impacts: Vec::with_capacity(64),
-            rail_heads: Vec::with_capacity(64),
+            rail_touches: Vec::with_capacity(BOLTS + COSMETICS),
+            rail_impacts: Vec::with_capacity(RAIL_EVENTS),
+            rail_heads: Vec::with_capacity(RAIL_EVENTS),
             rail_waiting: Vec::with_capacity(256),
             rail_token: 0,
             rail_rng: jsrt::rng::ClassicRandom::new(
@@ -538,6 +625,9 @@ impl Combat {
             total_streaks: 0,
             flames: Vec::with_capacity(16),
             total_flames: 0,
+            timed_effects: Vec::with_capacity(64),
+            missing_effects: MissingEffects::default(),
+            family: content.content.battle.family,
             map_effects,
             destruction,
             droid_explosions,
@@ -666,6 +756,42 @@ impl Combat {
     pub fn end_glow(&mut self, handle: u32) {
         self.effects.kill(handle);
     }
+    pub fn find_effect_group(&self, name: &str) -> Option<usize> {
+        lookup_effect_swbf2(&self.effect_names, name)
+    }
+    /// Resolve a named effect group case-insensitively and log once per distinct
+    /// missing name so absent effects in a loaded pack never disappear silently.
+    pub fn resolve_effect_group(&mut self, source: &str, name: &str) -> Option<usize> {
+        let found = self.find_effect_group(name);
+        if found.is_none() {
+            if let Some(note) = self.missing_effects.note(source, name) {
+                eprintln!("{note}");
+            }
+        }
+        found
+    }
+    pub fn start_effect(&mut self, group: usize, position: [f64; 3], turn: Option<[f64; 4]>, seed: u32) -> Option<u32> {
+        let handle = match turn {
+            Some(q) => self.effects.start_turned(group, position, [0.; 3], q, seed),
+            None => self.effects.start(group, position, [0.; 3], None, seed),
+        };
+        if handle.is_some() {
+            self.total_effects += 1;
+        } else {
+            self.refused += 1;
+        }
+        handle
+    }
+    pub fn sync_effect(&mut self, handle: u32, position: [f64; 3], turn: Option<[f64; 4]>) {
+        self.effects.sync(handle, position, turn, None);
+    }
+    pub fn stop_effect(&mut self, handle: u32) {
+        self.effects.stop(handle);
+    }
+    /// Every particle of the effect drawn this much larger, from the next command on.
+    pub fn scale_effect(&mut self, handle: u32, scale: f64) {
+        self.effects.scale(handle, scale, 0.);
+    }
     // An effect another owner asks for between two frames (a droid's death
     // blast). It joins the next frame's spawn batch, as any deferred impact.
     pub fn present_effect(&mut self, group: Option<usize>, position: [f64; 3], seed: u32) {
@@ -693,6 +819,34 @@ impl Combat {
     /// the effects that fall due are started. Nothing is drawn here: `draw`
     /// follows once the frame's bodies are posed.
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
+        self.frame_shared(receiver, tick, dt);
+        if let Some(mission) = &mut self.mission_effects {
+            mission.display_dt = dt;
+            mission.frame(receiver, tick, &self.bolts[..self.top], &mut self.effects);
+            if self.trace && self.frame % 60 == 0 {
+                use bfe_presentation::layout::header as eh;
+                let h = &self.effects.owner.header;
+                eprintln!(
+                    "fx: live={} capacity={} refused={} effects={} refused_effects={}",
+                    h[eh::PARTICLES], self.effects.owner.particle_capacity(), h[eh::REFUSED_PARTICLES], h[eh::EFFECTS], h[eh::REFUSED_EFFECTS]
+                );
+            }
+        }
+    }
+    pub(super) fn present_swbf2_powers(
+        &mut self,
+        receiver: &Receiver,
+        characters: &mut crate::characters::Characters,
+        dt: f64,
+        ray_cast: &mut dyn FnMut([f64; 3], [f64; 3], f64) -> Option<f64>,
+    ) {
+        if let Some(mission) = &mut self.mission_effects {
+            mission
+                .powers
+                .frame(receiver, characters, dt, &mut self.effects, ray_cast);
+        }
+    }
+    fn frame_shared(&mut self, receiver: &Receiver, tick: f64, dt: f64) {
         use bfe_presentation::layout::frame as ef;
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         // How far behind the newest tick this frame is drawn, once a second.
@@ -733,6 +887,15 @@ impl Combat {
             }
             at += 1;
         }
+        let mut ti = 0;
+        while ti < self.timed_effects.len() {
+            if self.clock >= self.timed_effects[ti].stop_at || !self.effects.playing(self.timed_effects[ti].handle) {
+                self.effects.stop(self.timed_effects[ti].handle);
+                self.timed_effects.swap_remove(ti);
+            } else {
+                ti += 1;
+            }
+        }
         let mut net_count = 0;
         // Epoch reset releases visual identities without reconstructing their
         // resource banks. Pending effects from another battle cannot cross
@@ -744,6 +907,9 @@ impl Combat {
             self.orphans.clear();
             self.cosmetics.clear();
             self.flames.clear();
+            for timed in self.timed_effects.drain(..) {
+                self.effects.stop(timed.handle);
+            }
             self.map_effects.reset(&mut self.effects);
             self.hull_fx.clear(&mut self.effects);
             self.debris.clear();
@@ -1084,19 +1250,72 @@ impl Combat {
                     position: Option<[f64; 3]>,
                     #[serde(default)]
                     normal: Option<[f64; 3]>,
+                    #[serde(default)]
+                    forward: Option<[f64; 3]>,
+                    #[serde(default)]
+                    duration: Option<f64>,
+                    #[serde(default, rename = "ownerId")]
+                    owner_id: Option<f64>,
+                    #[serde(default, rename = "ownerGeneration")]
+                    owner_generation: Option<f64>,
                 }
                 // presentEntityEvent "effect": the named effect at the
-                // record's point, its up axis along the record's normal. A
-                // record without a name or a point shows nothing.
+                // record's point, its up axis along the record's normal (or
+                // its +Z axis along `forward` for 2005 emitter beams/flames).
+                // A record without a name or a point shows nothing.
                 if let Ok(event) = serde_json::from_slice::<Event>(bytes) {
                     if let ("effect", Some(position)) = (event.kind, event.position) {
-                        let group = event.name.and_then(|name| self.effect_names.iter().find(|(n, _)| n == name).map(|(_, g)| *g));
-                        self.play(group, position, event.normal, id);
-                        // `if (event.name === "headshot")
-                        // ordnance.presentHeadshot(point)`: the Enhanced
-                        // sniper look's flourish.
-                        if event.name == Some("headshot") && self.enhanced_sniper && self.rail_heads.len() < self.rail_heads.capacity() {
-                            self.rail_heads.push(position);
+                        if self.family == bfe_family::GameFamily::Swbf1 {
+                            let group = event.name.and_then(|name| lookup_effect_released(&self.effect_names, name));
+                            self.play(group, position, event.normal, id);
+                            // `if (event.name === "headshot")
+                            // ordnance.presentHeadshot(point)`: the Enhanced
+                            // sniper look's flourish.
+                            if event.name == Some("headshot") && self.enhanced_sniper && self.rail_heads.len() < self.rail_heads.capacity() {
+                                self.rail_heads.push(position);
+                            }
+                        } else {
+                            let group = event
+                                .name
+                                .and_then(|name| self.resolve_effect_group("effect event", name));
+                            let owner = match (event.owner_id, event.owner_generation) {
+                                (Some(oid), Some(ogen)) => Some((oid as u32, ogen as u32)),
+                                _ => None,
+                            };
+                            if let (Some(group), Some(dur)) = (group, event.duration.filter(|d| d.is_finite() && *d > 0.0)) {
+                                let stop_at = self.clock + dur;
+                                if let Some(existing) = owner.and_then(|own_key| {
+                                    self.timed_effects
+                                        .iter_mut()
+                                        .find(|e| e.owner == Some(own_key) && e.group == group)
+                                }) {
+                                    self.effects.sync(existing.handle, position, None, None);
+                                    existing.stop_at = existing.stop_at.max(stop_at);
+                                } else if let Some(handle) = self.effects.start(group, position, [0.; 3], event.normal, id) {
+                                    self.total_effects += 1;
+                                    self.timed_effects.push(TimedEffect { owner, group, handle, stop_at });
+                                } else {
+                                    self.refused += 1;
+                                }
+                            } else if let (Some(group), Some(fwd)) = (group, event.forward) {
+                                let mut dir = Vector3::new(fwd[0], fwd[1], fwd[2]);
+                                let len = dir.length();
+                                let mut q = Quaternion::default();
+                                if len > 1e-6 {
+                                    dir.divide_scalar(len);
+                                    q.set_from_unit_vectors(&Vector3::new(0., 0., 1.), &dir);
+                                }
+                                if self.effects.start_turned(group, position, [0.; 3], [q.x, q.y, q.z, q.w], id).is_some() {
+                                    self.total_effects += 1;
+                                } else {
+                                    self.refused += 1;
+                                }
+                            } else {
+                                self.play(group, position, event.normal, id);
+                            }
+                            if event.name == Some("headshot") && self.enhanced_sniper && self.rail_heads.len() < self.rail_heads.capacity() {
+                                self.rail_heads.push(position);
+                            }
                         }
                     }
                 }
@@ -1184,6 +1403,61 @@ impl Combat {
         strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
         lights: &mut super::lights::SceneLights,
         bridge: &mut Bridge,
+    ) {
+        let Some(mission) = &mut self.mission_effects else {
+            return self.draw_shared(dt, own, muzzle, strike, lights, bridge);
+        };
+        // These observed bolts occupy unused draw slots only while the view is submitted.
+        let top = self.top;
+        self.top += mission.rounds.display(self.tick, &mut self.bolts[top..]);
+        let beams = mission.rounds.take_beams(self.tick);
+        swbf2::fade::apply(&mission.fades, self.tick, self.clock, &mut self.bolts[..self.top], &mut self.cosmetics);
+        if self.trace {
+            for bolt in self.bolts[..self.top].iter().filter(|b| b.active && b.owner == own) {
+                let fading = mission.fades.iter().find_map(|f| f.base_of(bolt.style));
+                if let (Some(class), Some(row)) = (fading, self.ordnance.style_row(bolt.style)) {
+                    let glow = &row[s::GLOW_COLOR..s::GLOW_COLOR + 3];
+                    eprintln!("ord: fade id={} age={:.3} class={class} style={} glow={glow:.4?}", bolt.id, (self.tick - bolt.flight) / 60., bolt.style);
+                }
+            }
+            for cosmetic in &self.cosmetics {
+                let fading = mission.fades.iter().find_map(|f| f.base_of(cosmetic.style));
+                if let (Some(class), Some(row)) = (fading, self.ordnance.style_row(cosmetic.style)) {
+                    let glow = &row[s::GLOW_COLOR..s::GLOW_COLOR + 3];
+                    eprintln!("ord: fade key={} age={:.3} class={class} style={} glow={glow:.4?}", cosmetic.key, self.clock - cosmetic.born, cosmetic.style);
+                }
+            }
+        }
+        self.draw_shared_with_beams(dt, own, muzzle, strike, lights, bridge, &beams);
+        if let Some(mission) = &mut self.mission_effects {
+            swbf2::fade::restore(&mission.fades, &mut self.bolts[..self.top], &mut self.cosmetics);
+            mission.rounds.return_beams(beams);
+            mission.rounds.draw_flashes(self.tick, &mut self.particles, bridge);
+        }
+        self.bolts[top..self.top].fill(Bolt::default());
+        self.top = top;
+    }
+    fn draw_shared(
+        &mut self,
+        dt: f64,
+        own: (u32, u32),
+        muzzle: &mut dyn FnMut((u32, u32), usize) -> Option<[f64; 3]>,
+        strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
+        lights: &mut super::lights::SceneLights,
+        bridge: &mut Bridge,
+    ) {
+        self.draw_shared_with_beams(dt, own, muzzle, strike, lights, bridge, &[]);
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn draw_shared_with_beams(
+        &mut self,
+        dt: f64,
+        own: (u32, u32),
+        muzzle: &mut dyn FnMut((u32, u32), usize) -> Option<[f64; 3]>,
+        strike: &dyn Fn([f64; 3], [f64; 3], f64) -> Option<f64>,
+        lights: &mut super::lights::SceneLights,
+        bridge: &mut Bridge,
+        beams: &[swbf2::BeamDraw],
     ) {
         let tick = self.tick;
         let net_count = std::mem::take(&mut self.net_count);
@@ -1282,6 +1556,21 @@ impl Combat {
                 eprintln!("ord: draw key={} wall={:.1} flown={flown:.3} head={head:.3?} offset={:.3?}", cosmetic.key, wall(), cosmetic.offset);
             }
         }
+        for beam in beams {
+            if count + 1 >= limits::RECORDS {
+                break;
+            }
+            let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
+            x.fill(0.);
+            x[r::KIND] = kind::BEAM as f64;
+            x[r::KEY] = beam.key as f64;
+            x[r::STYLE] = beam.style as f64;
+            x[r::LIFE] = beam.life;
+            x[r::POSITION..r::POSITION + 3].copy_from_slice(&beam.position);
+            x[r::END..r::END + 3].copy_from_slice(&beam.end);
+            x[r::DIRECTION..r::DIRECTION + 3].copy_from_slice(&beam.direction);
+            count += 1;
+        }
         let x = &mut self.ordnance.input[f::STRIDE + count * r::STRIDE..][..r::STRIDE];
         x.fill(0.);
         x[r::KIND] = kind::NET as f64;
@@ -1366,7 +1655,8 @@ impl Combat {
             }
         }
         for (slot, net) in self.net.iter_mut().enumerate() {
-            if net.active && tick > net.expiry + 24. {
+            let extra = self.styles.get(net.style).map_or(0., |s| s.fade_out_ticks);
+            if net.active && tick > net.expiry + 24. + extra {
                 if let Some(trail) = net.trail.take() {
                     self.effects.stop(trail);
                 }
@@ -1617,7 +1907,13 @@ impl Combat {
     /// BlasterBatch's onBeforeRender: a thin bolt is never drawn under a
     /// couple of pixels wide, which needs the lens (three's fov from the
     /// projection) and the frame's height.
-    pub fn project(&self, bridge: &mut Bridge, projection: &[f64], height: f64) {
+    pub fn project(&mut self, bridge: &mut Bridge, projection: &[f64], height: f64) {
+        if let Some(effects) = &mut self.mission_effects {
+            effects.draw_environment(bridge, projection);
+        }
+        self.project_shared(bridge, projection, height);
+    }
+    fn project_shared(&self, bridge: &mut Bridge, projection: &[f64], height: f64) {
         if self.blaster_count > 0 {
             let fov = 2. * (1. / projection[5]).atan().to_degrees();
             bridge.r.effects.data[self.blasters_at + self.blaster_count * 14] = style::bolt_view(fov, 1., height) as f32;
@@ -1648,5 +1944,63 @@ mod record_tests {
     #[test]
     fn every_bolt_and_the_net_record_fit_the_ordnance_input() {
         assert!(super::BOLTS + super::COSMETICS + 1 <= super::limits::RECORDS);
+    }
+}
+
+fn lookup_effect_released(effect_names: &[(String, usize)], name: &str) -> Option<usize> {
+    effect_names.iter().find(|(n, _)| n == name).map(|(_, g)| *g)
+}
+
+fn lookup_effect_swbf2(effect_names: &[(String, usize)], name: &str) -> Option<usize> {
+    effect_names.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, g)| *g)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effect_lookup_stays_exact_in_2004_and_case_insensitive_in_2005() {
+        let names = vec![("spark_burst".to_string(), 7usize)];
+        assert_eq!(lookup_effect_released(&names, "spark_burst"), Some(7));
+        assert_eq!(lookup_effect_released(&names, "SPARK_BURST"), None);
+        assert_eq!(lookup_effect_swbf2(&names, "SPARK_BURST"), Some(7));
+    }
+
+    #[test]
+    fn a_list_and_a_line_of_numbers_give_one_look() {
+        let parse = |text: &str| bfe_content::json::parse(text).unwrap();
+        let list = parse(r#"{"base":"bolt","LaserGlowColor":[40,200,120,102],"LightColor":[10,20,30],"LaserLength":9,"LaserWidth":0.3,"GlowLength":4}"#);
+        let line = parse(r#"{"base":"bolt","LaserGlowColor":"40 200 120 102","LightColor":"10 20 30","LaserLength":9,"LaserWidth":0.3,"GlowLength":4}"#);
+        let row = |def| style::row(&serde_json::from_value(authored_look(def)).unwrap(), true);
+        assert_eq!(row(&list), row(&line));
+        // The default look is white and short: both keep the authored one.
+        assert!(row(&line) != style::row(&style::Content::default(), true));
+        assert_eq!(color(&list, "LaserGlowColor"), color(&line, "LaserGlowColor"));
+        assert_eq!(color(&line, "LightColor"), [10. / 255., 20. / 255., 30. / 255.]);
+        assert_eq!((rail_color(&list), rail_color(&line)), ([40., 200., 120.], [40., 200., 120.]));
+    }
+
+    #[test]
+    fn an_absent_or_unreadable_colour_keeps_the_defaults() {
+        let def = bfe_content::json::parse(r#"{"LightColor":"red","LaserGlowColor":7}"#).unwrap();
+        assert_eq!((channels(&def, "LightColor"), channels(&def, "LaserGlowColor"), channels(&def, "Effect")), (None, None, None));
+        assert_eq!(color(&def, "LightColor"), [1.; 3]);
+        assert_eq!(rail_color(&def), [120., 160., 255.]);
+    }
+
+    #[test]
+    fn missing_effect_lookup_logs_once_per_name_and_skips_headshot() {
+        let mut tracker = MissingEffects::default();
+        assert_eq!(tracker.note("effect event", ""), None);
+        assert_eq!(tracker.note("effect event", "headshot"), None);
+        assert_eq!(tracker.note("effect event", "HEADSHOT"), None);
+        let first = tracker.note("effect event", "fx_missing_spark").unwrap();
+        assert!(first.contains("fx_missing_spark"), "{first}");
+        assert!(first.contains("effect event"), "{first}");
+        assert_eq!(tracker.note("effect event", "FX_MISSING_SPARK"), None);
+        let second = tracker.note("mine trail", "fx_absent_blink").unwrap();
+        assert!(second.contains("fx_absent_blink"), "{second}");
+        assert!(second.contains("mine trail"), "{second}");
     }
 }

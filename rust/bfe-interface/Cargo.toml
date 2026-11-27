@@ -7,6 +7,8 @@ publish = false
 description = "2D/3D-tilted interface space, bitmap fonts, nine-slice shapes, menu screens, classic theme, options and settings"
 
 [dependencies]
+bfe-family = { path = "../bfe-family" }
+bfe-storage = { path = "../bfe-storage" }
 bfe-render = { path = "../bfe-render" }
 glow = "0.18"
 serde = { version = "1", features = ["derive"] }

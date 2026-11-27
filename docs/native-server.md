@@ -25,8 +25,8 @@ configured, `fault` when `config.json` cannot be read or admission fails.
 | --- | --- | --- |
 | `name` | `"Battlefront Eternal server"` | Public server title (up to 80 characters) |
 | `engine` | `""` | Accepted for compatibility with existing configs and ignored |
-| `data` | `""` | Path to prepared game content (`BFE_DATA_DIR` overrides) |
-| `rotation` | `["swbf1/nab2:rep:conquest"]` | Map rotation entries (`swbf1/<map>:<side>:<mode>`) |
+| `data` | `""` | Path to prepared game content root (`BFE_DATA_DIR` overrides). 2004 (`swbf1`) prepared files live directly under `data` (`maps/`, `sides/`, `common/`, `audio/`); 2005 (`swbf2`) files live under `data/swbf2/.content/` |
+| `rotation` | `["swbf1/nab2:rep:conquest"]` | Map rotation entries (`swbf1/<map>:<side>:<mode>`). An entry starting with `swbf2/` names a Battlefront II (2005) battle (`swbf2/<map>:<era>:<mode>`); this build refuses it at startup, before reading the content folder |
 | `master` | `"https://online.battlefronteternal.com"` | Online directory master URL (`BFE_MASTER_URL` overrides) |
 | `onlineNoticeAccepted` | `false` | Enables master registration and global ban fetches (`BFE_ACCEPT_ONLINE=1` overrides) |
 | `relayPolicy` | `"auto"` | `"auto"`, `"never"`, or `"always"` (`BFE_RELAY_POLICY` overrides) |
@@ -76,6 +76,15 @@ listener.
   `stateBytesPerSecond` (`burst = max(4096, rate * 0.25)`). Reliable `events`
   messages are bounded to `262144` bytes so full mission `entity-registry`
   descriptors transmit without truncation.
+- **Inbound limit (Battlefront II battles)**: while a 2005 battle is hosted,
+  every source address may send `32000` bytes a second (burst `8000`) and `120`
+  datagrams a second (burst `30`), checked before any byte of a datagram is
+  decoded (`bfe-server/src/inbound.rs`). A datagram over either is dropped and
+  counted (`inboundDropped`, `inboundDroppedBytes` in the transport metrics); a
+  source with a dropped datagram in each of five seconds in a row is closed
+  (`KICKED`, "inbound rate over the limit"). A seated pilot sends about 21.5 kB
+  in its worst measured second. A 2004 battle keeps the released path and
+  reports neither counter.
 - **LAN discovery**: `LanDiscoveryResponder` listens on UDP `discoveryPort`
   (default `18452`) over IPv4 broadcast and IPv6 link-local multicast
   (`ff02::bf:1`), rate-limits per-address probes to one every `250` ms, and

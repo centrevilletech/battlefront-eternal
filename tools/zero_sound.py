@@ -63,7 +63,7 @@ except ImportError:  # the plain loops decode the same, slower
     np = None
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME, shared_lock  # noqa: E402
+from zero_paths import GAME, atomic_write, shared_lock, write_text_lf  # noqa: E402
 from zero_paths import PUBLIC as _PUBLIC  # noqa: E402
 PUBLIC = _PUBLIC / "audio"
 
@@ -244,15 +244,15 @@ def _config_value(kind, key, index, raw):
     return round(value, 6)
 
 
-def _entries(data, start, end, kind):
+def _entries(data, start, end, kind, names=CONFIG, value_of=_config_value):
     """A config body as (key, values, children) entries."""
     entries = []
     for tag, b, e in chunks(data, start, end):
         if tag == b"DATA":
             key = struct.unpack_from("<I", data, b)[0]
-            name = CONFIG.get(key, "%08x" % key)
+            name = names.get(key, "%08x" % key)
             count = data[b + 4]
-            values = [_config_value(kind, name, i, data[b + 5 + 4 * i:b + 9 + 4 * i]) for i in range(count)]
+            values = [value_of(kind, name, i, data[b + 5 + 4 * i:b + 9 + 4 * i]) for i in range(count)]
             entries.append([name, values, []])
         elif tag == b"SCOP" and entries:
             # A second scope after the same entry adds to the first: 46
@@ -260,7 +260,7 @@ def _entries(data, start, end, kind):
             # head cannon FireSound among them), which used to wipe their
             # Name and SampleList.
             parent = entries[-1]
-            parent[2] = parent[2] + _entries(data, b, e, parent[0] if kind in ("snd_", "mus_", "ffx_") else kind)
+            parent[2] = parent[2] + _entries(data, b, e, parent[0] if kind in ("snd_", "mus_", "ffx_") else kind, names, value_of)
     return entries
 
 
@@ -290,7 +290,16 @@ def config_objects(data, configs):
     out = []
     for tag, b, e in configs:
         for kind, _, kids in _entries(data, b, e, tag):
-            out.append(_object(kind, kids))
+            obj = _object(kind, kids)
+            if kind == "SoundParameterized" and any(key == "Layer" for key, _, _ in kids):
+                layers = []
+                for key, _, fields in kids:
+                    if key == "Layer" and fields:
+                        layer = {k: _object(k, sub) if sub else values for k, values, sub in fields}
+                        layer["ParameterGraphs"] = [values for k, values, _ in fields if k == "ParameterGraph"]
+                        layers.append(layer)
+                obj["Layer.children"] = layers
+            out.append(obj)
     return out
 
 
@@ -409,7 +418,8 @@ def decode_segment(stream, segment, substreams):
 # --- extraction ------------------------------------------------------------
 
 def sound_archive(name):
-    return GAME / "Sound" / name
+    import zero_family
+    return GAME / zero_family.profile().sound_dir / name
 
 
 def sound_file(path, root=None):
@@ -419,10 +429,26 @@ def sound_file(path, root=None):
     return data_file(path, root, GAME) or sound_archive(path.split(";", 1)[0].split("\\")[-1])
 
 
-def read_mission_audio(calls):
+def write_bank(path, pcm):
+    """A battle can continue reading its complete bank while preparation replaces it."""
+    atomic_write(path, pcm, "bank", sync=True)
+
+
+def write_manifest(path, record):
+    atomic_write(path, json.dumps(record).encode(), "manifest")
+
+
+def low_voice_rule(args):
+    listener, watched, voice, threshold = args[:4]
+    return [watched, threshold, voice, len(args) > 4 and bool(args[4]), listener]
+
+
+def read_mission_audio(calls, *, low_voice=True):
     """The audio calls a mission script makes, as the runtime needs them."""
     mission = {"banks": [], "streams": [], "music": {}, "victory": {}, "defeat": {}, "bleeding": [], "outOfBounds": {},
                "bonus": [], "effects": {}}
+    if low_voice:
+        mission["lowReinforcementsVo"] = []
     for name, args in calls:
         if name == "ReadDataFile" and args and isinstance(args[0], str) and data_path(args[0]).lower().startswith("sound\\"):
             mission["banks"].append(args[0])
@@ -436,6 +462,8 @@ def read_mission_audio(calls):
             mission["defeat"][str(int(args[0]))] = args[1]
         elif name == "SetBleedingVoiceOver" and len(args) >= 3:
             mission["bleeding"].append(list(args))
+        elif low_voice and name == "SetLowReinforcementsVoiceOver" and len(args) >= 4:
+            mission["lowReinforcementsVo"].append(low_voice_rule(args))
         elif name == "SetOutOfBoundsVoiceOver" and len(args) >= 2 and args[0] is not None:
             mission["outOfBounds"][str(int(args[0]))] = args[1]
         elif name == "SetPlanetaryBonusVoiceOver" and len(args) >= 4:
@@ -445,7 +473,27 @@ def read_mission_audio(calls):
     return mission
 
 
-def class_sounds(archives, known):
+def rules_for_sublevel(names, scripts, sub):
+    from zero_lua import calls, load
+    records = {}
+    for name in names:
+        setup = read_mission_audio(call for call in calls(load(scripts[name]))
+                                   if call[0] in ("ReadDataFile", "SetLowReinforcementsVoiceOver"))
+        if setup["banks"] and setup["banks"][0].partition(";")[2].lower() == sub.lower():
+            records[name] = setup["lowReinforcementsVo"]
+    return records
+
+
+def voice_setup(records, default):
+    rows = records[default]
+    result = {"lowReinforcementsVo": rows}
+    overrides = {name: values for name, values in sorted(records.items()) if values != rows}
+    if overrides:
+        result["lowReinforcementsVoByMission"] = overrides
+    return result
+
+
+def class_sounds(archives, known, sections=None):
     """Every class property (weapons, ordnance, explosions, entities) whose
     value names a sound object, or that tunes one: class -> {key: value}.
     Keys whose names are known come out by name, the rest as hex. A key set
@@ -455,8 +503,9 @@ def class_sounds(archives, known):
 
     extra = {fnv1a(n): n for n in CLASS_SOUND_KEYS + CLASS_SOUND_NUMBERS}
     out = {}
-    for data in archives:
-        for start, end in iter_archives(data):
+    sources = sections if sections is not None else ((d, iter_archives(d)) for d in archives)
+    for data, spans in sources:
+        for start, end in spans:
             for tag, b, e in chunks(data, start, end):
                 if tag not in (b"entc", b"wpnc", b"ordc", b"expc"):
                     continue
@@ -570,7 +619,7 @@ def class_geometry(archives):
     return out
 
 
-def map_sound_world(map_data, known, materials=None):
+def map_sound_world(map_data, known, materials=None, spans=None):
     """The map's sound regions (soundstream, soundspace, soundstatic, ...),
     every placed object with a Sound property (the static emitters), each
     command post's voice-over keys, and the world boxes of the objects whose
@@ -584,7 +633,7 @@ def map_sound_world(map_data, known, materials=None):
 
     names = {fnv1a("Sound"): "Sound", fnv1a("SoundStream"): "SoundStream", fnv1a("MinDistance"): "MinDistance", **VO_KEYS}
     out = {"regions": [], "emitters": [], "posts": {}, "materials": []}
-    for body, end in nodes(map_data, b"wrld"):
+    for body, end in (nodes(map_data, b"wrld") if spans is None else spans):
         for region in regions(map_data, body, end):
             word = region["name"].split()[0].lower() if region["name"].split() else ""
             if word.startswith("sound") or word.startswith("foley"):
@@ -613,6 +662,8 @@ def map_sound_world(map_data, known, materials=None):
 def write_streams(stream_calls, out_dir, root=None):
     """Each opened stream's data as stored, and its segment index. root is
     the add-on folder a mission's "dc:" streams are in."""
+    import zero_family
+    reuse = not zero_family.is_swbf2()
     out_dir.mkdir(parents=True, exist_ok=True)
     written = {}
     cache = {}
@@ -625,7 +676,7 @@ def write_streams(stream_calls, out_dir, root=None):
         # by side (tools/prepare.py), so two may write one stream at once:
         # each through files of its own, renamed into place.
         existing = out_dir / f"{name}.json"
-        if existing.exists() and (out_dir / f"{name}.bin").exists():
+        if reuse and existing.exists() and (out_dir / f"{name}.bin").exists():
             try:
                 written[name] = len(json.loads(existing.read_text())["segments"])
                 continue
@@ -652,18 +703,20 @@ def write_streams(stream_calls, out_dir, root=None):
                 "segments": {hexname(s["id"]): [s["offset"], s["size"], s["frames"], s["rate"]] for s in stream["items"] if "offset" in s},
             }
             temporary = out_dir / f"{name}.json.{os.getpid()}.part"
-            temporary.write_text(json.dumps(index))
+            write_text_lf(temporary, json.dumps(index))
             temporary.replace(out_dir / f"{name}.json")
             written[name] = len(index["segments"])
     return written
 
 
-def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_archives, common_data, out_root=PUBLIC, root=None):
+def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_archives, common_data, out_root=PUBLIC, root=None,
+                class_sections=None, world_spans=None, *, mission_reader=read_mission_audio,
+                config_reader=config_objects, class_reader=class_sounds, manifest_writer=write_manifest):
     """The audio a battle loads: its sound sub-level's configs and samples,
     the streams it opens, its class sound keys, and the map's emitters.
     public/audio/index.json maps each mission (and map) to its sub-level.
     root is the add-on folder the mission's "dc:" files are in, if any."""
-    mission = read_mission_audio(mission_calls)
+    mission = mission_reader(mission_calls)
     if not mission["banks"]:
         print("  audio: the mission reads no sound archive", flush=True)
         return None
@@ -685,7 +738,7 @@ def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_arc
             if tag in (b"snd_", b"mus_", b"ffx_"):
                 core_configs.append((tag.decode(), b, e))
     core_banks = archive_contents_flat(core_data)
-    objects = config_objects(core_data, core_configs) + config_objects(data, level["configs"])
+    objects = config_reader(core_data, core_configs) + config_reader(data, level["configs"])
 
     # Samples: the sub-level bank's ids, read from common.bnk; then core.lvl's.
     common_bank = archive_contents(sound_archive("common.bnk").read_bytes())
@@ -732,10 +785,10 @@ def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_arc
 
     # Names for the hashes, where any text the battle holds spells them.
     known = {int(o["Name"], 16) for o in objects if isinstance(o.get("Name"), str)}
-    sounds_of_classes = class_sounds([map_data, *side_archives, common_data], known)
+    sounds_of_classes = class_reader([map_data, *side_archives, common_data], known, class_sections)
     geometry = class_geometry([map_data, common_data])
     with_geometry = {c: {**props, "GeometryName": geometry.get(c)} for c, props in sounds_of_classes.items()}
-    world = map_sound_world(map_data, known, material_classes([map_data, common_data], with_geometry))
+    world = map_sound_world(map_data, known, material_classes([map_data, common_data], with_geometry), world_spans)
     words = set()
     for keys in sounds_of_classes.values():
         for v in keys.values():
@@ -755,8 +808,8 @@ def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_arc
 
     out_dir = out_root / sub
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "bank.bin").write_bytes(bytes(pcm))
-    streams = write_streams(mission["streams"], out_root / "streams", root)
+    write_bank(out_dir / "bank.bin", pcm)
+    streams = write_streams(mission.get("streamRequests", mission["streams"]), out_root / "streams", root)
     manifest = {
         "sublevel": sub,
         "map": map_name,
@@ -769,7 +822,7 @@ def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_arc
         "world": world,
         "names": names,
     }
-    (out_dir / "sound.json").write_text(json.dumps(manifest))
+    manifest_writer(out_dir / "sound.json", manifest)
     # The index is every map's: a map's one shared read-modify-write, under
     # a lock held only for it (tools/prepare.py runs maps side by side).
     index_path = out_root / "index.json"
@@ -778,7 +831,7 @@ def write_audio(map_name, mission_name, mission_calls, sides, map_data, side_arc
         index.setdefault("missions", {})[mission_name] = sub
         index.setdefault("maps", {})[map_name] = sub
         temporary = index_path.with_suffix(".json.part")
-        temporary.write_text(json.dumps(index, indent=1, sort_keys=True))
+        write_text_lf(temporary, json.dumps(index, indent=1, sort_keys=True))
         temporary.replace(index_path)
     kinds = {}
     for o in objects:
@@ -808,12 +861,12 @@ def archive_contents_flat(data):
     return banks
 
 
-def extract_audio(map_name, side="rep", mission=None):
+def extract_audio(map_name, side="rep", mission=None, *, manifest_writer=write_manifest):
     """Write the sound of one of a map's battles: the mission named, else
     the one tools/extract.py picks for the side (its mission's sound
     sub-level, streams, and class keys)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from extract import GAME as GAME_DIR, common_archive, map_archive, pick_mission, side_archive
+    from extract import GAME as GAME_DIR, common_archive, map_archive, map_missions, pick_mission, side_archive
     from zero_addon import mission_root, missions
     from zero_lua import calls, load, mission_setup
 
@@ -824,11 +877,19 @@ def extract_audio(map_name, side="rep", mission=None):
     if not setup:
         print(f"  audio: no mission for {map_name} with {mission or side}", flush=True)
         return None
-    mission_calls = calls(load(missions(GAME_DIR)[mission]))
+    scripts = missions(GAME_DIR)
+    mission_calls = calls(load(scripts[mission]))
+    audio_setup = read_mission_audio(mission_calls)
+    if audio_setup["banks"]:
+        siblings = [name for name, value in map_missions(map_name).items() if name != mission and not value.get("world")]
+        rules = rules_for_sublevel(siblings, scripts, audio_setup["banks"][0].partition(";")[2])
+        rules[mission] = audio_setup["lowReinforcementsVo"]
+        audio_setup.update(voice_setup(rules, mission))
     sides = setup["sides"]
     return write_audio(map_name, mission, mission_calls, sides, map_archive(map_name).read_bytes(),
                        [side_archive(s).read_bytes() for s in sides if side_archive(s).exists()],
-                       common_archive().read_bytes(), root=mission_root(mission, GAME_DIR))
+                       common_archive().read_bytes(), root=mission_root(mission, GAME_DIR),
+                       mission_reader=lambda _: audio_setup, manifest_writer=manifest_writer)
 
 
 def main():

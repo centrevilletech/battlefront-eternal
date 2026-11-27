@@ -57,6 +57,154 @@ pub fn soldier(actor: &Actor, clips: &Clips, banks: Option<&Value>) -> Input {
             sets[0][gait]
         }
     });
+    soldier_from_tables(actor, clips, banks, sets, alert)
+}
+
+/// Computes ordered clip-name prefixes for a 2005 unit from its definition and
+/// assigned animation banks (ordered lowest-to-highest precedence).
+///
+/// Saber/melee heroes search their own `{bank}_sabre` overrides first, then
+/// `human_sabre`, before falling back to `human_rifle` for postures without a
+/// saber clip. Non-saber soldiers search their own `{bank}_rifle` first, then
+/// `human_rifle`.
+pub fn swbf2_slot_prefixes(unit_def: Option<&Value>, anim_banks: &[String]) -> Vec<String> {
+    let is_saber = anim_banks
+        .iter()
+        .any(|b| b.to_ascii_lowercase().ends_with("_sabre"))
+        || unit_def
+            .and_then(|d| d.get("weapons"))
+            .and_then(Value::as_array)
+            .is_some_and(|ws| {
+                ws.iter().any(|w| {
+                    matches!(
+                        w.get("base").and_then(Value::as_str),
+                        Some("melee" | "meleethrow")
+                    ) || w
+                        .get("saberHilts")
+                        .and_then(Value::as_array)
+                        .is_some_and(|h| !h.is_empty())
+                        || w.get("comboBindings")
+                            .and_then(Value::as_array)
+                            .is_some_and(|c| !c.is_empty())
+                })
+            });
+    let mut prefixes: Vec<String> = Vec::new();
+    let mut push = |p: String| {
+        if !p.is_empty() && !prefixes.contains(&p) {
+            prefixes.push(p);
+        }
+    };
+    for bank in anim_banks.iter().rev() {
+        let stem = bfe_content::clips::bank_stem(bank);
+        if stem == "human" || stem.starts_with("human_") && !stem.ends_with("_sabre") {
+            continue;
+        }
+        if stem.ends_with("_sabre") || stem.ends_with("_rifle") {
+            push(stem);
+        } else if is_saber {
+            push(format!("{stem}_sabre"));
+            push(stem.clone());
+            push(format!("{stem}_rifle"));
+        } else {
+            push(format!("{stem}_rifle"));
+            push(stem.clone());
+            push(format!("{stem}_sabre"));
+        }
+    }
+    if is_saber {
+        push("human_sabre".to_string());
+    }
+    push("human_rifle".to_string());
+    prefixes
+}
+
+/// 2005 soldier clip-table binder: resolves every locomotion, alert,
+/// transition, air, dive, jetpack, and thrown slot across `preferred_prefixes`
+/// (trying plain and `_full` forms), keeping the 2004 [`soldier`] table
+/// untouched.
+pub fn soldier_swbf2(
+    actor: &Actor,
+    clips: &Clips,
+    banks: Option<&Value>,
+    preferred_prefixes: &[String],
+) -> Input {
+    let fallback_prefixes;
+    let prefixes: &[String] = if preferred_prefixes.is_empty() {
+        fallback_prefixes = vec!["human_rifle".to_string()];
+        &fallback_prefixes
+    } else {
+        preferred_prefixes
+    };
+    let id = |name: &str| clips.list.iter().position(|c| c.name == name);
+    let slot = |suffix: &str| -> Option<usize> {
+        for prefix in prefixes {
+            if let Some(i) = id(&format!("{prefix}_{suffix}")) {
+                return Some(i);
+            }
+            if let Some(i) = id(&format!("{prefix}_{suffix}_full")) {
+                return Some(i);
+            }
+        }
+        None
+    };
+    let sets = std::array::from_fn(|posture| {
+        std::array::from_fn(|gait| {
+            if posture == 1 && matches!(GAITS[gait], "run" | "runBack" | "walkLeft" | "walkRight") {
+                return None;
+            }
+            if posture == 2 && matches!(GAITS[gait], "run" | "runBack") {
+                return None;
+            }
+            if posture == 0 && matches!(GAITS[gait], "walkLeft" | "walkRight") {
+                return None;
+            }
+            slot(&format!("{}_{}", POSTURES[posture], NAMES[gait]))
+        })
+    });
+    let alert = std::array::from_fn(|gait| {
+        if gait >= 7 {
+            None
+        } else if matches!(GAITS[gait], "idle" | "run" | "runBack") {
+            slot(&format!("stand_{}_alert", NAMES[gait])).or(sets[0][gait])
+        } else {
+            sets[0][gait]
+        }
+    });
+    let mut input = soldier_from_tables(actor, clips, banks, sets, alert);
+    input.tables.transitions = std::array::from_fn(|from| {
+        std::array::from_fn(|to| match (from, to) {
+            (0, 2) | (1, 2) => slot(&format!("{}_getdown_prone", POSTURES[from])),
+            (2, 0) | (2, 1) => slot(&format!("prone_getup_{}", POSTURES[to])),
+            _ => None,
+        })
+    });
+    input.tables.jump = slot("jump");
+    input.tables.fall = slot("fall");
+    input.tables.land_soft = slot("landsoft");
+    input.tables.land_hard = slot("landhard");
+    input.tables.dive = slot("diveforward");
+    input.tables.jet = slot("jetpack_hover");
+    input.tables.thrown = std::array::from_fn(|way| {
+        std::array::from_fn(|action| {
+            let way = ["front", "back"][way];
+            let action = ["flying", "bounce", "land", "rest"][action];
+            slot(&format!(
+                "thrown_{action}{way}{}",
+                if action == "flying" { "" } else { "soft" }
+            ))
+        })
+    });
+    input
+}
+
+fn soldier_from_tables(
+    actor: &Actor,
+    clips: &Clips,
+    banks: Option<&Value>,
+    sets: [[Option<usize>; 9]; 3],
+    alert: [Option<usize>; 9],
+) -> Input {
+    let id = |name: &str| clips.list.iter().position(|c| c.name == name);
     let transitions = std::array::from_fn(|from| {
         std::array::from_fn(|to| match (from, to) {
             (0, 2) | (1, 2) => id(&format!("human_rifle_{}_getdown_prone", POSTURES[from])),
@@ -483,5 +631,111 @@ pub fn copy_first_person(
         sets: input.sets.clone(),
         forced_set: input.forced_set,
         offset: input.offset,
+    }
+}
+
+#[cfg(test)]
+mod swbf2_slot_tests {
+    use super::*;
+    use bfe_content::{
+        actor::build_actor,
+        clips::load_clips_by_crc,
+        json::parse,
+        zero_hash,
+    };
+    use std::collections::HashMap;
+    use std::rc::Rc;
+
+    #[test]
+    fn swbf2_soldier_table_resolves_custom_bank_and_prefers_sabre_over_rifle() {
+        let root_crc = zero_hash::crc_hex("DummyRoot");
+        let actor_json = parse(
+            r#"{"bones":[{"name":"DummyRoot","parent":-1,"local":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}],"parts":[{"vertexOffset":0,"vertexCount":1,"indexOffset":0,"indexCount":1,"texture":""}]}"#,
+        )
+        .unwrap();
+        let actor = build_actor(&actor_json, &[0.0f32; 9]).unwrap();
+        let bones = vec!["DummyRoot".to_string()];
+
+        // 1. Standalone non-human melee bank (no common human_rifle clips at all).
+        let quad_meta = parse(&format!(
+            r#"{{
+                "fps": 30,
+                "banks": {{
+                    "quad": {{
+                        "clips": [
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 1, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 1, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}}
+                        ]
+                    }}
+                }}
+            }}"#,
+            zero_hash::crc_hex("quad_sabre_stand_idle_emote_full"),
+            zero_hash::crc_hex("quad_sabre_stand_walkforward"),
+            zero_hash::crc_hex("quad_sabre_stand_runforward_full"),
+            zero_hash::crc_hex("quad_sabre_crouch_idle_emote_full"),
+            zero_hash::crc_hex("quad_sabre_jump_full"),
+            zero_hash::crc_hex("quad_sabre_diveforward_full"),
+            zero_hash::crc_hex("quad_sabre_thrown_flyingfront_full"),
+        ))
+        .unwrap();
+        let floats: Rc<[f32]> = Rc::from(vec![0.0f32; 14]);
+        let (quad_clips, _) =
+            load_clips_by_crc(&quad_meta, &floats, &["quad".into()], &bones, &HashMap::new()).unwrap();
+        let quad_def = parse(r#"{"weapons":[{"base":"melee"}]}"#).unwrap();
+        let quad_prefixes = swbf2_slot_prefixes(Some(&quad_def), &["quad".into()]);
+        let quad_in = soldier_swbf2(&actor, &quad_clips, None, &quad_prefixes);
+        assert!(quad_in.tables.sets[0][0].is_some()); // stand idle
+        assert!(quad_in.tables.sets[0][1].is_some()); // stand walk
+        assert!(quad_in.tables.sets[0][2].is_some()); // stand run
+        assert!(quad_in.tables.sets[1][0].is_some()); // crouch idle
+        assert!(quad_in.tables.alert[0].is_some());
+        assert!(quad_in.tables.jump.is_some());
+        assert!(quad_in.tables.dive.is_some());
+        assert!(quad_in.tables.thrown[0][0].is_some());
+
+        // 2. Saber hero with both human_rifle and human_sabre + hero override prefers hero -> sabre -> rifle.
+        let hero_meta = parse(&format!(
+            r#"{{
+                "fps": 30,
+                "banks": {{
+                    "human_0": {{
+                        "clips": [
+                            {{"crc": "{}", "flags": 1, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}},
+                            {{"crc": "{}", "flags": 0, "frames": 2, "offset": 0, "tracks": ["{root_crc}"]}}
+                        ]
+                    }},
+                    "human_sabre": {{
+                        "clips": [
+                            {{"crc": "{}", "flags": 1, "frames": 4, "offset": 0, "tracks": ["{root_crc}"]}}
+                        ]
+                    }},
+                    "duelist": {{
+                        "clips": [
+                            {{"crc": "{}", "flags": 0, "frames": 6, "offset": 0, "tracks": ["{root_crc}"]}}
+                        ]
+                    }}
+                }}
+            }}"#,
+            zero_hash::crc_hex("human_rifle_stand_runforward"),
+            zero_hash::crc_hex("human_rifle_jump"),
+            zero_hash::crc_hex("human_sabre_stand_runforward_full"),
+            zero_hash::crc_hex("duelist_sabre_jump_full"),
+        ))
+        .unwrap();
+        let hero_floats: Rc<[f32]> = Rc::from(vec![0.0f32; 42]);
+        let banks = vec!["human_0".into(), "human_sabre".into(), "duelist".into()];
+        let (hero_clips, _) =
+            load_clips_by_crc(&hero_meta, &hero_floats, &banks, &bones, &HashMap::new()).unwrap();
+        let hero_prefixes = swbf2_slot_prefixes(Some(&quad_def), &banks);
+        let hero_in = soldier_swbf2(&actor, &hero_clips, None, &hero_prefixes);
+        let run_idx = hero_in.tables.sets[0][2].expect("stand run");
+        assert_eq!(hero_clips.list[run_idx].name, "human_sabre_stand_runforward_full");
+        let jump_idx = hero_in.tables.jump.expect("jump");
+        assert_eq!(hero_clips.list[jump_idx].name, "duelist_sabre_jump_full");
     }
 }

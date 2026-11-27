@@ -1,0 +1,18 @@
+pow	1	1	1	1
+sort1	1	3
+sort2	1	3
+sort3	2	3	77	77	77
+tn_hex	2	-3	0.5	4
+tn_spec	true	true	inf	-inf
+tn_nul	2	true
+tn_rad	15	16	3
+fmt_nul	0	2	0	1
+fmt_long	100
+fmt_int	-2147483648	-2147483648	4294967295	ffffffff
+ab	9
+ab
+find_nul	1	1
+find_plain_nul	2	3
+gfind_nul	a
+gsub_nul	zz	2
+gsub_pct	1	0

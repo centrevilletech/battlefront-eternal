@@ -25,6 +25,138 @@ pub struct Record {
     pub layers: Vec<String>,
     pub low_res_scale: Option<f64>,
 }
+
+/// Extended material overrides used only on the 2005 static-world admission path.
+#[derive(Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtendedRecordMaterial {
+    pub glow: bool,
+    pub double_sided: Option<bool>,
+    pub bump: Option<String>,
+    pub blend_mode: Option<String>,
+    pub alpha_cutout: Option<f64>,
+    pub scroll: Option<[f64; 2]>,
+    pub specular: Option<[f64; 4]>,
+}
+
+/// 2005 static-world mesh descriptor parsed only through the 2005 admission path.
+#[derive(Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtendedRecord {
+    #[serde(flatten)]
+    pub base: Record,
+    pub glow: bool,
+    pub material: Option<ExtendedRecordMaterial>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ExtendedBlend {
+    Opaque,
+    Alpha,
+    Additive,
+}
+
+/// Resolved 2005 surface state shared across source ordering, shader selection,
+/// static depth casters, and render bucket routing so those stages never disagree.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExtendedSurface {
+    pub flags: u32,
+    pub glow: bool,
+    pub double_sided: bool,
+    pub bump: Option<String>,
+    pub cutout: bool,
+    pub blend_mode: ExtendedBlend,
+    pub scroll: Option<[f64; 2]>,
+    pub specular: Option<[f64; 4]>,
+}
+
+impl ExtendedSurface {
+    pub fn resolve(record: &ExtendedRecord) -> Result<Self, String> {
+        if record.base.terrain {
+            return Ok(Self {
+                flags: 1,
+                glow: false,
+                double_sided: false,
+                bump: None,
+                cutout: false,
+                blend_mode: ExtendedBlend::Opaque,
+                scroll: None,
+                specular: None,
+            });
+        }
+        let m = record.material.as_ref();
+        if let Some(v) = m.and_then(|m| m.alpha_cutout) {
+            if !v.is_finite() || v < 0.0 {
+                return Err(format!("invalid extended alphaCutout {v}"));
+            }
+        }
+        let cutout = (record.base.flags & 2 != 0)
+            || m.is_some_and(|m| m.alpha_cutout.is_some_and(|v| v > 0.0));
+        let blend_mode = match m.and_then(|m| m.blend_mode.as_deref()) {
+            Some("opaque") => {
+                if record.base.flags & 0x80 != 0 {
+                    return Err("contradictory extended material: opaque blendMode with additive flag".into());
+                }
+                if (record.base.flags & 4 != 0) && !cutout {
+                    return Err("contradictory extended material: opaque blendMode with alpha flag".into());
+                }
+                ExtendedBlend::Opaque
+            }
+            Some("alpha") => {
+                if cutout {
+                    return Err("contradictory extended material: alpha blendMode with alphaCutout".into());
+                }
+                if record.base.flags & 0x80 != 0 {
+                    return Err("contradictory extended material: alpha blendMode with additive flag".into());
+                }
+                ExtendedBlend::Alpha
+            }
+            Some("additive") => {
+                if cutout {
+                    return Err("contradictory extended material: additive blendMode with alphaCutout".into());
+                }
+                ExtendedBlend::Additive
+            }
+            Some(other) => {
+                return Err(format!("unsupported extended blendMode {other}"));
+            }
+            None => {
+                if record.base.flags & 0x80 != 0 {
+                    ExtendedBlend::Additive
+                } else if (record.base.flags & 4 != 0) && !cutout {
+                    ExtendedBlend::Alpha
+                } else {
+                    ExtendedBlend::Opaque
+                }
+            }
+        };
+        let double_sided = m.and_then(|m| m.double_sided)
+            .unwrap_or(record.base.flags & 0x86 != 0 || blend_mode != ExtendedBlend::Opaque || cutout);
+        let mut flags = record.base.flags & !(2 | 4 | 0x80);
+        if cutout {
+            flags |= 2;
+        }
+        match blend_mode {
+            ExtendedBlend::Additive => flags |= 0x80,
+            ExtendedBlend::Alpha => flags |= 4,
+            ExtendedBlend::Opaque => {}
+        }
+        Ok(Self {
+            flags,
+            glow: record.glow || m.is_some_and(|m| m.glow),
+            double_sided,
+            bump: record.base.bump.clone().or_else(|| m.and_then(|m| m.bump.clone())),
+            cutout,
+            blend_mode,
+            scroll: record.base.scroll.or_else(|| m.and_then(|m| m.scroll)),
+            specular: record.base.specular.or_else(|| m.and_then(|m| m.specular)),
+        })
+    }
+
+    pub fn is_blended(&self) -> bool {
+        self.blend_mode != ExtendedBlend::Opaque
+    }
+}
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attribute { pub name: String, pub size: i32, pub offset: i32 }
 pub struct Geometry {
@@ -189,6 +321,164 @@ impl Material {
         }
         Ok(Self { key: selector.key.clone(), flags: side | if f&2!=0 { 4 } else { 0 } | 8 | if f&1!=0 && kind!="unlit" && !record.far && !record.terrain { 16 } else { 0 } | if record.terrain { 32 } else { 0 },
             receive_shadow: kind!="baked" && kind!="unlit", blend, values, samplers: textures })
+    }
+
+    /// 2005 static-world material builder consuming a single resolved `ExtendedSurface`.
+    pub fn new_swbf2(
+        record: &Record,
+        surface: &ExtendedSurface,
+        geometry: &Geometry,
+        weights: &[u8],
+        samplers: &[i32],
+        features: &[u32],
+    ) -> Result<Self, String> {
+        if features.len() != crate::static_layout::FEATURES_LENGTH || samplers.len() < 2 {
+            return Err("invalid world material inputs".into());
+        }
+        let f = surface.flags;
+        let blend = match surface.blend_mode {
+            ExtendedBlend::Additive => Some([1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE, glow::SRC_ALPHA, glow::ONE]),
+            ExtendedBlend::Alpha => Some([1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::ONE, glow::ONE_MINUS_SRC_ALPHA]),
+            ExtendedBlend::Opaque => None,
+        };
+        let glow = !record.terrain && surface.glow;
+        let kind = if record.terrain {
+            "terrain"
+        } else if glow {
+            "unlit"
+        } else if record.color_kind.as_deref() == Some("lit") || f & 0x40 != 0 {
+            "baked"
+        } else if f & 1 == 0 {
+            "unlit"
+        } else if record.dynamic {
+            "dynamic"
+        } else {
+            "lit"
+        };
+        let scroll_opt = surface.scroll;
+        let spec_opt = surface.specular;
+        let mut defines: Vec<(String, String)> = vec![
+            ("EXTENDED_LIGHT".into(), "".into()),
+            ("ZERO_LIGHTS".into(), "16".into()),
+            ("WORLD_SPACE".into(), "".into()),
+        ];
+        for (yes, name) in [
+            (kind == "dynamic", "DYNAMIC"),
+            (kind == "baked", "BAKED"),
+            (kind == "unlit", "UNLIT"),
+            (kind == "terrain", "TERRAIN"),
+            (glow, "GLOW"),
+            (record.color_kind.is_some() || record.terrain, "HAS_COLOR"),
+            (record.color_kind.as_deref() == Some("tint"), "TINT"),
+            ((f & 1 == 0 || glow) && !record.terrain, "NO_POINT"),
+            (samplers[1] >= 0 && !record.terrain, "BUMP"),
+            (scroll_opt.is_some(), "SCROLL"),
+            (f & 0x20 != 0 && spec_opt.is_some_and(|s| s[1..].iter().any(|v| *v > 0.)), "SPECULAR"),
+            (surface.cutout, "ALPHA_TEST"),
+            (blend.is_some(), "BLENDED"),
+            (surface.blend_mode == ExtendedBlend::Additive, "ADDITIVE"),
+            (record.far, "FAR"),
+        ] {
+            if yes {
+                defines.push((name.into(), "".into()));
+            }
+        }
+        let mut lit = [0.; 3];
+        let mask = terrain_layer_mask(record, weights);
+        if record.terrain {
+            let color = geometry.attributes.iter().find(|a| a.name == "color").ok_or("terrain lacks baked colour")?.offset as usize / 4;
+            for row in geometry.vertices.chunks_exact(record.stride) {
+                for k in 0..3 {
+                    lit[k] = f64::max(lit[k], row[color + k] as f64);
+                }
+            }
+            let flat = geometry.vertices.chunks_exact(record.stride).filter(|row| (0..3).all(|k| (row[color + k] as f64 - lit[k]).abs() < 0.02)).count();
+            let relight = flat as f64 > record.vertex_count as f64 * 0.85;
+            if relight {
+                defines.push(("TERRAIN_RELIGHT".into(), "".into()));
+            }
+            if !record.far && mask != 0 {
+                defines.push(("TERRAIN_LAYERS".into(), (32 - mask.leading_zeros()).to_string()));
+            }
+        }
+        defines.sort();
+        let side = if surface.double_sided { 2 } else { 0 };
+        let lamps = features[3] != 0 && kind == "dynamic" && f & 1 != 0 && !record.far;
+        let fabric = geometry.attributes.iter().any(|a| a.name == "fabricAnchor");
+        let tree = geometry.attributes.iter().any(|a| a.name == "treeGroup");
+        let layout_matches = |s: &Selector| {
+            s.defines == defines && s.shadows == features[0] && s.csm == (features[2] != 0)
+                && s.fabric == fabric && s.tree == tree && s.map == (samplers[0] >= 0) && s.lamps == lamps
+        };
+        // The extended shader uses raster front-facing for two-sided normals.
+        // Culling is independent of the catalog entry's original side.
+        let selector = selectors().iter().filter(|s| layout_matches(s))
+            .min_by_key(|s| (s.points != features[1], s.side != side))
+            .ok_or_else(|| format!("unowned extended world variant {defines:?}, side={side}, features={features:?}"))?;
+        let specular = if f & 0x20 != 0 { spec_opt.unwrap_or([0.; 4]) } else { [0.; 4] };
+        let scroll = scroll_opt.unwrap_or([0.; 2]);
+        let mut values = BTreeMap::new();
+        values.insert("sunScale", vec![1.]);
+        values.insert("brightness", vec![1.]);
+        values.insert("ambientPull", vec![0., 0.]);
+        values.insert("scroll", scroll.map(|v| v as f32).to_vec());
+        values.insert("specular", vec![specular[0].clamp(10., 100.) as f32, specular[1] as f32, specular[2] as f32, specular[3] as f32]);
+        let mut textures = vec![];
+        if samplers[0] >= 0 {
+            textures.push(("map", 0, samplers[0] as u32));
+        } else if record.far {
+            if let Some(&empty) = samplers.get(crate::static_layout::SAMPLERS_EMPTY) {
+                if empty >= 0 {
+                    textures.push(("map", 0, empty as u32));
+                }
+            }
+        }
+        if samplers[1] >= 0 {
+            textures.push(("bumpMap", 2, samplers[1] as u32));
+        }
+        if tree {
+            if let Some(&id) = samplers.get(crate::static_layout::SAMPLERS_TREE) {
+                if id >= 0 {
+                    textures.push(("treeStates", 3, id as u32));
+                }
+            }
+            values.insert("treeStateCount", vec![record.tree_canopies.as_ref().map_or(0, |t| t.instances.len()) as f32]);
+        }
+        if record.terrain {
+            if samplers.len() != crate::static_layout::SAMPLERS_LENGTH {
+                return Err("terrain sampler count".into());
+            }
+            textures.push(("layer1Map", 4, samplers[2] as u32));
+            textures.push(("detailMap", 5, samplers[3] as u32));
+            for (i, name) in ["layerMap0", "layerMap1", "layerMap2", "layerMap3", "layerMap4", "layerMap5", "layerMap6", "layerMap7"].into_iter().enumerate() {
+                textures.push((name, 6 + i as u32, samplers[4 + i] as u32));
+            }
+            let scales = |i| record.scales.get(i).copied().unwrap_or(8.) as f32;
+            if record.far {
+                let repeat = record.low_res_scale.filter(|v| *v > 0.).unwrap_or(1.);
+                values.insert("farOrigin", vec![geometry.bounds[4] as f32, geometry.bounds[6] as f32]);
+                values.insert("layerScales", vec![((geometry.bounds[7] - geometry.bounds[4]) / repeat) as f32, ((geometry.bounds[9] - geometry.bounds[6]) / repeat) as f32]);
+                values.insert("bakedLit", vec![(145. / 255.) as f32, (120. / 255.) as f32, (90. / 255.) as f32]);
+            } else {
+                values.insert("farOrigin", vec![0., 0.]);
+                values.insert("layerScales", vec![scales(0), scales(1)]);
+                values.insert("bakedLit", lit.map(|v| v as f32).to_vec());
+            }
+            values.insert("layerScale0", (0..4).map(scales).collect());
+            values.insert("layerScale1", (4..8).map(scales).collect());
+        }
+        Ok(Self {
+            key: selector.key.clone(),
+            flags: side
+                | if surface.cutout { 4 } else { 0 }
+                | 8
+                | if f & 1 != 0 && kind != "unlit" && !record.far && !record.terrain { 16 } else { 0 }
+                | if record.terrain { 32 } else { 0 },
+            receive_shadow: kind != "baked" && kind != "unlit",
+            blend,
+            values,
+            samplers: textures,
+        })
     }
 }
 

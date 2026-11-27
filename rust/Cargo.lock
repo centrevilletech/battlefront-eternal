@@ -353,6 +353,8 @@ dependencies = [
 name = "audio-control"
 version = "0.1.0"
 dependencies = [
+ "bfe-family",
+ "bfe-test-alloc",
  "v8math",
 ]
 
@@ -402,7 +404,9 @@ dependencies = [
 name = "bfe-battle-ui"
 version = "0.1.0"
 dependencies = [
+ "bfe-family",
  "bfe-render",
+ "serde",
 ]
 
 [[package]]
@@ -410,6 +414,7 @@ name = "bfe-client"
 version = "0.1.0"
 dependencies = [
  "arboard",
+ "arrayvec",
  "audio",
  "audio-control",
  "audio-decode",
@@ -418,14 +423,20 @@ dependencies = [
  "bfe-content-native",
  "bfe-desktop",
  "bfe-environment",
+ "bfe-family",
  "bfe-interface",
  "bfe-online",
  "bfe-pose",
  "bfe-presentation",
  "bfe-render",
+ "bfe-server",
  "bfe-shell",
+ "bfe-storage",
+ "bfe-test-alloc",
+ "bfe-test-gate",
  "bfe-transport",
  "bfe-ui",
+ "bfe-wide",
  "content",
  "cpal",
  "fontdue",
@@ -446,6 +457,7 @@ dependencies = [
  "sim",
  "slint",
  "slint-build",
+ "smallvec",
  "three",
  "winit",
  "x11-dl",
@@ -456,9 +468,12 @@ name = "bfe-content-native"
 version = "0.1.0"
 dependencies = [
  "basis-transcode",
+ "bfe-family",
  "bfe-pose",
  "bfe-presentation",
  "bfe-render",
+ "bfe-test-alloc",
+ "bfe-wide",
  "content",
  "glow",
  "jsrt",
@@ -476,6 +491,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "basis-transcode",
+ "bfe-family",
+ "bfe-storage",
+ "content",
  "crc32fast",
  "ed25519-dalek",
  "flate2",
@@ -485,6 +503,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "ureq",
  "windows-sys 0.61.2",
 ]
@@ -500,10 +519,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-family"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bfe-interface"
 version = "0.1.0"
 dependencies = [
+ "bfe-family",
  "bfe-render",
+ "bfe-storage",
  "glow",
  "serde",
  "serde_json",
@@ -514,6 +543,8 @@ name = "bfe-online"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "bfe-family",
+ "bfe-storage",
  "bfe-transport",
  "ed25519-dalek",
  "getrandom 0.2.17",
@@ -543,6 +574,7 @@ version = "0.1.0"
 dependencies = [
  "audio-control",
  "bfe-pose",
+ "bfe-wide",
  "jsrt",
  "serde",
  "serde_json",
@@ -554,6 +586,7 @@ dependencies = [
 name = "bfe-render"
 version = "0.1.0"
 dependencies = [
+ "bfe-test-alloc",
  "glow",
  "image-webp",
  "jsrt",
@@ -566,12 +599,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-script"
+version = "0.1.0"
+dependencies = [
+ "bfe-test-alloc",
+ "bfe-wide",
+ "flate2",
+ "serde",
+ "serde_json",
+ "v8math",
+]
+
+[[package]]
 name = "bfe-server"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "bfe-content-native",
+ "bfe-family",
+ "bfe-online",
+ "bfe-presentation",
+ "bfe-storage",
+ "bfe-test-alloc",
+ "bfe-test-gate",
  "bfe-transport",
+ "bfe-wide",
  "content",
  "ed25519-dalek",
  "getrandom 0.2.17",
@@ -595,15 +647,37 @@ dependencies = [
  "audio-decode",
  "bfe-battle-ui",
  "bfe-content-native",
+ "bfe-family",
  "bfe-interface",
  "bfe-online",
  "bfe-render",
  "bfe-video",
+ "bfe-wide",
  "content",
  "glow",
  "jsrt",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "bfe-storage"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "bfe-test-alloc"
+version = "0.1.0"
+
+[[package]]
+name = "bfe-test-gate"
+version = "0.1.0"
+dependencies = [
+ "bfe-family",
 ]
 
 [[package]]
@@ -635,9 +709,15 @@ dependencies = [
 name = "bfe-video"
 version = "0.1.0"
 dependencies = [
+ "bfe-family",
  "bink-decoder",
+ "content",
  "serde_json",
 ]
+
+[[package]]
+name = "bfe-wide"
+version = "0.1.0"
 
 [[package]]
 name = "bincode"
@@ -1007,7 +1087,10 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 name = "content"
 version = "0.1.0"
 dependencies = [
+ "bfe-family",
  "jsrt",
+ "serde",
+ "serde_json",
  "sim",
  "v8math",
 ]
@@ -4527,11 +4610,17 @@ name = "sim"
 version = "0.1.0"
 dependencies = [
  "audio-control",
+ "bfe-family",
  "bfe-pose",
  "bfe-presentation",
+ "bfe-script",
+ "bfe-test-alloc",
+ "bfe-wide",
  "content",
+ "flate2",
  "jsrt",
  "serde_json",
+ "sha2",
  "sim-gen",
  "three",
  "v8math",

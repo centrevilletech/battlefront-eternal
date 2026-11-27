@@ -110,6 +110,25 @@ fn arsenal(&mut self, weapon: &Weapon, defs: &WeaponDefs) -> Result<()> {
             }
         }
     }
+    /// A 2005 soldier's body (`0x82`): its revision, the compact soldier body,
+    /// then his life's energy, sprint and roll as exact doubles, then his power
+    /// lock target (unit slot and life) while one holds.
+    pub fn foot_swbf2(&mut self, body: &UnitBody, state: &crate::movement::soldier::swbf2::State, lock: Option<(u16, u32)>) -> Result<u8> {
+        use crate::movement::soldier::swbf2::body;
+        if !matches!(body, UnitBody::Soldier(_)) { return Err("invalid Battlefront II soldier correction"); }
+        self.foot(body)?;
+        let (suffix, length) = body::suffix(state)?;
+        // The revision goes ahead of the compact body already written, in place.
+        self.body.value.splice(0..0, body::REVISION.to_le_bytes());
+        self.body.raw(&suffix[..length])?;
+        let mut tail = [0u8; body::LOCK_BYTES];
+        if let Some((slot, life)) = lock {
+            tail[..2].copy_from_slice(&slot.to_le_bytes());
+            tail[2..].copy_from_slice(&life.to_le_bytes());
+            self.body.raw(&tail)?;
+        }
+        Ok(body::SCHEMA)
+    }
     /// captureGroundCorrection includes nullable seat history. These values
     /// belong to the canonical pose owner, separately from the physics row.
     pub fn ground(&mut self, v: &Vehicle, seat: [Option<f64>; 6]) -> Result<u8> {
@@ -290,4 +309,42 @@ fn zoom(c: &Combat, defs: &WeaponDefs) -> f64 {
         if n > last { count += 1.; if c.zoom_step == count { return n; } last = n; }
     }
     1.
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prediction::corrections::decode_compact_soldier_fixed;
+
+    // The compact soldier prefix is the released one in both games: its flag byte holds the settled
+    // and diving bits and nothing else, so the released decoder and a 2005 body's prefix refuse a byte
+    // above 3, the other look and tumble facts of a 2005 soldier travel in his body's suffix.
+    #[test]
+    fn the_compact_soldier_prefix_carries_only_the_released_flags_and_refuses_any_other() {
+        let defs = WeaponDefs::default();
+        let mut cap = Capture::new(&defs);
+        let plain = UnitBody::Soldier(Soldier {
+            position: [1.0, 2.0, 3.0], settled: [1.0, 2.0, 3.0], velocity: [4.0, 0.0, -5.0], normal: [0.0, 1.0, 0.0],
+            posture: Posture::Crouch, grounded: true, aim_yaw: 0.5, aim_pitch: -0.1, ..Default::default()
+        });
+        let both = UnitBody::Soldier(Soldier {
+            position: [1.0, 2.0, 3.0], settled: [0.0, 2.0, 3.0], velocity: [4.0, 0.0, -5.0], normal: [0.0, 1.0, 0.0],
+            posture: Posture::Crouch, dive: 0.25, dive_from: Posture::Stand, grounded: true, ..Default::default()
+        });
+        for (body, flags, length) in [(&plain, 0u8, 124usize), (&both, 3, 149)] {
+            assert_eq!(cap.foot(body).unwrap(), 6);
+            let bytes = cap.body.value.clone();
+            assert_eq!((bytes[0], bytes.len()), (flags, length));
+            assert_eq!(decode_compact_soldier_fixed(Some(&bytes), &[true; 6]).unwrap().flags, flags);
+            assert_eq!(crate::movement::soldier::swbf2::body::compact_len(&bytes), Some(length));
+            // Any bit above the two released ones: refused by the released decoder, and the 2005 body
+            // finds no length for it.
+            for bit in [4u8, 8, 0x80] {
+                let mut other = bytes.clone();
+                other[0] |= bit;
+                assert_eq!(decode_compact_soldier_fixed(Some(&other), &[true; 6]), Err("invalid compact Soldier correction"));
+                assert_eq!(crate::movement::soldier::swbf2::body::compact_len(&other), None);
+            }
+        }
+    }
 }

@@ -13,6 +13,7 @@ struct Look {
     inverses: Vec<Matrix4>,
     skin: Vec<f32>,
     rows: Vec<[f64; draw::REC_STRIDE]>,
+    moving_locals: Vec<Matrix4>,
     names: Vec<String>,
     nodes: Vec<f64>,
     // A station's animated nodes, found once: the wobbling one, and those that
@@ -70,6 +71,7 @@ struct Building {
     turret: bool,
     station: bool,
     id: usize,
+    moving_instance: Option<usize>,
     looks: [Option<Look>; 3],
     state: usize,
     health: f64,
@@ -87,6 +89,22 @@ struct Building {
     objective: Option<Objective>,
 }
 impl Building {
+    fn place_moving(&mut self, placement: Matrix4) {
+        if self.placement.elements == placement.elements { return; }
+        self.placement = placement;
+        for look in self.looks.iter_mut().flatten() {
+            look.rig.tree.node_mut(look.rig.root).matrix = placement;
+            look.stale = true;
+            for (row, local) in look.rows.iter_mut().zip(&look.moving_locals) {
+                let mut world = placement;
+                world.multiply(local);
+                row[draw::REC_WORLD..draw::REC_WORLD + 16].copy_from_slice(&world.elements);
+                world.invert();
+                row[draw::REC_BIND_INVERSE..draw::REC_BIND_INVERSE + 16].copy_from_slice(&world.elements);
+            }
+        }
+    }
+
     fn draw_look(&self) -> usize {
         if self.objective.as_ref().is_some_and(|o| o.left > 0.) { 0 } else { self.state }
     }
@@ -142,14 +160,20 @@ impl Buildings {
                 .get("instances")
                 .and_then(|v| v.at(source))
                 .ok_or("missing building")?;
-            if !matches!(
-                desc.get("base").and_then(bfe_content::Value::as_str),
-                Some("powerupstation" | "commandpost" | "armedbuilding")
-            ) {
+            let base = desc.get("base").and_then(bfe_content::Value::as_str).unwrap_or("");
+            let space_map = content.content.battle.swbf2.as_ref().map(|b| &b.map_admission);
+            let destructible = space_map.is_some() && bfe_content_native::placed::swbf2_destructible_look(
+                base, desc.get("destroyed").and_then(|v| v.get("model")).and_then(bfe_content::Value::as_str).is_some(),
+            );
+            if !destructible && !matches!(base, "powerupstation" | "commandpost" | "armedbuilding") {
                 continue;
             }
             let turret =
                 desc.get("base").and_then(bfe_content::Value::as_str) == Some("armedbuilding");
+            let moving_instance = space_map.and_then(|map| {
+                let name = desc.get("name")?.as_str()?;
+                map.world_animations.animates_object(name).then_some(source)
+            });
             let mut looks = [None, None, None];
             let mut placement = Matrix4::default();
             for (i, n) in desc
@@ -199,14 +223,27 @@ impl Buildings {
                 rig.tree.node_mut(rig.root).matrix = placement;
                 rig.tree.node_mut(rig.root).matrix_auto_update = false;
                 rig.tree.update_matrix_world(rig.root, true);
-                let admitted = crate::static_scene::props(
-                    bridge,
-                    content,
-                    textures,
-                    bfe_content_native::placed::admit_look(content, source, index)?,
-                    cascades,
-                    false,
-                )?;
+                let admitted = if content.family == bfe_content_native::GameFamily::Swbf2 {
+                    let empty_bumps = std::collections::HashMap::new();
+                    crate::static_scene::props_swbf2(
+                        bridge,
+                        content,
+                        textures,
+                        bfe_content_native::placed::admit_look(content, source, index)?,
+                        cascades,
+                        false,
+                        &empty_bumps,
+                    )?
+                } else {
+                    crate::static_scene::props(
+                        bridge,
+                        content,
+                        textures,
+                        bfe_content_native::placed::admit_look(content, source, index)?,
+                        cascades,
+                        false,
+                    )?
+                };
                 let bind = rig
                     .bones
                     .iter()
@@ -233,12 +270,23 @@ impl Buildings {
                     names.into_iter().filter_map(|name| rig.named(Some(name))).map(|id| (id, rig.bone_index(id).unwrap())).collect()
                 };
                 let (rotate, spin) = (listed("ActiveRotateNode"), listed("ActiveSpinNode"));
+                let moving_locals = if moving_instance.is_some() {
+                    let mut inverse = placement;
+                    inverse.invert();
+                    admitted.records.iter().map(|row| {
+                        let mut original = Matrix4::default();
+                        original.elements.copy_from_slice(&row[draw::REC_WORLD..draw::REC_WORLD + 16]);
+                        let mut local = inverse;
+                        local.multiply(&original);
+                        local
+                    }).collect()
+                } else { Vec::new() };
                 *slot = Some(Look {
                     bind,
                     skin: vec![0.; inverses.len() * 16],
                     rig,
                     inverses,
-                    rows: admitted.records,
+                    rows: admitted.records, moving_locals,
                     names: std::iter::once(String::new()).chain(def.bones.iter().map(|b| b.name.clone())).collect(),
                     nodes: vec![0.; (def.bones.len() + 1) * 16],
                     wobble,
@@ -293,7 +341,7 @@ impl Buildings {
                 turret,
                 station: desc.get("base").and_then(bfe_content::Value::as_str)
                     == Some("powerupstation"),
-                id,
+                id, moving_instance,
                 state: if looks[2].is_some() { 2 } else { 0 },
                 health: if looks[2].is_some(){0.}else{number(source_settings,"MaxHealth",f64::INFINITY)},
                 looks,
@@ -366,6 +414,17 @@ impl Buildings {
                     }
                     _ => 2,
                 };
+            }
+        }
+        if let Some((frame, alpha)) = receiver.space.as_ref().and_then(|s| s.sample(receiver.clock.shown)) {
+            for building in &mut self.rows {
+                if let Some(system) = frame.system(building.id) {
+                    building.state(usize::from(!system.alive));
+                    building.health = system.health;
+                }
+                if let Some(matrix) = building.moving_instance.and_then(|i| frame.placement(i, alpha)) {
+                    building.place_moving(Matrix4 { elements: matrix });
+                }
             }
         }
         for b in &mut self.rows {
@@ -527,7 +586,12 @@ impl Buildings {
             };
             for recipe in &l.rows {
                 let count = l.inverses.len();
-                if records >= draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
+                if records >= draw::MAX_RECORDS {
+                    bridge.r.instances.overflow.note_record_drop(1);
+                    continue;
+                }
+                if bones + count > draw::MAX_BONES {
+                    bridge.r.instances.overflow.note_bone_drop(1);
                     continue;
                 }
                 let mut row = *recipe;

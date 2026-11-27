@@ -96,7 +96,7 @@ fn member(c: Option<Ref<Character>>) -> Member {
 }
 fn run(s: &mut Store, w: &mut World) -> usize {
     let mut random = Random::default(); let mut gameplay = Random::default();
-    phase::update_battle(1.0, s, &Strings::default(), false, |_, _| false, w, &mut random, &mut gameplay);
+    phase::update_battle(1.0, s, &Strings::default(), false, |_, _| false, w, &mut random, &mut gameplay, &mut bfe_sim::battle::rules::RuleSet::Conquest);
     assert_eq!(random.0, 0); gameplay.0
 }
 #[test]
@@ -326,4 +326,33 @@ fn an_oversized_class_roster_stays_within_fixed_deficit_scratch() {
     team.characters.push(c);team.classes=vec![SpawnClass{name:StrId(1),target:1.0,..Default::default()};4096];
     let mut random=Random::default();let index=spawning::pick_class(&s,c,&mut random);
     assert!(index>=0.0 && index<(spawning::CLASS_CAPACITY as f64));assert_eq!(random.0,1);
+}
+
+#[test]
+fn public_phases_honor_the_callers_rule_set() {
+    use bfe_sim::battle::rules::{events::{EventDriven, EventQueue, EventRules, RuleActions}, RuleSet};
+    struct Idle;
+    impl EventRules for Idle {
+        fn tick(&mut self, _: f64, _: &EventQueue, _: &mut dyn RuleActions) { panic!("no producer"); }
+    }
+    let mut mode = EventDriven::new(Idle, 0, 0);
+    let _producer = mode.prepare(Default::default()).unwrap();
+    let mut rules = RuleSet::EventDriven(mode);
+    for retained in [false, true] {
+        let mut s = Store::default();
+        s.battle = bfe_sim::battle::rules::new_battle(Default::default(), 1., 2.);
+        s.battle.reinforcements.set(1., 0.);
+        post(&mut s);
+        let mut w = World::default();
+        let (mut random, mut gameplay) = (Random::default(), Random::default());
+        if retained {
+            phase::update_battle_with_scratch(1., &mut s, &Strings::default(), false, |_, _| false, &mut w,
+                &mut random, &mut gameplay, &mut phase::Scratch::default(), &mut rules);
+        } else {
+            phase::update_battle(1., &mut s, &Strings::default(), false, |_, _| false, &mut w,
+                &mut random, &mut gameplay, &mut rules);
+        }
+        assert!(!s.battle.over);
+        assert_eq!(s.battle.stats.time, 0.0);
+    }
 }

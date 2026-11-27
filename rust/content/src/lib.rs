@@ -23,14 +23,21 @@ pub mod bvh;
 pub mod install;
 pub mod js;
 pub mod json;
+pub mod layout;
+pub mod map;
 pub mod mission;
 pub mod models;
 pub mod odf;
+pub mod prepare;
 pub mod regions;
 pub mod registry;
 pub mod three;
 pub mod value;
+pub mod vehicle_pack;
+pub mod world_anim;
+pub mod zero_hash;
 
+pub use bfe_family::GameFamily;
 pub use value::{Object, Value};
 
 /// ENGINE.diveLength: the share of the dive clip a dive

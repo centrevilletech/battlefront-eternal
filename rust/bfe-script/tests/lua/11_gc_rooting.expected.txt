@@ -1,0 +1,5 @@
+FIRST	SECOND
+sort_gc	1,2,3,4,5,6,7,8,9,10
+foreach_gc	60
+find_num	4	6	1	22	alpha	beta	gamma	delta
+gsub_gc	ONE TWO THREE	3

@@ -162,6 +162,11 @@ pub struct MultiplayerLaunch {
     pub fallbacks: Vec<String>,
     /// Cleaned player callsign (`clean_player_name(player_name)`).
     pub player_name: String,
+    /// Why this build will not join the server, when its listing names a game
+    /// it cannot play or names two games: the join is refused before the
+    /// server is contacted or any content is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused: Option<String>,
 }
 
 impl MultiplayerLaunch {
@@ -299,10 +304,17 @@ pub fn resolve_server_join(
         (address, port, targets.collect())
     };
 
+    // Keep the rotation's launch defaults until the pinned server answers.
+    let (family, refused) = match server.declared_family() {
+        Ok(family) if battle.is_some_and(|b| !b.family.is_empty()) => (family, None),
+        Ok(_) => (rot_family, None),
+        Err(why) => (rot_family, Some(why)),
+    };
+
     MultiplayerLaunch {
         kind,
         server_id: server.id.clone(),
-        family: rot_family,
+        family,
         map,
         side,
         era,
@@ -312,6 +324,7 @@ pub fn resolve_server_join(
         relay_always,
         fallbacks,
         player_name: clean_player_name(player_name),
+        refused,
     }
 }
 
@@ -339,7 +352,7 @@ fn parse_rotation_mission(item: &RotationItem) -> Option<(GameFamily, &str, &str
         }
         // Structured `{ map, era, mode }` rotation object: maps `"gcw"` to
         // `"imp"` and `"cw"` to `"rep"`, defaulting empty `mode` to `DEFAULT_MODE`.
-        RotationItem::Entry { map, era, mode } => {
+        RotationItem::Entry { map, era, mode, .. } => {
             if map.is_empty() {
                 return None;
             }
@@ -352,6 +365,11 @@ fn parse_rotation_mission(item: &RotationItem) -> Option<(GameFamily, &str, &str
             Some((GameFamily::Swbf1, map.as_str(), side, mode_str))
         }
     }
+}
+
+// A map the host form can offer: prepared, and of a game this build can play.
+fn hostable(map: &ShellMap) -> bool {
+    map.extracted != Some(false) && map.family.is_available()
 }
 
 /// Builds a [`ServerEntry`] for a direct connection target (`"host:port"`),
@@ -464,10 +482,12 @@ impl ShellApp {
             if self.data.maps.is_empty() {
                 return vec![("nab2".into(), "Naboo: Theed".into())];
             }
+            // Only maps of a game this build can play can be hosted.
             return self
                 .data
                 .maps
                 .iter()
+                .filter(|map| map.family.is_available())
                 .map(|map| (map.id.clone(), map.name.clone()))
                 .collect();
         }
@@ -648,7 +668,7 @@ impl ShellApp {
             self.ia_append_with_family(map.family, &map.id, &choices[0]);
             self.sound_queue.push("shell_menu_accept");
         } else {
-            self.ia_era_choices = Some((map.id.clone(), map.name.clone(), choices, 0));
+            self.ia_era_choices = Some((map.family, map.id.clone(), map.name.clone(), choices, 0));
             self.sound_queue.push("shell_menu_enter");
             self.push_screen(ScreenId::InstantActionEra);
         }
@@ -920,16 +940,9 @@ impl ShellApp {
             ScreenId::InstantActionEra => {
                 let rows = self.rows_for(screen);
                 let idx = self.selected_row_index(screen);
-                if let (Some((map_id, _, _, _)), Some(row)) =
+                if let (Some((family, map_id, _, _, _)), Some(row)) =
                     (self.ia_era_choices.clone(), rows.get(idx))
                 {
-                    let family = self
-                        .data
-                        .maps
-                        .iter()
-                        .find(|m| m.id == map_id)
-                        .map(|m| m.family)
-                        .unwrap_or(self.ia_family);
                     self.ia_append_with_family(family, &map_id, &row.id);
                     self.ia_era_choices = None;
                     self.stack.pop();
@@ -1134,9 +1147,9 @@ impl ShellApp {
                 .data
                 .maps
                 .iter()
-                .any(|m| m.extracted != Some(false) && m.id == self.host_config.map)
+                .any(|m| hostable(m) && m.id == self.host_config.map)
         {
-            if let Some(first_map) = self.data.maps.iter().find(|m| m.extracted != Some(false)) {
+            if let Some(first_map) = self.data.maps.iter().find(|m| hostable(m)) {
                 self.host_config.family = first_map.family;
                 self.host_config.map = first_map.id.clone();
                 let choices = Self::map_choices(first_map);
@@ -1175,7 +1188,7 @@ impl ShellApp {
     /// `pending_action = Some(ShellAction::LaunchMultiplayer(launch))`.
     pub fn execute_host(&mut self) {
         if self.host_config.map.is_empty() {
-            if let Some(first_map) = self.data.maps.iter().find(|m| m.extracted != Some(false)) {
+            if let Some(first_map) = self.data.maps.iter().find(|m| hostable(m)) {
                 self.host_config.family = first_map.family;
                 self.host_config.map = first_map.id.clone();
             } else {
@@ -1358,7 +1371,7 @@ impl ShellApp {
 }
 
 /// Convenience helper returning a default [`ServerBrowser`] configured with
-/// the standard network contract (`bfe-sim-29`) for callers and tests.
+/// the standard network contract (`bfe-sim-30`) for callers and tests.
 pub fn default_server_browser() -> ServerBrowser {
     ServerBrowser::default()
 }

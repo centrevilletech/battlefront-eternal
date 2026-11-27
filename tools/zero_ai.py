@@ -401,6 +401,28 @@ def _barrier(data, body, end, where, index, warnings):
             "flags": _u32(data, parts["FLAG"]), "properties": properties}
 
 
+def world_navigation_records(data, worlds):
+    """Read the raw navigation records of one Battlefront II world package."""
+    barriers, hints = [], []
+    for world, start, stop in worlds:
+        for tag, body, end, where in _walk(data, start, stop, world):
+            if tag not in ("BARR", "Hint"):
+                continue
+            is_hint = tag == "Hint"
+            names = HINT_PROPERTIES if is_hint else WORLD_PROPERTIES
+            info, props = _info_and_properties(data, body, end, where, names, info_first=is_hint)
+            fields = ("TYPE",) if is_hint else ("SIZE", "FLAG")
+            parts = _parts(_walk(data, *info), info[2], required=("NAME", "XFRM", *fields))
+            row = {"name": _text(data, parts["NAME"]), "xfrm": _floats(data, parts["XFRM"], 12),
+                   "properties": props}
+            if is_hint:
+                hints.append({**row, "sourceIndex": len(hints), "type": _text(data, parts["TYPE"])})
+            else:
+                barriers.append({**row, "sourceIndex": len(barriers), "size": _floats(data, parts["SIZE"], 3),
+                                 "flags": _u32(data, parts["FLAG"]), "enabled": True})
+    return {"barriers": barriers, "hints": hints}
+
+
 def _region(data, body, end, where):
     info, properties = _info_and_properties(data, body, end, where, WORLD_PROPERTIES, False)
     parts = _parts(_walk(data, *info), info[2], required=("TYPE", "NAME", "XFRM", "SIZE"))

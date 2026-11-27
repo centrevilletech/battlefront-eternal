@@ -374,12 +374,11 @@ pub fn ensure_steam_shortcut(
 
         let res = upsert_shortcut_in_list(&existing, &target);
         if res.changed || !vdf_file.exists() {
-            if fs::create_dir_all(&config_dir).is_ok() {
-                let tmp = vdf_file.with_extension(format!("vdf.{}.tmp", std::process::id()));
-                let serialized = serialize_shortcuts_vdf(&res.shortcuts);
-                if fs::write(&tmp, &serialized).is_ok() && fs::rename(&tmp, &vdf_file).is_ok() {
-                    updated_files.push(vdf_file);
-                }
+            let serialized = serialize_shortcuts_vdf(&res.shortcuts);
+            if crate::settings::write_atomic(&config_dir, "shortcuts.vdf", &serialized, |bytes| {
+                parse_shortcuts_vdf(bytes).is_ok()
+            }).is_ok() {
+                updated_files.push(vdf_file);
             }
         } else {
             unchanged_files.push(vdf_file);

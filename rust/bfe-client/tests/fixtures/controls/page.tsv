@@ -1,0 +1,79 @@
+options-controls	infantry	Test tab
+mouseSensitivity	MOUSE SENSITIVITY	5.0
+invertMouse	INVERT Y AXIS	NO
+holds.firePrimary	PRIMARY FIRE:	MOUSE BUTTON 1	false
+holds.fireSecondary	GRENADE / SECONDARY FIRE:	MOUSE BUTTON 2, ALT	false
+presses.nextSecondary	SECONDARY NEXT:	G	false
+presses.nextPrimary	PRIMARY NEXT:	F, MOUSE WHEEL UP	false
+presses.previousPrimary	PRIMARY PREVIOUS:	MOUSE WHEEL DOWN	false
+presses.jump	TEST JUMP:	SPACE	false
+DIVE:	DIVE:	SPACE WITH A OR D	true
+JETPACK:	JETPACK:	SPACE IN THE AIR	true
+presses.crouch	CROUCH:	C, CONTROL	false
+presses.prone	PRONE:	X	false
+presses.zoom	ZOOM:	Z, MOUSE BUTTON 3	false
+presses.perspective	1ST/3RD VIEW:	Q, MOUSE BUTTON 4	false
+presses.reload	RELOAD:	R, RETURN	false
+presses.use	ENTER/EXIT:	E, KP_INSERT	false
+presses.squadMoveOut	SQUAD CMD-MOVE OUT:	F3	false
+presses.squadHold	SQUAD CMD-HOLD:	F4	false
+presses.squadFollow	SQUAD CMD-FOLLOW:	F2	false
+presses.squadAtEase	SQUAD CMD-AT EASE:	F1	false
+axes.forward+	MOVE FORWARD:	W, UP	false
+axes.forward-	MOVE BACK:	S, DOWN	false
+axes.right-	MOVE LEFT:	A, LEFT	false
+axes.right+	MOVE RIGHT:	D, RIGHT	false
+axes.turn-	TURN LEFT:		false
+axes.turn+	TURN RIGHT:		false
+LOOK LEFT/RIGHT AXIS:	LOOK LEFT/RIGHT AXIS:	MOUSE X AXIS	true
+LOOK UP/DOWN AXIS:	LOOK UP/DOWN AXIS:	MOUSE Y AXIS	true
+presses.map	SHOW MAP:	M	false
+PLAYER LIST:	PLAYER LIST:	TAB	true
+CHAT:	CHAT:	T	true
+TEAM CHAT:	TEAM CHAT:	Y	true
+PAUSE MENU:	PAUSE MENU:	ESC	true
+presses.stats	STATS LINE:	`	false
+options-controls	vehicle	VEHICLE
+mouseSensitivity	MOUSE SENSITIVITY	5.0
+invertMouse	INVERT Y AXIS	NO
+holds.firePrimary	PRIMARY FIRE:	MOUSE BUTTON 1	false
+holds.fireSecondary	SECONDARY FIRE:	MOUSE BUTTON 2, ALT	false
+axes.forward+	ACCELERATE:	W, UP	false
+axes.forward-	REVERSE:	S, DOWN	false
+axes.right-	STRAFE LEFT:	A, LEFT	false
+axes.right+	STRAFE RIGHT:	D, RIGHT	false
+axes.turn-	TURN LEFT:		false
+axes.turn+	TURN RIGHT:		false
+AIM:	AIM:	MOUSE	true
+BRAKE:	BRAKE:	SPACE	true
+presses.nextPrimary	NEXT POSITION:	F, MOUSE WHEEL UP	false
+presses.use	ENTER/EXIT:	E, KP_INSERT	false
+presses.reload	RELOAD:	R, RETURN	false
+presses.perspective	1ST/3RD VIEW:	Q, MOUSE BUTTON 4	false
+presses.map	SHOW MAP:	M	false
+PLAYER LIST:	PLAYER LIST:	TAB	true
+CHAT:	CHAT:	T	true
+TEAM CHAT:	TEAM CHAT:	Y	true
+PAUSE MENU:	PAUSE MENU:	ESC	true
+options-controls	starfighter	STARFIGHTER
+flightSensitivity	STARFIGHTER SENSITIVITY	1.0
+flightInvertY	STARFIGHTER INVERT Y	OFF
+flightResponseCurve	STARFIGHTER RESPONSE	1.4
+throttle	THROTTLE:	W	false
+brake	BRAKE:	S	false
+rollLeft	ROLL LEFT:	A	false
+rollRight	ROLL RIGHT:	D	false
+boost	BOOST:	SHIFT	false
+trick	TRICK:	ALT, CONTROL	false
+immelmann	IMMELMANN:	CAPSLOCK	false
+rollLock	ROLL LOCK:	Z, MOUSE BUTTON 3	false
+takeoff	TAKE OFF / LAND:	SPACE	false
+targetLock	TARGET LOCK:	Q, MOUSE BUTTON 4	false
+firePrimary	FIRE PRIMARY:	MOUSE BUTTON 1	false
+fireSecondary	FIRE SECONDARY:	MOUSE BUTTON 2	false
+perspective	PERSPECTIVE:	V	false
+use	USE:	E	false
+nextPrimary	NEXT PRIMARY:	1, MOUSE WHEEL UP	false
+previousPrimary	PREVIOUS PRIMARY:	2, MOUSE WHEEL DOWN	false
+keyBindings	{"axes.forward+":["ArrowUp"],"presses.crouch":["KeyW"],"presses.jump":[]}
+flightBindings	{"takeoff":["KeyW"],"throttle":[]}

@@ -4,7 +4,7 @@
 //! rust/sim/schema/ordnance.json, which src/ordnance-sim.js serves with the
 //! same OrdnanceWorld the JavaScript rounds call.
 
-use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, SCALE_FIELDS};
+use super::defs::{Defs, ExplosionDef, Field, OrdnanceDef, Swbf2OrdnanceTuning, SCALE_FIELDS};
 use super::world::*;
 use super::Cx;
 use crate::abi::Sim;
@@ -12,12 +12,20 @@ use crate::gen::*;
 use crate::store::calls::Calls;
 use crate::store::{same_f64, word_u32, DefId, KindCode, Nullable, Ref, RefSet, StrId, Strings, Vec3};
 
+pub(crate) const SWBF2_ORDNANCE_TUNING_EXPORT: &str = "ord_swbf2_tuning";
+
 /// Ordnance and Items retain independent water bits beside their definition
 /// bank. A Cx borrows definitions only for its invocation; no sibling field
 /// address becomes an identity or a retained link between owners.
-pub(crate) struct OrdnanceOwnerState { defs: Option<Defs>, water: [bool; 2] }
+pub(crate) struct OrdnanceOwnerState {
+    defs: Option<Defs>,
+    water: [bool; 2],
+    round_ages: Vec<f64>,
+}
 impl OrdnanceOwnerState {
-    pub(crate) const fn new() -> Self { Self { defs: None, water: [false; 2] } }
+    pub(crate) const fn new() -> Self {
+        Self { defs: None, water: [false; 2], round_ages: Vec::new() }
+    }
 }
 
 /// Whether the rounds' and the items' battle has water (ordnance.water,
@@ -34,6 +42,23 @@ pub(crate) fn ord_water_in(w: &mut crate::world::owner::World, which: u32, prese
 /// How many ordnance definitions the battle registered.
 pub(crate) fn ordnance_count_in(owner: &OrdnanceOwnerState) -> usize {
     owner.defs.as_ref().map_or(0, |defs| defs.ordnance.len())
+}
+
+/// Admitted explosion definitions `(damage, radius_inner, radius_outer)` in id order.
+pub(crate) fn explosion_defs_in(owner: &OrdnanceOwnerState) -> Vec<(f64, f64, f64)> {
+    let Some(defs) = &owner.defs else {
+        return Vec::new();
+    };
+    defs.explosion
+        .iter()
+        .map(|e| {
+            (
+                e.damage.or(0.0),
+                e.damage_radius_inner.or(0.0),
+                e.damage_radius_outer.or(0.0),
+            )
+        })
+        .collect()
 }
 
 /// The explosions the ordnance and item definitions name (ordnance.js
@@ -107,6 +132,26 @@ pub(crate) fn ord_def_in(w: &mut crate::world::owner::World, id: u32) {
     let fields: [Field; 16] = call_fields(&s.calls, &s.strings);
     let def = OrdnanceDef::read(|name| fields[OrdnanceDef::FIELDS.iter().position(|f| *f == name).expect("an ordnance field")].clone());
     OrdnanceOwnerState::install_ordnance(defs_in(&mut w.ordnance), id, def);
+}
+
+pub(crate) fn ord_swbf2_tuning_in(w: &mut crate::world::owner::World, id: u32, args: &[f64]) {
+    let opt = |i: usize| args.get(i).copied().filter(|v| v.is_finite());
+    let num = |i: usize| opt(i).unwrap_or(0.0);
+    let tuning = Swbf2OrdnanceTuning {
+        damage_final: opt(1).filter(|&v| v >= 0.0),
+        damage_transition_delay: jsrt::js_max(num(2), 0.0),
+        damage_transition_period: jsrt::js_max(num(3), 0.0),
+        range: opt(4).filter(|&v| v > 0.0),
+        pass_through: num(5) != 0.0,
+        min_speed: opt(6).filter(|&v| v > 0.0),
+        acceleration: jsrt::js_max(num(7), 0.0),
+    };
+    let defs = defs_in(&mut w.ordnance);
+    let i = id as usize;
+    if defs.swbf2_tuning.len() <= i {
+        defs.swbf2_tuning.resize(i + 1, Swbf2OrdnanceTuning::default());
+    }
+    defs.swbf2_tuning[i] = tuning;
 }
 
 pub(crate) fn ord_explosion_in(w: &mut crate::world::owner::World, id: u32) {
@@ -247,13 +292,16 @@ unsafe fn bfe_import_grenade_contact() { crate::abi::no_native_host("grenadeCont
 
 /// The battle as the module's imports give it.
 pub struct JsWorld<'w, 'a> {
-        w: &'w mut crate::world::owner::World,
+        pub(crate) w: &'w mut crate::world::owner::World,
+        observed_projectile: Option<GuardProjectile>,
         /// The items' targets as last read (None: read them again before the
         /// next use), and their sides toward each team asked about.
         targets: Option<Vec<TargetState>>,
         relations: Vec<(f64, Vec<f64>)>,
         near: Vec<Ref<Unit>>,
         near_frame: Option<usize>,
+        pierce: Vec<UnitHit>,
+        pierce_borrowed: bool,
         recon: Option<crate::units::f3::WorldServices<'a>>,
     }
 
@@ -266,12 +314,71 @@ impl<'w, 'a> JsWorld<'w, 'a> {
         w.ordnance.defs.get_or_insert_with(Defs::default);
         Self {
             w,
+            observed_projectile: None,
             targets: None,
             relations: Vec::new(),
             near: Vec::new(),
             near_frame: None,
+            pierce: Vec::new(),
+            pierce_borrowed: false,
             recon,
         }
+    }
+
+    fn publish_launch(&mut self, bolt: Ref<Bolt>, tick: Nullable<f64>) {
+        if crate::units::f3::active_in(&self.w.units) {
+            let mut notice = self.notice(F3OrdnanceEvent::Launch,Shot::Bolt(bolt));
+            notice.tick = tick;
+            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
+                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
+                let rewind=match tick {Nullable::Value(v)=>Some(v),_=>None};
+                super::trace::begin(&notice,notice.direction,rewind);
+            }
+            notice.emit(&mut self.w.sim.events);
+            return;
+        }
+        let args = LaunchArgs { kind: KIND_BOLT as u32, tick };
+        self.hand(Shot::Bolt(bolt), LaunchArgs::WORDS, |row, heap| args.put(row, heap), bfe_import_launch);
+    }
+
+    fn publish_projectile(&mut self, shot: Shot, kind: ShotKind) {
+        if crate::units::f3::active_in(&self.w.units) {
+            let notice=self.notice(F3OrdnanceEvent::Projectile,shot);
+            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
+                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
+                let direction=match shot {
+                    Shot::Round(r)=>super::math::normalize(self.store().round.get(r).unwrap().velocity),
+                    Shot::Grenade(r)=>super::math::normalize(self.store().grenade.get(r).unwrap().velocity),
+                    _=>notice.direction,
+                };
+                let rewind=match shot {Shot::Beam(r)=>self.store().beam.get(r).unwrap().history_tick,_=>None};
+                super::trace::begin(&notice,direction,rewind);
+            }
+            notice.emit(&mut self.w.sim.events);
+            return;
+        }
+        let (code, _) = shot_layout(shot);
+        let args = ProjectileArgs { kind: code as u32, r#type: kind as u32 };
+        self.hand(shot, ProjectileArgs::WORDS, |row, heap| args.put(row, heap), bfe_import_projectile);
+    }
+
+    fn strike_unit(&mut self, unit: Ref<Unit>, def: DefArg, point: Point, owner: OrdnanceOwner, part: Nullable<HitPart>, direction: Vec3) {
+        if crate::units::f3::active_in(&self.w.units) {
+            crate::combat::live::hit_unit_in(self.w, unit,def,point.value(),owner,part,direction,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+            return;
+        }
+        let beam_def = matches!(def, DefArg::Beam(_));
+        let (def, mut beam, damage) = self.def_arg(def);
+        let at = match point {
+            Point::Fresh(_) => 0,
+            Point::BeamEnd(r, _) => {
+                beam = Some(r);
+                1
+            }
+            Point::UnitHit(_) => 2,
+            Point::Start(_) => 3,
+        };
+        import_hit_unit(&UnitStrikeArgs { unit, def, beam, beam_def, damage, at, point: point.value(), owner, part, direction });
     }
 
     // OrdnanceWorld's lifecycle calls are observations. Keep their sampled
@@ -361,6 +468,7 @@ impl<'w, 'a> JsWorld<'w, 'a> {
                 let b = self.store().beam.get(r).expect("a beam the ordnance holds");
                 (b.def, Some(r), b.damage)
             }
+            DefArg::Scaled(id, damage) => (id, None, Some(damage)),
         }
     }
 
@@ -380,6 +488,10 @@ impl JsWorld<'_, '_> {
         if let Some(frame) = self.near_frame.take() {
             crate::units::f3::put_ordnance_query_in(&mut self.w.units,frame,std::mem::take(&mut self.near));
         }
+        if self.pierce_borrowed {
+            self.pierce_borrowed = false;
+            crate::units::f3::put_pierce_hits_in(&mut self.w.units, std::mem::take(&mut self.pierce));
+        }
     }
 }
 
@@ -394,6 +506,23 @@ fn point_of(a: PointAnswer) -> Option<Vec3> {
 impl World for JsWorld<'_, '_> {
     fn admit_fire(&mut self) -> bool {
         crate::units::f3::admit_ordnance_fire_in(&mut self.w.units)
+    }
+    fn infantry_projectiles(&self) -> bool { self.w.units.infantry.is_some() }
+    fn battle_family(&self) -> bfe_family::GameFamily { self.w.movement.family() }
+    fn guard_active(&self) -> bool { self.w.units.infantry.as_ref().is_some_and(|i| i.guarding()) }
+    fn redirect_projectile(&mut self, shot: GuardProjectile, hit: UnitHit) -> bool {
+        crate::units::infantry::contact::redirect(self, shot, hit)
+    }
+    fn observe_projectile(&mut self, shot: Option<GuardProjectile>) { self.observed_projectile = shot; }
+    fn swbf2_round_age(&self, r: Ref<Round>) -> f64 {
+        self.w.ordnance.round_ages.get(r.slot as usize).copied().unwrap_or(0.0)
+    }
+    fn set_swbf2_round_age(&mut self, r: Ref<Round>, age: f64) {
+        let slot = r.slot as usize;
+        if self.w.ordnance.round_ages.len() <= slot {
+            self.w.ordnance.round_ages.resize(slot + 1, 0.0);
+        }
+        self.w.ordnance.round_ages[slot] = age;
     }
     fn store(&self) -> &Store { &self.w.sim.store }
     fn store_mut(&mut self) -> &mut Store { &mut self.w.sim.store }
@@ -429,6 +558,28 @@ impl World for JsWorld<'_, '_> {
             return None;
         }
         Some(UnitHit { unit: a.unit.expect("the unit a raycast met"), distance: a.distance, point: a.point, normal: a.normal, part: a.part })
+    }
+
+    fn raycast_units_piercing(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>) -> Vec<UnitHit> {
+        if crate::units::f3::active_in(&self.w.units) {
+            if !self.pierce_borrowed {
+                self.pierce = crate::units::f3::take_pierce_hits_in(&mut self.w.units);
+                self.pierce_borrowed = true;
+            }
+            let mut hits = std::mem::take(&mut self.pierce);
+            crate::units::f3_sensors::ordnance_raycast_piercing_in(self.w, origin, direction, far, owner, history_tick, ignore_body, &mut hits);
+            return hits;
+        }
+        self.raycast_units(origin, direction, far, owner, history_tick, ignore_body, None, false)
+            .into_iter()
+            .collect()
+    }
+
+    fn recycle_piercing_query(&mut self, mut hits: Vec<UnitHit>) {
+        if self.pierce_borrowed {
+            hits.clear();
+            self.pierce = hits;
+        }
     }
 
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount> {
@@ -642,59 +793,33 @@ impl World for JsWorld<'_, '_> {
     // Head effects precede friendly-fire rejection, retaining the original ordering.
     // Death and any resulting explosion finish before this projectile resumes.
     fn hit_unit(&mut self, unit: Ref<Unit>, def: DefArg, point: Point, owner: OrdnanceOwner, part: Nullable<HitPart>, direction: Vec3) {
-        if crate::units::f3::active_in(&self.w.units) {
-            crate::combat::live::hit_unit_in(self.w, unit,def,point.value(),owner,part,direction,self.recon.as_mut().map(crate::units::f3::WorldServices::reborrow));
+        if self.w.units.infantry.is_none() {
+            self.strike_unit(unit, def, point, owner, part, direction);
             return;
         }
-        let beam_def = matches!(def, DefArg::Beam(_));
-        let (def, mut beam, damage) = self.def_arg(def);
-        let at = match point {
-            Point::Fresh(_) => 0,
-            Point::BeamEnd(r, _) => {
-                beam = Some(r);
-                1
-            }
-            Point::UnitHit(_) => 2,
-            Point::Start(_) => 3,
-        };
-        import_hit_unit(&UnitStrikeArgs { unit, def, beam, beam_def, damage, at, point: point.value(), owner, part, direction });
+        let critical = matches!(part, Nullable::Value(HitPart::Head));
+        let observed = self.observed_projectile.and_then(|shot| crate::units::infantry::contact::Impact::projectile(
+            self.w, unit, owner, shot, point.value(), direction, critical))
+            .or_else(|| crate::units::infantry::contact::Impact::shot(self.w, unit, owner, def, point.value(), direction, critical));
+        let previous = observed.and_then(|impact| impact.enter(self.w));
+        self.strike_unit(unit, def, point, owner, part, direction);
+        if let Some(impact) = observed { impact.finish(self.w, previous); }
     }
 
     fn projectile(&mut self, shot: Shot, kind: ShotKind) {
-        if crate::units::f3::active_in(&self.w.units) {
-            let notice=self.notice(F3OrdnanceEvent::Projectile,shot);
-            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
-                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
-                let direction=match shot {
-                    Shot::Round(r)=>super::math::normalize(self.store().round.get(r).unwrap().velocity),
-                    Shot::Grenade(r)=>super::math::normalize(self.store().grenade.get(r).unwrap().velocity),
-                    _=>notice.direction,
-                };
-                let rewind=match shot {Shot::Beam(r)=>self.store().beam.get(r).unwrap().history_tick,_=>None};
-                super::trace::begin(&notice,direction,rewind);
+        if self.w.units.infantry.is_some() {
+            if let Shot::Round(r) = shot {
+                if self.w.sim.store.round.get(r).is_some_and(|b| b.kind == crate::gen::RoundKind::Bullet) {
+                    crate::units::infantry::contact::launch(self.w, GuardProjectile::Bullet(r));
+                }
             }
-            notice.emit(&mut self.w.sim.events);
-            return;
         }
-        let (code, _) = shot_layout(shot);
-        let args = ProjectileArgs { kind: code as u32, r#type: kind as u32 };
-        self.hand(shot, ProjectileArgs::WORDS, |row, heap| args.put(row, heap), bfe_import_projectile);
+        self.publish_projectile(shot, kind);
     }
 
     fn launch(&mut self, bolt: Ref<Bolt>, tick: Nullable<f64>) {
-        if crate::units::f3::active_in(&self.w.units) {
-            let mut notice = self.notice(F3OrdnanceEvent::Launch,Shot::Bolt(bolt));
-            notice.tick = tick;
-            if super::trace::enabled() && self.w.sim.store.unit.reference(notice.owner_id as u32)
-                .and_then(|r|self.w.sim.store.unit.get(r)).is_some_and(|u|u.network_human==Some(true)) {
-                let rewind=match tick {Nullable::Value(v)=>Some(v),_=>None};
-                super::trace::begin(&notice,notice.direction,rewind);
-            }
-            notice.emit(&mut self.w.sim.events);
-            return;
-        }
-        let args = LaunchArgs { kind: KIND_BOLT as u32, tick };
-        self.hand(Shot::Bolt(bolt), LaunchArgs::WORDS, |row, heap| args.put(row, heap), bfe_import_launch);
+        if self.w.units.infantry.is_some() { crate::units::infantry::contact::launch(self.w, GuardProjectile::Bolt(bolt)); }
+        self.publish_launch(bolt, tick);
     }
 
     // OrdnanceWorld.impact observes the projectile before its identity retires.

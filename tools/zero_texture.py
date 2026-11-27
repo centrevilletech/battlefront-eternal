@@ -25,8 +25,11 @@ X8R8G8B8 = 22
 R5G6B5 = 23
 A1R5G5B5 = 25
 A4R4G4B4 = 26
+L8 = 50
+A8L8 = 51
 V8U8 = 60  # signed du/dv bump offsets (the water's distortion maps)
 DECODABLE = (A8R8G8B8, X8R8G8B8, DXT5, DXT3, DXT1, A4R4G4B4, A1R5G5B5, R5G6B5, V8U8)
+SWBF2_DECODABLE = DECODABLE + (A8L8, L8)
 
 
 def safe_name(name):
@@ -204,6 +207,18 @@ def decode_raw(fmt, body, width, height):
             o = i * 4
             rgba[o:o + 4] = bytes((r, g, b, a))
         return rgba
+    if fmt == L8:
+        for i in range(min(width * height, len(body))):
+            l = body[i]
+            o = i * 4
+            rgba[o:o + 4] = bytes((l, l, l, 255))
+        return rgba
+    if fmt == A8L8:
+        for i in range(min(width * height, len(body) // 2)):
+            l, a = body[i * 2], body[i * 2 + 1]
+            o = i * 4
+            rgba[o:o + 4] = bytes((l, l, l, a))
+        return rgba
     return None
 
 
@@ -307,7 +322,19 @@ def _np_raw(fmt, body, width, height):
         out[:count, 0], out[:count, 1], out[:count, 2] = px[:, 2], px[:, 1], px[:, 0]
         out[:count, 3] = 255 if fmt == X8R8G8B8 else px[:, 3]
         return bytearray(out.tobytes())
+    if fmt == L8:
+        count = min(n, len(body))
+        lum = np.frombuffer(body, dtype=np.uint8, count=count)
+        out[:count, 0] = lum
+        out[:count, 1] = lum
+        out[:count, 2] = lum
+        out[:count, 3] = 255
+        return bytearray(out.tobytes())
     count = min(n, len(body) // 2)
+    if fmt == A8L8:
+        px = np.frombuffer(body, dtype=np.uint8, count=count * 2).reshape(count, 2)
+        out[:count, 0], out[:count, 1], out[:count, 2], out[:count, 3] = px[:, 0], px[:, 0], px[:, 0], px[:, 1]
+        return bytearray(out.tobytes())
     if fmt == V8U8:
         du = np.frombuffer(body, dtype=np.int8, count=count * 2).reshape(count, 2).astype(np.int16) + 128
         out[:count, 0], out[:count, 1] = du[:, 0], du[:, 1]
@@ -393,7 +420,7 @@ def mip0(data, face_body, face_end):
     return data[raw[0]:raw[1]] if info else data[raw[0]:raw[1]]
 
 
-def decode_texture(data, body, end, lazy=False):
+def decode_texture(data, body, end, lazy=False, decodable=DECODABLE):
     """(name, image, formats) for a tex_ chunk: the image (width, height,
     rgba) from the best decodable format, None when there is none; lazy
     gives an Image that decodes when read."""
@@ -415,9 +442,9 @@ def decode_texture(data, body, end, lazy=False):
         formats.append(fmt)
         if (type_bias & 0xFF) != 1:
             continue
-        if fmt not in DECODABLE:
+        if fmt not in decodable:
             continue
-        rank = DECODABLE.index(fmt)
+        rank = decodable.index(fmt)
         if rank < best_rank:
             best_rank = rank
             best = (fmt, width, height, None, face[0], face[1])
@@ -429,13 +456,13 @@ def decode_texture(data, body, end, lazy=False):
     return name, (width, height, decode_pixels(fmt, mip0(data, face_body, face_end), width, height)), formats
 
 
-def collect_textures(data, textures):
+def collect_textures(data, textures, sections=None, decodable=DECODABLE):
     unknown = {}
-    for start, end in iter_archives(data):
+    for start, end in (iter_archives(data) if sections is None else sections):
         for t, b, e in chunks(data, start, end):
             if t != b"tex_":
                 continue
-            parsed = decode_texture(data, b, e, lazy=True)
+            parsed = decode_texture(data, b, e, lazy=True, decodable=decodable)
             if parsed is None:
                 continue
             name, image, formats = parsed

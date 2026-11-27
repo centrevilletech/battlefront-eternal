@@ -58,7 +58,9 @@ ARM64), and update themselves.
 ## Planned
 
 *Star Wars: Battlefront II* (2005) maps, units, vehicles, modes and
-interface; mixed playlists from both games; Galactic Conquest and the
+interface (work toward it is in the code but closed in every released
+build: a release offers no 2005 map, prepares nothing from a 2005 copy
+and downloads nothing for it); mixed playlists from both games; Galactic Conquest and the
 Historical Campaign; vehicle cockpits in first person; an Intel Mac build;
 signed Windows installers; easier dedicated server setup; leaderboards; custom maps
 and mods; a Vulkan renderer backend, followed by FSR upscaling on every GPU
@@ -225,6 +227,7 @@ with the Python tools, the command-line options, the generated code
 - [Dedicated server](docs/native-server.md) and [server updates](docs/server-updates.md)
 - [Architecture overview](docs/architecture.md) and [runtime architecture](docs/runtime-architecture.md)
 - [Multiplayer design](MULTIPLAYER.md) and the [UDP transport](docs/native-udp-transport.md)
+- [Battlefront II (2005) support plan](docs/battlefront-ii.md)
 - [Rendering](docs/rendering.md), [render performance](docs/render-performance.md) and [audio](docs/audio.md)
 - [Classic AI](docs/ai.md) and [Enhanced AI](docs/ai-enhanced.md)
 - [Vehicles](docs/vehicles.md), [menus](docs/menus.md) and the [HUD](docs/hud.md)

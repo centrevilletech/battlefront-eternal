@@ -24,6 +24,7 @@ import tempfile
 from pathlib import Path
 
 import zero_addon
+import zero_family
 from ucfb import nodes
 from zero_ai_mission import faction_of
 from zero_hash import fnv1a
@@ -33,7 +34,7 @@ from zero_lua import load as lua_load
 from zero_world import instance_records
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME  # noqa: E402
+from zero_paths import GAME, write_text_lf  # noqa: E402
 from zero_paths import PUBLIC  # noqa: E402
 
 # The windows' art in common.lvl: the window background (a 9-slice), the
@@ -58,7 +59,7 @@ SPAWN_STRINGS = (
 # The two teams the screen offers.
 TEAMS = (1, 2)
 # A team's side, by the faction SetTeamName's parser makes of its name.
-SIDES = {1: "all", 2: "imp", 3: "rep", 4: "cis"}
+SIDES = zero_family.profile().faction_sides
 # A vehicle spawn's class properties, as the original game reads them for a
 # team: Class<Faction> for any team of that faction, Class<Short>ATK for team
 # 1 and Class<Short>DEF for team 2. Once a mission calls SetHistorical, teams
@@ -245,7 +246,7 @@ def refresh_map(name, locl, game=GAME, public=PUBLIC):
               f" objectives {len(teams['1']['objectives'])}/{len(teams['2']['objectives'])}"
               f" post vehicles {screen['postVehicles']}", flush=True)
     if screen is not None:
-        path.write_text(json.dumps(world))
+        write_text_lf(path, json.dumps(world))
     return screen
 
 
@@ -261,7 +262,7 @@ def refresh_side(side, locl, public=PUBLIC):
         unit["displayName"] = unit_name(locl, name)
         for weapon in unit.get("weapons", []):
             weapon["displayName"] = weapon_name(locl, weapon["class"])
-    path.write_text(json.dumps(sides))
+    write_text_lf(path, json.dumps(sides))
     named = {name: unit["displayName"] for name, unit in sides["units"].items()}
     print(f"side {side}: {named}", flush=True)
     return sides
@@ -307,7 +308,7 @@ def refresh_common(locl, public=PUBLIC):
     strings = spawn_strings(locl)
     common["strings"] = {**common.get("strings", {}), **strings}
     common["rasterHud"] = [name for name in RASTER_HUD if name in common["textures"]]
-    path.write_text(json.dumps(common))
+    write_text_lf(path, json.dumps(common))
     print(f"common: room {[n for n in SPAWN_MODELS if n in holograms]} textures {sorted(added)}"
           f" strings {len(strings)} rasterHud {common['rasterHud']}", flush=True)
     return common

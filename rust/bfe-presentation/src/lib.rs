@@ -1,6 +1,7 @@
 //! Persistent effect state, independent of the window, GL backend and clock.
 //! The host submits ordered commands once; the kernel publishes draw records.
 pub mod effects;
+pub mod decoration;
 pub mod layout;
 pub mod cameras;
 pub mod aim;
@@ -44,7 +45,7 @@ impl Value {
         }
     }
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Key {
     pub lifetime: f64,
     pub accelerate: Option<Value>,
@@ -52,13 +53,13 @@ pub struct Key {
     pub scale: Option<f64>,
     pub r#move: Option<Value>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Color {
     pub channels: [[f64; 2]; 4],
     #[serde(default)]
     pub hsv: bool,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Spawner {
     pub shape: String,
@@ -73,7 +74,7 @@ pub struct Spawner {
     pub start_rotation: [f64; 2],
     pub rotation_velocity: [f64; 2],
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Transformer {
     pub lifetime: f64,
     #[serde(default)]
@@ -83,7 +84,7 @@ pub struct Transformer {
     #[serde(default)]
     pub color: Vec<Key>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Geometry {
     pub r#type: String,
@@ -93,7 +94,7 @@ pub struct Geometry {
     pub frame_size: Option<f64>,
     pub total_frames: Option<f64>,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Definition {
     pub start_delay: [f64; 2],
@@ -109,7 +110,7 @@ pub struct Definition {
     pub child: usize,
     pub gpu: bool,
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Content {
     pub definitions: Vec<Definition>,
     pub groups: Vec<Vec<usize>>,
@@ -336,6 +337,10 @@ impl Presentation {
             epoch: 0.0,
             last_command: 0.0,
         }
+    }
+    /// The admitted definitions and group handles used by this particle player.
+    pub fn content(&self) -> &Content {
+        &self.content
     }
     /// Effect ids the host may issue, 1 to handles() - 1.
     pub fn handles(&self) -> usize {

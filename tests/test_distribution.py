@@ -34,6 +34,11 @@ def server_archive(source, arch, entries=None, version='0.0.0', mode=0o755):
         archive.addfile(link)
     return path
 
+def gate_marker(repo, source):
+    """The marker text a binary containing the code in `source` carries."""
+    lines = (repo / source).read_text().splitlines()
+    return next(line for line in lines if line.startswith('pub const MARKER')).split('"')[1]
+
 # The publisher and the Linux packagers drive the release host's own tools.
 RELEASE_TOOLS = unittest.skipUnless(shutil.which('gpg') and shutil.which('dpkg-deb'), 'needs gpg and dpkg-deb (Linux release tools)')
 
@@ -442,6 +447,104 @@ class DistributionTest(unittest.TestCase):
             distribution.publish_macos(mac)
             self.assertEqual(os.readlink(downloads / 'latest-macos'), 'preview-8')
             self.assertIn('darwin-arm64', channel()['platforms'])
+
+    def test_staging_refuses_a_binary_that_can_open_the_2005_game(self):
+        """build/native/stage.py stages no client or server that contains the
+        test-only open gate's marker (rust/bfe-test-gate) or the developer
+        switch's (rust/bfe-family/src/dev_online.rs)."""
+        repo = Path(__file__).parents[1]
+        spec = importlib.util.spec_from_file_location('stage', repo / 'build/native/stage.py')
+        stage = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(stage)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            clean = root / 'bfe-client'
+            clean.write_bytes(b'\x7fELF a client without it')
+            stage.refuse_open_gate([clean, None])
+            for source, what in (('rust/bfe-test-gate/src/lib.rs', 'the test-only open gate'),
+                                 ('rust/bfe-family/src/dev_online.rs', 'the developer switch for online play')):
+                with self.subTest(source=source):
+                    opened = root / 'bfeserver'
+                    opened.write_bytes(b'\x7fELF ' + gate_marker(repo, source).encode() + b' and more')
+                    with self.assertRaises(SystemExit) as refused:
+                        stage.refuse_open_gate([clean, opened])
+                    self.assertIn(f'contains {what}', str(refused.exception))
+
+    @unittest.skipIf(os.name == 'nt', 'runs the bash check')
+    def test_release_gate_check_passes_only_a_complete_clean_read(self):
+        """build/ci/check-release-gate.sh passes a binary only after reading it
+        whole without finding the test-only open gate's marker or the
+        developer switch's: a marked, missing or unreadable binary fails it,
+        and so does a control build that lacks its marker, an ordinary build
+        that contains the switch, and one that follows it. A stand-in cargo
+        answers the dependency tree and writes the control builds."""
+        repo = Path(__file__).parents[1]
+        marker = gate_marker(repo, 'rust/bfe-test-gate/src/lib.rs')
+        switch = gate_marker(repo, 'rust/bfe-family/src/dev_online.rs')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            tools = root / 'tools'
+            tools.mkdir()
+            cargo = tools / 'cargo'
+            cargo.write_text('#!/usr/bin/env bash\n'
+                             'case "$1" in\n'
+                             '  tree) echo "bfe-test-gate v0.1.0" ;;\n'
+                             '  build) while [ $# -gt 0 ]; do\n'
+                             '      [ "$1" = --target-dir ] && dir=$2\n'
+                             '      [ "$1" = --example ] && example=$2\n'
+                             '      shift\n'
+                             '    done\n'
+                             '    text=$ORDINARY_TEXT says=$ORDINARY_SAYS\n'
+                             '    [ "$example" = open ] && text=$CONTROL_TEXT\n'
+                             '    case "${RUSTFLAGS:-}" in *"--cfg bfe_dev_online"*) text=$SWITCH_TEXT says=$SWITCH_SAYS ;; esac\n'
+                             '    mkdir -p "$dir/release/examples"\n'
+                             '    printf "#!/usr/bin/env bash\\n# %s\\necho %q\\n" "$text" "$says" > "$dir/release/examples/$example"\n'
+                             '    chmod +x "$dir/release/examples/$example" ;;\n'
+                             'esac\n')
+            cargo.chmod(0o755)
+            clean = root / 'bfe-client'
+            clean.write_bytes(b'\x7fELF a client without it')
+            marked = root / 'bfeserver'
+            marked.write_bytes(b'\x7fELF ' + marker.encode() + b' and more')
+            switched = root / 'switched'
+            switched.write_bytes(b'\x7fELF ' + switch.encode() + b' and more')
+            unreadable = root / 'unreadable'
+            unreadable.write_bytes(b'\x7fELF a server without it')
+            unreadable.chmod(0)
+
+            def check(*binaries, **texts):
+                env = dict(os.environ, PATH=f'{tools}{os.pathsep}{os.environ["PATH"]}', TMPDIR=str(root),
+                           CONTROL_TEXT=marker, SWITCH_TEXT=switch, SWITCH_SAYS=f'Gate("{switch}") plays swbf1 swbf2',
+                           ORDINARY_TEXT='no marker in this build', ORDINARY_SAYS='Gate("built") plays swbf1')
+                env.pop('RUSTFLAGS', None)
+                env.update(texts)
+                return subprocess.run(['bash', str(repo / 'build/ci/check-release-gate.sh'), *map(str, binaries)],
+                                      env=env, capture_output=True, text=True, check=False)
+
+            passed = check(clean)
+            self.assertEqual(passed.returncode, 0, passed.stderr)
+            self.assertIn(f'ok: {clean} has no open gate and no developer switch', passed.stdout)
+            for binary, what in ((marked, 'the test-only open gate'), (switched, 'the developer switch for online play')):
+                refused = check(clean, binary)
+                self.assertEqual(refused.returncode, 1)
+                self.assertIn(f'{binary} contains {what}', refused.stderr)
+            missing = check(root / 'absent')
+            self.assertEqual(missing.returncode, 1)
+            self.assertIn('does not exist', missing.stderr)
+            if not os.access(unreadable, os.R_OK):  # a superuser reads it anyway
+                unread = check(clean, unreadable)
+                self.assertEqual(unread.returncode, 1)
+                self.assertIn(f'{unreadable} could not be read in full', unread.stderr)
+                self.assertNotIn(f'ok: {unreadable}', unread.stdout)
+            for texts, why in (({'CONTROL_TEXT': 'no marker in this build'}, 'the marker was not found in a binary that uses the open gate'),
+                               ({'SWITCH_TEXT': 'no marker in this build'}, 'the marker was not found in a binary with the developer switch'),
+                               ({'SWITCH_SAYS': 'Gate("built") plays swbf1'}, 'the developer switch opens nothing'),
+                               ({'ORDINARY_TEXT': switch}, 'the developer switch is in an ordinary release binary'),
+                               ({'ORDINARY_SAYS': f'Gate("{switch}") plays swbf1 swbf2'}, 'follows the developer switch')):
+                with self.subTest(why=why):
+                    broken = check(clean, **texts)
+                    self.assertEqual(broken.returncode, 1)
+                    self.assertIn(why, broken.stderr)
 
     def test_appimage_rejects_bundled_host_display_libraries(self):
         repo = Path(__file__).parents[1]

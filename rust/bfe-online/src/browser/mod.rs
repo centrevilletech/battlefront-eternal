@@ -7,6 +7,8 @@
 use std::cmp::Ordering;
 // `BTreeMap` is imported inside `mod tests` for deterministic query maps.
 
+use bfe_family::owner::{Owner, Owners, Stated, Verdict};
+use bfe_family::GameFamily;
 use bfe_transport::layout::{network_contract, VERSION as TRANSPORT_LAYOUT_VERSION};
 use serde::{Deserialize, Serialize};
 
@@ -429,7 +431,14 @@ impl Default for ServerContract {
 // payloads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct BattleSummary {
-    // Short map slug (`"nab2"`, `"hot1"`, `"bes2"`, ...).
+    // The summary's `family` members, read beside the released reader
+    // (`crate::declared::battle`): only a server that runs a 2005 battle
+    // writes one, and none is written back for the 2004 game
+    // (`ServerEntry::family_reading`).
+    #[serde(default, skip_deserializing, skip_serializing_if = "Stated::writes_nothing")]
+    pub family: Stated,
+    // Short map slug (`"nab2"`, `"hot1"`, `"bes2"`, ...); a 2005 battle's map is
+    // the qualified id (`"swbf2/tat2"`).
     #[serde(default)]
     pub map: String,
     // Human-readable map title (`"NABOO: THEED"`, `"HOTH: ECHO BASE"`, ...).
@@ -481,6 +490,11 @@ pub struct BattleSummary {
 pub enum RotationItem {
     Slug(String),
     Entry {
+        // The entry's `family` members, read beside the released reader
+        // (`crate::declared::rotation`); absent on released entries, and none
+        // is written back for the 2004 game.
+        #[serde(default, skip_deserializing, skip_serializing_if = "Stated::writes_nothing")]
+        family: Stated,
         #[serde(default)]
         map: String,
         #[serde(default)]
@@ -502,6 +516,65 @@ impl RotationItem {
             }
             Self::Entry { map, .. } => (!map.is_empty()).then_some(map.as_str()),
         }
+    }
+
+    // Every game this entry names, without allocating: what a slug names, or
+    // a structured entry's `family` members and its map's namespace
+    // (`bfe_family::owner`).
+    pub fn owners(&self) -> Owners<'_> {
+        let mut owners = Owners::default();
+        match self {
+            Self::Slug(slug) => owners.add_slug(slug),
+            Self::Entry { family, map, .. } => {
+                owners.add_stated(family);
+                owners.add_id(map);
+            }
+        }
+        owners
+    }
+
+    // The id of the map a 2004 entry's server plays when the entry writes that
+    // map another way, for the NEXT caption's title: a structured entry written
+    // `swbf1/<map>` is the 2004 map `<map>` (as a slug's prefix always was), and
+    // a slug in the server's slash form `swbf1/<map>/<era>` is `<map>`. None for
+    // every other entry, whose caption is the released one.
+    pub fn played_id(&self) -> Option<&str> {
+        match self {
+            Self::Entry { map, .. } => map.strip_prefix("swbf1/").filter(|bare| !bare.is_empty()),
+            Self::Slug(slug) => slash_form_map(slug),
+        }
+    }
+}
+
+// The map of a slug the server reads in its slash form, `swbf1/<map>/<era>`:
+// no `:`, exactly three `/` parts, and the text starts `swbf1/`
+// (`config::query_for_rotation`).
+fn slash_form_map(slug: &str) -> Option<&str> {
+    if slug.contains(':') {
+        return None;
+    }
+    let mut parts = slug.split('/');
+    match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some("swbf1"), Some(map), Some(_), None) if !map.is_empty() => Some(map),
+        _ => None,
+    }
+}
+
+/// The game a listing row's battle belongs to, read without allocating.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FamilyReading<'a> {
+    /// The row names this game, or nothing (the 2004 game).
+    Known(GameFamily),
+    /// The row names a game this build does not know.
+    Unknown(&'a str),
+    /// The row names two different games.
+    Conflict(Owner<'a>, Owner<'a>),
+}
+
+impl FamilyReading<'_> {
+    /// Whether this build can join the row's battle as far as its game goes.
+    pub fn is_playable(&self) -> bool {
+        matches!(self, Self::Known(family) if family.is_available())
     }
 }
 
@@ -526,6 +599,9 @@ pub struct RawSponsor {
 // cleanly without rejecting unknown optional fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ServerEntry {
+    /// Admission result from a direct probe. Discarded when the row enters the directory.
+    #[serde(skip)]
+    pub fresh_game: Option<Result<GameFamily, String>>,
     // 64-char lowercase hex SHA-256 of the server's SPKI DER Base64 public key.
     #[serde(default)]
     pub id: String,
@@ -566,7 +642,7 @@ pub struct ServerEntry {
     #[serde(default)]
     pub content: Option<String>,
     // Structured current battle metadata (`map`, `mapName`, `era`, `mode`, ...).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::declared::battle")]
     pub battle: Option<BattleSummary>,
     // Server-level bot fill override (`BOTS FILL TEAMS` vs `NO BOTS` chip).
     #[serde(default)]
@@ -575,7 +651,7 @@ pub struct ServerEntry {
     #[serde(rename = "autoAssignTeams", default)]
     pub auto_assign_teams: Option<bool>,
     // Map rotation queue (`rotation[1]` is displayed as `NEXT` in `GAME INFO`).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "crate::declared::rotation")]
     pub rotation: Vec<RotationItem>,
     // Top-level simulation contract version (`"bfe-sim-..."`).
     #[serde(default)]
@@ -603,19 +679,80 @@ pub struct ServerEntry {
     pub latency_ms: Option<u32>,
 }
 
+impl ServerEntry {
+    /// Reads a fresh server reply for the browser, including the pending battle.
+    /// A directory or cached row uses the ordinary listing deserializer.
+    pub fn read_info(bytes: &[u8]) -> serde_json::Result<Self> {
+        #[derive(Deserialize)]
+        struct Pending {
+            next: Option<crate::declared::NextBattle>,
+        }
+        let mut row: Self = crate::declared::read_row(bytes, None)?;
+        let next = serde_json::from_slice::<Pending>(bytes).ok().and_then(|p| p.next);
+        let statements = crate::declared::Statements::read(bytes);
+        let query = row.query.as_deref().unwrap_or_default();
+        row.fresh_game = Some(statements.game(query, next.as_ref().map(|n| n.query.as_str())).map(|(game, _)| game));
+        Ok(row)
+    }
+
+    fn playable(&self) -> bool {
+        self.fresh_game.as_ref().map_or_else(|| self.family_reading().is_playable(), Result::is_ok)
+    }
+
+    /// Every game the row's battle summary and first rotation entry name,
+    /// without allocating: the summary's `family` members and its map's
+    /// namespace, and `rotation[0]`'s ([`RotationItem::owners`]). A released
+    /// server names none of these but its first rotation entry, which names
+    /// the 2004 game or nothing for a battle it can run.
+    pub fn listing_owners(&self) -> Owners<'_> {
+        let mut owners = self.rotation.first().map(RotationItem::owners).unwrap_or_default();
+        if let Some(battle) = &self.battle {
+            owners.add_stated(&battle.family);
+            owners.add_id(&battle.map);
+        }
+        owners
+    }
+
+    /// Only an explicit current-battle family can rule out a cached listing.
+    /// The rotation and the query can already describe a different battle.
+    pub fn family_reading(&self) -> FamilyReading<'_> {
+        let owners = self.battle.as_ref().map(|b| b.family.owners()).unwrap_or_default();
+        match owners.verdict() {
+            Verdict::Unstated => FamilyReading::Known(GameFamily::Swbf1),
+            Verdict::One(Owner::Known(family)) => FamilyReading::Known(family),
+            Verdict::One(Owner::Unknown(text)) => FamilyReading::Unknown(text),
+            Verdict::Two(first, other) => FamilyReading::Conflict(first, other),
+        }
+    }
+
+    /// [`Self::family_reading`] for a join: the game, or why this build will not join.
+    pub fn declared_family(&self) -> Result<GameFamily, String> {
+        match self.family_reading() {
+            FamilyReading::Known(family) => family.require_available().map(|_| family).map_err(|e| e.to_string()),
+            FamilyReading::Unknown(text) | FamilyReading::Conflict(Owner::Unknown(text), _) | FamilyReading::Conflict(_, Owner::Unknown(text)) => {
+                Err(format!("This server runs a game this build does not know ({text:?})."))
+            }
+            FamilyReading::Conflict(a, b) => Err(format!("This server's listing names two games ({a} and {b}). Refresh the list.")),
+        }
+    }
+}
+
 // Known map catalog entry (`{ id, name }`)
 // used to populate the map filter dropdown and resolve map slugs in `GAME INFO`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapCatalogEntry {
+    pub title_resolved: bool,
     pub id: String,
     pub name: String,
 }
 
 impl MapCatalogEntry {
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        let name = name.into();
         Self {
+            title_resolved: !name.trim().is_empty(),
             id: id.into(),
-            name: name.into(),
+            name,
         }
     }
 }
@@ -850,6 +987,9 @@ impl ServerBrowser {
         self.busy = false;
         self.stale.clear();
         self.servers = list;
+        for row in &mut self.servers {
+            row.fresh_game = None;
+        }
         self.state = BrowserState::Ready;
         self.refreshed_at = now_ms;
         self.failed_at = 0;
@@ -1615,5 +1755,108 @@ mod tests {
             "Accept the online privacy notice first."
         );
         Ok(())
+    }
+
+    // The NEXT line names the next map by its catalog title, also when a
+    // structured rotation entry writes the map with its family prefix.
+    #[test]
+    fn the_next_line_shows_the_title_of_a_prefixed_structured_entry() {
+        let contract = ServerContract::current();
+        let maps = [MapCatalogEntry::new("kam1", "Made-up kam1"), MapCatalogEntry::new("bes2", "Made-up bes2")];
+        let next = |item: serde_json::Value| {
+            let server: ServerEntry = serde_json::from_value(serde_json::json!({
+                "id": "s", "rotation": [{"map": "bes2", "era": "cw", "mode": "conquest"}, item]
+            }))
+            .unwrap();
+            describe_server(&server, &maps, &contract).facts.into_iter().find(|(k, _)| *k == "NEXT").map(|(_, v)| v)
+        };
+        assert_eq!(next(serde_json::json!({"map": "swbf1/kam1", "era": "gcw", "mode": "duel"})).as_deref(), Some("Made-up kam1"));
+        assert_eq!(next(serde_json::json!({"map": "kam1", "era": "gcw", "mode": "duel"})).as_deref(), Some("Made-up kam1"));
+        assert_eq!(next(serde_json::json!("swbf1/kam1:rep:conquest")).as_deref(), Some("Made-up kam1"));
+        // Only that line: the entry's id and the join read the entry as before.
+        let item: RotationItem = serde_json::from_value(serde_json::json!({"map": "swbf1/kam1", "era": "gcw", "mode": "duel"})).unwrap();
+        assert_eq!(item.map_id(), Some("swbf1/kam1"));
+    }
+
+    // The server plays `<map>` of a slash-form entry (`swbf1/<map>/<era>`); the
+    // NEXT line names that map, not the entry's `<map>/<era>` text.
+    #[test]
+    fn the_next_line_shows_the_title_of_a_slash_form_entry() {
+        let contract = ServerContract::current();
+        let maps = [MapCatalogEntry::new("kam1", "Made-up kam1"), MapCatalogEntry::new("bes2", "Made-up bes2")];
+        let next = |slug: &str| {
+            let server = ServerEntry {
+                id: "s".into(),
+                rotation: vec![RotationItem::Slug("swbf1/bes2:rep:conquest".into()), RotationItem::Slug(slug.into())],
+                ..ServerEntry::default()
+            };
+            describe_server(&server, &maps, &contract).facts.into_iter().find(|(k, _)| *k == "NEXT").map(|(_, v)| v)
+        };
+        assert_eq!(next("swbf1/kam1/XYZ").as_deref(), Some("Made-up kam1"));
+        assert_eq!(next("swbf1/kam1/cw").as_deref(), Some("Made-up kam1"));
+        // With no title for the map the server plays, the released caption.
+        assert_eq!(next("swbf1/kam9/cw").as_deref(), Some("KAM9/CW"));
+        // Text the server does not read as a slash-form entry keeps its caption.
+        for (slug, caption) in [("swbf1/kam1/cw/extra", "KAM1/CW/EXTRA"), ("SWBF1/kam1/cw", "SWBF1/KAM1/CW"), (" swbf1/kam1/cw", " SWBF1/KAM1/CW"), ("swbf1//cw", "/CW")] {
+            assert_eq!(next(slug).as_deref(), Some(caption), "{slug}");
+        }
+        // Only that line: the entry's id reads as before.
+        assert_eq!(RotationItem::Slug("swbf1/kam1/XYZ".into()).map_id(), Some("kam1/XYZ"));
+    }
+
+    // A row read with the 2004 game named writes no family back, in its summary
+    // or its rotation entries; another game's is written, so a row that named
+    // two games stays refused when read again.
+    #[test]
+    fn a_2004_family_is_never_written_back() {
+        let row: ServerEntry = serde_json::from_str(
+            r#"{"id":"s","battle":{"family":"swbf1","map":"kam1"},"rotation":[{"family":"swbf1","map":"kam1","era":"cw","mode":"conquest"},"swbf1/kam1:rep:conquest"]}"#,
+        )
+        .unwrap();
+        assert!(!row.battle.as_ref().unwrap().family.is_empty(), "kept in memory");
+        let written = serde_json::to_value(&row).unwrap();
+        assert_eq!(written["battle"].get("family"), None);
+        assert_eq!(written["rotation"][0], serde_json::json!({"map": "kam1", "era": "cw", "mode": "conquest"}));
+        let two: ServerEntry = serde_json::from_str(r#"{"id":"s","battle":{"family":"swbf1","family":"swbf2","map":"kam1"}}"#).unwrap();
+        let again: ServerEntry = serde_json::from_value(serde_json::to_value(&two).unwrap()).unwrap();
+        assert_eq!(serde_json::to_value(&two).unwrap()["battle"]["family"], "swbf2");
+        assert!(!again.family_reading().is_playable());
+    }
+
+    // The NEXT line looks a title up by the map the server plays and, when the
+    // catalog has none there, shows exactly what the released build showed:
+    // the title under the entry's own id, else that id.
+    #[test]
+    fn a_next_title_missing_under_the_played_map_falls_back_to_the_released_caption() {
+        let contract = ServerContract::current();
+        let next = |item: serde_json::Value, maps: &[MapCatalogEntry]| {
+            let server: ServerEntry = serde_json::from_value(serde_json::json!({
+                "id": "s", "rotation": [{"map": "bes2", "era": "cw", "mode": "conquest"}, item]
+            }))
+            .unwrap();
+            describe_server(&server, maps, &contract).facts.into_iter().find(|(k, _)| *k == "NEXT").map(|(_, v)| v).unwrap()
+        };
+        let structured = || serde_json::json!({"map": "swbf1/moon_a", "era": "cw", "mode": "conquest"});
+        let slash = || serde_json::json!("swbf1/moon_a/XYZ");
+        // No title anywhere: the released captions.
+        assert_eq!(next(structured(), &[]), "SWBF1/MOON_A");
+        assert_eq!(next(slash(), &[]), "MOON_A/XYZ");
+        // A title only under the released key stays.
+        assert_eq!(next(structured(), &[MapCatalogEntry::new("swbf1/moon_a", "Existing title")]), "Existing title");
+        assert_eq!(next(slash(), &[MapCatalogEntry::new("moon_a/XYZ", "Existing title")]), "Existing title");
+        // A title under the map the server plays is the approved one, also when both exist.
+        let both = [MapCatalogEntry::new("swbf1/moon_a", "Existing title"), MapCatalogEntry::new("moon_a/XYZ", "Existing title"), MapCatalogEntry::new("moon_a", "Moon title")];
+        assert_eq!(next(structured(), &both), "Moon title");
+        assert_eq!(next(slash(), &both), "Moon title");
+        assert_eq!(next(structured(), &both[2..]), "Moon title");
+        assert_eq!(next(slash(), &both[2..]), "Moon title");
+        // An id that names the 2005 game keeps the released caption too; only a bare
+        // id a `family` member gives to that game is looked up by its qualified id.
+        let later = [MapCatalogEntry::new("nab2", "Made-up nab2"), MapCatalogEntry::new("swbf2/nab2", "Later nab2")];
+        assert_eq!(next(serde_json::json!(" swbf2/nab2:rep:eli"), &later), " SWBF2/NAB2");
+        assert_eq!(next(serde_json::json!("SWBF2/nab2:rep:eli"), &later), "SWBF2/NAB2");
+        assert_eq!(next(serde_json::json!("swbf2/nab2:rep:eli"), &later), "Later nab2");
+        assert_eq!(next(serde_json::json!({"family": "swbf2", "map": "nab2"}), &later), "Later nab2");
+        assert_eq!(next(serde_json::json!({"family": "swbf2", "map": "nab2"}), &later[..1]), "SWBF2/NAB2");
     }
 }

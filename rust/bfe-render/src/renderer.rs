@@ -105,10 +105,31 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
     }
 
     // The far scene's phase, drawn into the far target before the near scene.
-    pub(crate) fn far_frame(&mut self) -> Result<Stats, String> {
+    pub(crate) fn far_frame(&mut self, records: usize) -> Result<Stats, String> {
         self.core.begin_phase();
         let timer=self.core.profile.begin(&self.core.gl);
-        self.far.draw(&mut self.core, VIEW_FAR);
+        self.core.bind_light2();
+        if records > 0 {
+            // Static far world keeps its real fade range in VIEW_FAR while far
+            // instanced actors use an unconstrained fade in VIEW_ACTORS. Draw
+            // opaque far instances before transparent static far meshes so far
+            // shields blend over opaque hulls rather than being overwritten.
+            let has_blended_world = self.far.draw_opaque_only(&mut self.core, VIEW_FAR);
+            self.core.upload_shadow();
+            let camera = self.core.camera();
+            let fade_at = crate::shader::FRAME_OFFSETS[18];
+            let world_fade = [self.core.input[fade_at], self.core.input[fade_at + 1]];
+            self.core.input[fade_at] = 1e9;
+            self.core.input[fade_at + 1] = 2e9;
+            self.core.upload_frame(crate::core::VIEW_ACTORS);
+            self.core.opaque();
+            self.instances.draw(&mut self.core, &camera, records);
+            self.core.input[fade_at..fade_at + 2].copy_from_slice(&world_fade);
+            self.far.draw_blended_with_instances(&mut self.core, &mut self.instances, &camera, has_blended_world);
+        } else {
+            self.far.draw(&mut self.core, VIEW_FAR);
+        }
+        self.core.state.front_face(&self.core.gl, &mut self.core.stats, glow::CCW);
         self.core.profile.end(&self.core.gl,"far terrain/sky",timer);
         self.core.end_phase()
     }
@@ -141,6 +162,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.upload_frame(VIEW_NEAR);
         core.upload_shadow();
         core.bind_lamps();
+        core.bind_light2();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();
@@ -238,6 +260,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.upload_frame(frame);
         core.upload_shadow();
         core.bind_lamps();
+        core.bind_light2();
         core.bind_far_map();
         {
             use crate::frame_plan::layout::{limit as L,line as V};
@@ -261,6 +284,7 @@ impl<C: HasContext, M: MultiDraw> Renderer<C, M> {
         core.begin_phase();
         core.upload_frame(VIEW_FIRST_PERSON);
         core.bind_lamps();
+        core.bind_light2();
         let camera = core.camera();
         core.opaque();
         core.bind_far_map();

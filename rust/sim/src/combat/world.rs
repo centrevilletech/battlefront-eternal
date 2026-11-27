@@ -38,6 +38,8 @@ pub struct ArcTarget {
     pub origin: Vector3,
     pub center: Option<Vector3>,
     pub radius: Option<f64>,
+    /// Team relation from caster toward target (`> 0` friend, `< 0` enemy, `0` neutral).
+    pub relation: f64,
 }
 
 /// A hurt's `info` as onDamaged receives it ({ ...info, source }): what the
@@ -96,6 +98,11 @@ pub trait CombatWorld: WeaponDraws {
     /// Whether terrain or a building shields `to` from a blast at `from`. A
     /// world without its own rule casts the fixed world and forgives the
     /// last 5 cm; the battle's world tests the terrain as the 2004 game does.
+    /// Whether the unit's body, in the movement tick it just completed, lets
+    /// its firearms fire. A 2005 soldier's sprint and roll refuse it; every
+    /// other body is always permitted.
+    fn fire_permitted(&self) -> bool { true }
+
     fn blast_blocked(&mut self, from: &Vector3, to: &Vector3) -> bool {
         sight_cast_blocked(from, to, |origin, direction, far| self.cast(origin, direction, far, true))
     }
@@ -176,8 +183,27 @@ pub trait CombatWorld: WeaponDraws {
         unit: &mut Unit,
         combat: &mut Combat,
     ) -> bool;
+    /// Whether this detonator weapon currently has any live deployed mine.
+    fn detonator_deployed(&mut self, _weapon: u32, _combat: &Combat) -> bool {
+        false
+    }
+    /// Remotely detonate all live mines deployed by this detonator (`TriggerAll`).
+    fn detonator_trigger(&mut self, _weapon: u32, _unit: &mut Unit, _combat: &mut Combat) -> bool {
+        false
+    }
     /// meleeStrike().
     fn melee_strike(&mut self, unit: &mut Unit, combat: &mut Combat);
+    /// Record the weapon responsible for this chain before it can synchronously kill a target.
+    fn observe_arc_weapon(&mut self, _weapon: DefId) {}
+    /// The 2005 game's timed modifiers on damage by `attacker` to this unit.
+    /// `None` leaves the amount exactly as the caller computed it.
+    fn damage_scale(&mut self, _attacker: Attacker) -> Option<f64> {
+        None
+    }
+    /// The game family of the battle this world belongs to.
+    fn battle_family(&self) -> bfe_family::GameFamily {
+        bfe_family::GameFamily::Swbf1
+    }
     /// arcTargets(): what the arc caster can link.
     fn arc_targets(&mut self) -> Vec<ArcTarget>;
     /// The owned battle overrides this to fill retained candidate storage.
@@ -186,6 +212,10 @@ pub trait CombatWorld: WeaponDraws {
         *out = self.arc_targets();
     }
     fn hurt_arc_target(&mut self, index: usize, amount: f64, from: &Vector3, unit: &mut Unit, combat: &mut Combat);
+    /// Apply Battlefront II smolder burn over time to the acquired arc target.
+    fn apply_burn_arc_target(&mut self, _index: usize, _dps: f64, _seconds: f64, _effect: Option<&str>) {}
+    /// Queue a Battlefront II directional/timed presentation effect (e.g. flamethrower stream).
+    fn emit_swbf2_effect(&mut self, _name: &str, _position: &Vector3, _forward: Option<&Vector3>, _duration: Option<f64>) {}
     /// lightning(name): whether the battle has the lightning bolt.
     fn has_lightning(&mut self, name: &str) -> bool;
     fn has_lightning_for(&mut self, _definition: DefId, _level: f64, name: &str) -> bool {

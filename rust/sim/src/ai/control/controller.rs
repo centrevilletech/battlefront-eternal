@@ -435,6 +435,8 @@ pub struct Controller {
     pub alert_anim: Option<bool>,
     pub enhanced: Option<EnhancedMemory>,
     pub policy: Policy,
+    /// Monotonic count of serviced think updates for this controller.
+    pub think_count: u32,
 }
 
 pub const ALERT_ACOUSTIC_CAP: usize = 20;
@@ -494,6 +496,7 @@ impl Controller {
             alert_anim: None,
             enhanced: None,
             policy: Policy::None,
+            think_count: 0,
         }
     }
 

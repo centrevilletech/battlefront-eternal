@@ -1,0 +1,16 @@
+[package]
+name = "bfe-test-gate"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "The 2005 game's availability gate opened, for test binaries only. No shipped crate depends on it."
+
+# Only `[dev-dependencies]` may name this crate. `build/ci/check-release-gate.sh`
+# fails when a crate that ships depends on it, under any features, or when a
+# release client or server binary contains its marker.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+bfe-family = { path = "../bfe-family" }

@@ -76,6 +76,18 @@ pub struct Soldier {
     /// drawn camera trails it (`Input::follow`).
     pub rest: V,
     pub lag: V,
+    /// When true (2005 soldiers), obstruction pullback follows the 2005 game's
+    /// chase rule (`Soldier::clearance_swbf2`): each drawn frame casts one of
+    /// five rays parallel to the boom, in turn; the clear fraction is the
+    /// smallest of the five kept results, filtered over frames; and the eye
+    /// sits the near distance beyond the clear part of the boom, so a wall
+    /// stops the near plane, never the eye, which stays at least the near
+    /// distance from `TrackCenter`. False keeps the 2004 fanned five-ray
+    /// solver unchanged.
+    pub near_clearance: bool,
+    clear_slots: [f64; 5],
+    clear_slot: u8,
+    clear_smooth: f64,
 }
 pub struct Input {
     pub feet: V,
@@ -103,6 +115,9 @@ impl Soldier {
             reach: 1.0,
             fov: 65.0 * DEG,
             definition: usize::MAX,
+            clear_slots: [1.0; 5],
+            clear_slot: 0,
+            clear_smooth: 1.0,
             ..Self::default()
         }
     }
@@ -113,6 +128,9 @@ impl Soldier {
         self.fresh = true;
         self.reach = 1.0;
         self.fov = def.third;
+        self.clear_slots = [1.0; 5];
+        self.clear_slot = 0;
+        self.clear_smooth = 1.0;
     }
     // The renderer's vertical FOV for a horizontal one at this window shape.
     // The field of view eases toward FirstPersonFOV (first person or zoomed) or
@@ -197,6 +215,19 @@ impl Soldier {
             let pivot = pivot::<M>(input.feet, input.yaw, self.center);
             cam.q = euler::<M>(input.pitch - section.tilt, input.yaw + PI, 0.0, false);
             let boom = rotate(self.offset, cam.q);
+            if self.near_clearance {
+                if fresh {
+                    self.clear_slots = [1.0; 5];
+                    self.clear_slot = 0;
+                    self.clear_smooth = 1.0;
+                }
+                self.reach = self.clearance_swbf2(world, pivot, boom, cam, dt, false);
+                cam.p = plus(pivot, boom, self.reach);
+                self.rest = cam.p;
+                self.lag = V::new(0.0, 0.0, 0.0);
+                self.fresh = false;
+                return;
+            }
             let clear = clearance(world, pivot, boom, cam.q, 0.08, false);
             if fresh || clear < self.reach {
                 self.reach = clear
@@ -222,7 +253,11 @@ impl Soldier {
             if self.lag.length_sq() > 1e-8 {
                 let boom = sub(add(rest, self.lag), pivot);
                 let clear = clearance(world, pivot, boom, cam.q, 0.08, false);
-                cam.p = plus(pivot, boom, clear.min(1.0));
+                if clear < 1.0 {
+                    cam.p = plus(pivot, boom, clear);
+                } else {
+                    cam.p = plus(pivot, boom, 1.0);
+                }
             }
             self.fresh = false;
             return;
@@ -300,6 +335,90 @@ pub fn clearance<C: Cast>(
         }
     }
     reach
+}
+
+/// 2005 game chase-camera parallel-ray offset from the boom (m).
+const SWBF2_PARALLEL_RAY_OFFSET: f64 = 0.4;
+/// 2005 game obstruction-fraction hold band while obstructed.
+const SWBF2_CLEAR_HOLD: f64 = 0.15;
+/// 2005 game obstruction-fraction linear ease-out rate (1/s).
+const SWBF2_CLEAR_EASE_RATE: f64 = 0.75;
+/// 2005 game round-robin parallel ray offsets in camera right/up coordinates.
+const SWBF2_RAY_OFFSETS: [(f64, f64); 5] = [
+    (0.0, 0.0),
+    (SWBF2_PARALLEL_RAY_OFFSET, SWBF2_PARALLEL_RAY_OFFSET),
+    (-SWBF2_PARALLEL_RAY_OFFSET, SWBF2_PARALLEL_RAY_OFFSET),
+    (SWBF2_PARALLEL_RAY_OFFSET, -SWBF2_PARALLEL_RAY_OFFSET),
+    (-SWBF2_PARALLEL_RAY_OFFSET, -SWBF2_PARALLEL_RAY_OFFSET),
+];
+
+impl Soldier {
+    /// The 2005 game's chase-camera obstruction pullback, as fraction of the
+    /// boom `L` from `TrackCenter` to the wanted eye.
+    ///
+    /// - The ray runs from `TrackCenter` toward the wanted eye less the near
+    ///   distance (length `L - near`), moved sideways by this frame's offset
+    ///   from [`SWBF2_RAY_OFFSETS`] in the camera's right and up axes. One ray
+    ///   is cast per call, the offsets taken in turn, so a full sweep takes
+    ///   five drawn frames (the 2005 game runs this once per drawn frame in a
+    ///   single-player battle).
+    /// - Each offset keeps the clear fraction of its last ray (1 when clear);
+    ///   the smallest of the five is filtered over frames: a smaller value is
+    ///   taken at once; a larger one is ignored while the view is still
+    ///   obstructed and within [`SWBF2_CLEAR_HOLD`] of the current one; any
+    ///   other is approached at [`SWBF2_CLEAR_EASE_RATE`] a second.
+    /// - The eye goes at `near + s * (L - near)` from `TrackCenter`: the near
+    ///   plane, not the eye, stops at the nearest hit, and the eye never comes
+    ///   closer to `TrackCenter` than the near distance.
+    ///
+    /// A boom shorter than 1 cm has no pullback. No heap allocation.
+    fn clearance_swbf2<C: Cast>(
+        &mut self,
+        world: &mut C,
+        pivot: V,
+        boom: V,
+        cam: &Camera,
+        dt: f64,
+        static_only: bool,
+    ) -> f64 {
+        let len = boom.length();
+        if len * len <= 1e-4 {
+            return 1.0;
+        }
+        let near = cam.near.max(0.0);
+        let dir = scale(boom, 1.0 / len);
+        // Shorter than the near distance, the ray runs back past TrackCenter.
+        let seg = len - near;
+        let right = rotate(V::new(1.0, 0.0, 0.0), cam.q);
+        let up = rotate(V::new(0.0, 1.0, 0.0), cam.q);
+        let slot = usize::from(self.clear_slot % 5);
+        let (ox, oy) = SWBF2_RAY_OFFSETS[slot];
+        let start = plus(plus(pivot, right, ox), up, oy);
+        let reach = seg.abs();
+        let frac = if reach <= 0.0 {
+            1.0
+        } else {
+            world
+                .cast(start, scale(dir, seg.signum()), reach, static_only)
+                .map_or(1.0, |d| (d / reach).clamp(0.0, 1.0))
+        };
+        self.clear_slots[slot] = frac;
+        self.clear_slot = (self.clear_slot + 1) % 5;
+        let mut min_frac = 1.0_f64;
+        for &s in &self.clear_slots {
+            if s < min_frac {
+                min_frac = s;
+            }
+        }
+        if min_frac < self.clear_smooth {
+            self.clear_smooth = min_frac;
+        } else if min_frac != 1.0 && min_frac <= self.clear_smooth + SWBF2_CLEAR_HOLD {
+            // Hold small increases while still obstructed.
+        } else {
+            self.clear_smooth = (self.clear_smooth + SWBF2_CLEAR_EASE_RATE * dt.max(0.0)).min(min_frac);
+        }
+        (near + self.clear_smooth * seg) / len
+    }
 }
 pub fn ease_axes<M: Math>(cam: &mut Camera, target: V, rates: [f64; 6], dt: f64) {
     // easeAxes: each signed camera-frame axis follows

@@ -46,7 +46,7 @@ class DiskImageToolTest(unittest.TestCase):
         commands = []
         environment = {key: value for key, value in os.environ.items() if key != 'BFE_DMGBUILD_PYTHON'}
         with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(package_macos, 'run', lambda args, **kwargs: commands.append([str(arg) for arg in args])):
-            with package_macos.dmgbuild_python() as python:
+            with mock.patch.object(package_macos.sys, 'version_info', (3, 13, 0, 'final', 0)), package_macos.dmgbuild_python() as python:
                 folder = python.parents[1]
                 self.assertTrue(folder.is_dir())
                 self.assertEqual(folder.stat().st_mode & 0o077, 0, 'the folder is this user\'s alone')
@@ -58,6 +58,16 @@ class DiskImageToolTest(unittest.TestCase):
         self.assertEqual(len(requirements), 3)
         for line in requirements:
             self.assertRegex(line, r'^[a-z_]+==[0-9.]+ --hash=sha256:[0-9a-f]{64}$')
+
+    def test_an_old_python_is_refused_before_anything_is_installed(self):
+        environment = {key: value for key, value in os.environ.items() if key != 'BFE_DMGBUILD_PYTHON'}
+        with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(package_macos, 'run') as run:
+            with mock.patch.object(package_macos.sys, 'version_info', (3, 9, 6, 'final', 0)):
+                with self.assertRaises(SystemExit) as raised:
+                    with package_macos.dmgbuild_python():
+                        pass
+        self.assertIn('Python 3.10', str(raised.exception))
+        run.assert_not_called()
 
 
 LISTING = '''  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Example Games, LLC (TEAM000001)"
@@ -195,6 +205,30 @@ class ToolchainPinsTest(unittest.TestCase):
             names.add(name.split('==')[0])
         # What the preparation tools import, and what those need.
         self.assertEqual(names, {'pillow', 'numpy', 'scipy', 'soundfile', 'soxr', 'cffi', 'pycparser', 'typing-extensions'})
+
+
+class StagingScriptTest(unittest.TestCase):
+    # The scripts the macOS packaging step runs with whatever python3 the Mac has;
+    # the system one is 3.9, which cannot evaluate `X | None` in an annotation.
+    MACOS_SCRIPTS = ('stage', 'package-macos', 'update-payload', 'check-packages', 'sign-macos')
+
+    def test_macos_packaging_scripts_postpone_annotations_for_system_python(self):
+        import ast
+
+        for name in self.MACOS_SCRIPTS:
+            with self.subTest(script=name):
+                tree = ast.parse((NATIVE / f'{name}.py').read_text(encoding='utf-8'))
+                has_future_annotations = any(
+                    isinstance(node, ast.ImportFrom)
+                    and node.module == '__future__'
+                    and any(alias.name == 'annotations' for alias in node.names)
+                    for node in tree.body
+                )
+                self.assertTrue(has_future_annotations, f'{name}.py must import annotations from __future__ for Python 3.9')
+
+    def test_stage_script_loads(self):
+        stage = load('stage')
+        self.assertEqual(stage.normalize_platform('mac-arm64'), 'darwin-arm64')
 
 
 if __name__ == '__main__':

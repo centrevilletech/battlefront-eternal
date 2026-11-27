@@ -1,11 +1,13 @@
 //! RemoteDroids' world services. Collision, F1 shots and recursive explosions
 //! share the owning phase's Store and authority borrow; no service calls JS.
-use super::{a, v, Authority, DroidDef, Hit, StrikeDef, WeaponLevel, World};
+use super::{a, v, Authority, DroidDef, GuidedUnitHit, Hit, StrikeDef, WeaponLevel, World};
 use crate::combat::{module as combat, weapons::Shot};
 use crate::gen::*;
-use crate::store::{DefId, Ref};
+use crate::store::{DefId, Nullable, Ref};
 use crate::units::{f3, native};
 use three::{Triangle, Vector3};
+
+pub(crate) const SWBF2_RECON_GUIDED_CRITICAL_EXPORT: &str = "f3_recon_guided_critical";
 
 // Game.createNetworkRemotes supplies the player bound once during setup.
 // This changes admission policy without reconstructing prepared droid content.
@@ -83,6 +85,74 @@ impl World for NativeWorld<'_, '_> {
             point: h.point,
             normal: h.normal,
         })
+    }
+    fn cast_unit(
+        &mut self,
+        store: &mut Store,
+        origin: Vector3,
+        direction: Vector3,
+        far: f64,
+        owner: Ref<OwnerSnapshot>,
+    ) -> Option<GuidedUnitHit> {
+        std::mem::swap(store, &mut self.w.sim.store);
+        let hit = crate::units::f3_sensors::ordnance_raycast_in(
+            self.w,
+            a(origin),
+            a(direction),
+            far,
+            OrdnanceOwner::OwnerSnapshot(owner),
+            None,
+            None,
+            None,
+            true,
+        )
+        .map(|h| GuidedUnitHit {
+            hit: Hit {
+                distance: h.distance,
+                point: v(h.point),
+                normal: v(h.normal),
+            },
+            unit: h.unit,
+            part: h.part,
+        });
+        std::mem::swap(store, &mut self.w.sim.store);
+        hit
+    }
+    fn direct_hit(
+        &mut self,
+        authority: &mut Authority,
+        store: &mut Store,
+        unit: Ref<Unit>,
+        part: Nullable<HitPart>,
+        damage: f64,
+        at: Vector3,
+        direction: Vector3,
+        owner: Ref<OwnerSnapshot>,
+    ) {
+        if !(damage > 0.0) {
+            return;
+        }
+        std::mem::swap(store, &mut self.w.sim.store);
+        let packet = crate::combat::impacts::HitPacket {
+            damage,
+            scales: [1.0; 5],
+            shield: 1.0,
+        };
+        crate::combat::live::hit_packet_in(
+            self.w,
+            unit,
+            packet,
+            a(at),
+            OrdnanceOwner::OwnerSnapshot(owner),
+            part,
+            a(direction),
+            Some(f3::WorldServices {
+                ai: self.ai.as_mut().map(|ai| &mut **ai as &mut dyn crate::ai::owned::callbacks::Callbacks),
+                recon: authority,
+                queries: self.queries,
+            }),
+        );
+        std::mem::swap(store, &mut self.w.sim.store);
     }
     // A blast's line of sight to a droid: moving hulls never shield it, and
     // the terrain counts as the 2004 game tests it.
@@ -404,6 +474,16 @@ pub fn f3_recon_class_in(world_ctx: &mut crate::world::owner::World) {
         // network slot's largest loadout before its first admitted launch.
         defs.weapons = combat::defs_in(&mut world_ctx.combat).weapons.clone();
         authority.reserve_scratch(4096, 64);
+    });
+}
+
+pub(crate) fn f3_recon_guided_critical_in(world_ctx: &mut crate::world::owner::World, id: u32, explosion: u32) {
+    f3::with_services_in(world_ctx, |_world_ctx, authority| {
+        if let Some(def) = authority.unwrap().recon.defs.droids.get_mut(id as usize) {
+            if let Some(guided) = def.guided.as_mut() {
+                guided.explosion_critical = Some(explosion);
+            }
+        }
     });
 }
 

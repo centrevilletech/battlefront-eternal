@@ -297,3 +297,5 @@ pub mod timeline_layout;
 pub mod timeline;
 
 pub mod smoothing;
+
+pub mod character;

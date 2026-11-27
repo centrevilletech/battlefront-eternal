@@ -70,11 +70,36 @@ struct Part {
     node: usize,
     enclosed: bool,
 }
+#[derive(Clone, Copy, Debug)]
+pub struct TurretMuzzle {
+    pub origin: [f64; 3],
+    pub basis: [[f64; 3]; 3],
+    pub root_basis: [[f64; 3]; 3],
+}
+fn normalize_axis(v: [f64; 3], fallback: [f64; 3]) -> [f64; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len.is_finite() && len > 1e-9 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        fallback
+    }
+}
+fn basis_columns(m: &[f64]) -> [[f64; 3]; 3] {
+    [
+        normalize_axis([m[0], m[1], m[2]], [1., 0., 0.]),
+        normalize_axis([m[4], m[5], m[6]], [0., 1., 0.]),
+        normalize_axis([m[8], m[9], m[10]], [0., 0., 1.]),
+    ]
+}
 struct Turret {
     // Its place among the live buildings, which records name it by.
     building: Option<usize>,
+    instance: usize,
     start: usize,
     bones: Vec<usize>,
+    muzzles: Vec<usize>,
+    aim_node: usize,
+    root_node: usize,
     inverses: Vec<Matrix4>,
     skin: Vec<f32>,
     parts: Vec<Part>,
@@ -245,6 +270,59 @@ impl Turrets {
             let effects = ClassFx::parse(class_base + instance, desc, names,
                 |name| effects.iter().find(|(n,_)| n == name).map(|(_,id)| *id));
             let bones = hull.bones.iter().chain(std::iter::once(&hull.static_bone)).map(|id| ids[*id as usize]).collect::<Vec<_>>();
+            let class_name = desc.get("class").and_then(bfe_content::Value::as_str).unwrap_or("");
+            let weapon_name = text("WeaponName");
+            let mut muzzles = Vec::new();
+            if let Some(vp) = content
+                .content
+                .battle
+                .swbf2
+                .as_ref()
+                .and_then(|s| s.map_admission.vehicle_pack.as_ref())
+            {
+                if let Some(cls) = vp.class(class_name) {
+                    let weapon = cls
+                        .seats
+                        .iter()
+                        .flat_map(|seat| seat.weapons.iter())
+                        .find(|w| !weapon_name.is_empty() && w.class.eq_ignore_ascii_case(weapon_name) && !w.fire_points.is_empty())
+                        .or_else(|| {
+                            cls.seats
+                                .iter()
+                                .flat_map(|seat| seat.weapons.iter())
+                                .find(|w| !w.fire_points.is_empty())
+                        });
+                    if let Some(w) = weapon {
+                        for &pt_idx in &w.fire_points {
+                            if let Some(pt) = cls.points.get(pt_idx) {
+                                let name = pt.name.as_deref().unwrap_or(pt.value.as_str());
+                                if let Some(b) = bone(name) {
+                                    muzzles.push(ids[b as usize]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if muzzles.is_empty() {
+                if let Some(fp) = settings.and_then(|s| s.get("FirePointName")) {
+                    if let Some(name) = fp.as_str() {
+                        if let Some(b) = bone(name) {
+                            muzzles.push(ids[b as usize]);
+                        }
+                    } else if let Some(arr) = fp.as_array() {
+                        for v in arr {
+                            if let Some(name) = v.as_str() {
+                                if let Some(b) = bone(name) {
+                                    muzzles.push(ids[b as usize]);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let aim_node = ids[gun.or(drum).unwrap_or(root) as usize];
+            let root_node = ids[root as usize];
             let anim = settings
                 .and_then(|s| s.get("Pilot9Pose"))
                 .filter(|v| v.truthy())
@@ -289,6 +367,7 @@ impl Turrets {
                     attachment: part.attachment.clone(),
                     model: part.model.clone(),
                     source: part.source,
+                    colours: part.colours.clone(),
                     geometry_key: part.geometry_key.clone(),
                     matrix: part.matrix,
                     positions: part.positions.clone(),
@@ -302,7 +381,7 @@ impl Turrets {
                     center: part.center,
                     radius: part.radius,
                 };
-                let admission = crate::static_scene::props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, shadow_cascades, false)?;
+                let admission = crate::static_scene::moving_props(bridge, content, textures, Placements { parts: vec![part], deferred: 0 }, shadow_cascades)?;
                 for row in admission.records {
                     recipes.push(Part { row, node, enclosed });
                 }
@@ -353,9 +432,13 @@ impl Turrets {
                 camera[at] = view[key].as_f64().unwrap_or(0.);
             }
             rows.push(Turret {
+                instance,
                 building: buildings.iter().position(|source| *source == instance),
                 start,
                 bones,
+                muzzles,
+                aim_node,
+                root_node,
                 skin: vec![0.; inverses.len() * 16],
                 inverses,
                 parts: recipes,
@@ -382,6 +465,23 @@ impl Turrets {
         let t = self.rows.get(index)?;
         Some((t.clip.as_deref().unwrap_or("human_minigun_9pose"), t.nine))
     }
+    pub fn muzzle_pose(&self, building: usize, barrel: Option<usize>) -> Option<TurretMuzzle> {
+        let turret = self.rows.iter().find(|t| t.building == Some(building) && t.shown)?;
+        let node = if !turret.muzzles.is_empty() {
+            turret.muzzles[barrel.unwrap_or(0) % turret.muzzles.len()]
+        } else {
+            turret.aim_node
+        };
+        let at = turret.start + node * n::STRIDE + n::WORLD;
+        let m = &self.owner.nodes[at..at + 16];
+        let root_at = turret.start + turret.root_node * n::STRIDE + n::WORLD;
+        let r = &self.owner.nodes[root_at..root_at + 16];
+        Some(TurretMuzzle {
+            origin: [m[12], m[13], m[14]],
+            basis: basis_columns(m),
+            root_basis: basis_columns(r),
+        })
+    }
     pub fn frame(&mut self, receiver: &Receiver, history: &super::replay::History, dt: f64, effects: &mut HullEffects) {
         self.gunner_yaw = None;
         for row in receiver.active().filter(|r| r[r::KIND] == k::TURRET as f64) {
@@ -401,6 +501,23 @@ impl Turrets {
                 input[t::GUN_YAW] = aim[2];
                 input[t::GUN_PITCH] = aim[3];
                 input[t::YAW_RATE] = 0.;
+            }
+        }
+        if let Some((space, alpha)) = receiver.space.as_ref().and_then(|h| h.sample(receiver.clock.shown)) {
+            for (i, turret) in self.rows.iter().enumerate() {
+                if let Some(matrix) = space.placement(turret.instance, alpha) { self.owner.place_turret(i, matrix); }
+                let Some(building) = turret.building else { continue };
+                let Ok(index) = space.turrets.binary_search_by_key(&building, |t| t.building) else { continue };
+                let aim = &space.turrets[index];
+                let [yaw, pitch] = std::array::from_fn(|k| {
+                    let delta = aim.current[k] - aim.previous[k];
+                    aim.previous[k] + alpha * delta.sin().atan2(delta.cos())
+                });
+                let input = &mut self.owner.turret_input[i*t::STRIDE..][..t::STRIDE];
+                input[t::YAW] = yaw;
+                input[t::PITCH] = 0.;
+                input[t::GUN_YAW] = 0.;
+                input[t::GUN_PITCH] = pitch;
             }
         }
         // A gunner's exact mounted checkpoint, rather than the delayed
@@ -517,7 +634,12 @@ impl Turrets {
             for (part_index,part) in t.parts.iter().enumerate() {
                 if (self.hidden == Some(index) && part.enclosed) != hidden { continue; }
                 let count = t.inverses.len();
-                if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
+                if records == draw::MAX_RECORDS {
+                    bridge.r.instances.overflow.note_record_drop(1);
+                    continue;
+                }
+                if bones + count > draw::MAX_BONES {
+                    bridge.r.instances.overflow.note_bone_drop(1);
                     continue;
                 }
                 let at = t.start + part.node * n::STRIDE + n::WORLD;

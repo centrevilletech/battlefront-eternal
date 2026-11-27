@@ -12,6 +12,7 @@ pub(crate) struct Read<'a> {
     pub combat:&'a crate::combat::module::CombatOwner,
     pub collision:&'a mut crate::collision::CollisionOwner,
     pub movement:&'a mut crate::movement::MovementOwner,
+    pub space: Option<&'a crate::space::SpaceBattlefield>,
 }
 
 // Validate descriptors before generated take can index them. A malformed
@@ -73,6 +74,20 @@ impl World for NativeWorld<'_> {
     fn turret(&self, index: usize) -> Option<store_capture::Turret> {
         crate::vehicles::module::f2::live_seats::wire_turret_in(self.w.fleet,self.w.units,self.w.battle,index, &self.w.sim.store, self.states)
     }
+    fn space_carried(&self, slot: u32, life: f64) -> bool {
+        let Some(space) = self.w.space else { return false };
+        let Some(r) = self.w.sim.store.unit.reference(slot) else { return false };
+        space.fighters.iter().filter(|f| f.alive && f.occupied()).any(|f| {
+            std::iter::once(f.pilot).chain(f.gunners).flatten().any(|p| {
+                self.w
+                    .sim
+                    .store
+                    .owner_snapshot
+                    .get(p.owner)
+                    .is_some_and(|o| o.source_unit == r && o.generation == life)
+            })
+        })
+    }
 }
 // entitySpawnPosts and classEligibility are read once per team and tick.
 // Each team's retained vectors preserve authored post and class order.
@@ -82,7 +97,12 @@ impl Default for Eligibility { fn default() -> Self { Self { valid: false, posts
 // EntityWorldCapture owns immutable protocol maps alongside reusable rows.
 // Foreign facts have fixed capacities independent of the current roster.
 // Only cold admission can replace definition maps or grow weapon defaults.
-pub struct Source { ordnance_ids: Vec<u32>, dynamic_faults: [StrId; 7], projectiles: super::store_projectiles::Capture, own_stagger: super::stagger::Stagger, eligibility: [Eligibility; 8], eligibility_key: Option<(f64, f64, bool)>, own: super::store_own::Capture, flight_names: [StrId; 14], pub capture: store_capture::Capture, states: [StrId; 3], world: super::store_world::Units, summaries: super::store_summaries::Summaries, stage: super::stagger::Stagger, peers: Vec<crate::gen::WireStorePeer>, input: Vec<f64>, fields: super::store_world::WorldFields, names: [StrId; 5] }
+pub struct Source { ordnance_ids: Vec<u32>, dynamic_faults: [StrId; 7], projectiles: super::store_projectiles::Capture, own_stagger: super::stagger::Stagger, eligibility: [Eligibility; 8], eligibility_key: Option<(f64, f64, bool)>, own: super::store_own::Capture, flight_names: [StrId; 14], pub capture: store_capture::Capture, states: [StrId; 3], world: super::store_world::Units, summaries: super::store_summaries::Summaries, stage: super::stagger::Stagger, peers: Vec<crate::gen::WireStorePeer>, input: Vec<f64>, fields: super::store_world::WorldFields, melee: super::melee::Fields, names: [StrId; 5], thrown: super::thrown::Fields,
+    /// What a scripted network battle's mission says at the publication being
+    /// captured; none in every other battle.
+    pub(crate) mission: Option<Box<super::mission::Bank>>,
+    /// What a 2005 Space Assault battle publishes; none in every other battle.
+    pub(crate) space: Option<Box<super::space::Bank>> }
 impl Source {
     /// The combat registry's id for an ordnance definition
     /// (`registry.combat.definitionId`), 0 for one the registry lacks.
@@ -129,6 +149,12 @@ impl Source {
     // Its cache includes the completed tick, epoch and game-over state.
     // An invalid team is a normal capture fault, never an array index.
     fn eligibility(&mut self, w: &mut Read<'_>, tick: f64, epoch: f64, team: f64) -> super::codec::Result<usize> {
+        match w.movement.family() {
+            bfe_family::GameFamily::Swbf1 => self.released_eligibility(w, tick, epoch, team),
+            bfe_family::GameFamily::Swbf2 => self.swbf2_eligibility(w, tick, epoch, team),
+        }
+    }
+    fn released_eligibility(&mut self, w: &mut Read<'_>, tick: f64, epoch: f64, team: f64) -> super::codec::Result<usize> {
         let store = &w.sim.store; let key = (tick, epoch, store.battle.game_over);
         if self.eligibility_key != Some(key) {
             for entry in &mut self.eligibility { entry.valid = false; entry.posts.clear(); entry.classes.clear(); }
@@ -192,6 +218,61 @@ impl Source {
         }
         entry.valid = true; Ok(index)
     }
+    fn swbf2_eligibility(&mut self, w: &mut Read<'_>, tick: f64, epoch: f64, team: f64) -> super::codec::Result<usize> {
+        let store = &w.sim.store; let key = (tick, epoch, store.battle.game_over);
+        if self.eligibility_key != Some(key) {
+            for entry in &mut self.eligibility { entry.valid = false; entry.posts.clear(); entry.classes.clear(); }
+            self.eligibility_key = Some(key);
+        }
+        if !team.is_finite() || team.fract() != 0. || team < 0. || team >= 8. { return Err("invalid summary scalar"); }
+        let index = team as usize; let entry = &mut self.eligibility[index];
+        if entry.valid { return Ok(index); }
+        entry.posts.clear(); entry.classes.clear();
+        fn append(out: &mut Vec<f64>, value: f64) -> super::codec::Result<()> {
+            if out.len() == out.capacity() { return Err("spawn eligibility limit"); } out.push(value); Ok(())
+        }
+        fn allowed(units:&crate::units::owner::Units,owner: f64, team: f64, path: bool, points: f64, ally: bool) -> bool {
+            let owner = jsrt::to_int32(owner) as f64;
+            owner != 0. && if owner == team { path || points > 0. } else { crate::units::f3::relation_in(units,owner, team) > 0. && ally }
+        }
+        if !store.battle.game_over {
+            for &r in &store.command_posts.posts {
+                let Some(post) = store.post.get(r).filter(|p| p.active) else { continue };
+                let ai = post.ai.as_ref();
+                if allowed(w.units,post.team, team, ai.is_some_and(|a| a.spawn_path.as_ref().is_some_and(|p| p.present)),
+                    ai.map_or(0., |a| a.class_spawn_points), ai.is_some_and(|a| a.ally_path.as_ref().is_some_and(|p| p.present))) {
+                    append(&mut entry.posts, self.capture.post_id(post.name).ok_or("placed post registry prerequisite missing")?)?;
+                }
+            }
+            for &r in &store.mobile_posts.posts {
+                let Some(post) = store.mobile_post.get(r).filter(|p| p.active) else { continue };
+                if allowed(w.units,post.team, team, false, post.ai.class_spawn_points, false) {
+                    append(&mut entry.posts, self.capture.post_id(post.name).ok_or("mobile post registry prerequisite missing")?)?;
+                }
+            }
+            for &r in &store.vehicles.vehicles {
+                let Some(v) = store.vehicle.get(r).filter(|v| v.alive && v.flight_class == Some(crate::gen::FlightClass::Transport)
+                    && v.flight_state == Some(crate::gen::FlightState::Landed) && jsrt::num_truthy(v.team.unwrap_or(0.))) else { continue };
+                let mut at = three::Vector3::new(v.bounds_max[0] + 2., 1., 0.);
+                at.apply_quaternion(&three::Quaternion::new(v.quaternion[0], v.quaternion[1], v.quaternion[2], v.quaternion[3]));
+                at.add(&three::Vector3::new(v.position[0], v.position[1], v.position[2]));
+                let floor = crate::units::native::ordnance_cast_parts_in(w.collision,w.movement,w.fleet,crate::units::f3::collision_world_in(w.units), [at.x, at.y, at.z], [0., -1., 0.],
+                    12., Some(v.body), true, false);
+                if floor.is_none_or(|hit| hit.normal[1] < 0.8) { continue; }
+                if allowed(w.units,v.team.unwrap_or(0.), team, true, 0., false) {
+                    append(&mut entry.posts, self.capture.transport_post_id(v.slot_index).ok_or("summary registry prerequisite missing")?)?;
+                }
+            }
+            // A 2005 mission's limits on how many of a class may live are what
+            // its players choose by.
+            for &name in crate::battle::f4_tail::wire_roster_in(w.battle,index) {
+                if !crate::battle::f4_tail::wire_class_room_in(w.battle, store, index, name) { continue; }
+                let id = self.capture.class_id(name); if id == 0. { return Err("spawn class registry prerequisite missing"); }
+                append(&mut entry.classes, id)?;
+            }
+        }
+        entry.valid = true; Ok(index)
+    }
     // ownSummaryFields joins the mailbox to F4's connection by peer id.
     // Pending and auto requests are still mailbox facts; realized spawn state
     // and current unit generation are read from the native connection owner.
@@ -228,6 +309,12 @@ impl Source {
     // Its unit may differ from the previous publication after spawn or death.
     // Reset mount/recon scratch before choosing this client's current mode.
     fn own(&mut self, w: &Read<'_>, id: u32, epoch: f64) -> super::codec::Result<(f64, f64)> {
+        match w.movement.family() {
+            bfe_family::GameFamily::Swbf1 => self.released_own(w, id, epoch),
+            bfe_family::GameFamily::Swbf2 => self.swbf2_own(w, id, epoch),
+        }
+    }
+    fn released_own(&mut self, w: &Read<'_>, id: u32, epoch: f64) -> super::codec::Result<(f64, f64)> {
         use crate::gen::*;
         let header = WireWorldFacts::WORDS;
         let (_, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
@@ -301,9 +388,107 @@ impl Source {
         self.own.envelope(unit, schema, mount, epoch, epoch, &self.capture, defs, &input, remote)?;
         Ok((reference.slot as f64, unit.generation))
     }
+    fn swbf2_own(&mut self, w: &Read<'_>, id: u32, epoch: f64) -> super::codec::Result<(f64, f64)> {
+        /// The living soldier a hero's power is locked on: his unit slot and life.
+        fn power_lock(w: &Read<'_>, reference: crate::store::Ref<Unit>, unit: &Unit) -> Option<(u16, u32)> {
+            let target = w.combat.powers.as_deref()?.lock(crate::combat::powers::LifeKey::of(reference, unit))?;
+            target.unit(&w.sim.store).filter(|u| u.alive && !u.dead && !u.combat.dead && !u.removed)?;
+            Some((u16::try_from(target.slot).ok()?, target.life as u32))
+        }
+        use crate::gen::*;
+        let header = WireWorldFacts::WORDS;
+        let (_, words) = facts(&self.input[..header], &self.input[header..]).ok_or("invalid canonical world facts")?;
+        self.link_discarded_actions(w, id, words).ok_or("own input prerequisite missing")?;
+        let foreign = self.mailbox(w,id)?.publication.clone();
+        let peer = self.peers.iter().find(|p| p.id == id).ok_or("own spectator correction not implemented")?;
+        let store = &w.sim.store;
+        let connection = crate::battle::f4_connections::wire_view_in(w.battle,store, peer.character.as_ref().ok_or("own spectator correction not implemented")?).ok_or("own spectator correction not implemented")?;
+        let reference = connection.unit.ok_or("own spectator correction not implemented")?;
+        let unit = store.unit.get(reference).ok_or("own spectator correction not implemented")?;
+        if unit.team != 1. && unit.team != 2. { return Err("invalid own team"); }
+        if self.capture.class_id(unit.class_name) == 0. { return Err("player class prerequisite missing"); }
+        let defs = &crate::combat::module::defs_ref(&w.combat).weapons;
+        self.own.mounted.value.clear(); self.own.remote.value.clear();
+        let mut vehicle = None;
+        if let Some(lease) = unit.seat {
+            let lease = store.seat_lease.get(lease).filter(|l| !l.released && l.unit == Some(reference) && l.generation == unit.generation)
+                .ok_or("mounted control lease prerequisite missing")?;
+            if let Some(hull) = lease.vehicle {
+                let v = store.vehicle.get(hull).ok_or("mounted control lease prerequisite missing")?;
+                if !lease.index.is_finite() || lease.index < 0. || lease.index.fract() != 0. || lease.index > 255. { return Err("mounted control lease prerequisite missing"); }
+                let seat = v.seats.get(lease.index as usize).ok_or("mounted control lease prerequisite missing")?;
+                let mode = if lease.index == 0. { 4 } else { 2 }; let mut aim = [0.; 4]; let mut count = 0; let mut flags = 0;
+                if mode == 2 {
+                    aim[0] = seat.aim_yaw; aim[1] = seat.pitch; count = 2;
+                    if let Some(value) = seat.look_yaw { flags |= 1; aim[count] = value; count += 1; }
+                    if let Some(value) = seat.look_pitch { flags |= 2; aim[count] = value; count += 1; }
+                }
+                crate::vehicles::module::f2::firing::wire_weapons_in(w.fleet,hull, v.target_generation, lease.index as usize,
+                    |weapons| self.own.mount(mode, v.target_id, v.target_generation, lease.index, &aim[..count], flags, weapons, defs))?;
+                if mode == 4 { vehicle = Some((hull, v)); }
+            } else if let Some(turret) = lease.turret {
+                crate::vehicles::module::f2::live_seats::wire_own_turret_in(w.fleet,w.units,w.battle,store, turret, &mut self.own, defs)?;
+            } else { return Err("mounted control lease prerequisite missing"); }
+        }
+        if !foreign.view.profile_found { return Err("binding profile mismatch"); }
+        let (schema, mount) = if let Some((reference, v)) = vehicle {
+            let seat = v.seats.first().ok_or("pilot lease prerequisite missing")?;
+            let (yaw_rate, last_yaw) = crate::vehicles::module::wire_seat_history_in(w.fleet,reference, 0).ok_or("pilot lease prerequisite missing")?;
+            let fields = [Some(seat.aim_yaw), Some(seat.pitch), seat.look_yaw, seat.look_pitch, Some(yaw_rate), last_yaw];
+            let schema = if v.flying {
+                let names = self.flight_names;
+                fn code(id: Option<StrId>, names: &[StrId], error: &'static str) -> super::codec::Result<u8> {
+                    names.iter().position(|n| Some(*n) == id).map(|i| i as u8).ok_or(error)
+                }
+                let enums = [v.flight_state.ok_or("invalid flight flightState")? as u8,
+                    code(v.trick, &names[..4], "invalid flight trick")?, code(v.flight_lock_state, &[names[0], names[4], names[5]], "invalid flight flightLockState")?,
+                    code(v.flight_warning, &[names[0], names[6], names[7], names[8], names[9], names[10], names[11], names[12]], "invalid flight flightWarning")?,
+                    code(v.landing_message, &[names[0], names[6], names[7], names[8], names[9], names[10], names[11], names[12]], "invalid flight landingMessage")?,
+                    code(v.landing_reason, &[names[0], names[6], names[7], names[8], names[9], names[10], names[11], names[12]], "invalid flight landingReason")?];
+                self.own.flight(v, enums, fields)?
+            } else { self.own.ground(v, fields)? };
+            (schema, (v.target_id, v.target_generation))
+        } else if let (Some(_), Some(space)) = (self.space.as_ref(), w.space) {
+            if super::space::write_own_space_body(space, peer.mailbox as u32, &mut self.own.body.value)? {
+                (super::space::OWN_BODY_SCHEMA, (0., 0.))
+            } else if matches!(unit.soldier, UnitBody::Soldier(_)) {
+                let (_, state) = w.movement.swbf2.state(reference.slot, unit.generation, unit.class_name)
+                    .ok_or("Battlefront II class tuning prerequisite missing")?;
+                (self.own.foot_swbf2(&unit.soldier, &state, power_lock(w, reference, unit))?, (0., 0.))
+            } else {
+                (self.own.foot(&unit.soldier)?, (0., 0.))
+            }
+        } else if matches!(unit.soldier, UnitBody::Soldier(_)) {
+            // A 2005 soldier's life state: his stepped one, or a new life's.
+            let (_, state) = w.movement.swbf2.state(reference.slot, unit.generation, unit.class_name)
+                .ok_or("Battlefront II class tuning prerequisite missing")?;
+            (self.own.foot_swbf2(&unit.soldier, &state, power_lock(w, reference, unit))?, (0., 0.))
+        } else { (self.own.foot(&unit.soldier)?, (0., 0.)) };
+        let remote = crate::units::f3::recon_ref(w.units).ok_or("canonical entity services unavailable")?.wire_own(store, &F3UnitKey::of(reference, unit), &mut self.own, foreign.recon_aspect)?;
+        if remote.is_some() && !self.own.mounted.value.is_empty() { return Err("conflicting own control modes"); }
+        let remote = remote.map(|(id, generation, class)| self.capture.remote_id(class).map(|definition| (id as f64, generation as f64, definition))
+            .ok_or("recon content prerequisite missing")).transpose()?;
+        let v = foreign.view;
+        let flags = if v.flags.is_finite() && v.flags >= 0. && v.flags <= 2047. && v.flags.fract() == 0. { v.flags as u16 }
+            else { return Err("invalid own-player integer") };
+        let input = super::store_own::Facts { held: foreign.held.0, invalid_held: !foreign.held_valid, flags,
+            view: [v.mouse_scale, v.aspect, v.view_tick, v.sensitivity, v.curve], axes: v.axes,
+            buttons: jsrt::to_uint32(v.buttons) as u16, binding: v.profile as u16, discarded: foreign.discarded,
+            presentation_first: Some(flags & 2 != 0) };
+        self.own.envelope(unit, schema, mount, epoch, epoch, &self.capture, defs, &input, remote)?;
+        Ok((reference.slot as f64, unit.generation))
+    }
 }
 pub fn wire_store_source_words() -> u32 { WireStoreSetup::WORDS as u32 }
 
+/// A 2005 battle's capture stage, sized for its admitted world fields before
+/// any capture.
+pub(crate) fn wire_store_source_fields_in(w: &mut crate::world::owner::World, source: usize, fields: usize) -> usize {
+    let Some(owner) = w.wire.as_deref_mut() else { return 0 };
+    let Some(source) = owner.sources.get_mut(source) else { return 0 };
+    if fields > source.stage.entries.capacity() / 2 { source.stage = super::stagger::Stagger::with_capacity(fields); }
+    1
+}
 pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 
@@ -319,8 +504,8 @@ pub(crate) fn wire_store_source_create_in(w: &mut crate::world::owner::World) ->
     // Intern those names cold, including the empty message and trick names.
     // No first-seen flight status may allocate during publication.
     let flight_names = ["", "barrel", "loop", "immelmann", "Locking", "Locked", "Takeoff path blocked", "Landing path blocked", "Too fast", "No landing zone", "Press SPACE to land", "Flight ceiling", "Leaving battlefield", ""].map(|n| w.sim.strings.intern_str(n));
-    owner.sources.insert(Source { ordnance_ids, dynamic_faults: ["invalid projectile sample", "invalid projectile integer", "invalid projectile channel", "invalid projectile type/orientation", "combat capture capacity exceeded", "dynamic projectile capture capacity exceeded", "combat definition absent from matched registry"].map(|s| w.sim.strings.intern_str(s)), projectiles: Default::default(), own_stagger: super::stagger::Stagger::own(), eligibility: std::array::from_fn(|_| Eligibility::default()), eligibility_key: None, own, flight_names, capture, states: [setup.unbuilt, setup.built, setup.destroyed], world: Default::default(), summaries: Default::default(), stage: super::stagger::Stagger::new(), peers: setup.peers, input: vec![0.; crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS], fields: Default::default(),
-        names: [setup.unbuilt, setup.built, setup.destroyed, w.sim.strings.intern_str("waiting"), w.sim.strings.intern_str("active")] }).unwrap_or(0)
+    owner.sources.insert(Source { ordnance_ids, dynamic_faults: ["invalid projectile sample", "invalid projectile integer", "invalid projectile channel", "invalid projectile type/orientation", "combat capture capacity exceeded", "dynamic projectile capture capacity exceeded", "combat definition absent from matched registry"].map(|s| w.sim.strings.intern_str(s)), projectiles: Default::default(), own_stagger: super::stagger::Stagger::own(), eligibility: std::array::from_fn(|_| Eligibility::default()), eligibility_key: None, own, flight_names, capture, states: [setup.unbuilt, setup.built, setup.destroyed], world: Default::default(), summaries: Default::default(), stage: super::stagger::Stagger::new(), peers: setup.peers, input: vec![0.; crate::gen::WireWorldFacts::WORDS + 256 * crate::gen::WirePublicationLink::WORDS], fields: Default::default(), melee: Default::default(), thrown: Default::default(),
+        names: [setup.unbuilt, setup.built, setup.destroyed, w.sim.strings.intern_str("waiting"), w.sim.strings.intern_str("active")], mission: None, space: None }).unwrap_or(0)
 
 }
 /// # Safety
@@ -363,7 +548,7 @@ pub(crate) fn wire_store_source_probe_in(w: &mut crate::world::owner::World, sou
 if owner.sources.get(source as usize).is_none() {return None;}
 if owner.shots.get(shots as usize).is_none() {return None;}
 
-    let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input,units:&w.units,fleet:&w.fleet,battle:&w.battle,combat:&w.combat,collision:&mut w.collision,movement:&mut w.movement}, owner.shots.get(shots as usize).unwrap());
+    let result = (owner.sources.get_mut(source as usize).unwrap()).capture(&Read {sim:&w.sim,input:&w.input,units:&w.units,fleet:&w.fleet,battle:&w.battle,combat:&w.combat,collision:&mut w.collision,movement:&mut w.movement,space:w.space.as_deref()}, owner.shots.get(shots as usize).unwrap());
     let out = match result {
         Ok(()) => WireStoreRecords { records: (owner.sources.get(source as usize).unwrap()).capture.records().to_vec(), ..Default::default() },
         Err(error) => WireStoreRecords { error: Some(w.sim.strings.intern_str(error)), ..Default::default() },
@@ -437,22 +622,62 @@ impl Source {
     // Only a complete capture swaps into the live stagger bank.
     // A late field fault restores the roster clock so retrying is equivalent.
     fn world(&mut self, w: &Read<'_>, stagger: &mut super::stagger::Stagger, epoch: f64) -> super::codec::Result<()> {
+        match w.movement.family() {
+            bfe_family::GameFamily::Swbf1 => self.released_world(w, stagger, epoch),
+            bfe_family::GameFamily::Swbf2 => self.swbf2_world(w, stagger, epoch),
+        }
+    }
+    fn released_world(&mut self, w: &Read<'_>, stagger: &mut super::stagger::Stagger, epoch: f64) -> super::codec::Result<()> {
         let source = self;
-    let header = crate::gen::WireWorldFacts::WORDS;
-    let input = facts(&source.input[..header], &source.input[header..]);
-    let (tick, words) = input.ok_or("invalid canonical world facts")?;
-    let roster_clock = source.summaries.roster_clock();
-    let result = (|| {
-        source.stage.copy_native_from(stagger)?; source.stage.begin();
-        let store = &w.sim.store; let strings = &w.sim.strings;
-        let links = NativeLinks { battle:w.battle,store, peers: &source.peers, words };
-        source.summaries.take(tick, epoch, store, strings, &source.capture, &links, &mut source.stage)?;
-        let defs = crate::combat::module::defs_ref(&w.combat);
-        source.world.take(tick, store, strings, &defs.weapons, &source.capture, &mut source.stage, |r,u|crate::units::f3::wire_visible_in(w.units,w.fleet,store,r,u))?;
-        source.fields.take(tick, epoch, store, strings, &NativeProps {w}, source.names, &mut source.stage)?;
-        source.stage.finish(&[7., 8., 9., 10.]); std::mem::swap(stagger, &mut source.stage); Ok(())
-    })();
-    if result.is_err() { source.summaries.restore_roster_clock(roster_clock); } result
+        let header = crate::gen::WireWorldFacts::WORDS;
+        let input = facts(&source.input[..header], &source.input[header..]);
+        let (tick, words) = input.ok_or("invalid canonical world facts")?;
+        let roster_clock = source.summaries.roster_clock();
+        let result = (|| {
+            source.stage.copy_native_from(stagger)?; source.stage.begin();
+            let store = &w.sim.store; let strings = &w.sim.strings;
+            let links = NativeLinks { battle:w.battle,store, peers: &source.peers, words };
+            source.summaries.take(tick, epoch, store, strings, &source.capture, &links, &mut source.stage)?;
+            let defs = crate::combat::module::defs_ref(&w.combat);
+            source.world.take(tick, store, strings, &defs.weapons, &source.capture, &mut source.stage, |r,u|crate::units::f3::wire_visible_in(w.units,w.fleet,store,r,u))?;
+            source.fields.take(tick, epoch, store, strings, &NativeProps {w}, source.names, &mut source.stage)?;
+            source.stage.finish(&[7., 8., 9., 10.]); std::mem::swap(stagger, &mut source.stage); Ok(())
+        })();
+        if result.is_err() { source.summaries.restore_roster_clock(roster_clock); } result
+    }
+    fn swbf2_world(&mut self, w: &Read<'_>, stagger: &mut super::stagger::Stagger, epoch: f64) -> super::codec::Result<()> {
+        let source = self;
+        let header = crate::gen::WireWorldFacts::WORDS;
+        let input = facts(&source.input[..header], &source.input[header..]);
+        let (tick, words) = input.ok_or("invalid canonical world facts")?;
+        let roster_clock = source.summaries.roster_clock();
+        let result = (|| {
+            source.stage.copy_native_from(stagger)?; source.stage.begin();
+            let store = &w.sim.store; let strings = &w.sim.strings;
+            let links = NativeLinks { battle:w.battle,store, peers: &source.peers, words };
+            source.summaries.take(tick, epoch, store, strings, &source.capture, &links, &mut source.stage)?;
+            let defs = crate::combat::module::defs_ref(&w.combat);
+            source.world.take(tick, store, strings, &defs.weapons, &source.capture, &mut source.stage, |r,u|crate::units::f3::wire_visible_in(w.units,w.fleet,store,r,u))?;
+            super::store_world::take_swbf2(tick, store, &w.movement.swbf2, &mut source.stage)?;
+            source.fields.take(tick, epoch, store, strings, &NativeProps {w}, source.names, &mut source.stage)?;
+            source.melee.take(tick, w.units, store, w.combat.powers.as_deref(), &w.combat.power_effects, &mut source.stage)?;
+            source.thrown.take(tick, w.units, store, &mut source.stage)?;
+            for offer in source.mission.iter().flat_map(|bank| bank.offers()) {
+                source.stage.offer_record(tick, f64::from(offer.schema), f64::from(offer.id), epoch, &offer.payload, offer.state, offer.cadence)?;
+            }
+            for offer in source.space.iter().flat_map(|bank| bank.offers()) {
+                source.stage.offer_record(tick, f64::from(offer.schema), f64::from(offer.id), epoch, &offer.payload, offer.state, offer.cadence)?;
+            }
+            // A 2005 battle's unit and display fields leave with their bodies
+            // too, and its mission's and space's with what they describe.
+            let complete: &[f64] = &[6., 7., 8., 9., 10., f64::from(crate::movement::soldier::swbf2::body::DISPLAY_SCHEMA),
+                f64::from(super::mission::STATE_SCHEMA), f64::from(super::mission::SYSTEM_SCHEMA),
+                f64::from(super::space::FIGHTER_SCHEMA), f64::from(super::space::FRIGATES_SCHEMA),
+                f64::from(super::space::ORDNANCE_SCHEMA), f64::from(super::space::PROPS_SCHEMA),
+                super::melee::SCHEMA, super::thrown::SCHEMA];
+            source.stage.finish(complete); std::mem::swap(stagger, &mut source.stage); Ok(())
+        })();
+        if result.is_err() { source.summaries.restore_roster_clock(roster_clock); } result
     }
 }
 
@@ -585,6 +810,26 @@ impl super::publisher::World for PublicationWorld<'_> {
     fn status(&self, id: StrId) -> &[u16] { self.w.sim.strings.units(id) }
 }
 
+
+/// A scripted network battle's source publishes its mission's state from here on.
+pub(crate) fn publish_mission(w: &mut crate::world::owner::World, source: u32) {
+    if let Some(source) = w.wire.as_deref_mut().and_then(|owner| owner.sources.get_mut(source as usize)) {
+        source.mission = Some(Box::default());
+    }
+}
+
+/// A 2005 Space Assault battle's source publishes its Space fields and freezes
+/// carried soldiers' wire poses from here on.
+pub(crate) fn publish_space(w: &mut crate::world::owner::World, source: u32, bounds: super::PositionBounds) {
+    w.enable_space_wire_observations();
+    let Some(bank) = w.space.as_deref().map(|space| Box::new(super::space::Bank::new(space, bounds))) else {
+        return;
+    };
+    if let Some(source) = w.wire.as_deref_mut().and_then(|owner| owner.sources.get_mut(source as usize)) {
+        source.capture.enable_space_freeze();
+        source.space = Some(bank);
+    }
+}
 
 // SnapshotHost.addClient updates only connection bindings; immutable protocol
 // maps stay shared across every peer and every publication.

@@ -122,6 +122,15 @@ pub trait ImpactWorld {
     fn impact_blown_apart(&mut self, health: f64, unit: &mut Unit, combat: &mut Combat);
     fn head_effect(&mut self, _point: &Vector3) {}
     fn head_credit(&mut self, _previous: Attacker) {}
+    /// Timed modifiers on damage by `attacker`; `None` outside a 2005 battle.
+    fn impact_scale(&mut self, _attacker: Attacker) -> Option<f64> {
+        None
+    }
+    /// The game family of the battle; the damage path selects the released
+    /// body for every family but the 2005 game.
+    fn impact_family(&self) -> bfe_family::GameFamily {
+        bfe_family::GameFamily::Swbf1
+    }
 }
 
 // Existing replay worlds and the live combat world use the same arithmetic.
@@ -161,6 +170,12 @@ impl<W: CombatWorld + ?Sized> ImpactWorld for W {
     }
     fn head_credit(&mut self, previous: Attacker) {
         self.headshot_credit(previous);
+    }
+    fn impact_scale(&mut self, attacker: Attacker) -> Option<f64> {
+        self.damage_scale(attacker)
+    }
+    fn impact_family(&self) -> bfe_family::GameFamily {
+        self.battle_family()
     }
 }
 

@@ -271,6 +271,12 @@ pub struct Feed {
 }
 
 impl Feed {
+    /// The roster slot of the character whose unit life (`id`, `generation`)
+    /// the unit summaries named; none for a unit without one.
+    pub(crate) fn unit_slot(&self, id: u32, generation: u32) -> Option<usize> {
+        self.units.get(&id).filter(|unit| unit.generation == generation && unit.slot != u16::MAX).map(|unit| usize::from(unit.slot))
+    }
+
     pub fn new(tables: Tables) -> Self {
         Self {
             tables,
@@ -414,7 +420,7 @@ impl Feed {
                 }
             } else if kind == k::COMBAT && (schema == 3. || schema == 4.) {
                 // A record older than its expiry is refused whole.
-                if let Some(event) = decode(bytes, tick).filter(|_| tick + FEEDBACK_EXPIRY >= receiver.latest) {
+                if let Some((event, _)) = decode_for(bytes, tick, receiver.control_family).filter(|_| tick + FEEDBACK_EXPIRY >= receiver.latest) {
                     self.present(hud, &own, &lookup, receiver, teams, schema == 4., &event);
                 }
             } else if kind == k::COMBAT && schema == 8. && tick + PRESENTATION_EXPIRY >= receiver.latest {
@@ -704,6 +710,22 @@ pub fn score(roster: &super::roster::Roster) -> [f64; 4] {
         None => roster.rows().find(|(_, character)| character.human),
     };
     character.map_or([0.; 4], |(_, c)| [c.kills as f64, c.team_kills as f64, c.deaths as f64, c.captures as f64])
+}
+
+/// A feedback record of a battle of `family`, and whether it was a critical
+/// hit: a 2005 battle's record may set bit 1 of its flags for one, which is
+/// read and cleared before the released decoder reads the rest. A 2004
+/// battle's record is read by the released decoder alone.
+pub fn decode_for(bytes: &[u8], tick: f64, family: bfe_family::GameFamily) -> Option<(Feedback, bool)> {
+    const FLAGS: usize = 52;
+    let critical = family == bfe_family::GameFamily::Swbf2 && bytes.len() == FEEDBACK_BYTES && bytes[FLAGS] & 2 != 0;
+    if !critical {
+        return decode(bytes, tick).map(|feedback| (feedback, false));
+    }
+    let mut plain = [0u8; FEEDBACK_BYTES];
+    plain.copy_from_slice(bytes);
+    plain[FLAGS] &= !2;
+    decode(&plain, tick).map(|feedback| (feedback, true))
 }
 
 /// decodeFeedback: a malformed record changes nothing.

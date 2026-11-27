@@ -330,7 +330,7 @@ pub fn fetch_server_info(
     // Deserialize the `/info` JSON into `ServerEntry` and verify that `info.id`
     // is a valid 64-character lowercase hex SHA-256 server identity before
     // returning it to the Direct Connect caller.
-    let info: ServerEntry = serde_json::from_slice(&body_bytes)
+    let info = ServerEntry::read_info(&body_bytes)
         .map_err(|_| "Server returned an invalid response".to_string())?;
     if !is_lower_hex_64(&info.id) {
         return Err("Server returned an invalid info payload".to_string());

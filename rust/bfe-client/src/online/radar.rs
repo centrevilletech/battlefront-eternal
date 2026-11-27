@@ -15,6 +15,12 @@ pub struct Teams {
     relations: [[f64; 8]; 8],
     locals: [bool; 8],
 }
+/// A 2005 mission's hero or villain team (SetTeamName "hero", "villain"):
+/// a side of its own in the 2005 game, never a locals faction.
+fn hero_side(name: &[u16]) -> bool {
+    let name = String::from_utf16_lossy(name).to_ascii_lowercase();
+    matches!(name.as_str(), "hero" | "heroes" | "villain" | "villains")
+}
 impl Teams {
     pub fn new(content: &BattleContent) -> Self {
         // Use the simulation's mission parser so authored alliances and local
@@ -46,12 +52,17 @@ impl Teams {
             })
             .collect();
         let mut teams = spawning::make_teams(0.);
-        spawning::apply_mission(&mut teams, &calls, &|_| false, &mut Strings::new());
+        let mut strings = Strings::new();
+        spawning::apply_mission(&mut teams, &calls, &|_| false, &mut strings);
+        let swbf2 = content.family == bfe_content_native::GameFamily::Swbf2;
         Self {
             relations: std::array::from_fn(|a| {
                 std::array::from_fn(|b| teams[a].relations[b] as f64)
             }),
-            locals: std::array::from_fn(|t| teams[t].faction == bfe_sim::battle::names::LOCALS),
+            locals: std::array::from_fn(|t| {
+                teams[t].faction == bfe_sim::battle::names::LOCALS
+                    && !(swbf2 && teams[t].name.is_some_and(|name| hero_side(strings.units(name))))
+            }),
         }
     }
     // Relations and local factions without parsing a mission.
@@ -101,6 +112,16 @@ impl Teams {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_2005_hero_or_villain_team_is_its_own_side() {
+        let units = |s: &str| s.encode_utf16().collect::<Vec<u16>>();
+        for name in ["hero", "Heroes", "VILLAIN", "villains"] {
+            assert!(super::hero_side(&units(name)), "{name}");
+        }
+        for name in ["locals", "jawas", "heroic", ""] {
+            assert!(!super::hero_side(&units(name)), "{name}");
+        }
+    }
     use super::*;
     #[test]
     fn viewer_teams_preserve_alliances_locals_and_ticket_visibility() {

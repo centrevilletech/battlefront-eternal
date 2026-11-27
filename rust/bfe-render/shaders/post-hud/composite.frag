@@ -6,6 +6,7 @@
         uniform float bloomStrength;
         uniform float speedBlur;
         uniform float speedTurn;
+        uniform float glowAdd;
         varying vec2 vUv;
         // Every read but the first sits behind a switch. Explicit levels (the
         // targets have one each) keep them there on Direct3D, whose compiler
@@ -27,6 +28,8 @@
             color = mix(color, trail / 6.0, iris * 0.85);
           }
           if (bloomStrength > 0.0) color += textureLod(glow, vUv, 0.0).rgb * bloomStrength * (1.0 - color);
+          // The 2005 game adds its bloom to the finished frame.
+          if (glowAdd > 0.0) color = min(color, vec3(1.0)) + textureLod(glow, vUv, 0.0).rgb * glowAdd;
           gl_FragColor = vec4(color, 1.0);
         }
       

@@ -7,11 +7,12 @@ use bfe_presentation::{
     layout::{command as c, command_kind as k, effect as eo, frame as f, header as h},
     Presentation,
 };
-const SLOTS: usize = 1024;
+pub(super) const SLOTS: usize = 1024;
 const COMMANDS: usize = 2048;
 const GENERATION_BITS: u32 = 22;
 pub struct Spawner {
     pub owner: Presentation,
+    decoration: Option<Box<MountedEffects>>,
     // Which slots hold a playing effect, each slot's current life, and the
     // slots free to lend. Slot 0 is never lent.
     active: Vec<bool>,
@@ -27,9 +28,13 @@ pub struct Spawner {
     // command repeats.
     scaled: Vec<[f64; 3]>,
 }
+struct MountedEffects {
+    player: Spawner,
+    budget: bfe_presentation::decoration::DecorationBudget,
+}
 impl Spawner {
     pub fn new(owner: Presentation) -> Self {
-        Self { owner, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS], scaled: vec![[1., 0., 1.]; SLOTS] }
+        Self { owner, decoration: None, active: vec![false; SLOTS], generation: vec![0; SLOTS], free: (1..SLOTS).rev().collect(), sequence: 0, placed: vec![[0.; 10]; SLOTS], scaled: vec![[1., 0., 1.]; SLOTS] }
     }
     // The slot's number and the low bits of its life, in one word.
     fn handle(&self, id: usize) -> u32 {
@@ -117,6 +122,14 @@ impl Spawner {
         }
         self.place(id, false);
     }
+    /// A persistent source retries its stop if transient events filled this frame's command batch.
+    pub(super) fn try_stop(&mut self, handle: u32) -> bool {
+        if self.playing(handle) && self.owner.input[f::COMMANDS] as usize == COMMANDS {
+            return false;
+        }
+        self.stop(handle);
+        true
+    }
     /// Effect.stop: it emits no more; what is out already lives on.
     pub fn stop(&mut self, handle: u32) {
         if let Some(id) = self.live(handle) {
@@ -174,6 +187,37 @@ impl Spawner {
     /// Effects.update: step every effect, then take back the slots of the
     /// ones that finished in this life.
     pub fn frame(&mut self) {
+        self.frame_shared();
+        if let Some(mounted) = &mut self.decoration {
+            let room = self.owner.particle_capacity() - self.owner.header[h::PARTICLES] as usize;
+            mounted.budget.reserve(&mut mounted.player.owner, room);
+            mounted.player.frame_shared();
+            mounted.budget.release(&mut mounted.player.owner);
+            self.owner.append_decoration(&mounted.player.owner);
+        }
+    }
+    pub(super) fn enable_mounts(&mut self) {
+        let particles = self.owner.particle_capacity() * 3 / 4;
+        let limits = bfe_presentation::Limits { effects: SLOTS, emitters: 4096, particles, commands: COMMANDS, events: 32768 };
+        self.decoration = Some(Box::new(MountedEffects {
+            player: Self::new(Presentation::new(self.owner.content().clone(), limits)),
+            budget: bfe_presentation::decoration::DecorationBudget::new(particles),
+        }));
+    }
+    pub(super) fn begin_mount_frame(&mut self) {
+        if let Some(mounted) = &mut self.decoration {
+            mounted.player.owner.copy_clock(&self.owner);
+        }
+    }
+    pub(super) fn mount_player(&mut self) -> Option<&mut Self> {
+        self.decoration.as_mut().map(|mounted| &mut mounted.player)
+    }
+    pub(super) fn mount_rate(&mut self, handle: u32, rate: f64, dt: f64) {
+        if let Some(id) = self.live(handle) {
+            self.owner.mount_rate(id, self.generation[id], rate, dt);
+        }
+    }
+    fn frame_shared(&mut self) {
         self.owner.frame();
         for row in self.owner.effect_output.chunks_exact(eo::STRIDE).take(self.owner.header[h::EFFECTS] as usize) {
             let id = row[eo::ID] as usize;

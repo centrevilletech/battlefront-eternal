@@ -785,20 +785,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn launch_version_detects_ready_early_exit_and_timeout() {
-        use std::os::unix::fs::PermissionsExt;
-
         let root = make_temp_dir("launch");
         let ver_dir = root.join("versions").join("0.1.0-preview.332");
         fs::create_dir_all(&ver_dir).unwrap();
 
         // 1. Script that writes BFE_LAUNCH_DIR/BFE_LAUNCH_TOKEN immediately.
         let ok_exe = ver_dir.join("ok.sh");
-        fs::write(
+        crate::test_programs::write(
             &ok_exe,
-            "#!/bin/sh\necho $$ > \"$BFE_LAUNCH_DIR/$BFE_LAUNCH_TOKEN\"\nsleep 1\n",
-        )
-        .unwrap();
-        fs::set_permissions(&ok_exe, fs::Permissions::from_mode(0o755)).unwrap();
+            b"#!/bin/sh\necho $$ > \"$BFE_LAUNCH_DIR/$BFE_LAUNCH_TOKEN\"\nsleep 1\n",
+        );
 
         let res_ok = launch_version(&LaunchOptions {
             target: LaunchTarget {
@@ -819,8 +815,7 @@ mod tests {
 
         // 2. Script that exits 1 without writing the token.
         let fail_exe = ver_dir.join("fail.sh");
-        fs::write(&fail_exe, "#!/bin/sh\nexit 7\n").unwrap();
-        fs::set_permissions(&fail_exe, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&fail_exe, b"#!/bin/sh\nexit 7\n");
 
         let res_fail = launch_version(&LaunchOptions {
             target: LaunchTarget {
@@ -840,8 +835,7 @@ mod tests {
 
         // 3. Script that sleeps past timeout without writing the token.
         let slow_exe = ver_dir.join("slow.sh");
-        fs::write(&slow_exe, "#!/bin/sh\nsleep 10\n").unwrap();
-        fs::set_permissions(&slow_exe, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&slow_exe, b"#!/bin/sh\nsleep 10\n");
 
         let res_timeout = launch_version(&LaunchOptions {
             target: LaunchTarget {

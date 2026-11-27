@@ -3,8 +3,8 @@ use std::cell::Cell;
 
 struct AllocationCounter;
 thread_local! {
-    pub(super) static COUNTING: Cell<bool> = const { Cell::new(false) };
-    pub(super) static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
+    pub(crate) static COUNTING: Cell<bool> = const { Cell::new(false) };
+    pub(crate) static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 unsafe impl GlobalAlloc for AllocationCounter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
@@ -1614,7 +1614,7 @@ fn native_jet_jobs_keep_random_ties_authored_vectors_and_current_launch_position
     let record=HintRecord {kind:Some("jetjump".into()),name:None,xfrm:[1.,0.,0.,0.,1.,0.,0.,0.,1.,0.,0.,0.],properties:vec![]};
     let mut raw=owned_navigation(false).nav;raw.hints=HintSet::new(build_hints(&[record.clone(),record.clone(),record],None,350.));
     let hints=Hints::new(&raw,2,|_|None,|i|i as u64+40);
-    let mut nav=Navigation::new(raw,2);let mut store=crate::ai::owned::tests::empty_world();
+    let mut nav=Navigation::new(raw.common,2);let mut store=crate::ai::owned::tests::empty_world();
     let r=store.unit.insert(Unit {alive:true,generation:1.,soldier:UnitBody::Soldier(Soldier {max_speed:7.,..Default::default()}),..Default::default()});
     let class=nav.class(ClassDef::default());let actor=nav.register(&store,AiLifeHandle {kind:KIND_UNIT.into(),slot:r.slot,generation:r.gen,life:1.},class).unwrap();
     let mut jets=Jets::new(4);let mut random=RandomState::new(47);let mut expected=ClassicRandom::from_state(47);

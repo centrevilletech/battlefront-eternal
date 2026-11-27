@@ -3,9 +3,12 @@
 
 use std::collections::BTreeMap;
 
+use bfe_family::owner::{self, Namespace, Owner, Verdict};
+use bfe_family::GameFamily;
+
 use super::{
-    BattleSummary, GameInfo, MapCatalogEntry, PingQuality, RawSponsor, ServerContract, ServerEntry,
-    SponsorInfo,
+    BattleSummary, GameInfo, MapCatalogEntry, PingQuality, RawSponsor, RotationItem, ServerContract,
+    ServerEntry, SponsorInfo,
 };
 
 // Ports `compatible(server, contract)`:
@@ -24,14 +27,22 @@ pub fn sim_number(sim: &str) -> Option<u32> {
 
 /// The badge after a row's name: why JOIN will not work, or empty.
 pub fn row_tag(server: &ServerEntry, contract: &ServerContract) -> &'static str {
-    if compatible(server, contract) {
-        ""
-    } else {
+    if !same_version(server, contract) {
         "OTHER VERSION"
+    } else if !server.playable() {
+        "NOT AVAILABLE"
+    } else {
+        ""
     }
 }
 
+/// Whether JOIN can work: the same release, and a game this build can play
+/// (every 2004 battle; see `ServerEntry::family_reading`).
 pub fn compatible(server: &ServerEntry, contract: &ServerContract) -> bool {
+    same_version(server, contract) && server.playable()
+}
+
+fn same_version(server: &ServerEntry, contract: &ServerContract) -> bool {
     let sim = server
         .simulation
         .as_deref()
@@ -383,6 +394,32 @@ fn clean_https_url(value: &str) -> Option<(String, String)> {
     Some((href, display))
 }
 
+// The NEXT caption of a rotation entry. A 2004 entry shows the released caption,
+// `map_name` of its id, except that a title the catalog has for the map its
+// server plays under another id (`RotationItem::played_id`) is shown instead.
+// An entry of the 2005 game shows the released caption too when its id names a
+// namespace; a bare id its `family` member gives to that game is looked up by
+// its qualified id, never as a 2004 map. An entry naming a game this build
+// does not know, or two games, takes no title.
+fn next_caption(item: &RotationItem, maps: &[MapCatalogEntry]) -> String {
+    let Some(id) = item.map_id() else {
+        return "-".to_string();
+    };
+    match item.owners().verdict() {
+        Verdict::Unstated | Verdict::One(Owner::Known(GameFamily::Swbf1)) => item
+            .played_id()
+            .and_then(|played| maps.iter().find(|m| m.id == played))
+            .filter(|found| found.title_resolved)
+            .map(|found| found.name.clone())
+            .unwrap_or_else(|| map_name(id, maps)),
+        Verdict::One(Owner::Known(GameFamily::Swbf2)) => match owner::namespace(id) {
+            Namespace::Bare => map_name(&GameFamily::Swbf2.qualify(id), maps),
+            Namespace::Family(_) | Namespace::Other => map_name(id, maps),
+        },
+        Verdict::One(Owner::Unknown(_)) | Verdict::Two(..) => id.to_ascii_uppercase(),
+    }
+}
+
 // Ports `ServersView.describe(server)`:
 // assembles the complete `GAME INFO` inspector view model for the selected
 // server, including map flyover caption, uppercase mode/era/bot/team chips,
@@ -451,11 +488,7 @@ pub fn describe_server(
     // battle in the server's rotation queue (`rotation[0]` is the current
     // battle); a single-entry rotation repeats `"SAME BATTLE"`.
     let next_battle = if let Some(second) = server.rotation.get(1) {
-        if let Some(next_id) = second.map_id() {
-            map_name(next_id, maps)
-        } else {
-            "-".to_string()
-        }
+        next_caption(second, maps)
     } else if server.rotation.len() == 1 {
         "SAME BATTLE".to_string()
     } else {
@@ -492,7 +525,9 @@ pub fn describe_server(
         .unwrap_or(contract.sim.as_str());
     // A mismatch says which side is behind: a newer server needs a game update, an older
     // one cannot be joined until it updates itself.
-    let version_text = if ok {
+    let version_text = if same_version(server, contract) && !ok {
+        "NOT AVAILABLE".to_string()
+    } else if ok {
         let digits: String = sim_source.chars().filter(|ch| ch.is_ascii_digit()).collect();
         let sim_num = if digits.is_empty() { "?" } else { &digits };
         format!("SIM {sim_num} \u{2713}")

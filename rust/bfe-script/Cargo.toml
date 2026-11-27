@@ -1,0 +1,24 @@
+[package]
+name = "bfe-script"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Deterministic pure-Rust Lua 5.0 bytecode runtime for Star Wars: Battlefront II (2005) mission scripts."
+
+[lib]
+crate-type = ["rlib"]
+
+[[bin]]
+name = "bfe-script-tool"
+path = "src/bin/bfe-script-tool.rs"
+
+[dependencies]
+bfe-wide = { path = "../bfe-wide" }
+v8math = { path = "../v8math" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }
+flate2 = "1"

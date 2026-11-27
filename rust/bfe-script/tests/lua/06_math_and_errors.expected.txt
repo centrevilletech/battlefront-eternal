@@ -1,0 +1,11 @@
+math1	3.5	2	-3	3	-2	4	1	-1
+math2	-2	8	81	180	3142
+frexp_ldexp	0.75	4	12
+trig	0	1000	0	1000	1000	0	3000	785
+assert_ok	7	nil
+assert_fail	false	boom
+err_table	false	true	42
+err_lvl0	false	plain
+xpcall	false	handled:oops
+unpack	10	20	30	nil	boolean	number	string	table	function
+fenv	99	true

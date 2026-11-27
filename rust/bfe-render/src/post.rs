@@ -40,7 +40,7 @@ pub const STEP_FIRST: usize = 5;
 pub const UNIFORM: usize = 18;
 pub const MAX_UNIFORMS: usize = 12;
 pub const STEP: usize = STEP_FIRST + MAX_UNIFORMS * UNIFORM;
-pub const MAX_STEPS: usize = 8;
+pub const MAX_STEPS: usize = 12;
 // A step's target: the canvas, or the framebuffer bound now.
 pub const TARGET_CANVAS: f64 = -1.0;
 pub const TARGET_BOUND: f64 = -2.0;

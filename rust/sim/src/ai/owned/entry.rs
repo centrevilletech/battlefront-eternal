@@ -42,6 +42,45 @@ pub fn ai_world_begin_in(w:&mut World)->u32 {
     let battle=w.ai.begin(navigation,&input.settings,&mut w.sim.strings,teams);battle.navigation_posts=posts;1
 }
 
+/// Native Battlefront II admission uses the same roster and settings row.
+pub(crate) fn ai_world_begin_swbf2(w: &mut World, sectors: Option<&bfe_content::Value>, doors: &[usize], classes: &[bfe_content::defs::ClassDef]) -> Result<u32, String> {
+    use crate::gen::AiWorldSetup;
+    if w.ai.battle().is_some() { return Err("AI battle already admitted".into()); }
+    let (words, heap) = w.sim.calls.args();
+    let input = AiWorldSetup::take(words, heap);
+    let navigation = super::load::Navigation::read_swbf2(&input.navigation)?;
+    let crate::ai::nav::route::MapNavigation { common: nav, mut swbf2 } = navigation;
+    let mut nav = nav;
+    if let Some(state) = &mut swbf2 {
+        state.clearance.prepare();
+        if let Some((epoch, order, flags)) = super::live::collision_snapshot(w) {
+            state.clearance.observe_order(epoch, order, flags);
+        }
+        if let Some(graph) = &state.graph {
+            let (floors, probe) = super::walk::survey_map(w, nav.source.get("bounds"), sectors, doors, classes, graph, &mut nav.barriers)?;
+            state.floors = floors;
+            state.floors.warm(graph, &mut nav.barriers);
+            w.ai.ground_probe = Some(Box::new(probe));
+        } else {
+            w.ai.ground_probe = Some(Box::new(super::walk::GroundSurvey::new(w, nav.source.get("bounds")).probe));
+        }
+    }
+    let sizes = &input.settings.capacity;
+    let capacity = sizes.registry as usize + sizes.characters as usize + sizes.controls as usize;
+    let external = (sizes.registry.saturating_sub(sizes.hulls) as usize)
+        .max(w.sim.store.unit.slots() as usize)
+        .max(sizes.characters as usize);
+    if let Some(state) = &mut swbf2 {
+        state.reserve_controls(capacity + external);
+    }
+    let teams = super::load::teams(&w.sim.store, |a,b| crate::units::f3::relation_in(&w.units,a,b));
+    let battle = w.ai.begin_swbf2(nav, &input.settings, &mut w.sim.strings, teams);
+    battle.scopes_for_map = &super::scopes::Entries::SWBF2;
+    battle.state.navigation.set_swbf2(swbf2.unwrap(), capacity, external);
+    battle.navigation_posts = input.navigation.posts.iter().map(|row| row.post).collect();
+    Ok(1)
+}
+
 /// The descriptor's generated pointers survive ordinary phases. JavaScript
 /// recreates typed views after calls, just as for the unit and fleet owners.
 pub fn ai_world_boundary_in(w:&mut World)->Option<&[f64]> {
@@ -64,8 +103,11 @@ pub fn ai_controls_bank_in(w:&World)->Option<&[f64]> { w.ai.battle().map(|battle
 
 /// ai.update crosses once. Decisions, mounted aim and recursive physical
 /// effects all borrow one native Core and the original shared generators.
-pub fn ai_world_phase_in(w:&mut World)->u32 {
+pub fn ai_world_phase_in(w:&mut World)->u32 { (w.battle.bot_phase)(w) }
+
+pub(crate) fn native_phase_in<const GOALS: bool>(w:&mut World)->u32 {
     if !w.ai.battle().is_some_and(|battle|battle.ready()) {return 0;}
+    auto_balance_swbf2(w);
     let outer=crate::units::f3::external_in(w);
     let event_count=w.sim.events.count();let event_words=w.sim.events.len();
     let version=crate::units::f3::publication_version_in(&w.units);
@@ -77,7 +119,7 @@ pub fn ai_world_phase_in(w:&mut World)->u32 {
     let accepted=crate::units::f3::with_bare_services_in(w,|w,services| {
             let Some(services)=services else{return false};
             let facts=super::world::Facts {time:header.time,paused:header.paused,network_secondary:header.network_secondary,..Default::default()};
-            let accepted=battle.native_phase(w,services.recon,services.queries,&facts,&header.facts,&exchange.cameras,&exchange.journal).is_ok();
+            let accepted=battle.native_phase::<GOALS>(w,services.recon,services.queries,&facts,&header.facts,&exchange.cameras,&exchange.journal).is_ok();
             accepted
         });
     battle.exchange=exchange;w.ai.return_battle(owned);
@@ -86,6 +128,40 @@ pub fn ai_world_phase_in(w:&mut World)->u32 {
     if header.unit_phase_follows {outer.before_units(w);}else{outer.finish(w,true);}
     finish_boundary(w,version,control_version,event_count,event_words,accepted);
     u32::from(accepted)
+}
+
+/// The 2005 game's AI auto balance, recomputed at every AI update of a 2005 Classic battle with
+/// one human team (00439470): the offsets the mission's mode, points and reinforcement counts
+/// give (`difficulty::auto_balance`), 0 otherwise. Enhanced bots and 2004 battles keep theirs.
+fn auto_balance_swbf2(w:&mut World) {
+    use crate::ai::control::difficulty::{auto_balance,BalanceInputs,FlagMode};
+    use crate::battle::rules::events::Reinforcements;
+    let Some((p1,p2))=w.ai.battle().and_then(|b|{
+        let d=b.settings.difficulty.borrow();
+        (d.swbf2&&!d.enhanced).then(||(d.is_player_team(1.0),d.is_player_team(2.0)))
+    }) else {return};
+    let offsets=if p1==p2 {(0,0)} else {
+        w.mission_view().map_or((0,0),|view|{
+            let h=view.host;
+            // -1 is unlimited (the game stores 2,147,483,647); an unset count is taken the same way.
+            let live=|team:usize|match h.cached_reinforcements[team] {n if n<0 =>i32::MAX,n=>n};
+            let max=|team:i32|match h.team_setup(team).and_then(|s|s.initial_reinforcements) {
+                Some(Reinforcements::Finite(n))=>i32::try_from(n).unwrap_or(i32::MAX),
+                _=>i32::MAX,
+            };
+            let teams=view.score().teams;
+            let points=|i:usize|i32::try_from(teams[i]).unwrap_or(i32::MAX);
+            auto_balance(&BalanceInputs {
+                flag_mode:FlagMode::named(&h.match_flags.flag_gameplay_type),
+                space_assault:h.match_flags.space_assault_enabled,
+                counts:[live(1),live(2)],
+                maxima:[max(1),max(2)],
+                points:[points(0),points(1)],
+                player_team:if p1 {1} else {2},
+            })
+        })
+    };
+    if let Some(b)=w.ai.battle() {b.settings.difficulty.borrow_mut().set_balance(f64::from(offsets.0),f64::from(offsets.1));}
 }
 
 /// Immutable authored policies are prepared once. Weapon ids refer to F3's

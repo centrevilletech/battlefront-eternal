@@ -1,0 +1,21 @@
+short_nat0	nil,nil,nil,nil,nil,nil
+short_nat1	7,nil,nil,nil,nil,nil
+short_lua0	nil,nil,nil,nil,nil,nil
+short_lua1	42,nil,nil,nil,nil,nil
+short_tcnat0	nil,nil,nil,nil,nil,nil
+short_tclua0	nil,nil,nil,nil,nil,nil
+short_tclua1	42,nil,nil,nil,nil,nil
+setlisto	12	1	12	13	head	12	0	9	90	0
+tfor6	1,10,100,d1,e1,f1
+tfor6	2,20,200,d2,e2,f2
+tfor_short	1,11,nil,nil,nil,nil
+tfor_short	2,12,nil,nil,nil,nil
+tfor_tc	1,a,b,c,d,e
+tfor_tc	2,u,v,w,x,y
+tfor_gfind6	1,2,3,4,5,6
+tfor_gfind6	a,b,c,d,e,f
+open_chain	12	1	12
+open_zero	0	nil	nil
+open_unpack	8	7	14
+call_mm_short	99,nil,nil,nil,nil,nil
+call_mm_long	8	1	8

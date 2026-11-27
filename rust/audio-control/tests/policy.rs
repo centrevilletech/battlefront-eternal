@@ -326,3 +326,214 @@ fn doppler_follows_the_sources_velocity_not_the_frames_position_steps() {
         if frame > 0 { assert!((v.radial - 34.4).abs() < 0.1, "frame {frame}: radial {}", v.radial); }
     }
 }
+
+#[test]
+fn low_reinforcements_vo_plays_once_for_matching_listener_team() {
+    let run_case = |listener: usize, t1: f64, t2: f64| -> Vec<usize> {
+        let mut p = phase();
+        stream_bank(&mut p);
+        p.engine.sounds[10].kind = 4;
+        p.engine.sounds[10].stream = 0;
+        p.engine.sounds[11].kind = 4;
+        p.engine.sounds[11].stream = 0;
+        p.frame[frame::TEAM] = listener as f64;
+        p.add_low_reinforcements_vo(1, 0.10, 8, true, 1);
+        p.add_low_reinforcements_vo(2, 0.10, 9, true, 1);
+        p.add_low_reinforcements_vo(2, 0.10, 10, true, 2);
+        p.add_low_reinforcements_vo(1, 0.10, 11, true, 2);
+
+        // Initial tick captures starting tickets (100, 100); nothing fires yet.
+        tick(&mut p, 0.01, &[]);
+        assert!(p.streams.requests.is_empty());
+
+        p.frame[frame::TICKETS1] = t1;
+        p.frame[frame::TICKETS2] = t2;
+        tick(&mut p, 0.01, &[]);
+        let reqs = p.streams.requests.clone();
+        for req in reqs {
+            if req.operation == request_kind::LOAD {
+                assert!(p.streams.ready(&mut p.engine, req.voice, req.generation, req.part, req.sample, 2.0, 1));
+            }
+        }
+        let fired: Vec<usize> = p.streams.census().map(|(s, _)| s).collect();
+        // Rule must not refire on later ticks after the stream ends.
+        tick(&mut p, 3.0, &[]);
+        assert!(p.streams.requests.iter().all(|r| r.operation != request_kind::LOAD));
+        fired
+    };
+
+    assert_eq!(run_case(1, 10.0, 80.0), vec![8], "team 1 low -> team 1 hears own defeat line");
+    assert_eq!(run_case(1, 80.0, 10.0), vec![9], "team 2 low -> team 1 hears own victory line");
+    assert_eq!(run_case(2, 80.0, 10.0), vec![10], "team 2 low -> team 2 hears own defeat line");
+    assert_eq!(run_case(2, 10.0, 80.0), vec![11], "team 1 low -> team 2 hears own victory line");
+
+    // Absolute ticket count threshold (is_fraction = false).
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.frame[frame::TEAM] = 1.0;
+    p.add_low_reinforcements_vo(1, 15.0, 8, false, 1);
+    tick(&mut p, 0.01, &[]);
+    p.frame[frame::TICKETS1] = 20.0;
+    tick(&mut p, 0.01, &[]);
+    assert!(p.streams.requests.is_empty(), "above absolute threshold must not fire");
+    p.frame[frame::TICKETS1] = 15.0;
+    tick(&mut p, 0.01, &[]);
+    assert_eq!(p.streams.requests.len(), 1, "at absolute threshold must fire once");
+}
+
+#[test]
+fn low_reinforcements_vo_fraction_uses_true_starting_tickets_on_mid_battle_join() {
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.frame[frame::TEAM] = 1.0;
+    p.add_low_reinforcements_vo(1, 0.10, 8, true, 1);
+
+    // Join mid-battle at 50% tickets (75 of 150) after true starts are plumbed.
+    p.set_starting_tickets(150.0, 150.0);
+    p.frame[frame::TICKETS1] = 75.0;
+    p.frame[frame::TICKETS2] = 75.0;
+    tick(&mut p, 0.01, &[]);
+    assert!(p.streams.requests.is_empty(), "50% remaining must not fire 10% rule");
+
+    // 16 tickets is still above 10% of 150 (15).
+    p.frame[frame::TICKETS1] = 16.0;
+    tick(&mut p, 0.01, &[]);
+    assert!(p.streams.requests.is_empty(), "16/150 must not fire 10% rule");
+
+    // 15 tickets equals 10% of 150 and must fire (would not fire if denominator were first-seen 75).
+    p.frame[frame::TICKETS1] = 15.0;
+    tick(&mut p, 0.01, &[]);
+    assert_eq!(p.streams.requests.len(), 1, "15/150 must fire 10% low-reinforcements rule");
+}
+
+#[test]
+fn failed_ambience_bed_is_remembered_without_retry_storm_or_panic() {
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.streams.definitions[0].slots = 2;
+    p.streams.segments.push(audio_control::streams::Segment { stream: 0, duration: 1.0, channels: 1, variants: [NONE, NONE, NONE, 0] });
+    p.streams.configure();
+    p.engine.sounds[8].entries[0].id = 1;
+    p.frame[frame::ENHANCED] = 1.0;
+    let mut row = [0.0; region::STRIDE];
+    row[region::SOUND] = 8.0;
+    row[region::Z] = -5.0;
+    row[region::MIN_DISTANCE] = 5.0;
+    row[region::MAX_DISTANCE] = 200.0;
+    p.director.regions.push(row);
+    p.director.region_voices.push(SILENT);
+
+    let mut loads = 0usize;
+    for _ in 0..600 {
+        tick(&mut p, 1.0 / 60.0, &[]);
+        let reqs = p.streams.requests.clone();
+        for req in reqs {
+            if req.operation == request_kind::LOAD {
+                loads += 1;
+                assert!(p.streams.failed(&p.engine, req.voice, req.generation));
+            }
+        }
+    }
+    assert_eq!(loads, 1, "a failing bed segment must be attempted once and remembered");
+    // No stream voice may remain tied up after the initial load fails before playing.
+    let slots = [(); audio_control::streams::STREAM_VOICES].map(|()| p.streams.reserve_slot());
+    for id in slots { p.streams.return_slot(id); }
+}
+
+#[test]
+fn stream_play_returns_silent_when_stream_voice_pool_is_full() {
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.streams.definitions[0].slots = audio_control::streams::STREAM_VOICES + 2;
+    let mut reserved = Vec::new();
+    for _ in 0..audio_control::streams::STREAM_VOICES {
+        reserved.push(p.streams.reserve_slot());
+    }
+    let handle = p.streams.play(&mut p.engine, audio_control::streams::Options::new(8, audio_control::engine::MUSIC));
+    assert_eq!(handle, SILENT, "exhausted stream voice pool must return SILENT instead of panicking");
+    for id in reserved {
+        p.streams.return_slot(id);
+    }
+}
+
+#[test]
+fn a_failed_stereo_file_leaves_surround_and_a_repaired_original_playable() {
+    use audio_control::streams::Options;
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.streams.segments.push(audio_control::streams::Segment { stream: 0, duration: 1.0, channels: 2, variants: [0, 1, NONE, 0] });
+    p.engine.sounds[8].entries[0].id = 1;
+    p.streams.configure();
+    let options = Options::new(8, audio_control::engine::MUSIC);
+    p.engine.enhanced = true;
+    p.engine.channels = 2;
+    assert_ne!(p.streams.play(&mut p.engine, options), SILENT);
+    let request = *p.streams.requests.last().unwrap();
+    assert!(p.streams.failed(&p.engine, request.voice, request.generation));
+    assert_eq!(p.streams.play(&mut p.engine, options), SILENT);
+    p.engine.channels = 6;
+    let surround = p.streams.play(&mut p.engine, options);
+    assert_ne!(surround, SILENT, "the untried surround file must remain eligible");
+    assert_eq!(p.streams.requests.last().unwrap().variant, 1);
+    p.streams.stop(&mut p.engine, surround, 0.0);
+    p.engine.enhanced = false;
+    p.engine.wall_now += 4.0;
+    assert_ne!(p.streams.play(&mut p.engine, options), SILENT, "retry the original after a read error");
+}
+
+#[test]
+fn names_for_the_same_files_share_a_failure() {
+    use audio_control::streams::{Options, Segment};
+    let mut p = phase();
+    stream_bank(&mut p);
+    for variant in [0, 1, 1] {
+        p.streams.segments.push(Segment { stream: 0, duration: 1.0, channels: 2, variants: [variant, NONE, NONE, variant] });
+    }
+    p.streams.configure();
+    p.streams.set_source_files(vec![0, 1, 1, 3], vec![0, 0]);
+    p.engine.enhanced = true;
+    let mut options = Options::new(8, audio_control::engine::MUSIC);
+    options.segment = 1;
+    assert_ne!(p.streams.play(&mut p.engine, options), SILENT);
+    let r = *p.streams.requests.last().unwrap();
+    assert!(p.streams.failed(&p.engine, r.voice, r.generation));
+    options.segment = 2;
+    assert_eq!(p.streams.play(&mut p.engine, options), SILENT);
+    options.segment = 3;
+    assert_ne!(p.streams.play(&mut p.engine, options), SILENT, "a different original can supply the same variant");
+}
+
+#[test]
+fn an_early_stream_end_retires_only_the_matching_part_and_generation() {
+    use audio_control::streams::{Options, STREAM_VOICES};
+    let mut p = phase();
+    stream_bank(&mut p);
+    p.streams.definitions[0].slots = 2;
+    let mut handles = Vec::new();
+    for sound in [8, 9] {
+        handles.push(p.streams.play(&mut p.engine, Options::new(sound, EFFECTS)));
+        let r = *p.streams.requests.last().unwrap();
+        assert!(p.streams.ready(&mut p.engine, r.voice, r.generation, r.part, r.sample, 72., 1));
+    }
+    let r = p.streams.requests[0];
+    let mut stale = r;
+    stale.generation += 1;
+    p.streams.shorten(stale, 71.);
+    let mut other_part = r;
+    other_part.part = (r.part + 1) % 3;
+    p.streams.shorten(other_part, 71.);
+    tick(&mut p, 2., &[]);
+    assert!(p.streams.playing(handles[0]));
+    p.streams.shorten(r, 56.);
+    tick(&mut p, 13.99, &[]);
+    assert!(p.streams.playing(handles[0]));
+    tick(&mut p, 0.02, &[]);
+    assert!(!p.streams.playing(handles[0]));
+    assert!(p.streams.playing(handles[1]));
+    tick(&mut p, 3.01, &[]);
+    assert!(p.streams.requests.iter().any(|v| v.operation == request_kind::RELEASE && v.voice == r.voice));
+    let slots: Vec<_> = (1..STREAM_VOICES).map(|_| p.streams.reserve_slot()).collect();
+    assert!(slots.contains(&r.voice));
+    assert!(!p.streams.has_free_voice());
+    for id in slots { p.streams.return_slot(id); }
+}

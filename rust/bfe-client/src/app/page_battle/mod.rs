@@ -23,7 +23,7 @@ pub(super) struct PageBattle {
     pub spawn: bool,
     pub scoreboard: bool,
     rig: rig::Rig,
-    gpu: gpu::Gpu,
+    gpu: Option<gpu::Gpu>,
     was_open: bool,
     class: String,
     team: u8,
@@ -60,6 +60,8 @@ pub(super) struct PageBattle {
     director: director::Director,
     post: Option<String>,
     pub shot: Option<bfe_battle_ui::spawn::CameraShot>,
+    /// The stage has the 2004 look's room (a 2005 battle's stage stands in the battle behind).
+    room: bool,
 }
 /// An explicitly named view wins. Unknown names retain the Classic
 /// fallback; no override follows the front end that launched the battle.
@@ -83,16 +85,23 @@ impl PageBattle {
     ) -> Result<Self, String> {
         let front = &settings.player.shell.menu_theme;
         let models = std::mem::take(&mut scene.menu_models);
-        let gpu = gpu::Gpu::new(
-            &mut scene.bridge,
-            &models,
-            scene.menu_grid.ok_or("grid room texture is absent")?,
-        )?;
+        // A 2005 battle's content has neither the 2004 hologram models nor the
+        // room's grid: its stage stands in the battle behind, without logos.
+        let swbf2 = scene.is_swbf2();
+        let grid = if swbf2 {
+            None
+        } else {
+            Some(scene.menu_grid.ok_or("grid room texture is absent")?)
+        };
+        let gpu = gpu::Gpu::new(&mut scene.bridge, &models, grid)?;
         scene.menu_models.clear();
         scene.bridge.r.core.state.reset();
+        let gpu = Some(gpu);
         Ok(Self {
-            spawn: page_view(front, &settings.interface.get_string("spawnScreenView")),
-            scoreboard: page_view(front, &settings.interface.get_string("scoreboardView")),
+            // The 2005 game always takes the launcher: the Classic view is the 2004 game's own screen.
+            spawn: gpu.is_some() && (swbf2 || page_view(front, &settings.interface.get_string("spawnScreenView"))),
+            scoreboard: gpu.is_some() && !swbf2 && page_view(front, &settings.interface.get_string("scoreboardView")),
+            room: !swbf2,
             rig: rig::Rig::new(),
             gpu,
             was_open: false,
@@ -128,6 +137,22 @@ impl PageBattle {
             post: None,
             shot: None,
         })
+    }
+    /// The look the stage's backdrop takes: the 2004 look's room hides the
+    /// battle, and a stage without the room shows the battle as the others do.
+    fn stage_look(&self, look: usize) -> usize {
+        if look == 0 && !self.room {
+            1
+        } else {
+            look
+        }
+    }
+    /// Gives a side its emblem from a picture where the content has no hologram model.
+    pub fn add_flat_logo(&mut self, scene: &mut Scene, side: &str, texture: i32) -> Result<(), String> {
+        match self.gpu.as_mut() {
+            Some(gpu) => gpu.add_flat_logo(&mut scene.bridge, side, texture),
+            None => Ok(()),
+        }
     }
     pub fn dragging(&self) -> bool {
         self.rig.dragging
@@ -336,7 +361,7 @@ impl PageBattle {
         }
         self.flare = (self.flare - dt * 2.5).max(0.);
         self.rig.update(dt, size[0] as f64 / size[1] as f64);
-        self.behind = self.kept.choose(look, dt);
+        self.behind = self.kept.choose(self.stage_look(look), dt);
     }
     pub fn pointer(&mut self, p: [f64; 2]) {
         self.cursor = p;
@@ -376,6 +401,7 @@ impl PageBattle {
     /// The battlefield pass builds the same 360-unit map that the Page
     /// browser projects. Its temporary geometry never replaces the UI batch.
     pub fn map_texture(&self, scene: &mut Scene, _view: &ClassicSpawnView, ih: f64) {
+        let Some(gpu) = self.gpu.as_ref() else { return };
         // A kept frame already shows the hologram.
         if self.behind == Backdrop::Reuse {
             return;
@@ -393,11 +419,16 @@ impl PageBattle {
         values[MAP_DRAW + M::LABELS] = 1.;
         values[MAP_DRAW + M::SPAWN] = 1.;
         values[MAP_DRAW + M::RINGS] = saved[M::RINGS];
-        values[MAP_DRAW + M::MASK] = scene
+        let mask = scene
             .online
             .as_ref()
             .and_then(|r| r.hud.names.get("map_mask").copied())
-            .unwrap_or(0) as f64;
+            .unwrap_or(0);
+        // A 2005 battle's HUD lists a mask whose picture it never loads; masked by it
+        // the whole map would vanish.
+        let mask = if self.room || bridge.hud_model.asset(mask as u32).texture >= 0 { mask } else { 0 };
+        let values = &mut bridge.hud_model.input;
+        values[MAP_DRAW + M::MASK] = mask as f64;
         bridge.hud_model.build(2);
         bridge.hud_sync_batch(true);
         let viewport = [
@@ -408,7 +439,7 @@ impl PageBattle {
         bridge.r.hud.input[draw::IN_VIEWPORT + 1] = 1024.;
         unsafe {
             let gl = &bridge.r.core.gl;
-            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.gpu.target));
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(gpu.target));
             gl.viewport(0, 0, 1024, 1024);
             gl.disable(glow::SCISSOR_TEST);
             gl.clear_color(0., 0., 0., 0.);
@@ -418,7 +449,7 @@ impl PageBattle {
         bridge
             .r
             .hud
-            .draw_to(&mut bridge.r.core, Some(self.gpu.target));
+            .draw_to(&mut bridge.r.core, Some(gpu.target));
         bridge.r.hud.input[draw::IN_VIEWPORT..draw::IN_VIEWPORT + 2].copy_from_slice(&viewport);
         bridge.hud_model.input[MAP_DRAW..MAP_DRAW + M::WORDS].copy_from_slice(&saved);
         unsafe {
@@ -467,9 +498,10 @@ impl PageBattle {
         model: &SpawnModel,
         port: &super::battle::LiveSpawnPort,
     ) {
+        let Some(gpu) = self.gpu.as_mut() else { return };
         let look = BattleLook::new(theme);
         let aspect = self.layout.width / self.layout.height;
-        self.gpu.before(
+        gpu.before(
             &mut scene.bridge,
             &self.rig,
             aspect,
@@ -482,7 +514,7 @@ impl PageBattle {
             scene.bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
         }
         let dt = std::mem::take(&mut self.undrawn);
-        self.gpu.projector(
+        gpu.projector(
             &mut scene.bridge,
             &self.rig,
             look.index,
@@ -491,7 +523,25 @@ impl PageBattle {
             dt,
         );
         let scale = if self.walker { 0.9 } else { 1. };
-        if let Some(online) = &mut scene.online {
+        if let Some(characters) = &mut scene.characters {
+            // A 2005 battle's classes are the characters' models.
+            let records = characters.preview(
+                &mut scene.bridge,
+                class,
+                &self.rig.parent(scale),
+                dt,
+                &self.rig.inverse,
+                &self.rig.projection,
+                look.index,
+                self.building,
+            );
+            scene.bridge.r.core.state.reset();
+            scene
+                .bridge
+                .r
+                .interface
+                .draw(&mut scene.bridge.r.core, records);
+        } else if let Some(online) = &mut scene.online {
             let records = online.preview(
                 &mut scene.bridge,
                 class,
@@ -548,7 +598,7 @@ impl PageBattle {
                 },
             });
         }
-        self.gpu.map(
+        gpu.map(
             &mut scene.bridge,
             &self.rig,
             look.index,
@@ -578,7 +628,7 @@ impl PageBattle {
         } else {
             None
         };
-        self.gpu.logos(
+        gpu.logos(
             &mut scene.bridge,
             &self.rig,
             self.layout,

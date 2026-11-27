@@ -34,6 +34,7 @@ impl<S> Active<'_,S> {
 
 }
 impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
+    const SABER_ENGAGEMENT: bool = S::GOAL_BOTS;
     fn vehicle_binding(&self)->super::vehicles::Binding {self.services.vehicle_binding()}
     fn fire_primary(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,controller:Obj) {
         let index=rows.state.controllers.core(&rows.state.entities,controller).expect("current native firing controller");
@@ -110,13 +111,36 @@ impl<C:Changes+?Sized,M:Mounted,S:Services<C,M>> Hooks<C,M> for Active<'_,S> {
         let vector=crate::ai::nav::math::Vec3::new(vector.x,vector.y,vector.z);
         self.core.controllers[index].request_jet(vector);
         if self.core.controllers[index].nav_control.is_some() {if let Some(actor)=rows.state.actor(index) {if let Some(control)=rows.state.navigation.control_mut(actor) {control.jet.pending=true;control.jet.vector=vector;}}} }
+    fn end_jet(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,controller: Obj) {
+        let Some(index)=rows.state.controllers.core(&rows.state.entities,controller) else { return };
+        if self.core.controllers[index].nav_control.is_none() { return; }
+        if let Some(control)=rows.state.actor(index).and_then(|actor|rows.state.navigation.control_mut(actor)) { control.jet.end=true; }
+    }
+    fn request_leap(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller: Obj,vector: &Vector3) {
+        let Some(index)=rows.state.controllers.core(&rows.state.entities,controller) else { return };
+        if self.core.controllers[index].nav_control.is_none() { return self.request_jet(rows,random,controller,vector); }
+        if let Some(control)=rows.state.actor(index).and_then(|actor|rows.state.navigation.control_mut(actor)) {
+            control.jet.leap=true;
+            control.jet.vector=crate::ai::nav::math::Vec3::new(vector.x,vector.y,vector.z);
+        }
+    }
+    fn steer_jet(&mut self,rows:&mut Rows<'_,C,M>,_random:&mut RandomState,controller: Obj,point: Option<&Vector3>) {
+        let Some(index)=rows.state.controllers.core(&rows.state.entities,controller) else { return };
+        if self.core.controllers[index].nav_control.is_none() { return; }
+        if let Some(control)=rows.state.actor(index).and_then(|actor|rows.state.navigation.control_mut(actor)) {
+            control.jet.steer=point.map(|p|crate::ai::nav::math::Vec3::new(p.x,p.y,p.z));
+        }
+    }
     fn emit_vo(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,unit: Obj,event: &str,property: &str) { Hooks::emit_vo(self.services,rows,random,unit,event,property) }
 }
 
 impl<S:super::navigation::Environment> super::navigation::Environment for Active<'_,S> {
+    fn uses_swbf2() -> bool { S::uses_swbf2() }
  fn time(&self)->f64 {self.services.time()}
  fn remembered(&mut self,target:super::navigation::Actor)->Option<crate::ai::nav::math::Vec3> {self.services.remembered(target)}
  fn clear_above(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool { self.services.clear_above(w,from,unit) }
+ fn line_of_walk(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,to:crate::ai::nav::math::Vec3)->bool { self.services.line_of_walk(w,from,to) }
+ fn try_line_of_walk(&mut self, w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,to:crate::ai::nav::math::Vec3,kind:crate::ai::nav::swbf2::ProbeKind)->Option<bool> { self.services.try_line_of_walk(w,from,to,kind) }
  fn follow_far(&mut self)->f64 {self.services.follow_far()}
  fn seat_frame(&mut self, w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> { self.services.seat_frame(w,hull,index) }
 }

@@ -26,8 +26,8 @@ impl Battle {
     }
     fn with_bots(content: &std::path::Path, map: &str, side: &str, seed: u32, enhanced: bool, bots: crate::world::admit::Bots) -> Battle {
         let context = Context::new();
-        let options = Options { map: map.into(), side: side.into(), enhanced, seed, heroes: false, unit: None, name: None, bots };
-        let files = bfe_content::files::DirFiles::new(content);
+        let options = Options { map: map.into(), side: side.into(), enhanced, seed, heroes: false, unit: None, name: None, bots, ..Default::default() };
+        let files = bfe_content::files::DirFiles::new(content, bfe_family::GameFamily::Swbf1);
         let admitted = context.world_admit(&files, &options).expect("admission");
         context.world_step_init(admitted.setup.clone()).unwrap();
         let h = admitted.handles;
@@ -279,8 +279,8 @@ fn posts_count_only_the_living_on_foot_all_battle() {
 fn destructible_posts_know_their_buildings() {
     let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
     let context = Context::new();
-    let options = Options { map: "geo1".into(), side: "cis".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
-    let files = bfe_content::files::DirFiles::new(std::path::Path::new(&content));
+    let options = Options { map: "geo1".into(), side: "cis".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default(), ..Default::default() };
+    let files = bfe_content::files::DirFiles::new(std::path::Path::new(&content), bfe_family::GameFamily::Swbf1);
     context.world_admit(&files, &options).expect("admission");
     let linked = context.owned(|w| {
         let store = &w.sim.store;
@@ -303,8 +303,8 @@ fn destructible_posts_know_their_buildings() {
 fn landed_transport_spawn_choices_are_registered_posts() {
     let Some(content) = std::env::var_os("BFE_CONTENT_DIR") else { return };
     let context = Context::new();
-    let options = Options { map: "bes1".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
-    let admitted = context.world_admit(&bfe_content::files::DirFiles::new(std::path::Path::new(&content)), &options).expect("admission");
+    let options = Options { map: "bes1".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default(), ..Default::default() };
+    let admitted = context.world_admit(&bfe_content::files::DirFiles::new(std::path::Path::new(&content), bfe_family::GameFamily::Swbf1), &options).expect("admission");
     let source = admitted.handles.store_source as usize;
     let transports = context.owned(|w| {
         let capture = &w.wire.as_deref().expect("wire owner").sources.get(source).expect("store source").capture;

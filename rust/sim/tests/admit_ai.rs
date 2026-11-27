@@ -9,7 +9,7 @@ fn value(text: &str) -> Value {
     parse(text).expect("synthetic JSON")
 }
 fn options() -> Options {
-    Options {
+    Options { family: bfe_family::GameFamily::Swbf1,
         map: "map".into(),
         side: "side".into(),
         seed: 0,
@@ -18,6 +18,7 @@ fn options() -> Options {
         unit: None,
         name: None,
         bots: Default::default(),
+        ..Default::default()
     }
 }
 fn text(strings: &Strings, id: StrId) -> String {
@@ -526,6 +527,7 @@ fn synthetic_battle() -> bfe_content::battle::Battle {
         fx: None,
     };
     Battle {
+        family: bfe_content::GameFamily::Swbf1,
         map: "map".into(),
         query_text: String::new(),
         query: Query::default(),
@@ -569,6 +571,7 @@ fn synthetic_battle() -> bfe_content::battle::Battle {
         class_data: vec![],
         nav_bin: Some(vec![0, 255, 8].into()),
         fetched: Default::default(),
+        swbf2: None,
     }
 }
 

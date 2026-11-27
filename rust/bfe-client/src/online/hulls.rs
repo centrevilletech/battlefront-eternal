@@ -21,6 +21,20 @@ use serde_json::{json, Value};
 use three::Matrix4;
 mod tethers;
 const POOL: usize = 64;
+
+fn touches_triangles(positions: &[f32], indices: &[u32], point: [f64; 3], reach: f64) -> bool {
+    let vertex = |i: u32| -> Option<[f64; 3]> {
+        let at = (i as usize).checked_mul(3)?;
+        let xyz = positions.get(at..)?.get(..3)?;
+        Some([xyz[0] as f64, xyz[1] as f64, xyz[2] as f64])
+    };
+    indices.chunks_exact(3).any(|tri| {
+        let (Some(a), Some(b), Some(c)) = (vertex(tri[0]), vertex(tri[1]), vertex(tri[2])) else { return false };
+        let nearest = bfe_sim::collision::spheres::closest_point_to_point(a, b, c, point);
+        (0..3).map(|axis| (nearest[axis] - point[axis]).powi(2)).sum::<f64>() <= reach * reach
+    })
+}
+
 fn camera_angles(quaternion: &three::Quaternion, flying: bool) -> three::Euler {
     let mut angles = three::Euler::default();
     // Camera seat pivots follow the displayed root's Euler order.
@@ -42,6 +56,15 @@ fn array<T: serde::de::DeserializeOwned>(v: &Value) -> Result<T, String> {
 #[cfg(test)]
 mod heading_tests {
     use super::*;
+
+    #[test]
+    fn an_empty_corner_of_the_collision_box_cannot_support_an_item() {
+        let xyz = [0., 0., 0., 7., 0., 0., 0., 0., 7.];
+        let faces = [0, 1, 2];
+        assert!(touches_triangles(&xyz, &faces, [1., 0.19, 2.], 0.2));
+        assert!(!touches_triangles(&xyz, &faces, [1., 0.21, 2.], 0.2));
+        assert!(!touches_triangles(&xyz, &faces, [6., 0., 6.], 0.2));
+    }
 
     #[test]
     fn passenger_arc_uses_the_published_hull_orientation() {
@@ -85,6 +108,7 @@ struct Model {
     walk_length: f64,
     views: Vec<super::seat_view::View>,
     bounds: [f64; 6],
+    contact: Option<(std::rc::Rc<[f32]>, Box<[u32]>)>,
     flying: bool,
     walking: bool,
     bike: bool,
@@ -210,6 +234,7 @@ impl Hulls {
                     attachment: None,
                     model: t.name.clone(),
                     source: array(&b["part"])?,
+                    colours: None,
                     geometry_key: format!("{}/{}", t.name, b["part"]),
                     matrix: Matrix4::default().elements,
                     positions: array(&b["positions"])?,
@@ -380,6 +405,7 @@ impl Hulls {
                     w.get("def").and_then(|d| d.get("ordnance")).and_then(|o| o.get("base"))
                         .and_then(bfe_content::Value::as_str) == Some("towcable"))),
                 bounds: [lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]],
+                contact: (!(walking && animal)).then(|| (t.shape.positions.clone(), t.shape.indices.clone().into_boxed_slice())),
                 flying,
                 walking,
                 bike: defs.names.text(class.name).contains("speederbike"),
@@ -526,6 +552,15 @@ impl Hulls {
     pub fn flies(&self, key: (u32, u32)) -> Option<bool> {
         let slot = &self.slots[*self.bound.get(&key)?];
         slot.active.then_some(self.models[slot.model].flying)
+    }
+    pub(super) fn touches(&self, key: (u32, u32), point: [f64; 3], reach: f64) -> bool {
+        let Some(slot) = self.bound.get(&key).map(|&id| &self.slots[id]) else { return false };
+        let model = &self.models[slot.model];
+        let Some((positions, indices)) = &model.contact else { return false };
+        if !slot.active || (0..3).any(|a| point[a] < model.bounds[a] - reach || point[a] > model.bounds[a + 3] + reach) {
+            return false;
+        }
+        touches_triangles(positions, indices, point, reach)
     }
     /// A hull's frame as this frame draws it (its root: the player's own
     /// predicted hull, a hover's bob and lean).
@@ -1074,7 +1109,12 @@ impl Hulls {
             let root = &nodes[n::WORLD..n::WORLD + 16];
             for (part,template) in m.rows.iter().enumerate() {
                 let count = m.inverses.len();
-                if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
+                if records == draw::MAX_RECORDS {
+                    bridge.r.instances.overflow.note_record_drop(1);
+                    continue;
+                }
+                if bones + count > draw::MAX_BONES {
+                    bridge.r.instances.overflow.note_bone_drop(1);
                     continue;
                 }
                 let mut row = *template;

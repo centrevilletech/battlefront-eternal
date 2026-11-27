@@ -61,6 +61,30 @@ impl Reticle {
         let lock = bfe_sim::world::admit::rows::units::lock_rule(def);
         Self { far, angle: lock.on_angle, lock_range: lock.range, relation_mask: lock.relation_mask, category_mask: lock.category_mask }
     }
+
+    pub fn new_for_family(family: bfe_family::GameFamily, def: &Value) -> Self {
+        match family {
+            bfe_family::GameFamily::Swbf1 => Self::new(def),
+            bfe_family::GameFamily::Swbf2 => Self::new_swbf2(def),
+        }
+    }
+
+    fn new_swbf2(def: &Value) -> Self {
+        let number = bfe_content::js::to_number;
+        let or = |a: f64, b: f64| if a == 0. || a.is_nan() { b } else { a };
+        let authored = number(def.get("ReticleRange"));
+        let far = if def.get("ReticleRange").is_some() && authored.is_finite() {
+            authored.max(0.)
+        } else {
+            let ordnance = def.get("ordnance");
+            let flight = number(ordnance.and_then(|o| o.get("Velocity"))) * number(ordnance.and_then(|o| o.get("LifeSpan")));
+            let range = number(ordnance.and_then(|o| o.get("Range")));
+            let cone = number(ordnance.and_then(|o| o.get("ConeLength")));
+            or(or(or(or(flight, range), cone), number(def.get("LockOnRange"))), 0.)
+        };
+        let lock = bfe_sim::world::admit::rows::units::lock_rule(def);
+        Self { far, angle: lock.on_angle, lock_range: lock.range, relation_mask: lock.relation_mask, category_mask: lock.category_mask }
+    }
 }
 
 /// A class as a target: its soldiers' CollisionRootScale and what its
@@ -114,12 +138,24 @@ pub struct Aimed {
     pub lock: (f64, f64),
 }
 
+/// The unit currently under channel 0's reticle (friendly, neutral, or enemy).
+#[derive(Clone, Copy, Debug)]
+pub struct Hovered {
+    pub key: (u32, u32),
+    pub kind: u32,
+    pub source: usize,
+    pub team: u8,
+    pub health: f64,
+    pub relation: f64,
+}
+
 /// What the search found: each channel's relation code for the reticle (1
 /// friendly, 2 enemy, 0 neutral, 4 nothing), and channel 0's enemy as his
 /// record's kind, class or building, and health.
 pub struct Found {
     pub relations: [f64; 2],
     pub enemy: Option<(u32, usize, f64)>,
+    pub hover: Option<Hovered>,
 }
 
 // How a candidate answers a sight line: the hull body a ray may end on,
@@ -130,6 +166,7 @@ struct Sight {
     reach: f64,
     kind: u32,
     source: usize,
+    team: u8,
     health: f64,
     alive: bool,
     relation: f64,
@@ -170,7 +207,7 @@ impl Targets {
         weapons: [Option<Aimed>; 2],
     ) -> Found {
         self.rows(receiver, teams, bodies, viewer);
-        let mut found = Found { relations: [NOTHING; 2], enemy: None };
+        let mut found = Found { relations: [NOTHING; 2], enemy: None, hover: None };
         for (channel, aimed) in weapons.iter().enumerate() {
             let Some(aimed) = aimed else { continue };
             // lockedUnit: a kept lock is the target while that life lives.
@@ -179,9 +216,20 @@ impl Targets {
             });
             let Some(target) = kept.or_else(|| self.search(collision, world, ray, &aimed.reticle)) else { continue };
             let sight = self.sights[target];
-            found.relations[channel] = super::hud_feed::relation_code(sight.relation);
-            if channel == 0 && sight.relation < 0. {
-                found.enemy = Some((sight.kind, sight.source, sight.health));
+            let code = super::hud_feed::relation_code(sight.relation);
+            found.relations[channel] = code;
+            if channel == 0 {
+                found.hover = Some(Hovered {
+                    key: sight.key,
+                    kind: sight.kind,
+                    source: sight.source,
+                    team: sight.team,
+                    health: sight.health,
+                    relation: code,
+                });
+                if sight.relation < 0. {
+                    found.enemy = Some((sight.kind, sight.source, sight.health));
+                }
             }
         }
         found
@@ -217,6 +265,7 @@ impl Targets {
                 body: -1,
                 kind,
                 source: fact[r::CLASS_ID] as usize,
+                team: fact[r::TEAM] as u8,
                 health: fact[r::HEALTH],
                 alive: row.alive,
                 relation: row.relation,
@@ -379,6 +428,16 @@ mod tests {
         assert_eq!(launcher.category_mask & 1, 0);
         assert_eq!(Reticle::new(&def(r#"{"ReticleRange":-5,"LockOnRange":150}"#)).far, 0.);
         assert_eq!(Reticle::new(&def("{}")).far, 0.);
+        // 2004 emitters without Velocity/LifeSpan keep LockOnRange even when ConeLength or Range is set.
+        let arc_2004 = def(r#"{"ordnance":{"ConeLength":30},"LockOnRange":64}"#);
+        assert_eq!(Reticle::new(&arc_2004).far, 64.);
+        assert_eq!(Reticle::new_for_family(bfe_family::GameFamily::Swbf1, &arc_2004).far, 64.);
+        assert_eq!(Reticle::new_for_family(bfe_family::GameFamily::Swbf2, &arc_2004).far, 30.);
+        // 2005 beam and emitter weapons omit Velocity and advertise Range or ConeLength instead.
+        let beam = Reticle::new_for_family(bfe_family::GameFamily::Swbf2, &def(r#"{"ordnance":{"Range":"320","LifeSpan":"0.2"}}"#));
+        assert_eq!(beam.far, 320.);
+        let emitter = Reticle::new_for_family(bfe_family::GameFamily::Swbf2, &def(r#"{"ordnance":{"ConeLength":"14"}}"#));
+        assert_eq!(emitter.far, 14.);
     }
 
     #[test]

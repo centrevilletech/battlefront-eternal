@@ -8,7 +8,7 @@ use three::Vector3;
 
 use super::agent::dispatch;
 use super::binding::CombatAi;
-use super::aim::{drop_correct, resolve, Aimer};
+use super::aim::{drop_correct, resolve, AimMiss, Aimer};
 use super::math::{angle, dot32, f, length_sq32, length_sq_xz32, lookup_cos, normalize_or_x, FLT_MAX};
 use super::weapons_ai::{def_at, facing_and_range, forward_speed, max_expanded_range, selected_weapon, sensor_range, set_target, FireControl, Shared};
 use super::world::{draw_range, uniform, Gen, Obj, QueryFilter, Ref, World};
@@ -213,11 +213,16 @@ pub fn raw_cost_points(eye: &Vector3, at: &Vector3, priority: f64) -> f64 {
 
 /// `coneDistanceSq(unit, target)`: the squared distance
 /// to the target's aim point inside the 77.5-degree cone, else -2.
+/// In 2005 battles, targets strictly closer than 10 m are noticed in 360 degrees.
 pub fn cone_distance_sq<W: World + ?Sized>(w: &mut W, unit: Obj, target: Obj) -> f64 {
     let eye = w.origin(unit);
     let look = w.forward(unit);
     let at = w.aim_point(target);
-    cone_distance_points(&eye, &look, &at)
+    if w.uses_swbf2() {
+        cone_distance_points_swbf2(&eye, &look, &at)
+    } else {
+        cone_distance_points(&eye, &look, &at)
+    }
 }
 
 pub fn cone_distance_points(eye: &Vector3, look: &Vector3, at: &Vector3) -> f64 {
@@ -233,6 +238,17 @@ pub fn cone_distance_points(eye: &Vector3, look: &Vector3, at: &Vector3) -> f64 
         }
     }
     l2
+}
+
+pub fn cone_distance_points_swbf2(eye: &Vector3, look: &Vector3, at: &Vector3) -> f64 {
+    let rx = f(at.x - eye.x);
+    let ry = f(at.y - eye.y);
+    let rz = f(at.z - eye.z);
+    let l2 = length_sq32(rx, ry, rz);
+    if l2 < f(100.0) {
+        return l2;
+    }
+    cone_distance_points(eye, look, at)
 }
 
 /// `POSTURE_RADIUS`.
@@ -317,6 +333,7 @@ pub struct Perception {
     pub candidate: Option<Ref>,
     pub candidate_point: Vector3,
     pub aimer: Aimer,
+    pub miss: AimMiss,
     pub fire: FireControl,
     pub last_scan_count: f64,
     /// The Enhanced aimer (aimerOf), when made.
@@ -330,6 +347,7 @@ impl Default for Perception {
             candidate: None,
             candidate_point: Vector3::default(),
             aimer: Aimer::default(),
+            miss: AimMiss::default(),
             fire: FireControl::default(),
             last_scan_count: 0.0,
             enhanced: None,
@@ -344,6 +362,7 @@ impl Perception {
         self.heap.priority.fill(0);self.heap.priority[0]=v8math::to_int32(LOCAL_SENTINEL);
         self.heap.items.fill(None);self.heap.count=0;self.heap.dropped=0.;
         self.candidate=None;self.candidate_point=Vector3::default();self.aimer=Aimer::default();
+        self.miss=AimMiss::default();
         self.fire=FireControl::default();self.last_scan_count=0.;self.enhanced=None;
         self.reset();
     }
@@ -1250,4 +1269,20 @@ pub fn acoustic_response<W: World + ?Sized>(w: &mut W, cx: &mut CombatAi, contro
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn swbf2_proximity_vision_notices_targets_behind_inside_ten_metres_only() {
+        let eye = Vector3 { x: 0.0, y: 1.5, z: 0.0 };
+        let look = Vector3 { x: 0.0, y: 0.0, z: 1.0 };
+        let behind_near = Vector3 { x: 0.0, y: 1.5, z: -8.0 };
+        let behind_far = Vector3 { x: 0.0, y: 1.5, z: -12.0 };
+        assert_eq!(cone_distance_points(&eye, &look, &behind_near), -2.0);
+        assert_eq!(cone_distance_points_swbf2(&eye, &look, &behind_near), f(64.0));
+        assert_eq!(cone_distance_points_swbf2(&eye, &look, &behind_far), -2.0);
+    }
 }

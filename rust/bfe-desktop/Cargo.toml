@@ -13,11 +13,15 @@ crate-type = ["rlib"]
 [dependencies]
 base64 = "0.22"
 basis-transcode = { path = "../basis-transcode" }
+bfe-family = { path = "../bfe-family" }
+bfe-storage = { path = "../bfe-storage" }
+content = { path = "../content" }
 crc32fast = "1"
 ed25519-dalek = "2"
 flate2 = "1"
 getrandom = "0.2"
 same-file = "1"
+tempfile = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

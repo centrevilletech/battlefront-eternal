@@ -433,6 +433,19 @@ fn crc(bytes: &[u8]) -> u32 {
     }
     value
 }
+/// The complete, checksum-verified page at the start of a compressed slice.
+/// This inspection borrows the input and never changes a playback decoder.
+pub fn verified_ogg_page(bytes: &[u8]) -> Option<&[u8]> {
+    let header = bytes.get(..27)?;
+    if &header[..5] != b"OggS\0" {
+        return None;
+    }
+    let laces = bytes.get(27..27 + usize::from(header[26]))?;
+    let body: usize = laces.iter().map(|&n| usize::from(n)).sum();
+    let page = bytes.get(..27 + laces.len() + body)?;
+    let expected = u32::from_le_bytes(header[22..26].try_into().ok()?);
+    (crc(page) == expected).then_some(page)
+}
 // RFC 6716 lengths below 252 occupy one byte; larger lengths use the
 // first byte plus four times a second byte, rather than a generic varint.
 fn size(data: &[u8], at: &mut usize) -> Result<usize, String> {

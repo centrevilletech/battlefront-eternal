@@ -926,6 +926,30 @@ impl SlintHost {
     }
 
     pub fn event(&mut self, event: &WindowEvent, locked: bool) -> bool {
+        if !locked && self.root.global::<IaModel>().get_choosing_opening() {
+            if let WindowEvent::KeyboardInput { event, is_synthetic, .. } = event {
+                let key = &event.logical_key;
+                let navigation = matches!(key, WinitKey::Named(NamedKey::ArrowUp | NamedKey::ArrowDown
+                    | NamedKey::Enter | NamedKey::Space | NamedKey::Escape))
+                    || matches!(key, WinitKey::Character(c) if c == " ");
+                if navigation {
+                    if !is_synthetic {
+                        if let Some(text) = key_text(key) {
+                            self.root.window().dispatch_event(if event.state == ElementState::Pressed {
+                                UiEvent::KeyPressed { text }
+                            } else {
+                                UiEvent::KeyReleased { text }
+                            });
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+        self.standard_event(event, locked)
+    }
+
+    fn standard_event(&mut self, event: &WindowEvent, locked: bool) -> bool {
         match event {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.resize(),
             WindowEvent::Focused(f) => {

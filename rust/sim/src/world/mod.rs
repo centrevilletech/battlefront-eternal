@@ -5,6 +5,7 @@ pub mod owner;
 pub mod clock;
 pub mod events;
 pub mod local;
+pub mod lobby;
 pub mod step;
 mod module;
 

@@ -17,7 +17,51 @@ impl Owner {pub const fn new()->Self {Self {mailboxes:Pool::new(15),players:crat
 impl Default for Owner {fn default()->Self {Self::new()}}
 /// The command the players' phase reads is the last take's lists plus the
 /// held codes of the last consumed entry (`InputMailbox.take`'s `down`).
-pub struct Mailbox {pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>,down:Vec<StrId>,down_out:Vec<StrId>,
+/// Controls a second-game life sends beside its commands ride the same queue:
+/// each waits beside the command of its sequence and is taken with it, and
+/// only the life it was sent for reads it.
+struct LifeInputs<T> {
+    life: Option<crate::units::infantry::contact::LifeId>,
+    pending: std::collections::VecDeque<(f64, crate::units::infantry::contact::LifeId, T)>,
+    current: T,
+}
+impl<T: Copy + Default> LifeInputs<T> {
+    fn new(capacity: usize) -> Self {
+        Self { life: None, pending: std::collections::VecDeque::with_capacity(capacity), current: T::default() }
+    }
+    /// Beside the newest queued command only, when it is this life's.
+    fn queue(&mut self, queue: &[ImEntry], sequence: f64, life: crate::units::infantry::contact::LifeId, input: T) -> bool {
+        if !queue.last().is_some_and(|entry| entry.sequence == sequence && entry.generation == f64::from(life.generation)) {
+            return false;
+        }
+        // Old generations can retire without being consumed.
+        while self.pending.front().is_some_and(|e| queue.first().is_none_or(|q| q.sequence > e.0)) {
+            self.pending.pop_front();
+        }
+        if self.pending.len() >= self.pending.capacity() { return false; }
+        self.pending.push_back((sequence, life, input));
+        true
+    }
+    /// The consumed command's controls become the current ones; `carry` keeps
+    /// the presses of the commands consumed before it in the same take.
+    fn consume(&mut self, sequence: f64, carry: impl Fn(&mut T, &T)) {
+        while self.pending.front().is_some_and(|e| e.0 <= sequence) {
+            let Some((seq, life, mut input)) = self.pending.pop_front() else { break };
+            if seq == sequence {
+                if self.life != Some(life) { self.life = Some(life); self.current = T::default(); }
+                carry(&mut input, &self.current);
+                self.current = input;
+            }
+        }
+    }
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.current = T::default();
+    }
+}
+pub struct Mailbox {infantry: Option<LifeInputs<crate::units::infantry::Controls>>,
+    /// A Space pilot's controls (`space::local`), enabled when the seat driver connects him.
+    pilot: Option<LifeInputs<crate::space::local::PilotControls>>,pub rejected:u32,pub state:ImState,pub publication:WireOwnFacts,names:[StrId;7],codes:Vec<StrId>,taken:ImTaken,retired:Vec<f64>,down:Vec<StrId>,down_out:Vec<StrId>,
     /// The packets the players' phase consumed since the host's last exchange:
     /// the host frees their lent producer objects when it hears of them.
     consumed:Vec<f64>,
@@ -34,7 +78,7 @@ impl Mailbox {
         entries.try_reserve_exact(capacity as usize).ok()?;
         for _ in 0..capacity as usize {entries.push(super::records::reserved_entry()?);}
         let names=["mouseScale","invertMouse","firstPerson","aspect","viewTick","flightSettings","gamepad"].map(|s|strings.intern_str(s));
-        Some(Self {rejected:0,state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
+        Some(Self {infantry:None,pilot:None,rejected:0,state:ImState {epoch,capacity,queue:Vec::with_capacity(capacity.clamp(0.,4096.) as usize),view:Vec::with_capacity(7),..Default::default()},
             publication:WireOwnFacts {held_valid:true,recon_aspect:1.,view:WiView {profile_found:true,..Default::default()},spawn:WireSpawnFacts {valid:true,..Default::default()},..Default::default()},names,codes,
             taken:ImTaken {actions:Vec::with_capacity(2048),look:Vec::with_capacity(2048),human:Vec::with_capacity(16*capacity as usize),fire:Vec::with_capacity(16*capacity as usize)},retired:Vec::with_capacity(2*capacity as usize),down:Vec::with_capacity(64),down_out:Vec::with_capacity(64),consumed:Vec::with_capacity(capacity as usize),entries})
     }
@@ -60,7 +104,47 @@ impl Mailbox {
             else if self.state.view.len()<7 {self.state.view.push(ImField {key:name,value:key as f64});}
         } else {self.state.view.retain(|field|field.key!=name);}
     }
+    pub(crate) fn enable_infantry(&mut self) {
+        self.infantry = Some(LifeInputs::new(self.state.capacity as usize));
+    }
+    pub(crate) fn queue_infantry(&mut self, sequence: f64, life: crate::units::infantry::contact::LifeId, input: crate::units::infantry::Controls) {
+        if let Some(extra) = &mut self.infantry {
+            extra.queue(&self.state.queue, sequence, life, input);
+        }
+    }
+    /// A pilot connected again keeps the controls already queued.
+    pub(crate) fn enable_pilot(&mut self) {
+        if self.pilot.is_none() { self.pilot = Some(LifeInputs::new(self.state.capacity as usize)); }
+    }
+    /// Controls with a number that is not finite never ride.
+    pub(crate) fn queue_pilot(&mut self, sequence: f64, life: crate::units::infantry::contact::LifeId, input: crate::space::local::PilotControls) -> bool {
+        input.is_finite() && self.pilot.as_mut().is_some_and(|extra| extra.queue(&self.state.queue, sequence, life, input))
+    }
+    /// This tick's pilot controls for this life (none for another).
+    pub(crate) fn pilot_controls(&self, life: crate::units::infantry::contact::LifeId) -> crate::space::local::PilotControls {
+        self.pilot.as_ref().filter(|extra| extra.life == Some(life)).map_or_else(Default::default, |extra| extra.current)
+    }
+    pub(crate) fn infantry_controls(&mut self, life: crate::units::infantry::contact::LifeId) -> crate::units::infantry::Controls {
+        let Some(extra) = self.infantry.as_mut().filter(|x| x.life == Some(life)) else { return Default::default() };
+        let sample = extra.current;
+        extra.current.block_pressed = false;
+        extra.current.offhand_pressed = false;
+        extra.current.lock_pressed = false;
+        extra.current.melee_pressed = 0;
+        extra.current.roll = false;
+        sample
+    }
     fn consumed(&mut self,entry:&ImEntry) {
+        if let Some(extra) = &mut self.infantry {
+            extra.consume(entry.sequence, |input, current| {
+                input.block_pressed |= current.block_pressed;
+                input.offhand_pressed |= current.offhand_pressed;
+                input.lock_pressed |= current.lock_pressed;
+                input.roll |= current.roll;
+                input.melee_pressed |= current.melee_pressed;
+            });
+        }
+        if let Some(extra) = &mut self.pilot { extra.consume(entry.sequence, |input, current| input.carry_edges(*current)); }
         self.down.clear();self.down.extend(entry.codes.iter().copied().take(64));
         self.publication.held.0.fill(0);self.publication.held_valid=true;
         for code in &entry.codes {if let Some(bit)=self.codes.iter().position(|id|id==code).filter(|&bit|bit<128) {self.publication.held.0[bit>>3]|=1<<(bit&7);} else {self.publication.held_valid=false;}}
@@ -78,6 +162,17 @@ impl Mailbox {
     /// true when it was admitted; a refused burst leaves an empty command,
     /// where the host threw and lost the tick.
     pub fn take_command(&mut self,tick:f64,generation:f64,strings:&mut Strings)->bool {
+        if let Some(extra) = &mut self.infantry {
+            if self.state.generation != generation { extra.current = Default::default(); }
+            extra.current.roll = false;
+            extra.current.block_pressed = false;
+            extra.current.offhand_pressed = false;
+            extra.current.melee_pressed = 0;
+        }
+        if let Some(extra) = &mut self.pilot {
+            if self.state.generation != generation { extra.current = Default::default(); }
+            extra.current.clear_edges();
+        }
         let mut result=self.run(ImInput {op:ImOperation::Take,tick,generation,..Default::default()},strings);
         let ok=result.error.is_none()&&result.command.is_some();
         self.keep_consumed(&result);
@@ -87,6 +182,8 @@ impl Mailbox {
     }
     /// InputMailbox.clear.
     pub fn clear_command(&mut self,strings:&mut Strings) {
+        if let Some(extra) = &mut self.infantry { extra.clear(); }
+        if let Some(extra) = &mut self.pilot { extra.clear(); }
         let mut result=self.run(ImInput {op:ImOperation::Clear,..Default::default()},strings);
         self.keep_consumed(&result);
         self.recycle(&mut result);
@@ -206,6 +303,96 @@ pub fn valid_call(row:&[f64],heap:&[f64])->bool {
 mod tests {
     use super::*;
     use crate::gen::ImEntry;
+
+    #[test]
+    fn infantry_taps_share_one_sample_only_for_the_addressed_life() {
+        use crate::units::infantry::{contact::LifeId, Controls};
+        let mut strings = Strings::default();
+        let mut mailbox = Mailbox::new(2., 4., Vec::new(), &mut strings).unwrap();
+        mailbox.enable_infantry();
+        let life = LifeId {slot: 6, slab: 2, generation: 5};
+        for (sequence, mask, held) in [(1., 1, 1), (2., 4, 0)] {
+            let entry = ImEntry {sequence, generation: 5., ..Default::default()};
+            mailbox.state.queue.push(entry.clone());
+            mailbox.queue_infantry(sequence, life, Controls {
+                melee_pressed: mask, melee_held: held, block_pressed: true, lock_pressed: sequence == 1., ..Default::default()
+            });
+            mailbox.consumed(&entry);
+        }
+        assert_eq!(mailbox.infantry_controls(LifeId {slab: 3, ..life}).melee_pressed,0);
+        let sample = mailbox.infantry_controls(life);
+        assert_eq!((sample.melee_pressed,sample.melee_held,sample.block_pressed,sample.lock_pressed),(5,0,true,true));
+        let next = mailbox.infantry_controls(life);
+        assert_eq!((next.melee_pressed,next.lock_pressed),(0,false));
+        assert!(!mailbox.infantry_controls(LifeId {generation: 6, ..life}).block_pressed);
+    }
+
+    #[test]
+    fn pilot_controls_ride_beside_their_command_for_their_life_and_lose_their_presses_at_the_next_take() {
+        use crate::{space::local::PilotControls, units::infantry::contact::LifeId};
+        let mut strings = Strings::default();
+        let mut mailbox = Mailbox::new(2., 4., Vec::new(), &mut strings).unwrap();
+        let life = LifeId {slot: 6, slab: 2, generation: 5};
+        let entry = |sequence| ImEntry {sequence, generation: 5., ..Default::default()};
+        let press = PilotControls {use_pressed: true, mouse: [0.5, 0.], ..Default::default()};
+        mailbox.state.queue.push(entry(1.));
+        assert!(!mailbox.queue_pilot(1., life, press), "not connected");
+        mailbox.enable_pilot();
+        assert!(!mailbox.queue_pilot(2., life, press), "not the newest command");
+        assert!(!mailbox.queue_pilot(1., LifeId {generation: 6, ..life}, press), "another life's command");
+        assert!(!mailbox.queue_pilot(1., life, PilotControls {mouse: [f64::NAN, 0.], ..press}), "not finite");
+        assert!(mailbox.queue_pilot(1., life, press));
+        mailbox.state.queue.push(entry(2.));
+        let mut held = PilotControls {mouse: [0.25, 0.], ..Default::default()};
+        held.flight.throttle = 1.;
+        assert!(mailbox.queue_pilot(2., life, held));
+        mailbox.consumed(&entry(1.));
+        mailbox.consumed(&entry(2.));
+        // Both commands reached this tick: the later one's held controls, both presses and movement.
+        let sample = mailbox.pilot_controls(life);
+        assert_eq!((sample.use_pressed, sample.mouse, sample.flight.throttle), (true, [0.75, 0.], 1.));
+        assert!(!mailbox.pilot_controls(LifeId {slab: 3, ..life}).use_pressed, "another lease of the slot");
+        // The next take keeps what is held and drops the presses.
+        mailbox.state.queue.clear();
+        mailbox.state.generation = 5.;
+        mailbox.take_command(1., 5., &mut strings);
+        let next = mailbox.pilot_controls(life);
+        assert_eq!((next.use_pressed, next.mouse, next.flight.throttle), (false, [0.; 2], 1.));
+        // A new life forgets them, and so does a clear.
+        mailbox.take_command(2., 6., &mut strings);
+        assert_eq!(mailbox.pilot_controls(life).flight.throttle, 0.);
+        mailbox.state.queue.push(entry(3.));
+        assert!(mailbox.queue_pilot(3., life, held));
+        mailbox.clear_command(&mut strings);
+        mailbox.consumed(&entry(3.));
+        assert_eq!(mailbox.pilot_controls(life).flight.throttle, 0.);
+    }
+
+    #[test]
+    fn pilot_controls_stay_bound_to_the_addressed_life() {
+        use crate::space::local::PilotControls;
+        use crate::units::infantry::contact::LifeId;
+        let mut strings = Strings::default();
+        let mut mailbox = Mailbox::new(2., 4., Vec::new(), &mut strings).unwrap();
+        mailbox.enable_pilot();
+        let life = LifeId { slot: 6, slab: 2, generation: 5 };
+        for (sequence, throttle, use_pressed) in [(1., 0.5, true), (2., 1.0, false)] {
+            let entry = ImEntry { sequence, generation: 5., ..Default::default() };
+            mailbox.state.queue.push(entry.clone());
+            let mut input = PilotControls { use_pressed, ..Default::default() };
+            input.flight.throttle = throttle;
+            assert!(mailbox.queue_pilot(sequence, life, input));
+            mailbox.consumed(&entry);
+        }
+        // Different slab, slot, or generation must never inherit the old life's controls.
+        for other in [LifeId { slab: 3, ..life }, LifeId { slot: 7, ..life }, LifeId { generation: 6, ..life }] {
+            let sample = mailbox.pilot_controls(other);
+            assert!(!sample.use_pressed && sample.flight.throttle == 0., "{other:?}");
+        }
+        let sample = mailbox.pilot_controls(life);
+        assert!(sample.use_pressed);
+        assert_eq!(sample.flight.throttle, 1.0);
+    }
 
     #[test]
     fn cumulative_look_and_ack_use_only_consumed_matching_lives() {

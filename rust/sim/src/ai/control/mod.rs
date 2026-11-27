@@ -65,6 +65,7 @@ impl Default for Options {
 /// `unit` current (a spawn or death is then noticed by sync(), or
 /// reported by spawned()/died()).
 pub struct Core {
+    objective_publication: fn(&mut Core, usize, usize),
     pub options: Options,
     pub teams: TeamTable,
     pub difficulty: difficulty::Difficulty,
@@ -97,6 +98,7 @@ impl Core {
         let n = character_count;
         let objectives = if options.bind.enhanced { goals::Objectives::enhanced() } else { goals::Objectives::classic() };
         Core {
+            objective_publication: Core::released_objective,
             options,
             teams,
             difficulty,
@@ -416,6 +418,10 @@ impl Core {
     }
 
     pub fn publish_objective(&mut self, ci: usize, post: usize) {
+        (self.objective_publication)(self, ci, post);
+    }
+
+    fn released_objective(&mut self, ci: usize, post: usize) {
         let c = &mut self.controllers[ci];
         c.commands.overwrite(SourceGoal::objective(Some(post)));
         c.published = true;
@@ -4132,6 +4138,7 @@ impl Core {
     }
 
     fn service<W:AiWorld+?Sized>(&mut self, w: &mut W, d: &mut dyn Draws, ci: usize, dt: f64) {
+        self.controllers[ci].think_count = self.controllers[ci].think_count.wrapping_add(1);
         if self.controller_live(w, ci) {
             self.controller_update(w, d, ci, dt, 0.0);
         }
@@ -4816,3 +4823,4 @@ impl<W:AiWorld+?Sized> policy::Scene for PolicyScene<'_,W> {
 }
 
 pub mod helpers;
+pub mod goal_orders;

@@ -99,6 +99,56 @@ impl Authority {
                 }
             })?;
             self.journal.time = after;
+            let mut swbf2_effects = std::mem::take(&mut self.swbf2_effects);
+            let drain_res = context
+                .world(|w| crate::units::f3::drain_swbf2_effects_into(w, &mut swbf2_effects))
+                .map_err(|e| e.message().to_string());
+            let emit_res = drain_res.and_then(|()| {
+                if let Some(capture) = self.capture.as_ref() {
+                    for eff in &swbf2_effects {
+                        let mut fields = [("", super::capture::Token::Null); 6];
+                        let mut len = 0usize;
+                        fields[len] = ("name", super::capture::Token::Interned(eff.name));
+                        len += 1;
+                        fields[len] = ("position", super::capture::Token::Vector(Some(eff.position)));
+                        len += 1;
+                        if let Some(forward) = eff.forward {
+                            fields[len] = ("forward", super::capture::Token::Vector(Some(forward)));
+                            len += 1;
+                        }
+                        if let Some(duration) = eff.duration {
+                            fields[len] = ("duration", super::capture::Token::Number(duration));
+                            len += 1;
+                        }
+                        if let Some((oid, ogen)) = eff.owner {
+                            fields[len] = ("ownerId", super::capture::Token::Number(f64::from(oid)));
+                            len += 1;
+                            fields[len] = ("ownerGeneration", super::capture::Token::Number(ogen));
+                            len += 1;
+                        }
+                        capture.emit(context, tick - 1.0, "effect", 0.0, &fields[..len])?;
+                    }
+                }
+                Ok(())
+            });
+            swbf2_effects.clear();
+            self.swbf2_effects = swbf2_effects;
+            emit_res?;
+            let mut powers = std::mem::take(&mut self.swbf2_powers);
+            let drain_res = context
+                .world(|w| crate::combat::powers::drain_published_in(w, &mut powers))
+                .map_err(|e| e.message().to_string());
+            let emit_res = drain_res.and_then(|()| {
+                if let Some(capture) = self.capture.as_ref() {
+                    for ev in &powers {
+                        emit_power(capture, context, tick - 1.0, ev)?;
+                    }
+                }
+                Ok(())
+            });
+            powers.clear();
+            self.swbf2_powers = powers;
+            emit_res?;
         }
         self.bind_dispensers(context)?;
         if descriptor.len() >= F3Boundary::WORDS {
@@ -152,6 +202,13 @@ impl Authority {
         let result = self.bind_changed(context, &changed);
         self.changed_lives = changed;
         result
+    }
+
+    /// Direct mission deployment can replace a stocked life during admission.
+    /// Observe its equipped dispensers before a player can fire on the first tick.
+    pub(crate) fn bind_deployed_dispensers(&mut self, context: &Context) -> Result<(), String> {
+        self.lives_known = true;
+        self.bind_dispensers(context)
     }
 
     /// The dispenser bindings of the units `bind_dispensers` found with a new life or player.
@@ -304,4 +361,48 @@ mod tests {
         // A slot first seen after the start is new.
         assert!(super::seen_again(&mut lives, (6, 1, 1.0, None), true));
     }
+}
+
+/// One published power event: what happened (`action`), the weapon's class hash,
+/// the caster and the target as their life keys, and where the caster stood; a
+/// burn also names its effect and the seconds it has left.
+fn emit_power(
+    capture: &super::capture::Capture,
+    context: &crate::abi::context::Context,
+    tick: f64,
+    ev: &crate::combat::powers::PublishedPower,
+) -> Result<(), String> {
+    use crate::combat::powers::PowerEventKind as K;
+    use super::capture::Token;
+    let action = match ev.kind {
+        _ if ev.burn.is_some() => "burn",
+        K::Cast => "cast",
+        K::Hit => "hit",
+        K::Thrown => "thrown",
+        K::Blocked => "blocked",
+        K::Held | K::Buffed => return Ok(()),
+    };
+    let mut fields = [("", Token::Null); 10];
+    let mut len = 0usize;
+    let mut put = |key, value| {
+        fields[len] = (key, value);
+        len += 1;
+    };
+    put("action", Token::Text(action));
+    put("weaponId", Token::Number(f64::from(ev.weapon)));
+    put("ownerId", Token::Number(f64::from(ev.caster.slot)));
+    put("ownerGeneration", Token::Number(ev.caster.life));
+    if let Some(target) = ev.target {
+        put("targetId", Token::Number(f64::from(target.slot)));
+        put("targetGeneration", Token::Number(target.life));
+    }
+    if let Some(position) = ev.position {
+        put("position", Token::Vector(Some(position)));
+    }
+    if let Some((effect, seconds)) = ev.burn {
+        put("name", Token::Interned(effect));
+        put("duration", Token::Number(seconds));
+    }
+    capture.emit(context, tick, "power", 0.0, &fields[..len])?;
+    Ok(())
 }

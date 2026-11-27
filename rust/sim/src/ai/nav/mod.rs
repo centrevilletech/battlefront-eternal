@@ -17,6 +17,8 @@ pub mod jet_hints;
 pub mod math;
 pub mod planner;
 pub mod search;
+pub mod swbf2;
+pub mod route;
 #[cfg(test)]
 mod tests;
 pub mod units;
@@ -320,6 +322,9 @@ impl Nav {
             c.segments = 0;
             c.jet.pending = false;
             c.jet.vector = Vec3::default();
+            c.jet.end = false;
+            c.jet.steer = None;
+            c.jet.leap = false;
             c.jetting = false;
             c.stance = 0.0;
             c.avoid_side = 0.0;

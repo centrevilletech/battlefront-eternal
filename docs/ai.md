@@ -39,6 +39,7 @@ operation reads and writes.
 | HUD toward other units: radar icons, reticle colour, hit ring, kill messages, enemy health, stats | [ai-hud.md](ai-hud.md) | `rust/bfe-render/src/hud_model/`, `rust/bfe-render` (`hud_model`) |
 | Controller FSM, scheduler, source goals, interrupts, agents, patrol, squads, the Classic entry point | [ai-controller.md](ai-controller.md) | `rust/sim/src/ai/control/` (`mod.rs`, `controller.rs`, `scheduler.rs`, `policy.rs`, `agents.rs`, `patrol.rs`, `squads.rs`) |
 | Heroes and melee | [ai-heroes.md](ai-heroes.md) | `rust/sim` (`combat`) |
+| Goal bots for the 2005 game's modes, a controller beside the Classic one | [ai-goals.md](ai-goals.md) | `rust/sim/src/ai/goals/`, `rust/sim/src/ai/control/goal_orders.rs`, `rust/sim/src/ai/owned/goal_loan.rs` |
 | Enhanced AI | [ai-enhanced.md](ai-enhanced.md) | `rust/sim/src/ai/combat/enhanced.rs`, `rust/sim/src/ai/control/difficulty.rs`, `rust/sim/src/ai/control/goals.rs` |
 
 ## Runtime model

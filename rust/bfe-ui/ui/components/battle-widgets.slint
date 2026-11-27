@@ -50,6 +50,10 @@ export struct BattleClassModel {
     w5: string,
     // The roster is folded and this is not the picked class: its weapons on one line.
     compact: bool,
+    // The class may be taken now (a 2005 mission closes a class at its limit).
+    closed: bool,
+    // Shown instead of the weapons while the class is closed: the game's own reason.
+    note: string,
     rect-x: float,
     rect-y: float,
     rect-w: float,
@@ -590,7 +594,7 @@ export component BattleClassCard inherits Rectangle {
     width: root.model.rect-w * 1px;
     height: root.model.rect-h * 1px;
     background: transparent;
-    opacity: ((root.model.picked || touch.has-hover) ? 1.0 : 0.82) * root.enter;
+    opacity: ((root.model.picked || touch.has-hover) ? 1.0 : 0.82) * root.enter * (root.model.closed ? 0.45 : 1.0);
 
     property <length> border: Theme.bfe-panel-border.width;
     property <length> head-size: clamp(1.9 * Theme.vh, 13px, 19px);
@@ -621,7 +625,7 @@ export component BattleClassCard inherits Rectangle {
             y: root.border + root.bar-margin;
             width: root.width - 2 * (root.border + root.bar-inset);
             height: root.bar-h;
-            active: root.model.picked;
+            active: root.model.picked && !root.model.closed;
             left-accent: true;
         }
 
@@ -635,14 +639,30 @@ export component BattleClassCard inherits Rectangle {
             font-size: root.head-size;
             font-weight: 800;
             letter-spacing: 0.12 * root.head-size;
-            color: root.model.picked ? Theme.bfe-accent-ink : Theme.bfe-bar-ink;
+            color: root.model.picked && !root.model.closed ? Theme.bfe-accent-ink : Theme.bfe-bar-ink;
             horizontal-alignment: Theme.bf2 ? center : left;
             vertical-alignment: center;
             overflow: elide;
         }
 
+        // A closed class: the reason on its first line, in the weapons' place.
+        if root.model.closed : Text {
+            x: root.border + Theme.vw;
+            y: root.model.compact ? root.border + root.bar-margin + root.bar-h + 0.45 * Theme.vh : root.body-y;
+            width: root.width - 2 * (root.border + Theme.vw);
+            height: root.row-h;
+            text: root.model.note;
+            font-family: Theme.font-family;
+            font-size: root.wep-size;
+            font-weight: 700;
+            letter-spacing: 0.08 * root.wep-size;
+            color: Theme.bfe-text;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
         // Folded (.bfe-spawn-roster.compact): the weapons in one line, .9em apart, cut at the window's edge.
-        if root.model.compact : Rectangle {
+        if root.model.compact && !root.model.closed : Rectangle {
             x: root.border + Theme.vw;
             y: root.border + root.bar-margin + root.bar-h + 0.45 * Theme.vh;
             width: root.width - 2 * (root.border + Theme.vw);
@@ -677,7 +697,7 @@ export component BattleClassCard inherits Rectangle {
             width: root.col-w;
             height: root.row-h;
             background: transparent;
-            visible: slot.text != "" && !root.model.compact;
+            visible: slot.text != "" && !root.model.compact && !root.model.closed;
 
             // li::before: a .45em square turned 45 degrees, .5em before the name.
             if root.model.picked : BattleDiamond {
@@ -709,7 +729,7 @@ export component BattleClassCard inherits Rectangle {
     touch := TouchArea {
         width: 100%;
         height: 100%;
-        mouse-cursor: pointer;
+        mouse-cursor: root.model.closed ? default : pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -797,6 +817,8 @@ export component BattleTurntableArea inherits Rectangle {
 export component BattleClassBanner inherits Rectangle {
     in property <string> class-title: "";
     in property <string> post-name: "";
+    // The mission leaves its posts unnamed (a 2005 battle): an empty name shows nothing.
+    in property <bool> posts-unnamed: false;
     in property <string> vehicles: "";
     // The post's name coming in again after a pick (bfe-spawn-post-name.changed), 0..1.
     in property <float> post-enter: 1.0;
@@ -872,7 +894,7 @@ export component BattleClassBanner inherits Rectangle {
         x: l1.x + l1.preferred-width + root.gap;
         y: root.baseline - 1.05 * (root.post-name != "" ? root.post-size : root.meta-size) + 1.2 * Theme.vh * (1 - root.post-enter);
         opacity: root.post-enter;
-        text: root.post-name != "" ? root.post-name : "PICK A COMMAND POST";
+        text: root.post-name != "" ? root.post-name : root.posts-unnamed ? "" : "PICK A COMMAND POST";
         font-family: Theme.font-family;
         font-size: root.post-name != "" ? root.post-size : root.meta-size;
         font-weight: root.post-name != "" ? 900 : 700;

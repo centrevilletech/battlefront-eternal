@@ -7,7 +7,7 @@ and IPv6, locally generated player identities, kick and ban, and an optional
 shared ban list. A battle holds up to 64 players (32 a side), and bots fill the
 empty slots: the Enhanced AI by default on a new server and in a new player's
 Instant Action, Classic or none when the host or player chooses. The transport is the engine's encrypted native UDP (BFE-UDP/1,
-protocol 3; see [docs/native-udp-transport.md](docs/native-udp-transport.md));
+protocol 4; see [docs/native-udp-transport.md](docs/native-udp-transport.md));
 WebRTC and protocol 2 are retired. The dedicated server, `bfeserver`, is built
 from `rust/bfe-server` in this workspace and packaged for standalone Linux
 servers alongside [battlefront-eternal-server](https://github.com/centrevilletech/battlefront-eternal-server),
@@ -56,7 +56,7 @@ behavior. Multiplayer is designed for both games from the start.
 | ONLINE lists servers from a master server at `online.battlefronteternal.com`; settings can point at any other | The master also does signaling, player identity and relay credentials; a client can list several masters and merge them |
 | The master is open source, ships as a Docker container, and runs HTTPS over IPv4 and IPv6 from day one | Its own public repository; a Compose file behind an HTTPS reverse proxy, plus a compatible relay stack |
 | Linux dedicated servers: one install, runs as a service, a menu instead of config files | `bfeserver`: a native Rust service running the client's own simulation, a systemd service, with a numbered setup menu (`bfeserver` with no arguments); the fuller menu below is planned |
-| Direct connections to a public IPv4 or IPv6 address; otherwise through `relay.battlefronteternal.com` | Native encrypted UDP (BFE-UDP/1, protocol 3) replaced WebRTC; direct, hole punching, then relay |
+| Direct connections to a public IPv4 or IPv6 address; otherwise through `relay.battlefronteternal.com` | Native encrypted UDP (BFE-UDP/1, protocol 4) replaced WebRTC; direct, hole punching, then relay |
 | A playlist editor with rules per map; optional location sharing | Location off by default for players and hosts; coarse location only when enabled |
 | Notice before entering the online server browser | Explain IP processing, conditional relay use and independent operators; separate optional location permission |
 | An opt-in profanity filter | Plus a client-side filter each player controls |
@@ -145,6 +145,7 @@ defaults below are final.
 
 Battlefront II support is later work. These choices cost little now and a
 lot once servers and saved playlists exist.
+[docs/battlefront-ii.md](docs/battlefront-ii.md) turns them into a work plan.
 
 1. **Ids name their family.** Maps, missions, sides, classes and content are
    `swbf1/hot1` and `swbf2/hot1`. The two games use the same short codes for
@@ -155,8 +156,31 @@ lot once servers and saved playlists exist.
 2. **Playlist entries name family, map, era and mode**: `swbf2/hot1:gcw:ctf`.
    BF1 multiplayer only has conquest, but the mode is in the format from the
    start (BF2 adds capture the flag, Hunt, Assault, space and hero modes).
-   Playlist rotation parsing in `rust/bfe-server` and `rust/bfe-client` strips
-   both a `family/` prefix and a third field today.
+   The server and desktop host recognize the literal prefix `swbf2/`.
+   Instant Action trims and folds case before reading a playlist entry.
+   A 2004 host writes its released rotation, settings and publication formats.
+
+   A directory or LAN listing can disable JOIN for a game the server explicitly
+   names in the current battle's `family` member. A mixed rotation, map name
+   or cached query still lets the player contact the listed server. Its identity
+   pins the fresh check to that server.
+
+   The fresh reply names its game through the first decoded `map` in the
+   query, the summary map (including its positional form), the first rotation
+   entry, and explicit text `family` members in those objects. A rotation
+   slug uses the literal `swbf2/` prefix or the family in the released
+   map-and-side form. A `family=` query parameter can be copied from side
+   text and supplies no game identity. Conflicting declarations and unknown
+   games stop the join before battle content loads, and an announced
+   successor needs a map this build can load. A 2005 battle, current or
+   announced, is played when this build plays that game and has the map, and
+   sat out otherwise, without reading 2005 content.
+   A refusal ends address fallback. The window can show neutral loading art
+   while discovery is in progress. The admitted game selects the content root,
+   controls and HUD. The fingerprint and game connection use the original query
+   bytes. When a 2004 query omits its map, the world opens `nab2`. The HUD
+   uses the launch map and era for missing fields, with `nab2` and `cw` as
+   its final defaults.
 3. **Family and Classic/Enhanced are separate axes.** In this codebase
    "Classic" means faithful to the original: Classic AI, Classic effects,
    and the Classic scoreboard. A BF2 map has its own Classic HUD (BF2's), and
@@ -181,11 +205,22 @@ lot once servers and saved playlists exist.
    components each family registers (BF2's stamina is one BF1 never sends),
    so a new family doesn't change the framing. Positions are quantized against
    each map's bounds, not a fixed range: BF2's space maps are far larger than
-   any ground map.
+   any ground map. Protocol 4 fixes every 2004 format and
+   the framing both games share, and carries everything specific to the 2005
+   game as versioned records that a server lists per match in its signed
+   hello, so a later 2005 change updates a record revision, not the
+   protocol. A 2004 battle's messages and records are those of protocol 3
+   apart from the two version values
+   ([docs/network-two-games.md](docs/network-two-games.md)).
 8. **Content is per family and per map.** A server advertises the content its
    playlist needs, and the client compares that with what the player imported
-   (see [Versions and content](#versions-and-content)). A player without BF2
-   can still join a mixed server and remains spectator-only on its BF2 maps (see below).
+   (see [Versions and content](#versions-and-content)). The plan is that a
+   player without BF2 can still join a mixed server and sits its BF2 maps out
+   (see below). Protocol 4 has this sit-out role for a 2005 match on the wire,
+   on the server and in the client: chat and the score table, no world, the
+   loading screen with the reason, and the next battle joined on its own. The
+   2005 game is not available in any build yet, so a client sits every 2005
+   battle out; a 2004 battle refuses content that differs, as released.
 9. **The HUD switches during loading.** The loading screen belongs to the
    incoming map's family, and the HUD, spawn screen and scoreboard swap
    behind it.
@@ -355,11 +390,13 @@ details; update it if the transport switches paths or reconnects. Show a
 checking/reconnecting state while no active path exists. Two players on the
 same server may see different labels and pings, which is expected.
 
-A missing map never forces a player out of a mixed playlist. They remain
-connected as spectator-only and can see the lobby, score, chat and next map.
-Today a client whose game data differs from the server's connects as a
-spectator, and the status line says why. Without the map's geometry and
-textures there is no 3D world to display.
+The plan is that a missing map never forces a player out of a mixed
+playlist: they stay connected, sitting the battle out, and see the lobby,
+score, chat and next map. Today a 2004 battle refuses a client whose game data
+differs from the server's with the version text, as released; a 2005 match
+gives such a client the sit-out role, as it gives every client while the 2005
+game is not available in the build.
+Without the map's geometry and textures there is no 3D world to display.
 Follow cameras require the needed presentation assets and compatible data;
 otherwise the UI explains what is missing. No retail files are downloaded
 from a server to fill the gap. Recheck content at every map transition and
@@ -438,7 +475,11 @@ not positions. This section adds what the network changes.
   explicit recovery when the retained history no longer covers authority.
   An input receipt/execution acknowledgment can release resend bookkeeping;
   only a matching applied authoritative state can release replay history.
-  Gunners predict their own aim and see the hull interpolated.
+  Gunners predict their own aim and see the hull interpolated. A 2005
+  soldier's correction is the soldier body of `docs/network-two-games.md`
+  (the compact body and his life's movement state: energy, sprint, roll,
+  landing lock, jump count and tumble), and his replay steps the class's
+  2005 movement rule from it.
 - **Everyone else** is interpolated between received snapshots on a playout
   clock that follows measured jitter.
 - **Snapshot rate**: 30 Hz online (every second simulation tick) against the
@@ -485,8 +526,8 @@ original's HOSTING BANDWIDTH, measured instead of asked.
 
 ### Wire contract
 
-Online play uses one contract with nothing to negotiate: protocol `3` (the
-native UDP transport, [BFE-UDP/1](docs/native-udp-transport.md)), the current
+Online play uses one contract with nothing to negotiate: protocol `4` (the
+native UDP transport, BFE-UDP/1), the current
 simulation revision and profile `snapshot-delta-v1`
 ([docs/network-contract.md](docs/network-contract.md)). Direct connections, the
 server browser, LAN and desktop HOST use it without a URL switch. Both
@@ -1177,19 +1218,20 @@ are shared (carrier-grade NAT) or rotate (IPv6 privacy addresses).
 ## Versions and content
 
 Protocol and simulation must match before a session is accepted; content
-must match before spawning. Missing/mismatched content permits only the
-spectator state described above:
+must match before spawning:
 
 | What | Changes when | On a mismatch |
 | --- | --- | --- |
-| Protocol version | The wire format changes | The join is refused with an update-required message |
-| Simulation build | Any rule the client predicts changes (movement, weapons, collision) | The same, since prediction would fight the server |
-| Content hash, per map | The retail data or the extractor's gameplay output changes | MISSING: %s; remain spectator-only until compatible content is available |
+| Protocol version | A 2004 format or the framing both games share changes | The join is refused with an update-required message |
+| Simulation build | A 2004 rule the client predicts changes (movement, weapons, collision) | The same, since prediction would fight the server |
+| Record revision, per 2005 match | A 2005 format or predicted 2005 rule changes | That match alone refuses a client that cannot take part in the revision, with the update text; the server's other battles are unaffected |
+| Content digest, per battle | The retail data or the extractor's gameplay output changes | A 2004 battle refuses the join with the version text; a 2005 match seats the client in the sit-out role |
 
 - The master advertises protocol, simulation build and content requirements.
   The server rechecks them in the authenticated handshake; a compatible
   listing is not permission to bypass that check. A content-only mismatch
-  allows spectator mode, but a protocol/simulation mismatch rejects the join.
+  gives the sit-out role in a 2005 match and the released refusal in a 2004
+  battle; a protocol/simulation mismatch rejects the join.
 - Auto-updating clients does not update community servers. Publish coordinated
   client/server releases, show upgrade status in the server menu, and reject
   incompatible joins with the required version. Define an explicit tested

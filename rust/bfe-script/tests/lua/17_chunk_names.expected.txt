@@ -1,0 +1,4 @@
+17_chunk_names.lua:3: first
+17_chunk_names.lua:5: attempt to index local `t' (a nil value)
+17_chunk_names.lua:7: attempt to perform arithmetic on a table value
+bad argument #1 to `?' (string expected, got no value)

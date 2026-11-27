@@ -2,6 +2,7 @@
 //! Cold storage needs no allocation; warm admission reserves the exchange core
 //! at the first Sim access.
 use crate::abi::Sim;
+pub use crate::ai::nav::swbf2::NavWalkStatus;
 
 // One initializer list checks COLD's completeness and initializes its boxed
 // twin field by field. Adding an owner cannot leave uninitialized heap data.
@@ -22,6 +23,7 @@ macro_rules! cold_fields {
             combat: crate::combat::module::CombatOwner::new(),
             ordnance: crate::ordnance::module::OrdnanceOwnerState::new(),
             cameras: crate::cameras::Owner::new(),
+            space: None,
             warmed: false,
         }
     };
@@ -64,10 +66,13 @@ pub struct World {
     pub(crate) combat: crate::combat::module::CombatOwner,
     pub(crate) ordnance: crate::ordnance::module::OrdnanceOwnerState,
     pub(crate) cameras: crate::cameras::Owner,
+    pub(crate) space: Option<Box<crate::space::SpaceBattlefield>>,
     pub(crate) warmed: bool,
 }
 impl World {
     pub const COLD: Self = cold_fields!(cold_value);
+    pub fn space(&self) -> Option<&crate::space::SpaceBattlefield> { self.space.as_deref() }
+    pub fn space_mut(&mut self) -> Option<&mut crate::space::SpaceBattlefield> { self.space.as_deref_mut() }
     /// Sim's old construction order: tick output, wire box, kind blocks, events.
     /// Repeated admission leaves every retained bank and logical identity intact.
     pub fn warm(&mut self) {
@@ -83,6 +88,156 @@ impl World {
         let mut world = cold_fields!(cold_box);
         world.warm();
         world
+    }
+
+    /// Block 2005 dynamic planning graph arcs matching `name` (`BlockPlanningGraphArcs`).
+    pub fn block_planning_graph_arcs(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.block_planning_arcs(name))
+    }
+
+    /// Unblock 2005 dynamic planning graph arcs matching `name` (`UnblockPlanningGraphArcs`).
+    pub fn unblock_planning_graph_arcs(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.unblock_planning_arcs(name))
+    }
+
+    /// Toggle 2005 dynamic planning graph arcs matching `name`.
+    pub fn toggle_planning_graph_arcs(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.toggle_planning_arcs(name))
+    }
+
+    /// Enable 2005 authored navigation barriers matching `name` (`EnableBarriers`).
+    pub fn enable_barriers(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.set_barriers_enabled(name, true))
+    }
+
+    /// Disable 2005 authored navigation barriers matching `name` (`DisableBarriers`).
+    pub fn disable_barriers(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.set_barriers_enabled(name, false))
+    }
+
+    /// Toggle 2005 authored navigation barriers matching `name` (`ToggleBarriers`).
+    pub fn toggle_barriers(&mut self, name: &str) -> bool {
+        self.ai
+            .battle_mut()
+            .is_some_and(|b| b.state.navigation.nav.toggle_barriers(name))
+    }
+
+    /// Deterministic, zero-allocation reachability and walkable route distance
+    /// between two world positions across 2005 graphs, 2004 graphs, and
+    /// graphless barrier/collision arenas.
+    pub fn nav_route_distance(
+        &mut self,
+        from: [f64; 3],
+        to: [f64; 3],
+        radius: f64,
+        mask: u32,
+        can_jet: bool,
+    ) -> crate::ai::nav::route::RouteQuery {
+        use crate::ai::nav::{math::Vec3, route::RouteQuery};
+        let Some(mut battle) = self.ai.take_battle() else {
+            return RouteQuery::UNKNOWN;
+        };
+        let nav=&mut battle.state.navigation.nav;
+        if nav.swbf2.as_ref().is_some_and(|s| !s.has_query_credit() || !self.ai.has_ground_probe()) {
+            self.ai.return_battle(battle);
+            return RouteQuery::UNKNOWN;
+        }
+        let cached=crate::ai::owned::live::observe_navigation(self,nav);
+        let result = nav.try_distance_with_clearance(
+            Vec3::new(from[0], from[1], from[2]),
+            Vec3::new(to[0], to[1], to[2]),
+            radius,
+            mask,
+            can_jet,
+            cached,
+            |a, b, m| {
+                crate::ai::owned::live::try_crosses(
+                    self,
+                    a,
+                    b,
+                    m,
+                    crate::ai::nav::swbf2::ProbeKind::Question,
+                )
+            },
+        );
+        self.ai.return_battle(battle);
+        result
+    }
+
+    /// Start (or keep, if already active for the same unit life and within
+    /// 0.1 m of `target`) an external routed ground walk for `unit` on a 2005
+    /// map. Uses a dedicated pre-reserved external control slot so Classic/Goal
+    /// AI phases cannot clobber it. Returns `NavWalkStatus::Failed` with zero
+    /// physical checks on disconnected floors, when the per-tick start cap is
+    /// spent, or in a 2004 battle. Zero allocations.
+    pub fn nav_walk_begin(
+        &mut self,
+        unit: crate::store::Ref<crate::gen::Unit>,
+        target: [f64; 3],
+    ) -> NavWalkStatus {
+        self.nav_walk_begin_within(unit, target, 0.0)
+    }
+
+    /// Start (or keep) an external routed ground walk for `unit` to `target`,
+    /// accepting a barrier-clear floor approach within `approach` metres when
+    /// `approach > 0.0` (for example, a chair or console ringed by its own
+    /// navigation barrier). Zero allocations.
+    pub(crate) fn nav_walk_begin_within(
+        &mut self,
+        unit: crate::store::Ref<crate::gen::Unit>,
+        target: [f64; 3],
+        approach: f64,
+    ) -> NavWalkStatus {
+        let Some(mut battle) = self.ai.take_battle() else {
+            return NavWalkStatus::Failed;
+        };
+        let state = &mut battle.state;
+        let status = state
+            .navigation
+            .nav_walk_begin(self, &state.nav_classes, unit, target, approach);
+        self.ai.return_battle(battle);
+        status
+    }
+
+    /// Advance `unit`'s active external routed ground walk by `dt` and
+    /// overwrite movement analogs, posture, jump, and jet on
+    /// `store.unit[unit].intent`. Auto-releases on `Arrived`, `Failed`, death,
+    /// generation change, or seating. Zero allocations; returns `Failed` in a
+    /// 2004 battle.
+    pub fn nav_walk_step(
+        &mut self,
+        unit: crate::store::Ref<crate::gen::Unit>,
+        dt: f64,
+    ) -> NavWalkStatus {
+        let Some(mut battle) = self.ai.take_battle() else {
+            return NavWalkStatus::Failed;
+        };
+        let state = &mut battle.state;
+        let status = state
+            .navigation
+            .nav_walk_step(self, &state.nav_classes, unit, dt);
+        self.ai.return_battle(battle);
+        status
+    }
+
+    /// Cancel and release `unit`'s active external ground walk slot.
+    /// Idempotent and zero allocations; no-op in a 2004 battle.
+    pub fn nav_walk_stop(&mut self, unit: crate::store::Ref<crate::gen::Unit>) {
+        let Some(mut battle) = self.ai.take_battle() else {
+            return;
+        };
+        battle.state.navigation.nav_walk_stop(unit);
+        self.ai.return_battle(battle);
     }
 }
 

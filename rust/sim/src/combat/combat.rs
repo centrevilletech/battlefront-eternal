@@ -51,7 +51,7 @@ fn gun_of(p: Posture) -> [f64; 3] {
 
 /// BLAST_BODY: the sphere a blast measures to, by stance
 /// (its centre above the feet, its radius) and the sight point's height.
-pub(crate) fn blast_body(p: Posture) -> [f64; 3] {
+pub fn blast_body(p: Posture) -> [f64; 3] {
     match p {
         Posture::Stand => [1.0, 1.4626, 1.4],
         Posture::Crouch => [0.75, 1.1023, 0.6],
@@ -416,8 +416,15 @@ fn aim(c: &mut Combat, b: &Body, eye_height: f64) {
 // A blocked tick may still update timers and kick in the surrounding solver.
 // The retained control edges are consumed at their original observation point.
 // Reordering this check can accidentally make a held trigger fire again.
-fn fire_blocked(b: &Body, gun_underwater: bool, stick: f64) -> bool {
-    (b.air.is_some_and(|air| air != Air::Jet) || truthy(b.dive) || b.lock > 0.0 || b.rolled || (b.posture == Posture::Prone && stick > 0.1)) || gun_underwater
+fn fire_blocked(b: &Body, gun_underwater: bool, stick: f64, allow_jump_fall: bool) -> bool {
+    let air_blocked = b.air.is_some_and(|air| {
+        if allow_jump_fall {
+            !matches!(air, Air::Jet | Air::Jump | Air::Fall)
+        } else {
+            air != Air::Jet
+        }
+    });
+    (air_blocked || truthy(b.dive) || b.lock > 0.0 || b.rolled || (b.posture == Posture::Prone && stick > 0.1)) || gun_underwater
 }
 
 /// What update reads of the unit's controls (IntentControls take/held).
@@ -568,6 +575,24 @@ fn crosshair_aim(c: &Combat, u: &Unit, defs: &CombatDefs, primary: Option<usize>
     (dir.dot(&direction) > 0.0).then_some(dir)
 }
 
+/// 2005 guided-rocket reticle world target and camera ray direction so a shifted
+/// launch origin can re-converge onto the point under the crosshair.
+fn swbf2_crosshair_target(c: &Combat, u: &Unit, defs: &CombatDefs, primary: Option<usize>, channel: f64, world: &mut dyn CombatWorld) -> Option<(Vector3, Vector3)> {
+    let UnitBody::Soldier(s) = &u.soldier else { return None };
+    let zoomed = c.zoom_step > 0.0;
+    let scoped = |p: usize| c.weapons[p].level(class_of(c, defs, p)).get(K::ZoomFirstPerson).truthy();
+    if !u.human || matches!(c.aim_override, Nullable::Value(_)) || c.first_person || zoomed && primary.is_some_and(scoped) {
+        return None;
+    }
+    let cameras = defs.facts.get(u.class_def.0 as usize)?.cameras.as_ref()?;
+    let posture = if s.air.is_some() { Posture::Stand } else { s.posture };
+    let section = &cameras[posture as usize + if zoomed { 3 } else { 0 }];
+    let (start, direction) = bfe_presentation::aim::crosshair_start::<crate::cameras::HostMath>(v(s.position), s.aim_yaw, s.aim_pitch, section);
+    let mut target = start;
+    target.add_scaled_vector(&direction, world.aim_reach(u, &start, &direction, AIM_REACH, channel));
+    Some((target, direction))
+}
+
 /// regenerate(combat, dt).
 // PlayerCombat.regenerate applies health before this tick's fire.
 // The cap remains full precision, including million-health hero classes.
@@ -678,7 +703,24 @@ pub fn update_buffered(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs,
     }
     let primary = select_weapons(c, u, defs);
     let b = body(u);
-    let blocked = fire_blocked(&b, c.gun_underwater, stick);
+    let family = world.battle_family();
+    let blocked = fire_blocked(&b, c.gun_underwater, stick, family == bfe_family::GameFamily::Swbf2) || !world.fire_permitted();
+    // Battlefront II detonator (`base = "detonator"`, `TriggerAll = 1`): pressing
+    // its trigger while a pack is deployed detonates all live packs immediately,
+    // even while reloading or out of ammo, without throwing a new pack.
+    if family == bfe_family::GameFamily::Swbf2 && !blocked {
+        for ch in 0..2usize {
+            let Some(i) = current(c, defs, ch) else { continue };
+            let level = c.weapons[i].level(class_of(c, defs, i));
+            if level.kind == WeaponBase::Detonator && level.get(K::TriggerAll).truthy() {
+                let trig = if ch == 0 { &mut input.primary } else { &mut input.secondary };
+                if trig.pressed && world.detonator_deployed(i as u32, c) {
+                    world.detonator_trigger(i as u32, u, c);
+                    *trig = Trigger::default();
+                }
+            }
+        }
+    }
     // A droideka's shield goes up or down with each press of its trigger.
     if let Some(g) = current(c, defs, 1) {
         if c.weapons[g].level(class_of(c, defs, g)).kind==WeaponBase::Shield {
@@ -735,7 +777,7 @@ pub fn update_buffered(c: &mut Combat, id: u32, u: &mut Unit, defs: &CombatDefs,
     }
     let aim_in = Aim { stick, posture: Some(b.posture), zoomed: c.zoom_step > 0.0, repair_target: c.repair_target.is_some() };
     shots.clear();
-    arsenal(c).update(&defs.weapons, dt, &input, &aim_in, blocked, world, shots);
+    arsenal(c).update_for_family(&defs.weapons, family, dt, &input, &aim_in, blocked, world, shots);
     // Reloads of the gun in hand and throws play their clips over the upper
     // body for as long as the weapon stays in that state.
     let posture = Some(posture_name(b.posture));
@@ -866,10 +908,17 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
     }
     if shot.kind == ShotKind::Repair {
         // repairTick(weapon).
-        let heat = c.weapons[i].level(class).get(K::HeatPerShot).or(0.0);
+        let level = c.weapons[i].level(class);
+        let heat = level.get(K::HeatPerShot).or(0.0);
+        let fx = (world.battle_family() == bfe_family::GameFamily::Swbf2)
+            .then(|| level.field("MuzzleFlashEffect").str().map(str::to_string))
+            .flatten();
         let target = c.repair_target;
         if world.repair(i as u32, target, c.team, u, c) {
             c.weapons[i].heat += heat;
+            if let Some(fx_name) = fx.as_deref() {
+                world.emit_swbf2_effect(fx_name, &v(c.origin), Some(&v(c.aim_dir)), None);
+            }
         }
         return;
     }
@@ -879,16 +928,103 @@ fn fire(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, edges: &Ed
         return;
     }
     if level.get(K::Droid).truthy() {
+        let guided = world.battle_family() == bfe_family::GameFamily::Swbf2
+            && level.get(K::Droid).get("GuidedMissile").truthy();
+        let mut dir = v(c.shot_dir);
+        let mut origin = v(c.origin);
+        if guided {
+            let channel = c.weapons[i].channel(&defs.weapons);
+            let mut aim_target: Option<(Vector3, Vector3)> = None;
+            if edge_aim(u, edges, channel).is_some() {
+                network_shot_direction(u, edges, &mut dir, channel);
+                let dir_len = dir.length();
+                if dir_len > 1e-6 {
+                    dir.divide_scalar(dir_len);
+                }
+                let reach = world.aim_reach(u, &origin, &dir, AIM_REACH, channel);
+                let mut target = origin;
+                target.add_scaled_vector(&dir, reach);
+                aim_target = Some((target, dir));
+            } else if let Some((target, cross_dir)) = {
+                let primary = current(c, defs, 0);
+                swbf2_crosshair_target(c, u, defs, primary, channel, world)
+            } {
+                let mut converged = Vector3::default();
+                converged.sub_vectors(&target, &origin).normalize();
+                if converged.dot(&cross_dir) > 0.0 {
+                    dir = converged;
+                    aim_target = Some((target, cross_dir));
+                }
+            }
+            let dir_len = dir.length();
+            if dir_len > 1e-6 {
+                dir.divide_scalar(dir_len);
+            }
+            // Apply authored FirePointExtraOffset (right, up, forward) in launch frame
+            // only when clear of solid geometry and close targets; fall back to the
+            // unobstructed fire origin otherwise so launch never embeds in a wall or
+            // skips past a close target, then re-converge onto the reticle target.
+            let extra = level.field("FirePointExtraOffset");
+            if extra.truthy() {
+                let ox = extra.at(0).nn(0.0);
+                let oy = extra.at(1).nn(0.0);
+                let oz = extra.at(2).nn(0.0);
+                let mut right = Vector3::default();
+                right.cross_vectors(&dir, &UP);
+                let rlen = right.length();
+                if rlen > 1e-6 {
+                    right.divide_scalar(rlen);
+                } else {
+                    right = Vector3::new(1.0, 0.0, 0.0);
+                }
+                let mut up = Vector3::default();
+                up.cross_vectors(&right, &dir);
+                let mut offset = Vector3::default();
+                offset.add_scaled_vector(&right, ox);
+                offset.add_scaled_vector(&up, oy);
+                offset.add_scaled_vector(&dir, oz);
+                let dist = offset.length();
+                if dist > 1e-6 {
+                    let mut step_dir = offset;
+                    step_dir.divide_scalar(dist);
+                    let target_past_offset = aim_target
+                        .is_none_or(|(target, _)| target.distance_to(&origin) > dist + 0.25);
+                    if target_past_offset
+                        && world.cast(&origin, &step_dir, dist, false).is_none()
+                        && world.cast(&origin, &dir, dist, false).is_none()
+                        && world.aim_reach(u, &origin, &step_dir, dist, channel) >= dist - 1e-4
+                        && world.aim_reach(u, &origin, &dir, dist, channel) >= dist - 1e-4
+                    {
+                        origin.add_scaled_vector(&step_dir, dist);
+                        if let Some((target, ref_dir)) = aim_target {
+                            let mut to_target = Vector3::default();
+                            to_target.sub_vectors(&target, &origin);
+                            let span = to_target.length();
+                            if span > 0.5 {
+                                to_target.divide_scalar(span);
+                                if to_target.dot(&ref_dir) > 0.0 {
+                                    dir = to_target;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // A remote droid leaves the gun origin along the aim at Velocity,
-        // plus the soldier's own velocity.
+        // plus the soldier's own velocity. Guided missiles launch cleanly
+        // along the converged aim without sideways walk drift.
         let speed = level.get(K::Velocity).nn(10.0) * level.get(K::MaxStrength).nn(1.0);
-        let mut velocity = v(c.shot_dir);
-        velocity.multiply_scalar(speed).add(&body(u).velocity);
+        let mut velocity = dir;
+        velocity.multiply_scalar(speed);
+        if !guided {
+            velocity.add(&body(u).velocity);
+        }
         let admission = match shot.kind {
             ShotKind::Round { admission, .. } => admission,
             _ => None,
         };
-        let (origin, yaw, team) = (v(c.origin), body(u).aim_yaw, c.team);
+        let (yaw, team) = (body(u).aim_yaw, c.team);
         world.remote_launch(i as u32, &origin, &velocity, yaw, team, admission, u, c);
         return;
     }
@@ -1047,6 +1183,17 @@ fn dispense(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, world:
 // The original draw sites remain even when an effect has zero visual length.
 // One phase scratch keeps the candidate and victim arrays off the allocator.
 fn arc(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, def: &super::defs::ArcDef, edges: &Edges, world: &mut dyn CombatWorld, scratch: &mut ArcScratch) {
+    if let Some(weapon) = c.weapons.get(shot.weapon as usize) {
+        world.observe_arc_weapon(weapon.def);
+    }
+    if world.battle_family() == bfe_family::GameFamily::Swbf2 {
+        swbf2_arc(c, u, defs, shot, def, edges, world, scratch);
+    } else {
+        released_arc(c, u, defs, shot, def, edges, world, scratch);
+    }
+}
+
+fn released_arc(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, def: &super::defs::ArcDef, edges: &Edges, world: &mut dyn CombatWorld, scratch: &mut ArcScratch) {
     let ShotKind::Round { charge, .. } = shot.kind else { return };
     let i = shot.weapon as usize;
     let channel = c.weapons[i].channel(&defs.weapons);
@@ -1133,6 +1280,115 @@ fn arc(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, def: &super
         }
         links += 1.0;
         damage -= def.drop;
+    }
+    if links == 0.0 && bolt {
+        let hit = world.cast(&p, &d, l, false);
+        let mut to = p;
+        to.add_scaled_vector(&d, hit.map(|h| h.distance).unwrap_or(l));
+        world.presentation(&Presentation::Lightning { definition: weapon_def, level: weapon_level, name: lightning_name, from: p, to, charge, channel: Some(channel) });
+    }
+}
+
+fn swbf2_arc(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, shot: &Shot, def: &super::defs::ArcDef, edges: &Edges, world: &mut dyn CombatWorld, scratch: &mut ArcScratch) {
+    let ShotKind::Round { charge, .. } = shot.kind else { return };
+    let i = shot.weapon as usize;
+    let channel = c.weapons[i].channel(&defs.weapons);
+    let p = v(c.origin);
+    let mut d = v(c.shot_dir);
+    network_shot_direction(u, edges, &mut d, channel);
+    d.normalize();
+    let l = def.length;
+    let sine = def.sine;
+    let mut center = p;
+    center.add_scaled_vector(&d, 0.9 * l);
+    let mut toward = Vector3::default();
+    world.arc_targets_into(&mut scratch.targets);
+    let targets = &scratch.targets;
+    let candidates = &mut scratch.candidates;
+    candidates.clear();
+    for (index, target) in targets.iter().enumerate() {
+        if target.relation > 0.0 && !def.affect_friends {
+            continue;
+        }
+        if target.relation < 0.0 && !def.affect_enemies {
+            continue;
+        }
+        let cc = target.center.unwrap_or(target.origin);
+        let r = l + target.radius.unwrap_or(0.0);
+        if (cc.x - center.x).abs() > r || (cc.y - center.y).abs() > r || (cc.z - center.z).abs() > r {
+            continue;
+        }
+        toward.sub_vectors(&target.origin, &p);
+        let along = toward.dot(&d);
+        if def.no_chaining && !(along > 0.0) {
+            continue;
+        }
+        if !(along < l) {
+            continue;
+        }
+        toward.add_scaled_vector(&d, -along);
+        if !(toward.length_sq() < v8math::pow(sine * along, 2.0)) {
+            continue;
+        }
+        candidates.push(ArcCandidate { index, origin: target.origin, a: along });
+    }
+    jsrt::sort::js_sort_buffered(candidates, &mut |x: &ArcCandidate, y: &ArcCandidate| x.a - y.a, &mut scratch.sort);
+    let weapon_def = c.weapons[i].def;
+    let weapon_level = c.weapons[i].level;
+    let bolt = def.name.as_deref().is_some_and(|name| world.has_lightning_for(weapon_def, weapon_level, name));
+    let lightning_name = def.name.as_deref().unwrap_or("");
+    let mut damage = def.damage + (def.max_damage - def.damage) * charge;
+    let mut from = p;
+    let mut dir = Vector3::default();
+    let mut prev = 0.0;
+    let mut links = 0.0;
+    let first_radius = def.first_radius;
+    for cand in candidates.iter() {
+        if links >= def.max_targets || damage < def.threshold {
+            break;
+        }
+        if !def.no_chaining {
+            let jump = if links == 0.0 { l } else { def.jump };
+            if cand.a - prev > jump {
+                break;
+            }
+        }
+        let mut t = cand.origin;
+        t.y += 1.0;
+        let ray_from = if def.no_chaining { p } else { from };
+        let span = dir.sub_vectors(&t, &ray_from).length();
+        if span > 1e-3 {
+            dir.divide_scalar(span);
+            if world.cast(&ray_from, &dir, span, false).is_some() {
+                continue;
+            }
+        }
+        if !def.no_chaining && links == 0.0 && first_radius > 0.0 {
+            toward.sub_vectors(&t, &p);
+            let along = toward.dot(&d);
+            toward.add_scaled_vector(&d, -along);
+            if toward.length_sq() > v8math::pow(first_radius, 2.0) {
+                continue;
+            }
+        }
+        prev = cand.a;
+        if damage > 0.0 {
+            world.hurt_arc_target(cand.index, damage, &ray_from, u, c);
+        }
+        if def.smolder_damage_rate > 0.0 && def.smolder_timer > 0.0 {
+            world.apply_burn_arc_target(cand.index, def.smolder_damage_rate, def.smolder_timer, def.smolder_effect.as_deref());
+        }
+        if bolt {
+            world.presentation(&Presentation::Lightning { definition: weapon_def, level: weapon_level, name: lightning_name, from: ray_from, to: t, charge, channel: if links == 0.0 { Some(channel) } else { None } });
+            if !def.no_chaining && (links == 0.0 || roll(c, world) > 0.3) {
+                from = t;
+            }
+        }
+        links += 1.0;
+        damage -= def.drop;
+    }
+    if let Some(name) = def.aimer_effect.as_deref() {
+        world.emit_swbf2_effect(name, &p, Some(&d), None);
     }
     if links == 0.0 && bolt {
         let hit = world.cast(&p, &d, l, false);
@@ -1295,6 +1551,28 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
     0.0
 }
 
+/// damage(amount, onShield, source, attacker, info), dispatched on the game
+/// family: a 2005 battle puts its timed modifiers on the amounts first; every
+/// other battle runs the released body below and nothing else.
+#[allow(clippy::too_many_arguments)]
+pub fn damage_with<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, amount: f64, on_shield: f64, source: Option<Vector3>, attacker: Attacker, info: &DamageInfo, world: &mut W) {
+    match world.impact_family() {
+        bfe_family::GameFamily::Swbf2 => swbf2_damage_with(c, u, defs, amount, on_shield, source, attacker, info, world),
+        _ => released_damage_with(c, u, defs, amount, on_shield, source, attacker, info, world),
+    }
+}
+
+/// A 2005 battle's hit: the attacker's offence and the victim's defence
+/// modifiers scale both amounts, then the released body applies them.
+#[allow(clippy::too_many_arguments)]
+fn swbf2_damage_with<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, amount: f64, on_shield: f64, source: Option<Vector3>, attacker: Attacker, info: &DamageInfo, world: &mut W) {
+    let (amount, on_shield) = match world.impact_scale(attacker) {
+        Some(scale) => (amount * scale, on_shield * scale),
+        None => (amount, on_shield),
+    };
+    released_damage_with(c, u, defs, amount, on_shield, source, attacker, info, world);
+}
+
 /// damage(amount, onShield, source, attacker, info).
 #[allow(clippy::too_many_arguments)]
 // PlayerCombat.damage commits health and attribution before death hooks.
@@ -1303,7 +1581,7 @@ fn falloff(distance: f64, inner: f64, outer: f64) -> f64 {
 // Lethal damage detaches seats and can trigger an immediate nested explosion.
 // No queued task defers death to the following registry victim or world tick.
 // A corpse rejects later damage while its removal timer keeps advancing.
-pub fn damage_with<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, amount: f64, on_shield: f64, source: Option<Vector3>, attacker: Attacker, info: &DamageInfo, world: &mut W) {
+fn released_damage_with<W: ImpactWorld + ?Sized>(c: &mut Combat, u: &mut Unit, defs: &CombatDefs, amount: f64, on_shield: f64, source: Option<Vector3>, attacker: Attacker, info: &DamageInfo, world: &mut W) {
     let _ = defs;
     let mut amount = amount;
     if c.dead || amount <= 0.0 {
@@ -1357,4 +1635,308 @@ pub fn reset(c: &mut Combat, u: &Unit, defs: &CombatDefs) {
     c.seen.resize_with(c.weapons.len(),Seen::default);
     c.seen.fill(Seen::default());
     c.pending_muzzles.clear();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body_with_air(air: Option<Air>) -> Body {
+        Body {
+            droideka: false,
+            position: Vector3::default(),
+            velocity: Vector3::default(),
+            aim_yaw: 0.0,
+            aim_pitch: 0.0,
+            posture: Posture::Stand,
+            air,
+            dive: 0.0,
+            lock: 0.0,
+            rolled: false,
+        }
+    }
+
+    #[test]
+    fn swbf2_allows_jump_and_fall_fire_but_still_blocks_thrown_and_dive() {
+        for air in [Air::Jump, Air::Fall] {
+            let b = body_with_air(Some(air));
+            assert!(fire_blocked(&b, false, 0.0, false));
+            assert!(!fire_blocked(&b, false, 0.0, true));
+        }
+        let jet = body_with_air(Some(Air::Jet));
+        assert!(!fire_blocked(&jet, false, 0.0, false));
+        assert!(!fire_blocked(&jet, false, 0.0, true));
+
+        let thrown = body_with_air(Some(Air::Thrown));
+        assert!(fire_blocked(&thrown, false, 0.0, false));
+        assert!(fire_blocked(&thrown, false, 0.0, true));
+
+        let mut diving = body_with_air(None);
+        diving.dive = 1.0;
+        assert!(fire_blocked(&diving, false, 0.0, true));
+        assert!(fire_blocked(&body_with_air(None), true, 0.0, true));
+    }
+
+    #[test]
+    fn swbf2_no_chaining_emitter_hits_multiple_cone_targets_and_emits_flame_and_burn() {
+        use super::super::defs::{ArcDef, Js, JsObj, WeaponClass};
+        use super::super::weapons::{Admission, WeaponDraws};
+        use super::super::world::{CastHit, Droid};
+        use crate::gen::{RepairTarget, Weapon};
+        use crate::store::StrId;
+        use std::rc::Rc;
+
+        struct FakeArcWorld {
+            targets: Vec<ArcTarget>,
+            hurts: Vec<(usize, f64)>,
+            burns: Vec<(usize, f64, f64, Option<String>)>,
+            effects: Vec<(String, Vector3, Option<Vector3>)>,
+        }
+        impl WeaponDraws for FakeArcWorld {
+            fn draw(&mut self, _: u32) -> f64 { 0.5 }
+            fn legacy(&mut self, _: u32) -> f64 { 0.5 }
+            fn seeded(&mut self, _: f64, _: f64) {}
+            fn admit(&mut self, _: u32) -> Admission { Admission::Yes }
+        }
+        impl CombatWorld for FakeArcWorld {
+            fn cast(&mut self, _: &Vector3, _: &Vector3, _: f64, _: bool) -> Option<CastHit> { None }
+            fn remote_of(&mut self, _: u32) -> Option<Droid> { None }
+            fn remote_enter(&mut self, _: Droid, _: &mut Unit, _: &mut Combat) {}
+            fn remote_kill(&mut self, _: Droid, _: &mut Unit, _: &mut Combat) {}
+            fn remote_launch(&mut self, _: u32, _: &Vector3, _: &Vector3, _: f64, _: f64, _: Option<f64>, _: &mut Unit, _: &mut Combat) {}
+            fn lock_on(&mut self, _: &Vector3, _: &Vector3, _: u32, _: &Weapon, _: Option<RepairTarget>, _: bool, _: f64) -> Option<RepairTarget> { None }
+            fn lock_key(&mut self, _: Option<RepairTarget>) -> StrId { StrId(0) }
+            fn repair(&mut self, _: u32, _: Option<RepairTarget>, _: f64, _: &mut Unit, _: &mut Combat) -> bool { false }
+            fn lock_pick(&mut self, _: u32, _: &Weapon, _: &Vector3, _: &Vector3) -> LockPick { LockPick::None }
+            fn fire_round(&mut self, _: &Vector3, _: &Vector3, _: &Shot, _: bool, _: Option<(f64, f64)>, _: &mut Unit, _: &mut Combat) {}
+            fn dispense(&mut self, _: u32, _: f64, _: &Vector3, _: &Vector3, _: f64, _: f64, _: &mut Unit, _: &mut Combat) -> bool { false }
+            fn melee_strike(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn arc_targets(&mut self) -> Vec<ArcTarget> { self.targets.clone() }
+            fn hurt_arc_target(&mut self, index: usize, amount: f64, _: &Vector3, _: &mut Unit, _: &mut Combat) {
+                self.hurts.push((index, amount));
+            }
+            fn apply_burn_arc_target(&mut self, index: usize, dps: f64, seconds: f64, effect: Option<&str>) {
+                self.burns.push((index, dps, seconds, effect.map(str::to_string)));
+            }
+            fn emit_swbf2_effect(&mut self, name: &str, position: &Vector3, forward: Option<&Vector3>, _: Option<f64>) {
+                self.effects.push((name.to_string(), *position, forward.copied()));
+            }
+            fn has_lightning(&mut self, _: &str) -> bool { false }
+            fn fired(&mut self, _: &Shot, _: &mut Unit, _: &mut Combat) {}
+            fn damaged(&mut self, _: f64, _: Attacker, _: &DamageInfo, _: Option<Vector3>, _: &mut Unit, _: &mut Combat) {}
+            fn died(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn blown_apart(&mut self, _: f64, _: &mut Unit, _: &mut Combat) {}
+            fn respawn(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn presentation(&mut self, _: &Presentation) {}
+            fn next_gun(&mut self, _: &mut Unit, _: &mut Combat) -> Option<Vector3> { None }
+            fn gun_at(&mut self, _: (f64, f64)) -> Option<Vector3> { None }
+            fn shield_hit(&mut self, _: f64, _: f64, _: Option<Vector3>, _: bool) {}
+            fn draw_combat(&mut self, _: bool) -> f64 { 0.5 }
+            fn text(&self, _: StrId) -> String { String::new() }
+            fn battle_family(&self) -> bfe_family::GameFamily { bfe_family::GameFamily::Swbf2 }
+        }
+
+        let mut defs = CombatDefs::default();
+        let w_fields = vec![
+            (Rc::from("base"), Js::Str("cannon".into())),
+            (Rc::from("channel"), Js::Num(0.0)),
+        ];
+        defs.weapons.set(DefId(0), WeaponClass::new(Rc::new(JsObj { fields: w_fields, def: None })));
+        let mut combat = Combat::default();
+        combat.weapons.push(Weapon::create(DefId(0), &defs.weapons, true));
+        combat.origin = [0.0, 1.0, 0.0];
+        combat.shot_dir = [0.0, 0.0, 1.0];
+        let mut unit = Unit::default();
+
+        let arc_def = ArcDef {
+            length: 14.0,
+            sine: v8math::sin(16.0_f64.to_radians()),
+            name: None,
+            damage: 11.0,
+            max_damage: 19.0,
+            first_radius: 3.0,
+            max_targets: 4.0,
+            threshold: 0.0,
+            jump: 0.0,
+            drop: 0.0,
+            no_chaining: true,
+            affect_friends: true,
+            affect_enemies: true,
+            smolder_damage_rate: 22.0,
+            smolder_timer: 2.5,
+            smolder_effect: Some(Rc::from("inv_burn_fx")),
+            aimer_effect: Some(Rc::from("inv_cone_stream")),
+        };
+
+        let mut world = FakeArcWorld {
+            targets: vec![
+                // In cone at 4 m.
+                ArcTarget { origin: Vector3::new(0.2, 0.0, 4.0), center: None, radius: None, relation: -1.0 },
+                // In cone at 11 m (jump=0 must not stop NoChaining cone!).
+                ArcTarget { origin: Vector3::new(-0.4, 0.0, 11.0), center: None, radius: None, relation: -1.0 },
+                // Directly behind shooter on the aim axis at -0.5 m (inside broadphase AABB around 0.9*14=12.6
+                // with radius 1.0, and zero perpendicular offset so the double-cone check would pass):
+                // only NoChaining's `along > 0` check excludes it!
+                ArcTarget { origin: Vector3::new(0.0, 1.0, -0.5), center: Some(Vector3::new(0.0, 1.0, -0.5)), radius: Some(1.0), relation: -1.0 },
+            ],
+            hurts: Vec::new(),
+            burns: Vec::new(),
+            effects: Vec::new(),
+        };
+        let shot = Shot {
+            weapon: 0,
+            kind: ShotKind::Round { yaw: 0.0, pitch: 0.0, charge: 1.0, target_id: -1.0, target_generation: -1.0, admission: None },
+        };
+        let mut scratch = ArcScratch::default();
+        arc(&mut combat, &mut unit, &defs, &shot, &arc_def, &Edges::default(), &mut world, &mut scratch);
+
+        assert_eq!(world.hurts, vec![(0, 19.0), (1, 19.0)]);
+        assert_eq!(world.burns.len(), 2);
+        assert_eq!(world.burns[0].1, 22.0);
+        assert_eq!(world.burns[0].2, 2.5);
+        assert_eq!(world.burns[0].3.as_deref(), Some("inv_burn_fx"));
+        assert_eq!(world.effects.len(), 1);
+        assert_eq!(world.effects[0].0, "inv_cone_stream");
+        assert_eq!(world.effects[0].2, Some(Vector3::new(0.0, 0.0, 1.0)));
+
+        // AffectFriends = false skips friendly targets; AffectEnemies = false skips enemy targets.
+        let mut friend_only = arc_def.clone();
+        friend_only.affect_friends = true;
+        friend_only.affect_enemies = false;
+        let mut enemy_only = arc_def;
+        enemy_only.affect_friends = false;
+        enemy_only.affect_enemies = true;
+
+        world.targets = vec![
+            ArcTarget { origin: Vector3::new(0.1, 0.0, 4.0), center: None, radius: None, relation: 1.0 },
+            ArcTarget { origin: Vector3::new(-0.1, 0.0, 5.0), center: None, radius: None, relation: -1.0 },
+        ];
+        world.hurts.clear();
+        world.burns.clear();
+        arc(&mut combat, &mut unit, &defs, &shot, &enemy_only, &Edges::default(), &mut world, &mut scratch);
+        assert_eq!(world.hurts, vec![(1, 19.0)]);
+        assert_eq!(world.burns.len(), 1);
+        assert_eq!(world.burns[0].0, 1);
+
+        world.hurts.clear();
+        world.burns.clear();
+        arc(&mut combat, &mut unit, &defs, &shot, &friend_only, &Edges::default(), &mut world, &mut scratch);
+        assert_eq!(world.hurts, vec![(0, 19.0)]);
+        assert_eq!(world.burns.len(), 1);
+        assert_eq!(world.burns[0].0, 0);
+    }
+
+    #[test]
+    fn swbf2_guided_launch_falls_back_when_offset_obstructed_and_reconverges_when_clear() {
+        use super::super::defs::{Js, JsObj, WeaponClass};
+        use super::super::weapons::{Admission, WeaponDraws};
+        use super::super::world::{CastHit, Droid};
+        use crate::gen::{RepairTarget, Weapon};
+        use crate::store::StrId;
+        use std::rc::Rc;
+
+        struct FakeGuidedLaunchWorld {
+            wall_dist: Option<f64>,
+            aim_dist: f64,
+            launches: Vec<(Vector3, Vector3)>,
+        }
+        impl WeaponDraws for FakeGuidedLaunchWorld {
+            fn draw(&mut self, _: u32) -> f64 { 0.5 }
+            fn legacy(&mut self, _: u32) -> f64 { 0.5 }
+            fn seeded(&mut self, _: f64, _: f64) {}
+            fn admit(&mut self, _: u32) -> Admission { Admission::Yes }
+        }
+        impl CombatWorld for FakeGuidedLaunchWorld {
+            fn cast(&mut self, origin: &Vector3, dir: &Vector3, far: f64, _: bool) -> Option<CastHit> {
+                let d = self.wall_dist?;
+                if d <= far {
+                    let mut point = *origin;
+                    point.add_scaled_vector(dir, d);
+                    return Some(CastHit { distance: d, point, normal: Vector3::new(0.0, 0.0, -1.0) });
+                }
+                None
+            }
+            fn aim_reach(&mut self, _: &Unit, _: &Vector3, _: &Vector3, far: f64, _: f64) -> f64 {
+                if self.aim_dist < far { self.aim_dist } else { far }
+            }
+            fn remote_of(&mut self, _: u32) -> Option<Droid> { None }
+            fn remote_enter(&mut self, _: Droid, _: &mut Unit, _: &mut Combat) {}
+            fn remote_kill(&mut self, _: Droid, _: &mut Unit, _: &mut Combat) {}
+            fn remote_launch(&mut self, _: u32, origin: &Vector3, velocity: &Vector3, _: f64, _: f64, _: Option<f64>, _: &mut Unit, _: &mut Combat) {
+                self.launches.push((*origin, *velocity));
+            }
+            fn lock_on(&mut self, _: &Vector3, _: &Vector3, _: u32, _: &Weapon, _: Option<RepairTarget>, _: bool, _: f64) -> Option<RepairTarget> { None }
+            fn lock_key(&mut self, _: Option<RepairTarget>) -> StrId { StrId(0) }
+            fn repair(&mut self, _: u32, _: Option<RepairTarget>, _: f64, _: &mut Unit, _: &mut Combat) -> bool { false }
+            fn lock_pick(&mut self, _: u32, _: &Weapon, _: &Vector3, _: &Vector3) -> LockPick { LockPick::None }
+            fn fire_round(&mut self, _: &Vector3, _: &Vector3, _: &Shot, _: bool, _: Option<(f64, f64)>, _: &mut Unit, _: &mut Combat) {}
+            fn dispense(&mut self, _: u32, _: f64, _: &Vector3, _: &Vector3, _: f64, _: f64, _: &mut Unit, _: &mut Combat) -> bool { false }
+            fn melee_strike(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn arc_targets(&mut self) -> Vec<ArcTarget> { Vec::new() }
+            fn hurt_arc_target(&mut self, _: usize, _: f64, _: &Vector3, _: &mut Unit, _: &mut Combat) {}
+            fn has_lightning(&mut self, _: &str) -> bool { false }
+            fn fired(&mut self, _: &Shot, _: &mut Unit, _: &mut Combat) {}
+            fn damaged(&mut self, _: f64, _: Attacker, _: &DamageInfo, _: Option<Vector3>, _: &mut Unit, _: &mut Combat) {}
+            fn died(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn blown_apart(&mut self, _: f64, _: &mut Unit, _: &mut Combat) {}
+            fn respawn(&mut self, _: &mut Unit, _: &mut Combat) {}
+            fn presentation(&mut self, _: &Presentation) {}
+            fn next_gun(&mut self, _: &mut Unit, _: &mut Combat) -> Option<Vector3> { None }
+            fn gun_at(&mut self, _: (f64, f64)) -> Option<Vector3> { None }
+            fn shield_hit(&mut self, _: f64, _: f64, _: Option<Vector3>, _: bool) {}
+            fn draw_combat(&mut self, _: bool) -> f64 { 0.5 }
+            fn text(&self, _: StrId) -> String { String::new() }
+            fn battle_family(&self) -> bfe_family::GameFamily { bfe_family::GameFamily::Swbf2 }
+        }
+
+        let mut defs = CombatDefs::default();
+        let droid_obj = Rc::new(JsObj {
+            fields: vec![(Rc::from("GuidedMissile"), Js::Num(1.0))],
+            def: None,
+        });
+        let extra_arr = Js::Arr(Rc::new(vec![Js::Num(0.0), Js::Num(0.4), Js::Num(2.0)]));
+        let w_fields = vec![
+            (Rc::from("base"), Js::Str("remote".into())),
+            (Rc::from("channel"), Js::Num(1.0)),
+            (Rc::from("droid"), Js::Obj(droid_obj)),
+            (Rc::from("FirePointExtraOffset"), extra_arr),
+            (Rc::from("Velocity"), Js::Num(20.0)),
+        ];
+        defs.weapons.set(DefId(0), WeaponClass::new(Rc::new(JsObj { fields: w_fields, def: None })));
+        let mut combat = Combat::default();
+        combat.weapons.push(Weapon::create(DefId(0), &defs.weapons, true));
+        combat.origin = [0.0, 1.5, 0.0];
+        combat.shot_dir = [0.0, 0.0, 1.0];
+        let mut unit = Unit { human: true, network_human: Some(true), ..Default::default() };
+        let edges = Edges {
+            fixed: Some([None, Some(Edge { button: 1.0, id: Some(1.0), late: None, aim_yaw: Some(0.0), aim_pitch: Some(0.0) })]),
+            ..Default::default()
+        };
+        let shot = Shot {
+            weapon: 0,
+            kind: ShotKind::Round { yaw: 0.0, pitch: 0.0, charge: 1.0, target_id: -1.0, target_generation: -1.0, admission: None },
+        };
+        let mut scratch = ArcScratch::default();
+
+        // Clear path, reticle target 12 m ahead: offset applies and velocity re-converges onto (0, 1.5, 12).
+        let mut world = FakeGuidedLaunchWorld { wall_dist: None, aim_dist: 12.0, launches: Vec::new() };
+        fire(&mut combat, &mut unit, &defs, &shot, &edges, &mut world, &mut scratch);
+        let (orig, vel) = world.launches[0];
+        assert!((orig.y - 1.9).abs() < 1e-6 && (orig.z - 2.0).abs() < 1e-6, "clear offset must apply: {orig:?}");
+        let t_to_target = (12.0 - orig.z) / vel.z;
+        let y_at_target = orig.y + vel.y * t_to_target;
+        assert!((y_at_target - 1.5).abs() < 1e-5, "re-converged ray must hit target height 1.5: got {y_at_target}");
+
+        // Wall at 1.2 m along offset: falls back to unobstructed fire origin rather than embedding on wall.
+        let mut world = FakeGuidedLaunchWorld { wall_dist: Some(1.2), aim_dist: 12.0, launches: Vec::new() };
+        fire(&mut combat, &mut unit, &defs, &shot, &edges, &mut world, &mut scratch);
+        let (orig, _) = world.launches[0];
+        assert!((orig.y - 1.5).abs() < 1e-6 && orig.z.abs() < 1e-6, "wall obstruction must fall back to origin: {orig:?}");
+
+        // Close target at 1.4 m (closer than offset): falls back to origin rather than spawning behind target.
+        let mut world = FakeGuidedLaunchWorld { wall_dist: None, aim_dist: 1.4, launches: Vec::new() };
+        fire(&mut combat, &mut unit, &defs, &shot, &edges, &mut world, &mut scratch);
+        let (orig, _) = world.launches[0];
+        assert!((orig.y - 1.5).abs() < 1e-6 && orig.z.abs() < 1e-6, "close target must fall back to origin: {orig:?}");
+    }
 }

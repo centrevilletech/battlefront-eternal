@@ -104,14 +104,69 @@ pub fn run(world: &mut World, content: &Content, files: &dyn Files, options: &Op
 /// `run` with the rows kept in the caller's buffer: a driver comparing
 /// them with a recording keeps what was dispatched before a failure.
 pub fn run_into(world: &mut World, content: &Content, files: &dyn Files, options: &Options, rows: &mut Rows) -> Result<Admitted, AdmitError> {
-    let battle = &content.battle;
+    let doors = doors_of(content)?;
+    if world.units.map_world_bounds.is_some() || (content.battle.family == bfe_content::GameFamily::Swbf2 && crate::units::f3::active_in(&world.units)) {
+        let mut fresh = World::new();
+        world.battle.swap_rule_factory(&mut fresh.battle);
+        let result = run_fresh(&mut fresh, content, files, options, rows, doors);
+        if result.is_ok() {
+            std::mem::swap(world, &mut fresh);
+        } else {
+            world.battle.swap_rule_factory(&mut fresh.battle);
+        }
+        return result;
+    }
+    run_fresh(world, content, files, options, rows, doors)
+}
+
+fn run_fresh(world: &mut World, content: &Content, files: &dyn Files, options: &Options, rows: &mut Rows, doors: Doors) -> Result<Admitted, AdmitError> {
     let defs = bfe_content::defs::Defs::build(content).map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
+    if options.family == bfe_family::GameFamily::Swbf2 {
+        register_classes(world, content, &defs)?;
+    }
     let mut cx = Cx::new(content, &defs, files, options, world.sim.strings.clone());
-    rows.setup = rows::setup(battle);
-    let mut admitted = Admitted { setup: rows.setup.clone(), ..Default::default() };
-    run_stages(world, content, &mut cx, rows, &mut admitted, &ORDER)?;
-    push_page_streams(world, &mut cx)?;
+    construct(world, content, &defs, files, &mut cx, rows, doors)
+}
+
+pub(super) use crate::space::door_animation::DoorSetup as Doors;
+
+/// What a 2005 battle's content must hold before its world is built, and what
+/// its hangar doors are bound to; nothing of a 2004 battle.
+pub(super) fn doors_of(content: &Content) -> Result<Doors, AdmitError> {
+    let error = |message| AdmitError::Content { stage: Stage::Content, message };
+    if content.battle.family == bfe_content::GameFamily::Swbf2 {
+        crate::space::flight::validate_combat_content(content).map_err(error)?;
+    }
+    if !crate::space::SpaceBattlefield::should_attach(content) { return Ok(Doors::default()); }
+    let doors = content.battle.swbf2.as_ref().map(|s| crate::space::door_animation::load_for_battle(&s.map_admission)).transpose();
+    Ok(doors.map_err(error)?.unwrap_or_default())
+}
+
+/// The stages of an admission and everything that follows them before the
+/// first tick, for a local battle and a server's alike: a 2005 map's bounds
+/// before the stages; after them its space battlefield, the page's streams
+/// (so each host draws from the same ones), the bodies and a 2005 battle's
+/// infantry.
+pub(super) fn construct(world: &mut World, content: &Content, defs: &bfe_content::defs::Defs, files: &dyn Files, cx: &mut Cx, rows: &mut Rows, doors: Doors)
+    -> Result<Admitted, AdmitError>
+{
+    let family = cx.options.family;
+    rows.setup = rows::setup(&content.battle);
+    let mut admitted = Admitted { family, setup: rows.setup.clone(), ..Default::default() };
+    world.units.map_world_bounds = (content.battle.family == bfe_content::GameFamily::Swbf2)
+        .then(|| crate::units::damage::MapWorldBounds::from_swbf2_map(&content.battle.world));
+    run_stages(world, content, cx, rows, &mut admitted, &ORDER)?;
+    world.space = if crate::space::SpaceBattlefield::should_attach(content) {
+        Some(Box::new(crate::space::SpaceBattlefield::build(world, content, cx, doors)))
+    } else {
+        None
+    };
+    push_page_streams(world, cx)?;
     admitted.units = super::spawn::units(world)?;
+    if family == bfe_family::GameFamily::Swbf2 {
+        crate::units::infantry::admit(world, content, defs, files, admitted.handles.mailbox, admitted.handles.player)
+            .map_err(|message| AdmitError::Content { stage: Stage::Content, message })?;
+    }
     Ok(admitted)
 }
 
@@ -155,19 +210,73 @@ pub(crate) fn push_page_streams(world: &mut World, cx: &mut Cx) -> Result<(), Ad
     Ok(())
 }
 
+/// A 2005 battle's soldier classes take their movement numbers from the
+/// matched content (`movement::soldier::swbf2::classes`), in the class list's
+/// order, before admission records them ([`selection_calls`]). Numbers
+/// registered before are dropped: only the content the battle's digest covers
+/// supplies them. A class whose numbers cannot be read stays without; the
+/// session refuses the battle and says why.
+pub(crate) fn register_classes(world: &mut World, content: &Content, defs: &bfe_content::defs::Defs) -> Result<(), AdmitError> {
+    world.movement.swbf2.clear_classes();
+    for (name, tuning) in crate::movement::soldier::swbf2::classes::of_battle(content, defs) {
+        let Ok(tuning) = tuning else { continue };
+        let class = world.sim.strings.intern_str(&name);
+        world.movement.swbf2.set_class(class, tuning)
+            .map_err(|e| AdmitError::Content { stage: Stage::Content, message: format!("{name}: {e}") })?;
+    }
+    Ok(())
+}
+
+/// The movement numbers a 2005 world holds, by class name, in the order they
+/// were registered.
+pub fn swbf2_classes(world: &World) -> Vec<(String, crate::movement::soldier::swbf2::Tuning)> {
+    world.movement.swbf2.classes().iter()
+        .map(|&(class, tuning)| (String::from_utf16_lossy(world.sim.strings.units(class)), tuning))
+        .collect()
+}
+
+/// The selection a recorded admission opens with: the world's game by its
+/// release year (`movement_family`, a number, so it interns no name), then one `movement_swbf2_class` call per class the
+/// world holds numbers for, so a world admitted call by call selects its game
+/// before any class's numbers are registered.
+fn selection_calls(world: &World) -> Vec<(Stage, &'static str, Call)> {
+    let family = Call { args: vec![crate::movement::family_code(world.movement.family())], ..Default::default() };
+    std::iter::once((Stage::Content, "movement_family", family)).chain(world.movement.swbf2.classes().iter().map(|&(class, tuning)| {
+        let mut args = vec![f64::from(class.0)];
+        args.extend(crate::movement::soldier::swbf2::words::put(&tuning));
+        (Stage::Content, "movement_swbf2_class", Call { args, strings: vec![world.sim.strings.units(class).to_vec()], ..Default::default() })
+    })).collect()
+}
+
 /// The stages named, in the order given, on a world whose earlier stages
 /// are already done and a context the earlier owners already filled. The
 /// whole admission is `run`; a partial proof (admit-replay's recorded
 /// prefix, partial.rs) runs a lane's stages alone over the host's recorded
 /// construction of the stages before them.
 pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut Rows, admitted: &mut Admitted, stages: &[Stage]) -> Result<(), AdmitError> {
+    // Both admission entries select the battle's movement profile here.
+    if stages.first() == Some(&Stage::Content) {
+        world.movement.select_family(cx.options.family)
+            .map_err(|message| AdmitError::Content { stage: Stage::Content, message: message.into() })?;
+    }
     // createGame: `new Units()` numbers members from 1.
     // The host hands the registry over whole before attachF3 (the KIND_UNITS
     // import); the owning world keeps it as members are added instead.
     if stages.first() == Some(&Stage::Content) && world.sim.store.units.list.is_empty() { world.sim.store.units.next_id = 1.0; }
     for &stage in stages {
         match stage {
-            Stage::Content => {}
+            // A 2005 battle's recorded admission opens with its game, then its
+            // classes' movement numbers in the order they were registered, so
+            // a host that admits call by call selects the same game and
+            // registers the same numbers before any other name is interned. A
+            // 2004 battle records nothing here.
+            Stage::Content => {
+                if cx.options.family == bfe_family::GameFamily::Swbf2 {
+                    let calls = selection_calls(world);
+                    replay(world, stage, &calls, cx)?;
+                    rows.calls.push((stage, calls));
+                }
+            }
             // validateStartupClass runs on the client before loading, never in a
             // headless world (`!headless && !params.has("network")`);
             // the row stays for the comparison tests.
@@ -213,6 +322,7 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
                 admitted.publication = initial.bytes;
                 admitted.publication_output = initial.output;
                 admitted.handles = session.handles;
+                admitted.wire_bounds = session.wire_bounds;
                 admitted.player_id = session.player_id;
                 admitted.registry = session.registry;
                 rows.cold_stages.extend(session.cold_stages);
@@ -311,3 +421,68 @@ pub fn run_stages(world: &mut World, content: &Content, cx: &mut Cx, rows: &mut 
     Ok(())
 }
 
+
+#[cfg(test)]
+mod class_number_tests {
+    use super::*;
+    use crate::movement::soldier::swbf2::{words, ControlSpeed, Tuning};
+
+    fn tuning(capacity: f64, frames: u32) -> Tuning {
+        let row = ControlSpeed { forward: 1.0, strafe: 0.8, turn: 0.6 };
+        Tuning { stand: row, crouch: row, sprint: row, jump: row, jet: row, jetpack: None, roll: row, tumble: row,
+            sprint_accelerate_time: 0.25, energy_capacity: capacity, energy_floor: 0.0, energy_restore: 3.0, energy_restore_idle: 5.0,
+            energy_drain_sprint: 8.0, energy_min_sprint: 10.0, energy_cost_jump: 2.0, energy_cost_jump_sprint: Some(4.0),
+            energy_cost_roll: 9.0, jump_height: 1.3, jump_forward_speed_factor: 1.1, jump_strafe_speed_factor: 0.9,
+            roll_speed_factor: 1.5, roll_frames: frames, recover_from_tumble: false, getup_front_seconds: 1.0,
+            getup_back_seconds: 1.0 }
+    }
+
+    // What one world holds, as names and words.
+    fn held(world: &World) -> Vec<(Vec<u16>, Vec<[u8; 8]>)> {
+        world.movement.swbf2.classes().iter()
+            .map(|(id, t)| (world.sim.strings.units(*id).to_vec(), words::put(t).iter().map(|w| w.to_le_bytes()).collect()))
+            .collect()
+    }
+
+    // A fresh world that replays the recorded selection is a 2005 world with
+    // the same class numbers and names.
+    #[test]
+    fn recorded_selection_rebuilds_the_same_game_numbers_and_names_in_a_fresh_world() {
+        let mut first = World::new();
+        first.movement.select_family(bfe_family::GameFamily::Swbf2).unwrap();
+        for (class, t) in [("blue_trooper", tuning(60.0, 25)), ("gold_scout", tuning(75.0, 31)), ("blue_trooper", tuning(65.0, 25))] {
+            let id = first.sim.strings.intern_str(class);
+            first.movement.swbf2.set_class(id, t).unwrap();
+        }
+        let calls = selection_calls(&first);
+        assert_eq!(calls.iter().map(|(_, name, _)| *name).collect::<Vec<_>>(), ["movement_family", "movement_swbf2_class", "movement_swbf2_class"]);
+        let mut again = World::new();
+        assert_eq!(again.movement.family(), bfe_family::GameFamily::Swbf1);
+        for (_, name, call) in &calls {
+            args(&mut again, call).unwrap();
+            assert_eq!(super::super::dispatch::call(&mut again, Stage::Host, name, call).unwrap(), super::super::Returned::None);
+        }
+        assert_eq!(again.movement.family(), bfe_family::GameFamily::Swbf2);
+        assert_eq!(held(&again), held(&first));
+        assert_eq!(again.sim.strings.list, first.sim.strings.list);
+        // A family call naming no game this build has is refused.
+        let unknown = Call { args: vec![2009.], ..Default::default() };
+        assert_eq!(super::super::dispatch::call(&mut World::new(), Stage::Host, "movement_family", &unknown).unwrap(), super::super::Returned::Refused);
+        // In a world whose table is in another order the recorded id names
+        // another string, and changed words are no writer's: neither registers.
+        let mut other = World::new();
+        other.sim.strings.intern_str("gold_scout");
+        let (_, name, call) = &calls[1];
+        args(&mut other, call).unwrap();
+        let dispatch = |world: &mut World, call: &Call| super::super::dispatch::call(world, Stage::Host, name, call).unwrap();
+        assert_eq!(dispatch(&mut other, call), super::super::Returned::Refused);
+        let mut moved = call.clone();
+        moved.args[0] = f64::from(other.sim.strings.intern_str("blue_trooper").0);
+        let mut bent = moved.clone();
+        bent.args[1 + 47] = 0.5;
+        assert_eq!(dispatch(&mut other, &bent), super::super::Returned::Refused);
+        assert!(other.movement.swbf2.classes().is_empty());
+        assert_eq!(dispatch(&mut other, &moved), super::super::Returned::None);
+        assert_eq!(other.movement.swbf2.classes().len(), 1);
+    }
+}

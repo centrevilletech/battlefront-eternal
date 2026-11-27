@@ -15,6 +15,7 @@ pub trait World {
     fn remote(&self, slot: usize) -> Option<(u32, Ref<crate::gen::ReconDroid>)>;
     fn turret_count(&self) -> usize;
     fn turret(&self, index: usize) -> Option<Turret>;
+    fn space_carried(&self, _slot: u32, _life: f64) -> bool { false }
 }
 #[derive(Clone, Copy)]
 pub struct Turret {
@@ -52,6 +53,9 @@ pub struct Capture {
     classes: Vec<u32>, weapon_names: Vec<u32>, posts: Vec<u32>, transport_posts: Vec<u32>, weapons: Vec<u32>, items: Vec<u32>, remotes: Vec<u32>,
     rows: Vec<WireRecord>, count: usize, known: Vec<Known>, next_known: Vec<Known>,
     item_slots: Vec<ItemSlot>, remote_slots: Vec<RemoteSlot>, remote_order: Vec<usize>, max_entities: usize, max_seats: usize,
+    /// Last on-foot `(generation, position, yaw, pitch)` per unit slot for 2005 Space battles.
+    /// Empty for 2004 and 2005 ground battles.
+    space_frozen_pose: Vec<Option<(f64, [f64; 3], f64, f64)>>,
 }
 pub(crate) fn definitions(values: &[crate::gen::WireStoreDefinition]) -> Result<Vec<u32>> {
     // Definition handles are dense module-local integers. Resolve them once,
@@ -126,7 +130,14 @@ impl Capture {
             item_slots: vec![ItemSlot::default(); setup.item_capacity as usize],
             remote_slots: vec![RemoteSlot::default(); setup.remote_capacity as usize],
             remote_order: Vec::with_capacity(setup.remote_capacity as usize),
-            max_entities: setup.entity_capacity as usize, max_seats: setup.seat_capacity as usize })
+            max_entities: setup.entity_capacity as usize, max_seats: setup.seat_capacity as usize,
+            space_frozen_pose: Vec::new() })
+    }
+    /// Pre-allocates the per-slot pose cache used to freeze carried Space soldiers' wire poses.
+    pub(crate) fn enable_space_freeze(&mut self) {
+        if self.space_frozen_pose.is_empty() {
+            self.space_frozen_pose = vec![None; super::records::SLOT_COUNT];
+        }
     }
     // EntityEdges.advance resolves protocol class/post ids before delivering
     // native spawn commands. Reuse the source's authoritative registry maps.
@@ -299,8 +310,24 @@ impl Capture {
                 fire_counter: Some(shots.counter(reference.slot as f64, unit.generation)), charge: Some(charge), ..Default::default() };
             match &unit.soldier {
                 UnitBody::Soldier(s) => {
-                    record.position = Some(s.position); record.velocity = Some(s.velocity);
-                    record.yaw = Some(s.aim_yaw); record.pitch = Some(s.aim_pitch); record.posture = s.posture as u8 as f64;
+                    let (pos, vel, yaw, pitch) = if let Some(slot_pose) = self.space_frozen_pose.get_mut(reference.slot as usize) {
+                        if world.space_carried(reference.slot, unit.generation) {
+                            match *slot_pose {
+                                Some((gen, p, y, pi)) if gen == unit.generation => (p, [0.; 3], y, pi),
+                                _ => {
+                                    *slot_pose = Some((unit.generation, s.position, s.aim_yaw, s.aim_pitch));
+                                    (s.position, [0.; 3], s.aim_yaw, s.aim_pitch)
+                                }
+                            }
+                        } else {
+                            *slot_pose = Some((unit.generation, s.position, s.aim_yaw, s.aim_pitch));
+                            (s.position, s.velocity, s.aim_yaw, s.aim_pitch)
+                        }
+                    } else {
+                        (s.position, s.velocity, s.aim_yaw, s.aim_pitch)
+                    };
+                    record.position = Some(pos); record.velocity = Some(vel);
+                    record.yaw = Some(yaw); record.pitch = Some(pitch); record.posture = s.posture as u8 as f64;
                     // Death takes precedence over a dive; thrown corpses keep
                     // their separate state. These are semantic protocol tags,
                     // deliberately distinct from the native Air discriminant.
@@ -417,4 +444,99 @@ fn item_bytes(id: usize, life: f64, definition: f64, raw: [f64; 10]) -> Result<[
         integer(&mut bytes, &mut at, js_round(value * scale), -max, max, width)?;
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gen::{Combat, Soldier, Unit, WireStoreName};
+
+    struct TestWorld {
+        carried: bool,
+    }
+
+    impl World for TestWorld {
+        fn walk(&self, _: Ref<Vehicle>) -> (f64, f64) { (0.0, 0.0) }
+        fn remote_count(&self) -> usize { 0 }
+        fn remote(&self, _: usize) -> Option<(u32, Ref<crate::gen::ReconDroid>)> { None }
+        fn turret_count(&self) -> usize { 0 }
+        fn turret(&self, _: usize) -> Option<Turret> { None }
+        fn space_carried(&self, _slot: u32, _life: f64) -> bool { self.carried }
+    }
+
+    #[test]
+    fn carried_space_soldier_wire_pose_stays_frozen_with_zero_velocity() {
+        let mut strings = Strings::default();
+        let pilot_class = strings.intern_str("space_pilot");
+        let setup = WireStoreSetup {
+            classes: vec![WireStoreName { name: pilot_class, id: 1 }],
+            item_capacity: 2,
+            remote_capacity: 2,
+            entity_capacity: 16,
+            record_capacity: 32,
+            seat_capacity: 4,
+            ..Default::default()
+        };
+        let mut capture = Capture::new(&setup, &strings).unwrap();
+        capture.enable_space_freeze();
+
+        let mut store = Store::default();
+        let uref = store.unit.insert_at(
+            2,
+            3,
+            Unit {
+                class_name: pilot_class,
+                generation: 3.0,
+                team: 1.0,
+                soldier: UnitBody::Soldier(Soldier {
+                    position: [10.0, 2.0, 30.0],
+                    velocity: [3.0, 0.0, 4.0],
+                    aim_yaw: 0.5,
+                    aim_pitch: 0.1,
+                    ..Default::default()
+                }),
+                combat: Combat { health: 100.0, ..Default::default() },
+                ..Default::default()
+            },
+        );
+        store.units.list.push(Member::Unit(uref));
+        let defs = WeaponDefs::default();
+        let shots = Counters::default();
+
+        // On foot: wire capture reports live pose, velocity, and aim.
+        capture.capture(&store, &defs, &TestWorld { carried: false }, &shots).unwrap();
+        let rec = capture.records().iter().find(|r| r.kind == Kind::Soldier).unwrap();
+        assert_eq!(rec.position, Some([10.0, 2.0, 30.0]));
+        assert_eq!(rec.velocity, Some([3.0, 0.0, 4.0]));
+        assert_eq!(rec.yaw, Some(0.5));
+        assert_eq!(rec.pitch, Some(0.1));
+
+        // Seated inside a starfighter: wire pose stays frozen at last on-foot pose with zero velocity.
+        if let UnitBody::Soldier(s) = &mut store.unit.get_mut(uref).unwrap().soldier {
+            s.position = [500.0, 120.0, -400.0];
+            s.velocity = [80.0, 10.0, 0.0];
+            s.aim_yaw = 2.0;
+            s.aim_pitch = -0.5;
+        }
+        capture.capture(&store, &defs, &TestWorld { carried: true }, &shots).unwrap();
+        let rec = capture.records().iter().find(|r| r.kind == Kind::Soldier).unwrap();
+        assert_eq!(rec.position, Some([10.0, 2.0, 30.0]));
+        assert_eq!(rec.velocity, Some([0.0, 0.0, 0.0]));
+        assert_eq!(rec.yaw, Some(0.5));
+        assert_eq!(rec.pitch, Some(0.1));
+
+        // Disembarked: wire capture immediately resumes reporting live pose and velocity.
+        if let UnitBody::Soldier(s) = &mut store.unit.get_mut(uref).unwrap().soldier {
+            s.position = [25.0, 2.0, -15.0];
+            s.velocity = [1.0, 0.0, 0.0];
+            s.aim_yaw = -0.25;
+            s.aim_pitch = 0.0;
+        }
+        capture.capture(&store, &defs, &TestWorld { carried: false }, &shots).unwrap();
+        let rec = capture.records().iter().find(|r| r.kind == Kind::Soldier).unwrap();
+        assert_eq!(rec.position, Some([25.0, 2.0, -15.0]));
+        assert_eq!(rec.velocity, Some([1.0, 0.0, 0.0]));
+        assert_eq!(rec.yaw, Some(-0.25));
+        assert_eq!(rec.pitch, Some(0.0));
+    }
 }

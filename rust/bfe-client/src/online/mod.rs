@@ -8,9 +8,16 @@ pub mod feedback;
 pub mod index;
 pub mod info;
 pub mod input;
+pub mod lobby;
+pub mod lobby_client;
+pub mod match2005;
+pub mod mission;
 pub mod receiver;
+pub mod selection;
+pub mod sitout;
 pub mod replay;
 pub mod replicas;
+pub mod space_receiver;
 pub mod unit_light;
 
 pub mod checkpoint;
@@ -30,6 +37,7 @@ pub mod items;
 
 pub mod sound;
 pub mod sound_data;
+pub mod sound_data_swbf2;
 pub mod sound_output;
 pub mod enhanced_audio;
 
@@ -82,3 +90,5 @@ pub mod shot_aim;
 pub mod buildings;
 
 pub mod animated_props;
+
+mod space_doors;

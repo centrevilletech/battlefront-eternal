@@ -13,10 +13,12 @@ pub enum ClientHeld {
     Primary = 6,
     Secondary = 7,
     Space = 8,
+    Sprint = 9,
+    Block = 10,
 }
 
 impl ClientHeld {
-    pub const NAMES: [&'static str; 9] = ["forward", "backward", "right", "left", "turnRight", "turnLeft", "primary", "secondary", "space"];
+    pub const NAMES: [&'static str; 11] = ["forward", "backward", "right", "left", "turnRight", "turnLeft", "primary", "secondary", "space", "sprint", "block"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -29,6 +31,8 @@ impl ClientHeld {
             6 => Some(ClientHeld::Primary),
             7 => Some(ClientHeld::Secondary),
             8 => Some(ClientHeld::Space),
+            9 => Some(ClientHeld::Sprint),
+            10 => Some(ClientHeld::Block),
             _ => None,
         }
     }
@@ -52,10 +56,11 @@ pub enum ClientAction {
     SquadHold = 12,
     SquadFollow = 13,
     SquadAtEase = 14,
+    Roll = 15,
 }
 
 impl ClientAction {
-    pub const NAMES: [&'static str; 15] = ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom", "squadMoveOut", "squadHold", "squadFollow", "squadAtEase"];
+    pub const NAMES: [&'static str; 16] = ["jump", "crouch", "prone", "use", "firePrimary", "fireSecondary", "reload", "nextPrimary", "previousPrimary", "nextSecondary", "zoom", "squadMoveOut", "squadHold", "squadFollow", "squadAtEase", "roll"];
 
     pub fn from_u8(v: u8) -> Option<Self> {
         match v {
@@ -74,6 +79,7 @@ impl ClientAction {
             12 => Some(ClientAction::SquadHold),
             13 => Some(ClientAction::SquadFollow),
             14 => Some(ClientAction::SquadAtEase),
+            15 => Some(ClientAction::Roll),
             _ => None,
         }
     }

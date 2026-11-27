@@ -87,6 +87,39 @@ def iter_archives(data):
         yield root_b, root_e
 
 
+def root_section(data):
+    """(body, end) of the top-level ucfb chunk, or None."""
+    top = chunks(data, 0, len(data))
+    if not top or top[0][0] != b"ucfb":
+        return None
+    return top[0][1], top[0][2]
+
+
+def named_subarchives(data):
+    """Yield (fnv_hash, body, end) for every lvl_ sub-archive directly under ucfb."""
+    root = root_section(data)
+    if root is None:
+        return
+    for t, b, e in chunks(data, root[0], root[1]):
+        if t == b"lvl_" and e - b >= 8:
+            yield u32(data, b), b + 8, e
+
+
+def iter_all_archives(data):
+    """Yield (body, end) for the root ucfb chunk and every nested lvl_
+    sub-archive recursively. Used for 2005 archives that mix top-level chunks
+    with mode or class lvl_ sub-archives."""
+    root = root_section(data)
+    if root is None:
+        return
+    def _walk(start, end):
+        yield start, end
+        for t, b, e in chunks(data, start, end):
+            if t == b"lvl_" and e - b > 16:
+                yield from _walk(b + 8, e)
+    yield from _walk(root[0], root[1])
+
+
 def nodes(data, typ):
     """Every top-level node of one type across the archive's lvl_ sections."""
     for start, end in iter_archives(data):

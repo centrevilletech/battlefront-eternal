@@ -8,6 +8,15 @@ use bfe_render::{
 
 pub fn quality(choice:&str)->(usize,usize){match choice{"off"=>(0,0),"low"=>(2,1024),"medium"=>(3,2048),"ultra"=>(4,4096),_=>(4,2048)}}
 
+/// Active regional directional shadow source (e.g. an interior hangar light
+/// whose volume replaces the suppressed global sun while the camera is inside).
+#[derive(Clone, Copy)]
+pub struct RegionalShadow {
+    pub slot: usize,
+    pub direction: [f64; 3],
+    pub volume: bfe_render::static_depth::Region,
+}
+
 pub struct Shadows {
     maps: Vec<u32>,
     samples: Vec<(u32,u32)>,
@@ -17,12 +26,14 @@ pub struct Shadows {
     caches: Vec<u32>,
     caster_bounds: [Option<[f64; 4]>; 4],
     casters: bfe_render::native_casters::Casters,
+    active_region: Option<usize>,
 }
 impl Shadows {
     pub async fn new(
         bridge: &mut Bridge,
         resources: &mut Resources,
         bones: usize,
+        max_groups: usize,
         count: usize,
         size: usize,
     ) -> Result<Self, String> {
@@ -41,9 +52,10 @@ impl Shadows {
             *map = bridge.r.core.add_texture(resources.texture(sample)?);
             samples.push((*map,sample));
         }
-        let mut skins = Vec::with_capacity(bfe_render::instances::MAX_RECORDS);
+        let skin_pool = bfe_render::instances::MAX_CASTER_SKINS;
+        let mut skins = Vec::with_capacity(skin_pool);
         let skin_size = bfe_render::actor_depth::skin_size(bones);
-        for index in 0..bfe_render::instances::MAX_RECORDS {
+        for index in 0..skin_pool {
             if index % 32 == 0 {
                 crate::loading_work::frame().await;
                 bridge.r.core.state.reset();
@@ -68,19 +80,14 @@ impl Shadows {
             row.copy_from_slice(&[1., -0.015 / 2999., 0., 1., size as f64, size as f64]);
         }
         bridge.static_depth_finish()?;
-        let draws =
-            (bfe_render::instances::MAX_RECORDS * 4).max(bridge.r.shadow.statics.records.len());
-        bridge
-            .r
-            .shadow
-            .input
-            .resize(S::S_FIRST + draws * S::DRAW, 0.);
+        bridge.r.shadow.admit_native_commands(max_groups);
         bridge.frame_shadow_reserve_frame();
         eprintln!("native shadows: cascades={count} size={size} comparison=LEQUAL");
         Ok(Self {
             maps, samples, size, frame_ms: 0., slow: false,
             caches, caster_bounds: [None; 4],
             casters,
+            active_region: None,
         })
     }
     pub fn dispose(self,bridge:&mut Bridge,resources:&mut Resources)->Result<(),String>{
@@ -100,10 +107,21 @@ impl Shadows {
         bridge: &mut Bridge,
         view: &mut View,
         records: usize,
+        region: Option<&RegionalShadow>,
     ) -> Result<(), String> {
         let count=self.maps.len();let size=self.size;
+        let next_region = region.map(|r| r.slot);
+        if self.active_region != next_region {
+            self.active_region = next_region;
+            self.caster_bounds = [None; 4];
+            bridge.r.cameras.invalidate();
+        }
+        self.casters.set_region(&bridge.r.core.input, records, region.map(|r| &r.volume));
         let skin_timer=bridge.r.core.profile.clock();
-        self.casters.prepare(&mut bridge.r.core, records)?;
+        let dropped_skins = self.casters.prepare(&mut bridge.r.core, records)?;
+        if dropped_skins > 0 {
+            bridge.r.instances.overflow.note_caster_skin_drop(dropped_skins);
+        }
         bridge.r.core.profile.cpu("shadow skin upload",skin_timer);
         let mut world = three::Matrix4::default();
         world
@@ -130,8 +148,18 @@ impl Shadows {
         input[I::LENS + N::ASPECT] = view.values[5] / view.values[0];
         input[I::LENS + N::NEAR] = view.values[14] / (view.values[10] - 1.);
         input[I::LENS + N::FAR] = view.values[14] / (view.values[10] + 1.);
-        bridge.r.cameras.settings.output[L::DIRECTION..L::DIRECTION + 3]
-            .copy_from_slice(&view.values[SF::SUN_DIRECTION..SF::SUN_DIRECTION + 3]);
+        if let Some(reg) = region {
+            let mut dir = reg.direction;
+            if dir[0].hypot(dir[2]) < 1e-4 {
+                dir[2] = 1e-3;
+                let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+                dir = [dir[0] / len, dir[1] / len, dir[2] / len];
+            }
+            bridge.r.cameras.settings.output[L::DIRECTION..L::DIRECTION + 3].copy_from_slice(&dir);
+        } else {
+            bridge.r.cameras.settings.output[L::DIRECTION..L::DIRECTION + 3]
+                .copy_from_slice(&view.values[SF::SUN_DIRECTION..SF::SUN_DIRECTION + 3]);
+        }
         bridge.r.cameras.main();
         bridge.camera_cascades_frame();
         bridge.r.frames.plan.shadow_periods = if self.slow { [1, 2, 4, 4] } else { [1; 4] };
@@ -151,13 +179,14 @@ impl Shadows {
             input[S::S_SIZE] = size as f64;
             let mut count = 0;
             for (id, record) in bridge.r.shadow.statics.records.iter().enumerate() {
-                if !record.as_ref().is_some_and(|r| r.active) {
+                if !record.as_ref().is_some_and(|r| r.visible_in(self.active_region)) {
                     continue;
                 }
                 let at = S::S_FIRST + count * S::DRAW;
                 input[at..at + S::DRAW].fill(0.);
                 input[at + S::D_PROGRAM] = -1.;
                 input[at + S::D_GEOMETRY] = id as f64;
+                input[at + S::D_STATIC_REGION] = self.active_region.map_or(0., |slot| (slot + 1) as f64);
                 count += 1;
             }
             input[S::S_DRAWS] = count as f64;

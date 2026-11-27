@@ -318,6 +318,13 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         let count = port.teams[side].reinforcements.max(0);
         let start = status.start[side].max(count.max(1) as f64);
         let fill_ratio = (count as f64 / start).clamp(0., 1.) as f32;
+        // A 2005 mission that counts points: the plate shows the team's points and
+        // its bar fills toward the limit.
+        let fill_ratio = match port.mission.points[side] {
+            Some(limit) if limit > 0 => (count as f64 / f64::from(limit)).clamp(0., 1.) as f32,
+            _ => fill_ratio,
+        };
+        let tickets = count.to_string();
         let (badge_mode, badge_text) = if own {
             ("own", "YOUR TEAM")
         } else if can_switch {
@@ -337,7 +344,7 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         BattleTeamModel {
             id: team_id as i32,
             name: port.teams[side].name.to_uppercase().into(),
-            tickets: count.to_string().into(),
+            tickets: tickets.into(),
             fill_ratio,
             own,
             interactive,
@@ -403,6 +410,7 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         .enumerate()
         .map(|(i, entry)| {
             let picked = i == model.class_index;
+            let closed = !entry.eligible;
             let r = layout.class_rect(i, picked);
             let mut w_slots: [SharedString; 6] = Default::default();
             for (wi, w_name) in entry.weapons.iter().take(6).enumerate() {
@@ -419,6 +427,8 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
                 w4: w_slots[4].clone(),
                 w5: w_slots[5].clone(),
                 compact: layout.compact && !picked,
+                closed,
+                note: if closed { port.mission.closed_note.as_str().into() } else { SharedString::default() },
                 rect_x: r[0] as f32,
                 rect_y: r[1] as f32,
                 rect_w: (r[2] - r[0]) as f32,
@@ -446,15 +456,12 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
     bm.set_selected_class_title(selected_title.into());
 
     let posts = port.posts(model.team);
+    bm.set_posts_unnamed(port.mission.unnamed_posts);
     if let Some(post) = posts
         .iter()
         .find(|p| model.post.as_deref() == Some(p.name.as_str()))
     {
-        let post_label = if post.display_name.trim().is_empty() {
-            post.name.to_uppercase()
-        } else {
-            post.display_name.to_uppercase()
-        };
+        let post_label = post_caption(post, port.mission.unnamed_posts);
         let vehicles = if post.vehicles.is_empty() {
             "NONE".to_string()
         } else {
@@ -467,7 +474,14 @@ fn sync_spawn_model(bm: &BattleModel<'_>, lists: &BattleLists, battle: &BattleCo
         bm.set_selected_vehicles("NONE".into());
     }
 
-    let can_spawn = model.post.is_some() && !roster.is_empty();
+    // A 2005 mission may place the player without a post, close the picked
+    // class, or still hold the deployment. The 2005 game shows no seconds for
+    // that wait, so SPAWN only stays unlit until it ends.
+    let waiting = port.deploy_wait().is_some_and(|seconds| seconds > 0.);
+    let can_spawn = (model.post.is_some() || !port.post_required())
+        && !roster.is_empty()
+        && port.class_open(model.team, model.class_index)
+        && !waiting;
     bm.set_spawn_x(layout.spawn[0] as f32);
     bm.set_spawn_y(layout.spawn[1] as f32);
     bm.set_spawn_w((layout.spawn[2] - layout.spawn[0]) as f32);
@@ -1312,4 +1326,30 @@ pub(super) fn sync_pause_hotspots(battle: &mut BattleController) {
         hits.push(hotspot(r, PauseHitTarget::BackButton));
     }
     battle.pause_menu.set_theme_hotspots(&mut hits);
+}
+
+/// The picked post's caption: its display name; without one, a 2004 post
+/// shows its own name and a post the mission leaves unnamed shows none.
+fn post_caption(post: &bfe_battle_ui::spawn::SpawnPostEntry, unnamed: bool) -> String {
+    if !post.display_name.trim().is_empty() {
+        post.display_name.to_uppercase()
+    } else if unnamed {
+        String::new()
+    } else {
+        post.name.to_uppercase()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_post_left_unnamed_shows_no_label_of_its_own() {
+        let post = |name: &str, display: &str| bfe_battle_ui::spawn::SpawnPostEntry { name: name.into(), display_name: display.into(), ..Default::default() };
+        assert_eq!(post_caption(&post("hill_cp4", ""), true), "", "an unnamed post never shows its mission label");
+        assert_eq!(post_caption(&post("hill_cp4", " "), true), "");
+        assert_eq!(post_caption(&post("hill_cp4", "Orchard"), true), "ORCHARD");
+        assert_eq!(post_caption(&post("hill_cp4", ""), false), "HILL_CP4", "a 2004 post keeps its own name");
+    }
 }

@@ -160,6 +160,7 @@ pub fn run(w: &mut World, input: &WorldTickInput) {
             // His place is released at the end of his grace; a spectator held
             // none. The mailbox goes with him, and the host hears of it.
             if tick - since >= grace {
+                w.disconnect_space_pilot(key as u32);
                 if !p.spectator { roster(w, p, RoOperation::Release, 0.0, empty); }
                 if let Some(recon) = p.recon_key { retire_recon(w, recon); }
                 let mailbox = p.mailbox;

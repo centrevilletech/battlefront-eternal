@@ -1,0 +1,1722 @@
+[
+  {
+    "input": " ",
+    "server": {
+      "err": "invalid rotation entry:  "
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "hot1",
+    "server": {
+      "err": "invalid rotation entry: hot1"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "SWBF1/NAB2:REP:CONQUEST",
+    "server": {
+      "ok": "?map=SWBF1/NAB2&side=REP&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=SWBF1/NAB2&side=REP&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/NAB2:rep:conquest",
+    "server": {
+      "ok": "?map=NAB2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=NAB2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:REP:conquest",
+    "server": {
+      "ok": "?map=nab2&side=REP&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=REP&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:ConQuest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": " swbf1/nab2:rep:conquest ",
+    "server": {
+      "ok": "?map= swbf1/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map= swbf1/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2: rep:conquest",
+    "server": {
+      "ok": "?map=nab2&side= rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side= rep&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/ nab2:rep:conquest",
+    "server": {
+      "ok": "?map= nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map= nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "SWBF1 /nab2:rep:conquest",
+    "server": {
+      "ok": "?map=SWBF1 /nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=SWBF1 /nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/cw",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/gcw",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/CW",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/cis",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/all",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/hutt",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf2/tat2/gcw",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:gcw:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/spa6:cw:ass",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf3/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=swbf3/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=swbf3/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "mod-one:rep:conquest",
+    "server": {
+      "ok": "?map=mod-one&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=mod-one&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/mod-one:rep:conquest",
+    "server": {
+      "ok": "?map=mod-one&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=mod-one&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/mod_one:cis:custom-mode",
+    "server": {
+      "ok": "?map=mod_one&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=mod_one&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:hutt:conquest",
+    "server": {
+      "ok": "?map=nab2&side=hutt&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=hutt&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:local-team:conquest",
+    "server": {
+      "ok": "?map=nab2&side=local-team&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=local-team&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:r%65p:conquest",
+    "server": {
+      "ok": "?map=nab2&side=r%65p&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=r%65p&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:my mode",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:étoile",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:duel%2D1",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:conquest:extra",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:rep:conquest:",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2::eli",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2::eli"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "hot1::eli",
+    "server": {
+      "err": "invalid rotation entry: hot1::eli"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "hot1::",
+    "server": {
+      "err": "invalid rotation entry: hot1::"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "hot1:gcw:",
+    "server": {
+      "ok": "?map=hot1&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "bad:x:y",
+    "server": {
+      "ok": "?map=bad&side=x&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=bad&side=x&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/étoile:rep:conquest",
+    "server": {
+      "ok": "?map=étoile&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=étoile&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cw,hot1:gcw",
+    "server": {
+      "ok": "?map=nab2&side=cw,hot1&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw,hot1&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1::,nab2:cw",
+    "server": {
+      "err": "invalid rotation entry: hot1::,nab2:cw"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "mods/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=mods/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=mods/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:conquest",
+    "server": {
+      "ok": "?map=nab2&side=conquest&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=conquest&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:rep:weird-mode",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:duel",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:rep:conquest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:rep:eli",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cis:conquest",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cis:eli",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:all:conquest",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:all:eli",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:imp:conquest",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:imp:eli",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cw:eli",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:gcw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:gcw:eli",
+    "server": {
+      "ok": "?map=nab2&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:eli",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis:conquest",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis:eli",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:all:conquest",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:all:eli",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:imp:conquest",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:imp:eli",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cw:eli",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:gcw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:gcw:eli",
+    "server": {
+      "ok": "?map=nab2&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1:cw",
+    "server": {
+      "ok": "?map=hot1&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1:rep",
+    "server": {
+      "ok": "?map=hot1&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1:imp",
+    "server": {
+      "ok": "?map=hot1&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1:hutt",
+    "server": {
+      "ok": "?map=hot1&side=hutt&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=hutt&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "hot1:",
+    "server": {
+      "err": "invalid rotation entry: hot1:"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/hot1:imp:conquest",
+    "server": {
+      "ok": "?map=hot1&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=hot1&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis:conquest:backup",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/rand",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/end1:ewk:conquest",
+    "server": {
+      "ok": "?map=end1&side=ewk&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=end1&side=ewk&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:ewk:conquest",
+    "server": {
+      "ok": "?map=nab2&side=ewk&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=ewk&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/imp",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/hot1/XYZ",
+    "server": {
+      "ok": "?map=hot1&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis:conquest:old",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:conquest, swbf1/hot1:imp:conquest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/geo1:rep:conquest",
+    "server": {
+      "ok": "?map=geo1&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=geo1&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf2/tat2::eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2:eli",
+    "server": {
+      "ok": "?map=nab2&side=eli&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=eli&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab%32:rep:conquest",
+    "server": {
+      "ok": "?map=nab%32&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab%32&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/%6Eab2:rep:conquest",
+    "server": {
+      "ok": "?map=%6Eab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=%6Eab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:duel:",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:capture-the-flag",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf2/TAT2:GCW:ELI",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "\tswbf1/nab2:imp:conquest\t",
+    "server": {
+      "ok": "?map=\tswbf1/nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=\tswbf1/nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/cw/extra",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2/cw/extra"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf2//:gcw:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/mod_x07:rep:conquest",
+    "server": {
+      "ok": "?map=mod_x07&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=mod_x07&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/mod_x07:custom_side:duel",
+    "server": {
+      "ok": "?map=mod_x07&side=custom_side&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=mod_x07&side=custom_side&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cw,hot1:gcw,nab2",
+    "server": {
+      "ok": "?map=nab2&side=cw,hot1&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw,hot1&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis:conquest:",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/end1:ewk:conquest,swbf1/hot1:imp:conquest",
+    "server": {
+      "ok": "?map=end1&side=ewk&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=end1&side=ewk&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "",
+    "server": {
+      "err": "invalid rotation entry: "
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "nab2",
+    "server": {
+      "err": "invalid rotation entry: nab2"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/:rep:conquest",
+    "server": {
+      "err": "invalid rotation entry: swbf1/:rep:conquest"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2:",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2:"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2::conquest",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2::conquest"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/hot1/gcw",
+    "server": {
+      "ok": "?map=hot1&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot1&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/geo1/cw",
+    "server": {
+      "ok": "?map=geo1&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=geo1&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat2/rep",
+    "server": {
+      "ok": "?map=tat2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=tat2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat2/all",
+    "server": {
+      "ok": "?map=tat2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=tat2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2/cw/conquest",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2/cw/conquest"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "nab2/cw",
+    "server": {
+      "err": "invalid rotation entry: nab2/cw"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "nab2/gcw",
+    "server": {
+      "err": "invalid rotation entry: nab2/gcw"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2/cw:",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2/cw:"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2:rep",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cis",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:all",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:imp",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cw",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:gcw",
+    "server": {
+      "ok": "?map=nab2&side=gcw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=gcw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:conquest:extra:five",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:rep",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:rep:duel",
+    "server": {
+      "ok": "?map=tat1&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:cis",
+    "server": {
+      "ok": "?map=nab2&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:cis:duel",
+    "server": {
+      "ok": "?map=tat1&side=cis&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=cis&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:all",
+    "server": {
+      "ok": "?map=nab2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:all:duel",
+    "server": {
+      "ok": "?map=tat1&side=all&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:imp",
+    "server": {
+      "ok": "?map=nab2&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:imp:duel",
+    "server": {
+      "ok": "?map=tat1&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:ewk",
+    "server": {
+      "ok": "?map=nab2&side=ewk&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=ewk&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:ewk:duel",
+    "server": {
+      "ok": "?map=tat1&side=ewk&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=ewk&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:gar:conquest",
+    "server": {
+      "ok": "?map=nab2&side=gar&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=gar&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:gar",
+    "server": {
+      "ok": "?map=nab2&side=gar&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=gar&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:gar:duel",
+    "server": {
+      "ok": "?map=tat1&side=gar&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=gar&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:geo:conquest",
+    "server": {
+      "ok": "?map=nab2&side=geo&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=geo&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:geo",
+    "server": {
+      "ok": "?map=nab2&side=geo&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=geo&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:geo:duel",
+    "server": {
+      "ok": "?map=tat1&side=geo&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=geo&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:gun:conquest",
+    "server": {
+      "ok": "?map=nab2&side=gun&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=gun&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:gun",
+    "server": {
+      "ok": "?map=nab2&side=gun&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=gun&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:gun:duel",
+    "server": {
+      "ok": "?map=tat1&side=gun&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=gun&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:jaw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=jaw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=jaw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:jaw",
+    "server": {
+      "ok": "?map=nab2&side=jaw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=jaw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:jaw:duel",
+    "server": {
+      "ok": "?map=tat1&side=jaw&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=jaw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:tus:conquest",
+    "server": {
+      "ok": "?map=nab2&side=tus&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=tus&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:tus",
+    "server": {
+      "ok": "?map=nab2&side=tus&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=tus&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:tus:duel",
+    "server": {
+      "ok": "?map=tat1&side=tus&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=tus&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:wok:conquest",
+    "server": {
+      "ok": "?map=nab2&side=wok&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=wok&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:wok",
+    "server": {
+      "ok": "?map=nab2&side=wok&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=wok&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/tat1:wok:duel",
+    "server": {
+      "ok": "?map=tat1&side=wok&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=tat1&side=wok&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "addons/my_map:rep:conquest",
+    "server": {
+      "ok": "?map=addons/my_map&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=addons/my_map&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "dlc/nab2:cw",
+    "server": {
+      "ok": "?map=dlc/nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=dlc/nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "custom/hot1:imp:conquest",
+    "server": {
+      "ok": "?map=custom/hot1&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=custom/hot1&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/addons/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=addons/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=addons/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "mods/hot1/gcw",
+    "server": {
+      "err": "invalid rotation entry: mods/hot1/gcw"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "mod_pack/tat2:all:conquest",
+    "server": {
+      "ok": "?map=mod_pack/tat2&side=all&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=mod_pack/tat2&side=all&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "\t",
+    "server": {
+      "err": "invalid rotation entry: \t"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "\r\n",
+    "server": {
+      "err": "invalid rotation entry: \r\n"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "  nab2:cw  ",
+    "server": {
+      "ok": "?map=  nab2&side=cw  &ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=  nab2&side=cw  &era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:conquest\n",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2 :rep:conquest",
+    "server": {
+      "ok": "?map=nab2 &side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2 &side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep :conquest",
+    "server": {
+      "ok": "?map=nab2&side=rep &ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep &era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep: conquest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:c%69s:conquest",
+    "server": {
+      "ok": "?map=nab2&side=c%69s&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=c%69s&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:c%6fnquest",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "%73wbf1/nab2:rep:conquest",
+    "server": {
+      "ok": "?map=%73wbf1/nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=%73wbf1/nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/hot%31:imp:conquest",
+    "server": {
+      "ok": "?map=hot%31&side=imp&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=hot%31&side=imp&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:%64uel",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/a:rep:conquest",
+    "server": {
+      "ok": "?map=a&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=a&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:a",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:a",
+    "server": {
+      "ok": "?map=nab2&side=a&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=a&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "server": {
+      "ok": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=rep&ai=enhanced&seed=1"
+    },
+    "menu": true,
+    "worker": "?map=nab2&side=rep&era=cw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "server": {
+      "ok": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": ":",
+    "server": {
+      "err": "invalid rotation entry: :"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "::",
+    "server": {
+      "err": "invalid rotation entry: ::"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": ":::",
+    "server": {
+      "err": "invalid rotation entry: :::"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/",
+    "server": {
+      "err": "invalid rotation entry: swbf1/"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/:",
+    "server": {
+      "err": "invalid rotation entry: swbf1/:"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/::",
+    "server": {
+      "err": "invalid rotation entry: swbf1/::"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2::",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2::"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": ":rep:conquest",
+    "server": {
+      "err": "invalid rotation entry: :rep:conquest"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/:cw:conquest",
+    "server": {
+      "err": "invalid rotation entry: swbf1/:cw:conquest"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2::conquest:extra",
+    "server": {
+      "err": "invalid rotation entry: swbf1/nab2::conquest:extra"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "nab2:rep,nab2:rep",
+    "server": {
+      "ok": "?map=nab2&side=rep,nab2&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=rep,nab2&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf1/nab2:cw:conquest,swbf1/hot1:gcw:conquest",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "geo1:cw,hot1:gcw,tat2:cw",
+    "server": {
+      "ok": "?map=geo1&side=cw,hot1&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=geo1&side=cw,hot1&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "m0:cw,m1:cw,m2:cw,m3:cw,m4:cw,m5:cw,m6:cw,m7:cw,m8:cw,m9:cw,m10:cw,m11:cw,m12:cw,m13:cw,m14:cw,m15:cw,m16:cw,m17:cw,m18:cw,m19:cw,m20:cw,m21:cw,m22:cw,m23:cw,m24:cw,m25:cw,m26:cw,m27:cw,m28:cw,m29:cw,m30:cw,m31:cw,m32:cw,m33:cw,m34:cw,m35:cw,m36:cw,m37:cw,m38:cw,m39:cw,m40:cw,m41:cw,m42:cw,m43:cw,m44:cw,m45:cw,m46:cw,m47:cw,m48:cw,m49:cw,m50:cw,m51:cw,m52:cw,m53:cw,m54:cw,m55:cw,m56:cw,m57:cw,m58:cw,m59:cw,m60:cw,m61:cw,m62:cw,m63:cw,m64:cw,m65:cw",
+    "server": {
+      "ok": "?map=m0&side=cw,m1&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=m0&side=cw,m1&era=gcw&ai=enhanced&seed=1"
+  },
+  {
+    "input": "swbf2/tat2:gcw:conquest",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:cw:conquest",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2::conquest",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf2/mod-one:gcw:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:gcw:custom-mode",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:rep:eli",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": true,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:gcw:eli:extra",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf2/tat2:gcw:eli,swbf1/nab2:cw:conquest",
+    "server": {
+      "err": "BF2 simulation is not implemented"
+    },
+    "menu": false,
+    "worker": null
+  },
+  {
+    "input": "swbf1/nab2:cw:conquest,swbf2/tat2:gcw:eli",
+    "server": {
+      "ok": "?map=nab2&side=cw&ai=enhanced&seed=1"
+    },
+    "menu": false,
+    "worker": "?map=nab2&side=cw&era=gcw&ai=enhanced&seed=1"
+  }
+]

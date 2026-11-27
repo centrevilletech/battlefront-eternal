@@ -98,7 +98,9 @@
       "turnLeft",
       "primary",
       "secondary",
-      "space"
+      "space",
+      "sprint",
+      "block"
     ],
     "ClientFlightHeld": [
       "throttle",
@@ -129,7 +131,8 @@
       "squadMoveOut",
       "squadHold",
       "squadFollow",
-      "squadAtEase"
+      "squadAtEase",
+      "roll"
     ]
   },
   "records": {

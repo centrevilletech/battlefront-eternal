@@ -4,6 +4,9 @@
 
 use super::scene::{Kind, Scene};
 use crate::collision::{js_max, js_min};
+use bfe_family::GameFamily;
+
+pub mod swbf2;
 
 /// three.js's Vector3, as its methods compute.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
@@ -311,7 +314,7 @@ fn step_of(posture: Posture) -> f64 {
 }
 
 /// The class's jetpack (Soldier.jet).
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Jet {
     pub jump: f64,
     pub push: f64,
@@ -349,6 +352,18 @@ pub struct Trig {
     pub cos1: f64,
 }
 
+impl Trig {
+    pub(super) fn after_turn(&mut self, before: f64, after: f64) {
+        if after.to_bits() != before.to_bits() {
+            self.sin1 = v8math::sin(after);
+            self.cos1 = v8math::cos(after);
+        } else {
+            self.sin1 = self.sin0;
+            self.cos1 = self.cos0;
+        }
+    }
+}
+
 /// Where `begin` left a tick for `finish` (which reads the sine and cosine
 /// of the turned yaw).
 #[derive(Clone, Copy)]
@@ -367,6 +382,7 @@ pub enum Rest {
 #[derive(Clone)]
 pub struct Mover {
     pub world: usize,
+    family: GameFamily,
     // The class (Soldier's constructor).
     pub max_speed: f64,
     pub max_strafe: f64,
@@ -416,8 +432,13 @@ pub struct Mover {
 
 impl Mover {
     pub fn new(world: usize) -> Mover {
+        Self::for_family(world, GameFamily::Swbf1)
+    }
+
+    pub fn for_family(world: usize, family: GameFamily) -> Mover {
         Mover {
             world,
+            family,
             max_speed: 9.0,
             max_strafe: 7.0,
             max_jump: 8.0,
@@ -461,6 +482,10 @@ impl Mover {
         }
     }
 
+    pub fn family(&self) -> GameFamily {
+        self.family
+    }
+
     /// Scratch retained by a full body correction between replay ticks.
     pub fn prediction_scratch(&self) -> (f64, V3, bool) {
         (self.contact_count, self.contact_mean, self.step_blocked)
@@ -500,21 +525,30 @@ impl Mover {
     /// tick(input, dt) up to the aim's turn: everything that reads the yaw's
     /// sine and cosine from before it. The rest (`finish`) reads them from
     /// after it. Returns where to go on from.
-    pub fn begin(&mut self, input: &Input, dt: f64, trig: &Trig) -> Rest {
-        self.state_time += dt;
-        self.collision_damage = 0.0;
-        let locked = self.lock > 0.0;
-        self.lock = js_max(self.lock - dt, 0.0);
-        self.fuel = js_min(self.fuel + self.jet.recharge * dt, 1.0);
-        if !self.grounded {
-            self.normal = V3::UP;
-        }
-
+    pub(super) fn begin(&mut self, input: &Input, dt: f64, trig: &Trig) -> Rest {
+        let locked = self.tick_timers(dt, true);
         if self.air == Air::Jet {
             return if self.jet_tick(input, dt, trig) { Rest::Jetted } else { Rest::JetEnded };
         }
 
         let mode = self.mode();
+        self.translate(input, dt, trig, locked, mode);
+        Rest::Walk { locked }
+    }
+
+    fn tick_timers(&mut self, dt: f64, recharge_fuel: bool) -> bool {
+        self.state_time += dt;
+        self.collision_damage = 0.0;
+        let locked = self.lock > 0.0;
+        self.lock = js_max(self.lock - dt, 0.0);
+        if recharge_fuel { self.fuel = js_min(self.fuel + self.jet.recharge * dt, 1.0); }
+        if !self.grounded {
+            self.normal = V3::UP;
+        }
+        locked
+    }
+
+    fn drive_controls(&self, input: &Input, locked: bool, mode: Mode) -> (f64, f64, f64) {
         let mut f = if locked { 0.0 } else { clamp(input.forward, -1.0, 1.0) };
         let mut s = if locked { 0.0 } else { clamp(input.right, -1.0, 1.0) };
         let len = js_hypot2(f, s);
@@ -526,21 +560,29 @@ impl Mover {
         f *= mode.forward * slope;
         s = (if self.dive != 0.0 && !self.dive.is_nan() { self.dive } else { s }) * mode.strafe * slope;
         let brake = if self.posture == Posture::Stand && locked && self.air == Air::None { LOCKED_BRAKE } else { mode.brake };
-        self.drive(f, s, brake, dt, false, trig.sin0, trig.cos0);
+        (f, s, brake)
+    }
+
+    fn translate(&mut self, input: &Input, dt: f64, trig: &Trig, locked: bool, mode: Mode) {
+        let (f, s, brake) = self.drive_controls(input, locked, mode);
+        self.drive(f, s, brake, dt, false, trig.sin0, trig.cos0, self.accel);
         let v = self.velocity;
         self.position.add_scaled(v, dt);
+        self.turn(input, dt, locked, mode.turn);
+    }
+
+    fn turn(&mut self, input: &Input, dt: f64, locked: bool, scale: f64) {
         if !locked {
-            self.aim_yaw -= self.max_turn * mode.turn * input.turn * dt;
+            self.aim_yaw -= self.max_turn * scale * input.turn * dt;
         }
         if !locked && input.pitch != 0.0 && !input.pitch.is_nan() {
             let [low, high] = self.pitch_range();
             self.aim_pitch = clamp(self.aim_pitch + self.max_pitch * input.pitch * dt, low, high);
         }
-        Rest::Walk { locked }
     }
 
     /// The rest of tick(input, dt), with the sine and cosine of the turned yaw.
-    pub fn finish(&mut self, rest: Rest, input: &Input, dt: f64, trig: &Trig, scene: &mut Scene) {
+    pub(super) fn finish(&mut self, rest: Rest, input: &Input, dt: f64, trig: &Trig, scene: &mut Scene) {
         match rest {
             Rest::Jetted => {
                 self.ceiling(dt);
@@ -666,6 +708,11 @@ impl Mover {
             return false;
         }
         self.fuel = js_max(self.fuel - jet.initial, 0.0);
+        self.kick_jet(input, trig);
+        true
+    }
+
+    fn kick_jet(&mut self, input: &Input, trig: &Trig) {
         let (f, s) = stick(input);
         let (sin, cos) = (trig.sin1, trig.cos1);
         let forward = js_max(f, -0.1);
@@ -674,9 +721,8 @@ impl Mover {
         if let Some(aimed) = input.jet_direction {
             dir = aimed;
         }
-        self.velocity.add_scaled(dir, jet.jump);
+        self.velocity.add_scaled(dir, self.jet.jump);
         self.set_air(Air::Jet);
-        true
     }
 
     /// jetTick up to its turn; false when the jet ends this tick.
@@ -707,7 +753,7 @@ impl Mover {
             strafe = JET_LOW_SPEED * s;
             brake = 0.0;
         }
-        self.drive(forward, strafe, brake, dt, true, trig.sin0, trig.cos0);
+        self.drive(forward, strafe, brake, dt, true, trig.sin0, trig.cos0, self.accel);
         let v = self.velocity;
         self.position.add_scaled(v, dt);
         self.aim_yaw -= self.max_turn * JET_MODE.turn * input.turn * dt;
@@ -729,8 +775,20 @@ impl Mover {
         self.set_air(Air::Jump);
     }
 
+    fn gravity(&self) -> f64 {
+        if self.air == Air::Thrown { THROWN_GRAVITY } else { GRAVITY }
+    }
+
     #[allow(clippy::too_many_arguments)]
-    fn drive(&mut self, f: f64, s: f64, brake: f64, dt: f64, jet: bool, sin: f64, cos: f64) {
+    fn drive(&mut self, f: f64, s: f64, brake: f64, dt: f64, jet: bool, sin: f64, cos: f64, acceleration: f64) {
+        self.drive_axes(f, s, brake, dt, jet, sin, cos, acceleration);
+        if !self.grounded {
+            self.velocity.y -= self.gravity() * dt;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn drive_axes(&mut self, f: f64, s: f64, brake: f64, dt: f64, jet: bool, sin: f64, cos: f64, acceleration: f64) {
         let n = self.normal;
         let facing = V3::new(sin, 0.0, cos);
         let mut forward_axis = facing;
@@ -740,7 +798,7 @@ impl Mover {
         right_axis.normalize();
         let v = &mut self.velocity;
         if self.grounded {
-            let mut pull = V3::new(0.0, -self.accel * SLOPE_PULL * dt, 0.0);
+            let mut pull = V3::new(0.0, -acceleration * SLOPE_PULL * dt, 0.0);
             pull.add_scaled(n, -n.dot(pull));
             v.add(pull);
             let into = v.dot(n);
@@ -753,11 +811,11 @@ impl Mover {
         v.add_scaled(forward_axis, -vf);
         v.add_scaled(right_axis, -vr);
         if brake > 0.0 && (jet || (self.grounded && n.y > STEEP_NORMAL)) {
-            let slow = self.accel * BRAKE * brake * dt;
+            let slow = acceleration * BRAKE * brake * dt;
             vf = if vf > 0.0 { js_max(vf - slow, 0.0) } else { js_min(vf + slow, 0.0) };
             vr = if vr > 0.0 { js_max(vr - slow, 0.0) } else { js_min(vr + slow, 0.0) };
         }
-        let mut gain = self.accel * DRIVE;
+        let mut gain = acceleration * DRIVE;
         if jet {
             gain *= JET_BRAKE;
         } else {
@@ -785,14 +843,15 @@ impl Mover {
         }
         v.add_scaled(forward_axis, vf);
         v.add_scaled(right_axis, vr);
-        if !self.grounded {
-            v.y -= (if self.air == Air::Thrown { THROWN_GRAVITY } else { GRAVITY }) * dt;
-        }
     }
 
     /// One collision pass (collide()).
     fn collide(&mut self, trig: &Trig, scene: &mut Scene) {
         let posture = if self.air != Air::None { Posture::Stand } else { self.posture };
+        self.collide_as(posture, trig, scene);
+    }
+
+    fn collide_as(&mut self, posture: Posture, trig: &Trig, scene: &mut Scene) {
         let parts = parts_of(posture);
         let walking = self.grounded && self.air == Air::None && self.posture != Posture::Prone;
         let intended_y = self.position.y;
@@ -835,6 +894,16 @@ impl Mover {
         if walking && self.grounded {
             self.ground_adjustment += self.position.y - intended_y;
         }
+    }
+
+    /// Watch the next tick for a try at the space over a step.
+    pub(crate) fn forget_climb(&mut self) {
+        self.step_resolved.x = f64::NAN;
+    }
+
+    /// Whether a tick tried the space over a step since `forget_climb`.
+    pub(crate) fn tried_climb(&self) -> bool {
+        !self.step_resolved.x.is_nan()
     }
 
     fn step_up(&mut self, parts: &[Part], trig: &Trig, scene: &mut Scene) {

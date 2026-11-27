@@ -37,6 +37,8 @@ impl<T> Pool<T> {
         if row.generation<GENERATIONS {row.generation+=1;self.free.push(index);}
         true
     }
+    #[cfg(test)]
+    pub fn live(&self) -> usize { self.rows.iter().filter(|row| row.value.is_some()).count() }
 }
 #[cfg(test)]
 mod tests {

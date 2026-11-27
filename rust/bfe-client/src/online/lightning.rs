@@ -191,7 +191,7 @@ impl Collision for Casts<'_> {
 /// effects do: props, common, the other sides, the played side, vehicles.
 pub fn definitions(content: &BattleContent) -> Vec<(String, Definition, String)> {
     let battle = &content.content.battle;
-    let mut libraries = vec![battle.props.as_ref().and_then(|v| v.get("effects")), battle.effects.get("effects")];
+    let mut libraries = vec![battle.props.as_ref().and_then(|v| v.get("effects")), content.visual_effects().get("effects")];
     for side in battle.sides.iter().skip(1) {
         libraries.push(side.fx.as_ref().and_then(|v| v.get("effects")));
     }
@@ -367,6 +367,54 @@ impl Arcs {
             drawing: false,
         })
     }
+    pub fn sync_epoch(&mut self, epoch: f64) {
+        if self.epoch != epoch {
+            self.epoch = epoch;
+            self.owner.clear();
+            self.shooters.fill(None);
+        }
+    }
+    pub fn clear_actor(&mut self, unit: usize) {
+        if let Some(slot) = self.actors.get_mut(unit) {
+            *slot = None;
+        }
+    }
+    /// Spawn a 2005 emitter power bolt from `from` to `to` using the named LightningBolt
+    /// definition. When `shooter` is present, its start tracks that caster's hand each frame.
+    pub fn spawn_power_bolt(
+        &mut self,
+        name: &str,
+        shooter: Option<(u32, u32)>,
+        from: [f64; 3],
+        to: [f64; 3],
+        charge: f64,
+        casts: &mut Casts,
+    ) -> bool {
+        let Some((_, definition)) = self
+            .names
+            .iter()
+            .find(|(known, _)| known.eq_ignore_ascii_case(name))
+        else {
+            return false;
+        };
+        let spawn = &mut self.owner.spawn;
+        spawn.fill(0.);
+        spawn[sp::START..sp::START + 3].copy_from_slice(&from);
+        spawn[sp::END..sp::END + 3].copy_from_slice(&to);
+        spawn[sp::CHARGE] = charge;
+        spawn[sp::FOLLOW] = shooter.is_some() as u8 as f64;
+        spawn[sp::FOLLOW_UNIT] = -1.;
+        spawn[sp::FOLLOW_AT..sp::FOLLOW_AT + 3].copy_from_slice(&from);
+        let rng = &mut self.rng;
+        let bolt = self.owner.add(*definition, true, self.enhanced, &mut || rng.uniform(), casts);
+        if let Some(slot) = self.shooters.get_mut(bolt) {
+            *slot = shooter;
+            self.shown += 1;
+            true
+        } else {
+            false
+        }
+    }
     /// presentEntityEvent "lightning": the bolt is drawn at once, as the
     /// world placed it. One naming its weapon's channel is held to the
     /// shooter when `known` says this client draws him (his id and
@@ -511,7 +559,7 @@ impl Arcs {
     /// frame (`bolt.follow(bolt.start)`). `origin` answers a shooter's gun
     /// origin as he is drawn now, None while he is dead, mounted or not
     /// drawn, which leaves the bolt's start where it was.
-    pub fn prepare(&mut self, origin: impl Fn((u32, u32)) -> Option<[f64; 3]>) {
+    pub fn prepare(&mut self, mut origin: impl FnMut((u32, u32)) -> Option<[f64; 3]>) {
         let owner = &mut *self.owner;
         // A body no longer drawn is removed; its row is free once no bolt
         // or shock names it.
@@ -530,7 +578,7 @@ impl Arcs {
         for at in 0..owner.counts[h::FOLLOW] as usize {
             let bolt = owner.follows[at] as usize;
             let start = bolt * bo::STRIDE + bo::START;
-            let held = self.shooters[bolt].and_then(&origin).unwrap_or_else(|| std::array::from_fn(|axis| owner.output[start + axis]));
+            let held = self.shooters[bolt].and_then(&mut origin).unwrap_or_else(|| std::array::from_fn(|axis| owner.output[start + axis]));
             owner.held[bolt * 3..bolt * 3 + 3].copy_from_slice(&held);
         }
     }

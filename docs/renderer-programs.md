@@ -1,9 +1,14 @@
 # Renderer program sources
 
 `rust/bfe-render/shaders/<family>/manifest.json` declares source-owned program
-variants. The `post-hud` family owns twelve stable full-screen and battle HUD
-programs. The `world` family owns static near/far geometry, terrain, foliage
-and canopy programs, including their Enhanced variants. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+variants. The `post-hud` family owns fourteen stable full-screen and battle HUD
+programs. The `world` family owns static near/far geometry, terrain (including three-layer
+blending), foliage, canopy, and extended-lighting (`ext-world`) programs,
+including their Enhanced variants. The FXAA source license is retained in `shaders/post-hud/NOTICE`.
+The `actors` family owns rigid, skinned, depth, and extended-lighting
+(`ext-actor`) actor programs. The `effects` family owns water, particles,
+decals, sky domes (including layered `sky-ext` modes and the provisional
+procedurally generated `sky-stars` starfield), and overlays.
 The `interface` family owns menu quads, model/skin/vertex-colour previews,
 spawn rooms, the projector, motes and holomap surfaces. Its skinning source
 license is retained in `shaders/interface/NOTICE`.
@@ -114,7 +119,11 @@ manifest; block members belong to the shared frame/shadow layout.
 Shader registration does not alter
 `core.rs`, `post.rs` or `hud.rs` phase records: context-local resource handles,
 f64 phase inputs, five view blocks and BfeFrame/BfeShadow layouts remain their
-own contracts.
+own contracts. Programs that declare `#define EXTENDED_LIGHT` also bind the
+`BfeLight2` uniform block at binding 2 (std140 layout) carrying a second global
+directional light and up to four regional directional or shadow/ambient volumes;
+extended rigid actor variants add `bfeSpecular` and per-instance flags for
+derivative cotangent-frame bump mapping and alpha-gloss specular shading.
 
 Effect uses the shared frame block and identity model. Motion uses its motion
 row; Skinned uses the bone/instance row for effects overlays. Kind-specific

@@ -123,6 +123,9 @@ pub struct Ids {
     /// The props' kernel bodies by instance and look (0 built, 1 destroyed,
     /// 2 unbuilt), as LiveObjects' constructor made them.
     pub prop_kernels: Vec<(usize, u8, u32)>,
+    /// Local-space bounds of moving 2005 prop bodies (kernel slot, bounds),
+    /// populated only for `GameFamily::Swbf2`.
+    pub prop_local_bounds: Vec<(u32, crate::collision::spheres::Bounds)>,
 
     /// The pose accumulator the client's AnimatedProp made per animated prop
     /// instance (newPose), at the prop constructor's seam.

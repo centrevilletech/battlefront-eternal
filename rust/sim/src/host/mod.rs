@@ -32,7 +32,11 @@ pub mod census;
 #[cfg(test)]
 mod capture_test;
 mod content;
-pub use content::{content_tables, content_tables_files, content_tables_from_registry};
+pub use content::{
+    content_tables, content_tables_files, content_tables_files_for_family,
+    content_tables_for_family, content_tables_from_registry, mission_content_tables,
+    unmapped_explosions,
+};
 mod drain;
 mod edges;
 pub mod journal;
@@ -125,6 +129,10 @@ pub struct Authority {
     /// The players the last tick changed (`native.changed()`), for the
     /// caller's own mirrors (a mailbox's synchronize, a roster).
     views: Vec<PlayerView>,
+    /// Retained drain buffer for Battlefront II presentation effects.
+    swbf2_effects: Vec<crate::units::f3::Swbf2Effect>,
+    /// Retained drain buffer for Battlefront II power events.
+    swbf2_powers: Vec<crate::combat::powers::PublishedPower>,
     edge_actions: gen::PlayerActions,
     args: Arguments,
 }
@@ -155,6 +163,8 @@ impl Default for Authority {
             clients: Vec::new(),
             presses: Vec::new(),
             views: Vec::new(),
+            swbf2_effects: Vec::with_capacity(64),
+            swbf2_powers: Vec::with_capacity(256),
             edge_actions: gen::PlayerActions {
                 entry: gen::IaEntry {
                     actions: Vec::with_capacity(1),

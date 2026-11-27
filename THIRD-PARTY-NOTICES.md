@@ -12,28 +12,31 @@ the game, on the player's machine.
 
 | Component | Where | Copyright | License |
 | --- | --- | --- | --- |
-| [Saira](https://github.com/Omnibus-Type/Saira) typeface | `rust/bfe-client/assets/fonts/saira-latin.ttf`; also used to draw `build/native/assets/steam/` | Copyright 2020 The Saira Project Authors | SIL Open Font License 1.1 (full text in `licenses/OFL-Saira.txt`) |
-| Chromium audio platform | `rust/audio/src/hrtf.rs` translates HRTF kernel preparation, spatial convolution and delay; `rust/audio-decode/src/resample.rs` translates streaming asset-rate conversion; `rust/audio/data/irc-composite.f32` is its decoded composite response resource | Copyright the Chromium Authors; Copyright (C) 2010 Google Inc. | BSD-3-Clause and the WebKit two-clause license (below) |
-| [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `rust/audio/src/stabilizer.rs` translates its band splitter and front stabilizer; `rust/audio/src/stereo.rs` retains its stereo panning law; `rust/audio/src/layouts.rs` carries its speaker decoder coefficients | Copyright the OpenAL Soft authors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
+| [Saira](https://github.com/Omnibus-Type/Saira) typeface | `rust/bfe-client/assets/fonts/saira-latin.ttf`; also used to draw `build/native/assets/steam/` | Copyright 2020 The Saira Project Authors (https://github.com/Omnibus-Type/Saira) | SIL Open Font License 1.1 (full text in `licenses/OFL-Saira.txt`) |
+| Chromium audio platform | `rust/audio/src/hrtf.rs` translates HRTF kernel preparation, spatial convolution and delay; `rust/audio-decode/src/resample.rs` translates streaming asset-rate conversion; `rust/audio/data/irc-composite.f32` is its decoded composite response resource | Copyright 2015 The Chromium Authors<br>Copyright (C) 2010 Google Inc. All rights reserved. | BSD-3-Clause and the WebKit two-clause license (below) |
+| [OpenAL Soft](https://github.com/kcat/openal-soft) 1.20.1 | `rust/audio/src/stabilizer.rs` translates its band splitter and front stabilizer; `rust/audio/src/stereo.rs` retains its stereo panning law; `rust/audio/src/layouts.rs` carries its speaker decoder coefficients | OpenAL Soft contributors | LGPL-2.0-or-later. The derived code is distributed under GPL-3.0-only, as section 3 of that license allows. |
 | [libebur128](https://github.com/jiixyj/libebur128) | The K-weighting filter design in `rust/audio/src/meter.rs` and `tools/enhance_audio.py` | Copyright (c) 2011 Jan Kokemüller | MIT |
-| AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `rust/bfe-render/src/post.rs` follows its design | Copyright (c) Advanced Micro Devices, Inc. | MIT |
-| fdlibm, as translated to C++ in [V8](https://v8.dev) 13.6 (`base/ieee754.cc`), and V8's `math::pow` (`numbers/ieee754.cc`) | `rust/v8math/src/trig.rs`, `explog.rs`, `inv.rs` and the first part of `pow.rs` translate them to Rust | Copyright (C) 1993 by Sun Microsystems, Inc.; Copyright 2011 and 2016 the V8 project authors | fdlibm: "Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice is preserved." V8: BSD-3-Clause (below) |
-| The double-precision `pow` of Arm's [optimized-routines](https://github.com/ARM-software/optimized-routines) (`math/pow.c` and its tables), which glibc ships as its `pow` | `rust/v8math/src/pow.rs` and `pow_data.rs` translate it to Rust | Copyright (c) 2018-2026, Arm Limited | MIT (offered as MIT OR Apache-2.0 WITH LLVM-exception; used here under MIT) |
-| [three.js](https://threejs.org) r170 math collections | `rust/three` transliterates its math classes and `Object3D`'s transform semantics to Rust, operation by operation, for the simulation | Copyright 2010-2024 three.js authors | MIT |
-| TimSort, as V8 runs it for `Array.prototype.sort` | `rust/jsrt/src/sort.rs` transliterates V8 13.6's `array-sort.tq`, itself a translation of CPython's listsort | Copyright (c) 2001-2018 Python Software Foundation (the algorithm text V8's file carries); V8's implementation copyright the V8 project authors | Python Software Foundation License 2.0; BSD-3-Clause (V8) |
+| AMD FidelityFX Super Resolution 1 | The RCAS sharpening pass in `rust/bfe-render/src/post.rs` follows its design | Copyright (c) 2021 Advanced Micro Devices, Inc. All rights reserved. | MIT |
+| fdlibm, as translated to C++ in [V8](https://v8.dev) 13.6 (`base/ieee754.cc`), and V8's `math::pow` (`numbers/ieee754.cc`) | `rust/v8math/src/trig.rs`, `explog.rs`, `inv.rs` and the first part of `pow.rs` translate them to Rust | Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.<br>Copyright 2011 the V8 project authors. All rights reserved.<br>Copyright 2016 the V8 project authors. All rights reserved. | fdlibm: "Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice is preserved." V8: BSD-3-Clause (below) |
+| The double-precision `pow` of Arm's [optimized-routines](https://github.com/ARM-software/optimized-routines) (`math/pow.c` and its tables), which glibc ships as its `pow` | `rust/v8math/src/pow.rs` and `pow_data.rs` translate it to Rust | Copyright (c) 2018-2026, Arm Limited. | MIT (offered as MIT OR Apache-2.0 WITH LLVM-exception; used here under MIT) |
+| [three.js](https://threejs.org) r170 math collections | `rust/three` transliterates its math classes and `Object3D`'s transform semantics to Rust, operation by operation, for the simulation | Copyright © 2010-2024 three.js authors | MIT |
+| TimSort, as V8 runs it for `Array.prototype.sort` | `rust/jsrt/src/sort.rs` transliterates V8 13.6's `array-sort.tq`, itself a translation of CPython's listsort | Copyright (c) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018 Python Software Foundation; All Rights Reserved<br>Copyright 2014, the V8 project authors. All rights reserved. | Python Software Foundation License 2.0; BSD-3-Clause (V8) |
+| [swbf-unmunge](https://github.com/PrismaticFlower/swbf-unmunge) | `tools/zero_model.py` (2005 `MTRL` flags and layout) and `tools/zero_swbf2.py` (`CLTH`, 2005 `plan`, world animation records, transform conventions and config key tables) port chunk readers and format definitions | Copyright (c) 2017-2019 PrismaticFlower | MIT |
+| [LibSWBF2](https://github.com/Ben1138/LibSWBF2) | `tools/zero_swbf2.py` (`zaf_` animation skeleton `LEKS`/`TNOJ` and additional ODF property names) ports chunk reader logic | Ben1138 and the LibSWBF2 contributors | GPL-3.0 |
+| [Lua](https://www.lua.org) 5.0.3 | `rust/bfe-script` ports the Lua 5.0.3 binary chunk format, virtual machine semantics, table/upvalue behavior, and base, table, string, and math libraries to pure Rust | Copyright (C) 1994-2006 Tecgraf, PUC-Rio; Copyright (C) 2003-2006 Tecgraf, PUC-Rio | MIT |
 
 ## Libraries bundled in builds
 
 | Component | Copyright | License |
 | --- | --- | --- |
 | bink-decoder 0.1.0, the native client's movie decoder (Bink 1 video and Bink audio), a Rust port of FFmpeg's Bink demuxer and decoders | FFmpeg's code: Copyright Konstantin Shishkov, Peter Ross and Daniel Verkamp; the port: Copyright Josh Lambert | GPL-3.0-only; the FFmpeg code it derives from is LGPL-2.1-or-later, placed under the GPL as section 3 of that license allows |
-| [Slint](https://slint.dev) 1.18.1, compiled native menu components and FemtoVG renderer | Copyright SixtyFPS GmbH and the Slint contributors | GPL-3.0-only, selected from its offered license alternatives; full text in `licenses/Slint-GPL-3.0.txt` |
-| [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014-2019 Ruud van Asseldonk and contributors | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
-| [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org and contributors | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
-| [Basis Universal](https://github.com/BinomialLLC/basis_universal) 2.50 transcoder, vendored through `rust/basis-transcode` | Copyright Binomial LLC | Apache-2.0; `licenses/Basis-Universal.txt` |
-| Zstandard 1.5.7 decompressor | Copyright Meta Platforms, Inc. and affiliates | BSD-3-Clause; `licenses/Zstandard.txt` |
-| nanoprintf 0.5.2 | Copyright 2019- Charles Nicholson | 0BSD (selected from 0BSD OR Unlicense); `licenses/Nanoprintf.txt` |
-| png 0.18.1 | Copyright 2015 nwin and image-rs contributors | MIT (selected from MIT OR Apache-2.0); `licenses/Png.txt` |
+| [Slint](https://slint.dev) 1.18.1, compiled native menu components and FemtoVG renderer | Copyright © SixtyFPS GmbH &lt;info@slint.dev&gt; | GPL-3.0-only, selected from its offered license alternatives; full text in `licenses/Slint-GPL-3.0.txt` |
+| [Claxon](https://github.com/ruuda/claxon) 0.4.3, pure Rust FLAC decoder | Copyright 2014 Ruud van Asseldonk | Apache-2.0 (full text in `rust/audio-decode/licenses/Claxon.txt`, installed as `legal/audio-codecs/Claxon.txt`) |
+| [opus-pure](https://github.com/stephenberry/opus-pure) 0.2.2, pure Rust Opus decoder | Copyright 2026 Stephen Berry; Copyright 2026 restsend.com; Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding, Erik de Castro Lopo, Mozilla, Amazon | BSD-3-Clause (full notices in `rust/audio-decode/licenses/Opus.txt`, installed as `legal/audio-codecs/Opus.txt`) |
+| [Basis Universal](https://github.com/BinomialLLC/basis_universal) 2.50 transcoder, vendored through `rust/basis-transcode` | Copyright 2019-2026 Binomial LLC | Apache-2.0; `licenses/Basis-Universal.txt` |
+| Zstandard 1.5.7 decompressor | Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved. | BSD-3-Clause; `licenses/Zstandard.txt` |
+| nanoprintf 0.5.2 | Copyright (C) 2019- by Charles Nicholson &lt;charles.nicholson+nanoprintf@gmail.com&gt; | 0BSD (selected from 0BSD OR Unlicense); `licenses/Nanoprintf.txt` |
+| png 0.18.1 | Copyright (c) 2015 nwin | MIT (selected from MIT OR Apache-2.0); `licenses/Png.txt` |
 | image-webp 0.2.4 | image-rs contributors | MIT (selected from MIT OR Apache-2.0); `licenses/Image-Webp.txt` |
 | Decoder dependencies: adler2, bitflags, byteorder-lite, cfg-if, crc32fast, fdeflate, flate2, miniz_oxide, quick-error and simd-adler32 | Their respective contributors, as listed in the shipped texts | MIT, Apache-2.0, BSD-3-Clause and Zlib as applicable; complete texts under `licenses/` |
 
@@ -278,7 +281,22 @@ headphone decoder. Neither is stored in this repository.
 [swbf-unmunge](https://github.com/PrismaticFlower/swbf-unmunge) by
 PrismaticFlower (MIT) was a valuable reference: some property-name spellings
 were checked against its name list, and its PATH decoder helped cross-check
-our own reader. No code from it is included.
+the path reader. The 2005 chunk reader ports listed above use its MIT license.
+Of the 193 stock interface hashes in `tools/zero_hud2.py`, 172 spellings match
+its dictionary exactly and 20 match after case folding. `LoadDisplay` comes
+from `tools/zero_shell.py`.
+
+Copyright (c) 2017-2019 PrismaticFlower
+
+[lua5.0-swbf2-x64](https://github.com/Ben1138/lua5.0-swbf2-x64) (GPL-3.0) was
+used as a reference to cross-check the 2005 game's Lua 5.0 header sizes,
+32-bit float number type, and `MAXSTACK = 128` register/constant split. No
+code from it is included.
+
+[SWBF2-Lua-API](https://github.com/marth8880/SWBF2-Lua-API) (GPL-3.0)
+documents two of the host function names that the recording host in
+`rust/bfe-script/src/recorder.rs` uses, `OpenAudioStream` and `ScriptPreInit`.
+No list, code or other material from it is included.
 
 ## MIT License
 
@@ -369,7 +387,7 @@ The V8 code above is provided under the following terms:
 ## WebKit two-clause license (HRTF implementation)
 
 ```text
-Copyright (C) 2010, Google Inc. All rights reserved.
+Copyright (C) 2010 Google Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions

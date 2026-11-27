@@ -35,6 +35,9 @@ pub const D_GEOMETRY: usize = 1;
 pub const D_START: usize = 2;
 pub const D_COUNT: usize = 3;
 pub const D_SIDE: usize = 4;
+// Static commands use the side from their resource. Zero selects the full
+// geometry, other values select a light region by its one-based slot.
+pub const D_STATIC_REGION: usize = D_SIDE;
 pub const D_MIRRORED: usize = 5;
 pub const D_UNIFORMS: usize = 6;
 pub const D_FIRST: usize = 7;
@@ -46,6 +49,7 @@ pub const INPUT_LEN: usize = S_FIRST + MAX_DRAWS * DRAW;
 pub struct ShadowPass<C: HasContext> {
     gl: PhantomData<C>,
     pub input: Vec<f64>,
+    command_limits: Option<[usize; 2]>,
     pub static_view: Vec<f64>,
     pub statics: crate::static_depth::Bank,
     pub copy_rect: Option<[i32; 4]>,
@@ -55,7 +59,7 @@ pub struct ShadowPass<C: HasContext> {
 
 impl<C: HasContext> ShadowPass<C> {
     pub fn new<M: MultiDraw>(_core: &mut Core<C, M>) -> ShadowPass<C> {
-        ShadowPass { gl: PhantomData, input: vec![0.0; INPUT_LEN], static_view: vec![0.;crate::static_layout::SHADOW_LENGTH], statics: crate::static_depth::Bank::default(), copy_rect: None, matrices: HashMap::new() }
+        ShadowPass { gl: PhantomData, command_limits: None, input: vec![0.0; INPUT_LEN], static_view: vec![0.;crate::static_layout::SHADOW_LENGTH], statics: crate::static_depth::Bank::default(), copy_rect: None, matrices: HashMap::new() }
     }
 
     // Content-sized native descriptor commands share the existing draw stream;
@@ -64,6 +68,24 @@ impl<C: HasContext> ShadowPass<C> {
         let count=MAX_DRAWS+(self.statics.sources.len()+2).min(crate::static_depth::MAX_RECORDS);
         self.input.resize(S_FIRST+count*DRAW,0.);
         self.matrices.reserve(64);
+    }
+
+    /// Native packets retain separate static and moving lists. Obtain their
+    /// largest possible stores during scene or settings admission. Zeroed
+    /// storage leaves unused pages untouched until a caster is published.
+    pub fn admit_native_commands(&mut self, max_groups: usize) {
+        let counts = [self.statics.records.len(), max_groups.min(crate::instances::MAX_RECORDS * 4)];
+        self.command_limits = Some(counts);
+        let needed = S_FIRST + counts[0].max(counts[1]) * DRAW;
+        if self.input.len() < needed {
+            let mut input = vec![0.; needed];
+            input[..self.input.len()].copy_from_slice(&self.input);
+            self.input = input;
+        }
+    }
+
+    pub(crate) fn packet_size(&self, dynamic: bool) -> usize {
+        self.command_limits.map_or(self.input.len(), |limits| S_FIRST + limits[usize::from(dynamic)] * DRAW) * 8
     }
 
     // One cascade pass, as the client wrote it.
@@ -126,7 +148,7 @@ impl<C: HasContext> ShadowPass<C> {
         for d in 0..draws {
             let at = S_FIRST + d * DRAW;
             if self.input[at+D_PROGRAM]<0. {
-                self.statics.draw(core,&mut self.matrices,self.input[at+D_GEOMETRY] as usize,&self.static_view,&static_frustum);
+                self.statics.draw(core,&mut self.matrices,self.input[at+D_GEOMETRY] as usize,(self.input[at+D_STATIC_REGION] as usize).checked_sub(1),&self.static_view,&static_frustum);
                 continue;
             }
             let (program, geometry) = (self.input[at + D_PROGRAM] as usize, self.input[at + D_GEOMETRY] as usize);

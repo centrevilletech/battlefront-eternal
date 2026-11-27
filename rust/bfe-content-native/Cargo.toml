@@ -7,6 +7,7 @@ publish = false
 description = "Prepared battle content and visual resource admission for native hosts"
 
 [dependencies]
+bfe-family = { path = "../bfe-family" }
 content = { path = "../content" }
 bfe-render = { path = "../bfe-render" }
 bfe-presentation = { path = "../bfe-presentation", default-features = false }
@@ -24,4 +25,6 @@ jsrt = { path = "../jsrt" }
 sim = { path = "../sim" }
 
 [dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }
+bfe-wide = { path = "../bfe-wide" }
 png = "0.18"

@@ -51,6 +51,8 @@ pub struct Phase {
     /// The listener's (camera's) own motion for Doppler: its last place and
     /// its velocity, eased over a tenth of a second.
     pub listener_motion: (Option<Point>, Point),
+    family: bfe_family::GameFamily,
+    swbf2: Option<Box<crate::swbf2::Swbf2State>>,
 }
 impl Phase {
     pub fn new(seed: u32) -> Self {
@@ -64,7 +66,26 @@ impl Phase {
             turrets: vec![[0.0; crate::layout::turret::STRIDE]; RECORDS], turret_state: vec![Default::default(); RECORDS], turret_count: 0, turret_emitter_base: RECORDS, reaches: Vec::new(),
             feet: vec![[0.0; crate::layout::foot::STRIDE]; RECORDS], foot_state: vec![Default::default(); RECORDS], foot_count: 0, foot_definitions: Vec::new(),
             director: Default::default(), master_bus: NONE, pause_bus: NONE, class_properties: Vec::new(), sound_names: Vec::new(), effects: Vec::new(), tow_attach: NONE, tow_release: NONE,
-            started: false, paused: false, resume_level: 1.0, original_room_mask: 1, bus_names: Vec::new(), player_weapon_state: vec![Default::default(); RECORDS], room_pending: 0, primaries: vec![NONE; RECORDS], listener_motion: (None, [0.0; 3]) }
+            started: false, paused: false, resume_level: 1.0, original_room_mask: 1, bus_names: Vec::new(), player_weapon_state: vec![Default::default(); RECORDS], room_pending: 0, primaries: vec![NONE; RECORDS], listener_motion: (None, [0.0; 3]),
+            family: bfe_family::GameFamily::Swbf1, swbf2: None }
+    }
+    pub fn family(&self) -> bfe_family::GameFamily { self.family }
+    pub fn swbf2(&self) -> Option<&crate::swbf2::Swbf2State> { self.swbf2.as_deref() }
+    pub fn swbf2_mut(&mut self) -> Option<&mut crate::swbf2::Swbf2State> { self.swbf2.as_deref_mut() }
+    pub(crate) fn set_swbf2_family(&mut self, state: crate::swbf2::Swbf2State) {
+        self.family = bfe_family::GameFamily::Swbf2;
+        self.engine.swbf2_voice_scoring = true;
+        self.swbf2 = Some(Box::new(state));
+    }
+    pub(crate) fn published_room(&self) -> Room {
+        if self.family == bfe_family::GameFamily::Swbf2 && self.engine.enhanced {
+            if let Some(swbf2) = self.swbf2.as_deref() {
+                if swbf2.ambience.current_space.is_some() {
+                    return swbf2.ambience.rendered_room;
+                }
+            }
+        }
+        if self.engine.enhanced { self.acoustics.room } else { self.original_room }
     }
     pub fn position(&self, id: usize) -> Option<Point> {
         if id >= self.turret_emitter_base && id != NONE { return self.turrets.get(id - self.turret_emitter_base).map(|r| [r[crate::layout::turret::X], r[crate::layout::turret::Y], r[crate::layout::turret::Z]]); }
@@ -81,12 +102,58 @@ impl Phase {
     pub fn play_class(&mut self, class: usize, key: usize, category: usize, emitter: usize, position: Option<Point>, looping: Option<bool>) -> u64 {
         let mut ask = Ask::new(self.sound(class, key), category); ask.emitter = emitter; ask.position = position; ask.looping = looping; self.play(ask)
     }
+    fn swbf2_layered_culled(&self, ask: &Ask) -> bool {
+        let Some(def) = self.layers.definitions.get(ask.sound) else {
+            return false;
+        };
+        if def.layers.is_empty() {
+            return false;
+        }
+        let Some(at) = ask.position.or_else(|| self.position(ask.emitter)) else {
+            return false;
+        };
+        let dist = crate::length(crate::sub(at, self.engine.listener.ear));
+        for layer in &def.layers {
+            let Some(child) = self.engine.sounds.get(layer.sound) else {
+                return false;
+            };
+            if child.kind != 1 || !child.mode3d || ask.looping.unwrap_or(child.looping) {
+                return false;
+            }
+            let curve = ask.curve.map_or(child.curve, |b| crate::engine::Curve {
+                min: b.min,
+                max: b.max,
+                mute: b.mute,
+                ..child.curve
+            });
+            if curve.gain(dist) > 0.0 {
+                return false;
+            }
+        }
+        true
+    }
     /// ports AudioEngine.play's dispatch, retaining the layered sound's
     /// pre-gesture check without inventing a gate for its parent object.
     pub fn play(&mut self, mut ask: Ask) -> u64 {
         let Some(sound) = self.engine.sounds.get(ask.sound) else { return SILENT; };
         if !self.engine.running && !ask.looping.unwrap_or(sound.looping) { return SILENT; }
-        if sound.kind == 2 { return self.layers.start(&mut self.engine, ask, false); }
+        if sound.kind == 2 {
+            if self.family == bfe_family::GameFamily::Swbf2 {
+                if self.swbf2_layered_culled(&ask) {
+                    self.engine.stats[5] += 1;
+                    return SILENT;
+                }
+                let max_groups = if ask.protected { GROUPS } else { 64 };
+                return match self.layers.try_start(&mut self.engine, ask, false, max_groups) {
+                    Some(handle) => handle,
+                    None => {
+                        self.engine.stats[4] += 1;
+                        SILENT
+                    }
+                };
+            }
+            return self.layers.start(&mut self.engine, ask, false);
+        }
         if sound.kind != 1 { return SILENT; }
         // Ambience's overrides replace only its three distance bounds.
         // A layered parent has no roll-off of its own: each plain child
@@ -99,7 +166,17 @@ impl Phase {
     pub fn parameterized(&mut self, mut ask: Ask) -> u64 {
         if !self.engine.sounds.get(ask.sound).is_some_and(|s| s.kind == 3) { return self.play(ask); }
         ask.looping = Some(true);
-        let handle = self.layers.start(&mut self.engine, ask, true);
+        let handle = if self.family == bfe_family::GameFamily::Swbf2 {
+            match self.layers.try_start(&mut self.engine, ask, true, 64) {
+                Some(h) => h,
+                None => {
+                    self.engine.stats[4] += 1;
+                    return SILENT;
+                }
+            }
+        } else {
+            self.layers.start(&mut self.engine, ask, true)
+        };
         for i in 0..self.layers.count(handle) { let child = self.play(self.layers.child_ask(handle, i)); self.layers.set_child(handle, i, child); }
         handle
     }
@@ -233,9 +310,25 @@ impl Phase {
         if id >= self.weapon_count { return; } let row = self.weapons[id]; let mut state = if own { self.player_weapon_state[id] } else { self.weapon_state[id] }; state.seen = true;
         if state.last_fire == self.engine.time { return; } state.last_fire = self.engine.time;
         let class = index(row[w::CLASS]); let owner = index(row[w::OWNER]);
+        let protect = own && self.family == bfe_family::GameFamily::Swbf2;
         if repair {
-            if self.sound(class, c::FIRE_LOOP) != NONE { self.stop(state.v0, 0.02); state.v0 = self.play_class(class, c::FIRE_LOOP, EFFECTS, owner, None, Some(true)); if state.v0 != SILENT { state.kind = 4; } }
-        } else { if self.number(class, c::FIRE_STOP, 0.0) != 0.0 { self.stop(state.v1, 0.01); } state.v1 = self.play_class(class, c::FIRE, EFFECTS, owner, None, None); }
+            let sound = self.sound(class, c::FIRE_LOOP);
+            if sound != NONE {
+                self.stop(state.v0, 0.02);
+                let mut ask = Ask::new(sound, EFFECTS);
+                ask.emitter = owner;
+                ask.looping = Some(true);
+                ask.protected = protect;
+                state.v0 = self.play(ask);
+                if state.v0 != SILENT { state.kind = 4; }
+            }
+        } else {
+            if self.number(class, c::FIRE_STOP, 0.0) != 0.0 { self.stop(state.v1, 0.01); }
+            let mut ask = Ask::new(self.sound(class, c::FIRE), EFFECTS);
+            ask.emitter = owner;
+            ask.protected = protect;
+            state.v1 = self.play(ask);
+        }
         if own { self.player_weapon_state[id] = state; } else { self.weapon_state[id] = state; }
     }
     pub fn quiet_weapon(&mut self, id: usize) { let state = self.weapon_state[id]; if state.kind == 2 || state.kind == 4 { self.stop(state.v0, 0.05); self.weapon_state[id].v0 = SILENT; } }
@@ -309,6 +402,10 @@ impl Phase {
     /// consumes the generated frame and event records, runs all directors,
     /// then emits context-timed commands for the separate render phase.
     pub fn step(&mut self, collision: &mut impl Collision, events: &[[f64; ev::STRIDE]]) {
+        if self.family == bfe_family::GameFamily::Swbf2 {
+            self.step_swbf2(collision, events);
+            return;
+        }
         if self.output_configuration != self.frame[f::CONFIGURATION] {
             self.output_configuration = self.frame[f::CONFIGURATION];
             for v in &mut self.engine.voices { v.sent = [f32::NAN;5]; }

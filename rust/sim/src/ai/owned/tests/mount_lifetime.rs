@@ -21,7 +21,7 @@ fn released_mount_observation_after_real_bot_exit() {
         .stack_size(8 << 20)
         .spawn(move || {
             let root = std::path::PathBuf::from(content);
-            let options = Options {
+            let options = Options { family: bfe_family::GameFamily::Swbf1,
                 map: "nab2".into(),
                 side: "rep".into(),
                 enhanced: false,
@@ -29,10 +29,11 @@ fn released_mount_observation_after_real_bot_exit() {
                 heroes: false,
                 unit: None,
                 name: None, bots: Default::default(),
+                ..Default::default()
             };
             let context = Context::new();
             let admitted = context
-                .world_admit(&DirFiles::new(&root), &options)
+                .world_admit(&DirFiles::new(&root, bfe_family::GameFamily::Swbf1), &options)
                 .unwrap();
             context.world_step_init(admitted.setup).unwrap();
             let h = admitted.handles;

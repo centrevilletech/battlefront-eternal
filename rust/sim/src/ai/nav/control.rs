@@ -56,6 +56,14 @@ impl MovementRequest {
 pub struct JetRequest {
     pub pending: bool,
     pub vector: Vec3,
+    /// A 2005 bot's request to end its jet (the game's end-jet flag), consumed by the 2005
+    /// input step while a jet sequence runs. Never set for a 2004 bot.
+    pub end: bool,
+    /// Where a 2005 bot's jet at a target steers while the body jets (the target, as the bot's
+    /// follow order would); none for every other jet.
+    pub steer: Option<Vec3>,
+    /// A 2005 bot's melee leap (the game's leap flag): one jump along `vector`, no jet.
+    pub leap: bool,
 }
 
 /// NavControl's fields. `unit` is the identity token of

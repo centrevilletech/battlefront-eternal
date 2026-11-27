@@ -81,7 +81,65 @@ that the workflows build is signed ad hoc: it runs on the Mac that built it,
 and on another Mac Gatekeeper refuses it until the player allows it in System
 Settings, Privacy & Security.
 
+## Player control settings
+
+One player profile holds bindings for both games. In the `values` object of
+`player-settings.json`, `keyBindings` and `flightBindings` hold the 2004
+game's ground and starfighter overrides. The corresponding 2005 keys are
+`keyBindingsSwbf2` and `flightBindingsSwbf2`. The ground map groups actions by
+`infantry`, `vehicle`, `jedi` and `turret`. The flight map holds starfighter
+actions. Each action stores its ordered list of physical input codes.
+An empty list unbinds one action.
+The native writer sets the top-level `swbf2ControlsVersion` to 1 when either
+2005 map has overrides. Unmarked records use the released reader. Editing
+a 2005 binding on a partial profile saves the effective 2004 settings in a
+complete record. Opening that record in a released client preserves the 2004
+bindings. Saving it there discards both 2005 maps, so the next 2005 session
+uses the defaults. Instant Action uses the controls for the playlist entry
+being played. Online battles use the game confirmed by the server at each
+join, including when it moves to the next battle.
+
+Clients sharing a settings folder write to separate temporary files. Each
+rename publishes that client's saved settings atomically.
+
+If the client or desktop cannot read a nonempty settings file, it keeps the
+original bytes beside the replacement. For `desktop-settings.json` it checks
+`desktop-settings.json.bak`, then `.bak.1`, `.bak.2` and so on. It stops at
+a matching copy or an unused name. If it cannot read the original bytes or
+keep a backup, the save leaves the current file in place. A client built on
+its own continues to read extension keys in player settings as literal keys.
+
+The same rule covers `player-settings.json`, standalone interface settings
+files, `online-consent.json` and `prepare-timings.json`. Steam registration
+keeps a copy of `shortcuts.vdf` if its binary shortcut reader cannot read it.
+Linux desktop registration keeps a copy of a `battlefront` launcher command
+it cannot read as text. The updater replaces its launch history in `state.json`
+without a backup. Confirming **Replace** in the export dialog replaces the
+chosen `.bfepack` file without a backup.
+
 ## Prepared content compatibility
+
+Prepared content for Star Wars: Battlefront (2004) (`swbf1`) stays directly
+under the content root (`<content>/{maps,sides,common,audio,.prepare.json}`),
+where earlier releases keep it, so released and newer builds share one folder
+in either direction without moving files (including read-only folders).
+Prepared content for Star Wars: Battlefront II (2005) (`swbf2`, not yet enabled
+in the player UI) lives in `<content>/swbf2/.content/`: the same internal
+folders, `scripts/` and whatever else its preparation writes, the record
+`.prepare-swbf2.json`, and the marker `.bfe-family.json`, which is only ever in
+that inner folder. Released builds skip folders whose names start with a dot
+when they search for content, so they do not find the 2005 tree by themselves.
+A released client can still be pointed at the inner folder by an explicit path.
+When the only recorded content is Battlefront II, setup explains that the
+game is not available in this build.
+This build treats a folder as 2005 content when it holds a regular 2005 record,
+or when it is the physical `swbf2/.content` interior and holds the marker,
+unless a 2004 record the released reader accepts as current lies beside it.
+Every other folder keeps its released 2004 selection, including a flat 2004
+folder named `swbf2` with an obsolete marker or a missing, damaged or extended
+record. Pre-change `.bfepack` archives
+import directly into `<content>/` as `swbf1`; 2005 exports use format
+`battlefront-eternal-swbf2-content`, which released builds decline.
 
 `tools/content-version.json` is shared by the Python preparer and the desktop
 startup check (`rust/bfe-desktop`). Increase its map, side or common generation
@@ -189,7 +247,9 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
 
 1. `--content-dir=<folder>` or `BFE_CONTENT_DIR`, or a data folder the player
    chose: used as it is.
-2. The Steam copy of Star Wars: Battlefront (2004), app 1058020, found by
+2. The Steam copy of Star Wars: Battlefront (2004), app `1058020` (`bfe-desktop`
+   also supports discovering Star Wars: Battlefront II (2005), app `6060`, for
+   upcoming `swbf2` support), found by
    discovering the platform's Steam roots (the registry on
    Windows; native, Flatpak and Snap installs on Linux; on macOS also the
    Windows Steam client's folder inside Wine bottles, see "macOS" below), every library in
@@ -199,10 +259,17 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    When Steam's records name no library holding it, every drive is looked at
    where libraries usually are (`SteamLibrary`, `Steam`, `Games\Steam` and
    the like), each look bounded so an absent network drive cannot stall
-   startup: a library on another drive is found either way. When the app's own
-   `game-data` folder (in its user data folder) was completely prepared from
-   that copy, with the add-ons it has now, the main menu opens; otherwise the
-   app asks before preparing (below, "Asking first").
+   startup: a library on another drive is found either way. Each family's
+   validator checks its own positive markers: 2004 requires
+   `GameData/Data/_LVL_PC/SIDE` and `Common/<language>/common.lvl` (so a pure
+   2005 tree is never accepted as 2004), while 2005 requires
+   `GameData/BattlefrontII.exe` and `common.lvl`, `core.lvl`, `mission.lvl`,
+   `ingame.lvl`, `shell.lvl` directly under `GameData/data/_lvl_pc/` beside
+   `side/` (no `AddOn` folder required). The desktop UI currently runs startup
+   and folder-picker checks for the 2004 game; when the app's own `game-data`
+   folder (in its user data folder) was completely prepared from that copy,
+   with the add-ons it has now, the main menu opens; otherwise the app asks
+   before preparing (below, "Asking first").
 3. Without a Steam copy, the GOG copy, prepared the same
    way: it has the Steam copy's layout (`GameData/Battlefront.exe`,
    `GameData/Data/_LVL_PC`). Found where GOG's records say: each game's key
@@ -225,8 +292,11 @@ and decides, in order (`rust/bfe-desktop/src/discover.rs`):
    `.bfepack` export; the folder picker accepts a game installation from any
    store or disc (the folder holding `GameData`, or `GameData` itself) or
    prepared data. An installation chosen there is shown on the confirm screen
-   first. The one the player prepares from is kept (`gameDir` in
-   `desktop-settings.json`) and looked at before Steam's and GOG's.
+   first. The 2004 installation the player prepares from is kept in top-level
+   `gameDir` (and preparation records in top-level `preparations`) in
+   `desktop-settings.json`, unchanged from earlier releases, and looked at
+   before Steam's and GOG's. Non-2004 game families store their own entries
+   under `games.<family>` (such as `games.swbf2`) when used.
 
 ### Asking first
 
@@ -322,6 +392,16 @@ goes ahead without asking, with the choices made then. Its check runs first
 all the same, and a copy that no longer passes it shows the confirm screen
 with the problem instead. A check that couldn't run doesn't stop it: the
 copy prepares as it did before there was a check.
+
+The installation check only reads the game copy. At every launch, after the
+menu opens, the client starts `prepare.py --maintain-sound`. The tools compare
+file metadata with a per-user verification record. They can update original
+2004 battle sound, repair Enhanced Sound and migrate older sample treatments.
+On an existing installation the launch after an update can show 10 to 60
+seconds of progress in the window title. The menu remains available, and
+`logs/sound-maintenance.log` records the work. Closing the client stops
+maintenance. It resumes unfinished work at the next launch. Read-only
+content remains playable.
 
 **Enhanced sound** is a choice on the confirm screen, on unless the player
 turns it off (`enhancedSound` in `desktop-settings.json`). It is the
@@ -419,10 +499,12 @@ PC took 48 minutes.
 | KTX2 textures (`textures`) | `ktx2.py` | everything that writes textures | KTX-Software `ktx` |
 
 The movies are not converted. The client plays the original Bink files
-straight from the game folder (`GameData/Data/_LVL_PC/Movies/shell.mvs`,
+straight from the 2004 game folder (`GameData/Data/_LVL_PC/Movies/shell.mvs`,
 and each add-on's `Movies/*.mvs`) with its own decoder, so the catalog step
 only lists them in `common/shell/movies/manifest.json`, reading each Bink
-header and nothing more.
+header and nothing more (`bfe-video` also supports indexing 2005 archives
+under `GameData/data/_lvl_pc/movies/*.mvs` and `swbf2/.content/common/shell/movies/manifest.json`
+for upcoming 2005 front-end support).
 The client finds the game folder through the one the player chose, the
 preparation records, or `BFE_GAME_DIR`; when none holds the movies, the
 menus play without them.
@@ -482,14 +564,145 @@ once three steps have finished the remainder is scaled by how they compared
 with their expectations. The readout shows elapsed and about how long is
 left.
 
-The extractor reads an installation in place with `BFE_GAME_DIR` (the folder
-holding `GameData`) and writes to `BFE_CONTENT_DIR` instead of `public/`
-(`tools/zero_paths.py`). From a checkout:
+For 2004 (`swbf1`), the desktop host passes `BFE_FAMILY=swbf1`, `BFE_GAME_DIR`
+(the folder holding `GameData`) and `BFE_CONTENT_DIR` (the flat `<content>` root)
+to `tools/prepare.py` (`tools/zero_paths.py`), overriding any inherited
+`BFE_FAMILY`. A 2005 (`swbf2`) preparation is described below. Never point a
+released 2004 build at `<content>/swbf2/.content` by hand. From a checkout,
+naming the game explicitly so an inherited `BFE_FAMILY` cannot choose another:
 
 ```bash
-BFE_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Star Wars Battlefront (Classic 2004)" \
+BFE_FAMILY=swbf1 \
+  BFE_GAME_DIR="$HOME/.local/share/Steam/steamapps/common/Star Wars Battlefront (Classic 2004)" \
+  BFE_CONTENT_DIR="public" \
   python3 tools/prepare.py
 ```
+
+### Preparing the 2005 game
+
+A 2005 preparation writes under `<content>/swbf2/.content`. The released 2004
+game continues to use the flat `<content>` folder. A dedicated regular receipt
+or a marker in the physical 2005 interior keeps that tree out of 2004
+discovery. A flat folder with an obsolete marker still uses the released 2004
+reader, including its handling of extra receipt fields.
+
+**Choosing a destination.** The desktop may begin in a missing or empty
+folder. Every nonempty preparation folder needs a regular
+`.prepare-swbf2.json` containing the family `swbf2` and a supported positive
+integer `swbf2Version`, or a genuine early 2005 `.prepare.json`. The early
+record also identifies the preparation format, source installation, completion
+state and finished steps. If both names exist, both records must qualify.
+A record that the released 2004 reader accepts as current, a receipt or marker
+naming the other family, or recognizable 2004 payload prevents the write.
+The immediate entries in `maps/` and `sides/` must be map and side folders.
+A marker on its own can identify the interior for discovery. A start there
+reports the missing proof and preserves its contents, including temporary
+files. Malformed optional metadata on a 2004 receipt cannot weaken this write
+protection. A new preparation publishes an unfinished receipt before creating
+its lock, so subsequent starts can recognize it even after an interruption.
+
+**Starting a preparation.**
+
+1. The desktop reads `tools/content-version.json`. A writing start requires
+   the generation `swbf2`, lock protocol `swbf2Lock: "stdin"` and inventory
+   format `swbf2Outputs: 1`.
+2. For a writing start and a read-only check, the desktop resolves the game
+   installation to an absolute path and checks the executable, side folder and
+   five required level archives. It passes the same absolute root to the
+   child. The preparation receipt identifies that copy by its physical
+   `_lvl_pc` folder.
+3. It resolves the content destination physically, including links and
+   `..`, and checks that it can pass the exact spelling to the child. A
+   2005 interior, a folder inside prepared content, or a `swbf2` container
+   with its own prepared content cannot be used as the outer folder. The
+   container and interior must be plain folders.
+4. A writing start checks the destination's origin before opening even an
+   existing lock. A 2004 folder keeps its lock available to its own writer.
+   In an identified 2005 tree, a live writer returns busy. The desktop also
+   checks for links or nested prepared trees and reports failed lookups.
+5. Holding the lock, it checks the origin again and publishes the marker.
+   When an owned tree needs clearing, it publishes an unfinished receipt
+   before removing payload. The receipt persists throughout a clear so that a
+   subsequent start can finish it. The tools can resume an interrupted
+   extraction whose private work folder remains under `.locks`.
+6. It starts the tools with `BFE_FAMILY=swbf2`, the physical game and
+   content paths, and `BFE_PREPARE_LOCK=stdin`. It holds the lock until the
+   tools exit.
+
+An older client can hand over a new interior containing only its held
+`.prepare.lock` and a canonical marker with family `swbf2` and format
+`1`. Only the active transaction, with that same lock passed as standard
+input, authorizes initialization. An ordinary start that discovers those
+two files on disk preserves both.
+
+**The handover.** On Linux and macOS the client's lock and the tools' standard
+input are one open lock: the tools check that standard input is the file at
+`<BFE_CONTENT_DIR>/.prepare.lock` and lock it through a duplicate, and the
+lock stays held while either of them runs. Windows keeps a byte-range lock with
+the handle and process that took it, so the lock is two bytes of the file: the
+client takes bytes 0 and 1, lets go of byte 1 just before it starts the tools,
+and keeps byte 0; the tools take byte 1 by name, after checking that standard
+input is that same file, and keep it if the client ends first. A 2005 run
+started by hand takes both bytes, so a start that finds either held is busy.
+Standard input that cannot be identified stops the tools with an error. The
+Windows path follows the system's documented locking rules and has not been run
+on Windows. After the handover the tools' standard input is the null device and
+the programs they start get none, so no helper keeps the lock after the run. A
+2004 run ignores `BFE_PREPARE_LOCK`; its lock is the released one.
+
+**A check** (`--check`, the estimate before a preparation) takes no lock and
+makes, marks, clears or repairs nothing, in the client and in the tools.
+
+**Verification and repair.** The 2005 receipt is `.prepare-swbf2.json`. It
+records the family, versions, source installation, planned and finished steps,
+and an `outputs` inventory for each step. The `*` list holds products shared
+by several steps. Each entry records a relative path and its expected size.
+Compiled scripts also carry a SHA-256 hash. See the 2005 receipt format in
+`docs/formats.md`.
+
+A complete preparation has the current versions, a finished plan with a map
+and common data, and no failed, skipped or add-on steps. Each core step needs
+a nonempty inventory. Each map must list its map record and geometry, each
+side its unit record, and common data its common record, all with positive
+sizes. The verifier enumerates the tree and matches paths under each step in both directions.
+Listed files must match their expected sizes and any recorded hashes.
+Stock audio streams must cover the byte spans in their indexes. Some optional
+buffers are legitimately empty. Completed Enhanced Sound steps keep empty
+lists because their own sound maintenance checks those files. Switching sound
+off omits those steps from the current plan and keeps a healthy tree usable
+and exportable. A leftover in-progress
+product waits for the tools to clean it under the preparation lock.
+
+Verification, export, import and relocation use the same completion test.
+Verification against an installation also checks that it is the recorded
+copy. Incomplete products in an owned tree are resumable. The desktop leaves
+the receipt and its expectations in place for the tools to repair the files.
+An unfinished preparation of the same copy can continue automatically.
+Conflicting or absent proof of origin always stops a write.
+
+**Export and import.** Export resolves its source physically and holds the
+preparation lock from verification until the archive is written. It carries
+the canonical receipt and files throughout the tree, including hidden
+content. Locks, bookkeeping files and alternate hardlink names for the
+receipt are omitted. A link or a file named `bfe-content-manifest.json` in
+the root prevents export. Save archives outside prepared game content. An
+existing export destination must be an empty file or a recognized 2005
+archive. Import restores into a new `content-<id>/swbf2/.content/` under
+the selected backup folder. It checks the restored tree and canonical receipt
+before publishing it. Relocation verifies ownership and completeness before
+creating a lock and replaces the receipt under that lock.
+
+**Writes.** The marker and a relocated record are written to a new file, flushed
+and renamed over the old one; the tools replace their record the same way
+without flushing. A reader therefore sees the old file or the new one, never a
+half-written one. Folders are not flushed, so after a power loss an older
+version can come back.
+
+**What this does not protect against.** Another program moving or replacing
+the tree, or a folder above it, while a preparation writes; a bind or nested
+mount that shows 2004 data inside a 2005 tree; a kernel I/O error in the middle
+of an operation, beyond stopping where it happens and changing nothing after it;
+and durability across a power loss beyond the atomic replacement above.
 
 ### The loader's look
 

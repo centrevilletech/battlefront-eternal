@@ -13,6 +13,10 @@ use bfe_presentation::{
 };
 use three::{Matrix4, Quaternion, Vector3};
 mod ride;
+
+fn riding_radius(definition: &[f64]) -> Option<f64> {
+    (definition[d::MINE] != 0.).then_some(definition[d::RADIUS])
+}
 // ItemPresentation retains its own fall, bob and water clocks. Wire records
 // admit or retire qualified items; a renderer recipe is only a resource
 // prerequisite. The host never integrates an independent falling body.
@@ -24,10 +28,22 @@ pub struct Views {
     // Each definition's steady light (LightColor as 0..1 times its alpha,
     // LightRadius), none when the radius is 0.
     lights: Vec<Option<([f64; 3], f64)>>,
+    // Each item definition's looping TrailEffect name (e.g. blinking detpack/timebomb).
+    trails: Vec<Option<String>>,
     /// Item lights added, summed over frames.
     pub lit: u64,
     remote_models: Vec<Option<Model>>,
-    remotes: Vec<(usize, [f64; 3], f64)>,
+    remote_trails: Vec<Option<String>>,
+    remote_guided: Vec<bool>,
+    // A guided remote's engine (flame and contrail scale) and its ContrailEffect, by definition.
+    remote_engines: Vec<Option<super::combat::swbf2::RemoteEngine>>,
+    remote_contrails: Vec<Option<String>>,
+    remotes: Vec<(usize, u32, u32, [f64; 3], f64, f64)>,
+    // Active looping effects attached to live mines and flying guided remotes.
+    mine_fx: Vec<((u32, u32), u32, bool)>,
+    remote_fx: Vec<((u32, u32), u32, bool)>,
+    contrail_fx: Vec<((u32, u32), u32, bool)>,
+    reset_fx: bool,
     pub hide_piloted_remote: bool,
     /// The connection epoch the owner was last reset for.
     epoch: Option<f64>,
@@ -41,9 +57,38 @@ pub struct Views {
     pub visible: usize,
     // Mines riding hulls, worked out from the records (ride.rs).
     riders: ride::Riders,
+    family: bfe_family::GameFamily,
 }
+
+fn light_color_released(def: &bfe_content::Value) -> [f64; 3] {
+    let color = def.get("LightColor").and_then(bfe_content::Value::as_array);
+    let channel = |k: usize, default: f64| color.and_then(|c| c.get(k)).and_then(bfe_content::Value::as_f64).unwrap_or(default);
+    let alpha = channel(3, 255.) / 255.;
+    std::array::from_fn(|k| channel(k, 0.) / 255. * alpha)
+}
+
+fn light_color_swbf2(def: &bfe_content::Value) -> [f64; 3] {
+    let parsed_color: Vec<f64> = match def.get("LightColor") {
+        Some(bfe_content::Value::Array(arr)) => arr.iter().map(|v| v.as_f64().unwrap_or(0.)).collect(),
+        Some(bfe_content::Value::String(line)) => line.split_whitespace().filter_map(|s| s.parse::<f64>().ok()).collect(),
+        _ => Vec::new(),
+    };
+    let channel = |k: usize, default: f64| parsed_color.get(k).copied().unwrap_or(default);
+    let alpha = channel(3, 255.) / 255.;
+    std::array::from_fn(|k| channel(k, 0.) / 255. * alpha)
+}
+
+fn light_color_for_family(family: bfe_family::GameFamily, def: &bfe_content::Value) -> [f64; 3] {
+    match family {
+        bfe_family::GameFamily::Swbf1 => light_color_released(def),
+        bfe_family::GameFamily::Swbf2 => light_color_swbf2(def),
+    }
+}
+
 impl Views {
-    pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32) -> Result<Self, String> {
+    pub async fn new(content: &BattleContent, bridge: &mut Bridge, textures: &[u32], collision: Collision, world: u32, bounds: bfe_sim::wire::PositionBounds) -> Result<Self, String> {
+        let family = content.content.battle.family;
+        let swbf2 = family == bfe_family::GameFamily::Swbf2;
         let mut budget = crate::loading_work::Budget::new();
         let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
@@ -51,7 +96,12 @@ impl Views {
         let mut definitions = vec![None; defs.registry.combat.len() + 1];
         let mut models = Vec::new();
         let mut lights = Vec::new();
+        let mut trails = Vec::new();
         let mut remote_models: Vec<Option<Model>> = (0..=defs.registry.combat.len()).map(|_| None).collect();
+        let mut remote_trails: Vec<Option<String>> = vec![None; defs.registry.combat.len() + 1];
+        let mut remote_guided: Vec<bool> = vec![false; defs.registry.combat.len() + 1];
+        let mut remote_engines = vec![None; defs.registry.combat.len() + 1];
+        let mut remote_contrails: Vec<Option<String>> = vec![None; defs.registry.combat.len() + 1];
         for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
             if budget.tick().await {
                 bridge.r.core.state.reset();
@@ -60,6 +110,23 @@ impl Views {
             if base == "droid" {
                 let name = def.get("GeometryName").and_then(bfe_content::Value::as_str).unwrap_or("");
                 remote_models[i + 1] = Model::new(content, bridge, textures, name, shadow_cascades)?;
+                if swbf2 {
+                    remote_trails[i + 1] = def
+                        .get("ThrustEffect")
+                        .and_then(bfe_content::Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                    remote_guided[i + 1] = def
+                        .get("GuidedMissile")
+                        .and_then(bfe_content::Value::as_f64)
+                        .is_some_and(|n| n != 0.);
+                    remote_engines[i + 1] = Some(super::combat::swbf2::RemoteEngine::read(def));
+                    remote_contrails[i + 1] = def
+                        .get("ContrailEffect")
+                        .and_then(bfe_content::Value::as_str)
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_string);
+                }
                 continue;
             }
             if base != "mine" && base != "powerupitem" {
@@ -81,11 +148,18 @@ impl Views {
             row[d::RADIUS] = bfe_content::derived::item_radius(content.content.weapon_models.get(name)).0;
             row[d::LIGHT_RADIUS] = def.get("LightRadius").and_then(bfe_content::Value::as_f64).unwrap_or(0.).max(0.);
             // color01: a missing colour is black, no light.
-            let color = def.get("LightColor").and_then(bfe_content::Value::as_array);
-            let channel = |k: usize, default: f64| color.and_then(|c| c.get(k)).and_then(bfe_content::Value::as_f64).unwrap_or(default);
-            let alpha = channel(3, 255.) / 255.;
-            let rgb: [f64; 3] = std::array::from_fn(|k| channel(k, 0.) / 255. * alpha);
+            let rgb = light_color_for_family(family, def);
             lights.push((row[d::LIGHT_RADIUS] > 0.).then_some((rgb, row[d::LIGHT_RADIUS])));
+            trails.push(
+                (swbf2 && base == "mine")
+                    .then(|| {
+                        def.get("TrailEffect")
+                            .and_then(bfe_content::Value::as_str)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_string)
+                    })
+                    .flatten(),
+            );
             row[d::MESH] = model.is_some() as u8 as f64;
             owner.define(index);
             models.push(model);
@@ -93,17 +167,26 @@ impl Views {
         // WaterState is the existing shared crossing policy and tick bob. Its
         // cells are immutable map content, not another gameplay simulation.
         let water = super::water::new(content);
-        for (axis, extent) in [super::receiver::BOUNDS[1], super::receiver::BOUNDS[5], super::receiver::BOUNDS[3]].iter().enumerate() {
-            owner.frame[f::ROUND_X + axis] = extent / 65535. / 2. + 0.002;
+        for (axis, step) in bounds.step().into_iter().enumerate() {
+            owner.frame[f::ROUND_X + axis] = step / 2. + 0.002;
         }
         Ok(Self {
             owner,
             definitions,
             models,
             lights,
+            trails,
             lit: 0,
             remote_models,
+            remote_trails,
+            remote_guided,
+            remote_engines,
+            remote_contrails,
             remotes: Vec::with_capacity(64),
+            mine_fx: Vec::with_capacity(32),
+            remote_fx: Vec::with_capacity(16),
+            contrail_fx: Vec::with_capacity(16),
+            reset_fx: false,
             hide_piloted_remote: false,
             epoch: None,
             lives: vec![(None, false); limit::SLOTS],
@@ -113,6 +196,7 @@ impl Views {
             last_water: 0.,
             visible: 0,
             riders: ride::Riders::new(limit::SLOTS),
+            family,
         })
     }
     // Changed item records are applied before sampling. The retained owner
@@ -127,6 +211,7 @@ impl Views {
             self.epoch = Some(receiver.epoch);
             self.owner.reset_epoch(receiver.epoch);
             self.lives.fill((None, false));
+            self.reset_fx = true;
         }
         for life in &mut self.lives {
             life.1 = false;
@@ -237,18 +322,26 @@ impl Views {
             if self.remote_models.get(def_id).and_then(Option::as_ref).is_none() {
                 continue;
             }
+            let id = row[net::ID] as u32;
+            let gen = row[net::GENERATION] as u32;
+            let guided = self.remote_guided.get(def_id).copied().unwrap_or(false);
+            let pitch = if guided { row[net::PITCH] } else { 0. };
             if let Some((rid, rgen, _)) = receiver.own.remote {
                 if row[net::ID] == rid as f64 && row[net::GENERATION] == rgen as f64 {
                     if !self.hide_piloted_remote {
-                        self.remotes.push((def_id, receiver.own.remote_position, receiver.own.remote_yaw));
+                        let own_pitch = if guided { receiver.own.remote_pitch } else { 0. };
+                        self.remotes.push((def_id, id, gen, receiver.own.remote_position, receiver.own.remote_yaw, own_pitch));
                     }
                     continue;
                 }
             }
             self.remotes.push((
                 def_id,
+                id,
+                gen,
                 [row[net::POSITION], row[net::POSITION + 1], row[net::POSITION + 2]],
                 row[net::YAW],
+                pitch,
             ));
         }
         self.visible = self.owner.header[h::VIEWS] as usize + self.remotes.len();
@@ -274,14 +367,18 @@ impl Views {
             self.riders.hull(key, row[net::TICK], three(row, net::POSITION), turn, flying);
         }
         for row in receiver.active().filter(|r| r[net::KIND] == kind::ITEM as f64) {
-            if self.definitions.get(row[net::DEFINITION_ID] as usize).copied().flatten().is_none() {
+            let Some(index) = self.definitions.get(row[net::DEFINITION_ID] as usize).copied().flatten() else { continue };
+            let definition = &self.owner.definitions[index * d::STRIDE..][..d::STRIDE];
+            let slot = row[net::ID] as usize;
+            let Some(radius) = riding_radius(definition) else {
+                self.riders.forget(slot);
                 continue;
-            }
+            };
             let still = row[net::VELOCITY..net::VELOCITY + 3].iter().all(|v| *v == 0.);
             let frame = ride::item_frame(three(row, net::POSITION), three(row, net::UP), row[net::YAW]);
-            self.riders.item(row[net::ID] as usize, row[net::GENERATION], row[net::ACTIVE] != 0., row[net::TICK], frame, still);
+            self.riders.item(slot, row[net::GENERATION], row[net::ACTIVE] != 0., row[net::TICK], frame, still, radius);
         }
-        self.riders.settle();
+        self.riders.settle(|key, point, reach| hulls.touches(key, point, reach));
         let views = self.owner.header[h::VIEWS] as usize;
         for view in self.owner.views.chunks_exact_mut(v::STRIDE).take(views) {
             let (p, q) = (v::POSITION, v::QUATERNION);
@@ -307,9 +404,97 @@ impl Views {
             + self
                 .remotes
                 .iter()
-                .filter_map(|&(def_id, _, _)| self.remote_models.get(def_id).and_then(Option::as_ref))
+                .filter_map(|&(def_id, _, _, _, _, _)| self.remote_models.get(def_id).and_then(Option::as_ref))
                 .map(|m| m.rows.len())
                 .sum::<usize>()
+    }
+    /// Attach and retire looping particle effects for active mines (`TrailEffect`,
+    /// e.g. blinking detpacks and timebombs) and guided remotes (`ThrustEffect`, its
+    /// size following the remote's airspeed, and `ContrailEffect`).
+    pub fn sync_effects(&mut self, receiver: &Receiver, combat: &mut super::combat::Combat) {
+        if self.family != bfe_family::GameFamily::Swbf2 {
+            return;
+        }
+        if self.reset_fx {
+            self.reset_fx = false;
+            for (_, handle, _) in self.mine_fx.drain(..) {
+                combat.stop_effect(handle);
+            }
+            for (_, handle, _) in self.remote_fx.drain(..).chain(self.contrail_fx.drain(..)) {
+                combat.stop_effect(handle);
+            }
+        }
+        for entry in &mut self.mine_fx {
+            entry.2 = false;
+        }
+        for view in self.owner.views.chunks_exact(v::STRIDE).take(self.owner.header[h::VIEWS] as usize) {
+            let def_idx = view[v::DEFINITION] as usize;
+            let Some(Some(name)) = self.trails.get(def_idx) else {
+                continue;
+            };
+            let key = (view[v::SLOT] as u32, view[v::GENERATION] as u32);
+            let pos = [view[v::POSITION], view[v::POSITION + 1], view[v::POSITION + 2]];
+            if let Some(entry) = self.mine_fx.iter_mut().find(|e| e.0 == key) {
+                entry.2 = true;
+                combat.sync_effect(entry.1, pos, None);
+            } else if let Some(group) = combat.resolve_effect_group("mine trail", name) {
+                if let Some(handle) = combat.start_effect(group, pos, None, key.0.wrapping_mul(31) ^ key.1) {
+                    self.mine_fx.push((key, handle, true));
+                }
+            }
+        }
+        let mut mi = 0;
+        while mi < self.mine_fx.len() {
+            if !self.mine_fx[mi].2 {
+                combat.stop_effect(self.mine_fx[mi].1);
+                self.mine_fx.swap_remove(mi);
+            } else {
+                mi += 1;
+            }
+        }
+        for entry in self.remote_fx.iter_mut().chain(self.contrail_fx.iter_mut()) {
+            entry.2 = false;
+        }
+        for &(def_id, id, gen, pos, yaw, pitch) in &self.remotes {
+            let key = (id, gen);
+            let mut q = Quaternion::default();
+            q.set_from_euler(&three::Euler::new(-pitch, yaw, 0., three::EulerOrder::YXZ));
+            let turn = [q.x, q.y, q.z, q.w];
+            let speed = receiver
+                .record(kind::REMOTE, f64::from(id), f64::from(gen))
+                .map_or(0., |row| (row[net::VELOCITY].powi(2) + row[net::VELOCITY + 1].powi(2) + row[net::VELOCITY + 2].powi(2)).sqrt());
+            let (flame, trail) = self.remote_engines.get(def_id).copied().flatten().map_or((Some(1.), None), |e| e.scales(speed));
+            let effects = [
+                (self.remote_trails.get(def_id).and_then(Option::as_deref), flame, "remote thrust", 17),
+                (self.remote_contrails.get(def_id).and_then(Option::as_deref), trail, "remote contrail", 23),
+            ];
+            for (at, (name, scale, source, salt)) in effects.into_iter().enumerate() {
+                let Some(name) = name else { continue };
+                let list = if at == 0 { &mut self.remote_fx } else { &mut self.contrail_fx };
+                let Some(scale) = scale else { continue };
+                if let Some(entry) = list.iter_mut().find(|e| e.0 == key) {
+                    entry.2 = true;
+                    combat.sync_effect(entry.1, pos, Some(turn));
+                    combat.scale_effect(entry.1, scale);
+                } else if let Some(group) = combat.resolve_effect_group(source, name) {
+                    if let Some(handle) = combat.start_effect(group, pos, Some(turn), id.wrapping_mul(salt) ^ gen) {
+                        combat.scale_effect(handle, scale);
+                        list.push((key, handle, true));
+                    }
+                }
+            }
+        }
+        for list in [&mut self.remote_fx, &mut self.contrail_fx] {
+            let mut ri = 0;
+            while ri < list.len() {
+                if !list[ri].2 {
+                    combat.stop_effect(list[ri].1);
+                    list.swap_remove(ri);
+                } else {
+                    ri += 1;
+                }
+            }
+        }
     }
     // Published views already contain position and orientation. Compose the
     // rigid draw matrix without advancing bob, fall or water a second time.
@@ -340,16 +525,35 @@ impl Views {
             );
             (records, bones) = model.append(bridge, &matrix.elements, records, bones);
         }
-        for &(def_id, pos, yaw) in &self.remotes {
+        for &(def_id, _, _, pos, yaw, pitch) in &self.remotes {
             let Some(model) = self.remote_models.get(def_id).and_then(Option::as_ref) else {
                 continue;
             };
             let mut q = Quaternion::default();
-            q.set_from_axis_angle(&Vector3::new(0., 1., 0.), yaw);
+            if pitch != 0. {
+                q.set_from_euler(&three::Euler::new(-pitch, yaw, 0., three::EulerOrder::YXZ));
+            } else {
+                q.set_from_axis_angle(&Vector3::new(0., 1., 0.), yaw);
+            }
             let mut matrix = Matrix4::default();
             matrix.compose(&Vector3::new(pos[0], pos[1], pos[2]), &q, &Vector3::new(1., 1., 1.));
             (records, bones) = model.append(bridge, &matrix.elements, records, bones);
         }
         (records, bones)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_light_color_ignores_strings_in_2004_and_parses_them_in_2005() {
+        let string_def = bfe_content::json::parse(r#"{"LightColor":"255 128 0 255"}"#).unwrap();
+        let array_def = bfe_content::json::parse(r#"{"LightColor":[255,128,0,255]}"#).unwrap();
+        assert_eq!(light_color_for_family(bfe_family::GameFamily::Swbf1, &string_def), [0., 0., 0.]);
+        let want = [1., 128. / 255., 0.];
+        assert_eq!(light_color_for_family(bfe_family::GameFamily::Swbf1, &array_def), want);
+        assert_eq!(light_color_for_family(bfe_family::GameFamily::Swbf2, &string_def), want);
     }
 }

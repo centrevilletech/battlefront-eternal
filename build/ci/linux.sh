@@ -36,6 +36,9 @@ strict_clippy_crates=(
 # strict clippy gate and the test matrix as soon as its Cargo.toml lands.
 wave_crates=(
   sim-gen
+  bfe-script
+  bfe-test-alloc
+  bfe-wide
   bfe-ui
   bfe-interface
   bfe-shell
@@ -43,6 +46,8 @@ wave_crates=(
   bfe-battle-ui
   bfe-desktop
   bfe-server
+  bfe-family
+  bfe-storage
   xtask
 )
 
@@ -79,6 +84,13 @@ for crate in "${strict_clippy_crates[@]}"; do
 done
 cargo clippy --manifest-path "${manifest}" --locked --all-targets --no-deps \
   "${clippy_pkg_args[@]}" -- -D warnings
+
+# The infantry profile denies the simulation's disallowed floating-point
+# methods, including in its unit tests. Keep this check active while the
+# rest of sim is outside the default strict crate list.
+echo "==> Battlefront II infantry determinism lint"
+cargo clippy --manifest-path "${manifest}" --locked -p sim --all-targets --no-deps \
+  -- -D warnings -A clippy::all -A unused -A private_interfaces
 
 if [[ "${BFE_CI_STRICT_CLIPPY}" == "1" ]]; then
   echo "==> Step 2b: cargo clippy (-D warnings) on remaining workspace crates"
@@ -119,6 +131,13 @@ for crate in "${base_test_crates[@]}" "${present_wave_crates[@]}"; do
 done
 
 cargo test --manifest-path "${manifest}" --locked "${test_pkg_args[@]}"
+
+# The script runtime must give the same bits with the optimizer on: its tests run in
+# release as well (exceptional arithmetic, the differential corpus, hostile bounds).
+if [[ -f "rust/bfe-script/Cargo.toml" ]]; then
+  echo "==> Step 3b: bfe-script tests in release"
+  cargo test --manifest-path "${manifest}" --locked --release -p bfe-script
+fi
 
 echo "==> Step 4: Native audio null-device test (ALSA null plugin)"
 alsa_conf="$(mktemp "${TMPDIR:-/tmp}/bfe-alsa-null.XXXXXX")"
@@ -178,6 +197,9 @@ if [[ -f "rust/bfe-server/Cargo.toml" ]]; then
     exit 1
   fi
 fi
+
+echo "==> Step 5b: the test-only open gate stays out of what ships"
+bash build/ci/check-release-gate.sh rust/target/debug/bfeserver
 
 echo "==> Step 6: Python tests of the preparation and packaging tools"
 python3 build/ci/python-tests.py

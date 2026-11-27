@@ -57,19 +57,26 @@ suitable license is chosen; see docs/audio.md.
 """
 
 import argparse
+from contextlib import contextmanager
+import filecmp
+import hashlib
 import json
 import math
 import os
 import shutil
 import struct
+import subprocess
 import sys
 import time
 import tempfile
+import uuid
+import zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import PUBLIC as _PUBLIC  # noqa: E402
+from zero_family import is_swbf2  # noqa: E402
+from zero_paths import PUBLIC as _PUBLIC, write_text_lf  # noqa: E402
 PUBLIC = _PUBLIC / "audio"
 OUT = PUBLIC / "enhanced"
 RATE = 48000
@@ -218,6 +225,99 @@ def sample_kinds(manifest):
     return kinds, loops
 
 
+def battle_sample_choices():
+    """Keep each battle's request when a sample needs more than one treatment."""
+    requests = {}
+    conflicts = set()
+    for path in sorted(PUBLIC.glob("*/sound.json")):
+        bank = path.parent.name
+        if bank == "shell":
+            continue
+        try:
+            manifest = json.loads(path.read_bytes())
+            kinds, loops = sample_kinds(manifest)
+            choices = {sid: [bank, offset, frames, rate, kinds.get(sid, "effects"), sid in loops]
+                       for sid, (offset, frames, rate) in manifest["samples"].items()}
+        except (OSError, ValueError, LookupError, TypeError, AttributeError) as error:
+            print(f"Could not read sound treatments in {path}: {error}")
+            continue
+        for sid, request in choices.items():
+            banks = requests.setdefault(sid, {})
+            if banks and next(iter(banks.values()))[-2:] != request[-2:]:
+                conflicts.add(sid)
+            banks[bank] = request
+    return {sid: requests[sid] for sid in sorted(conflicts)}
+
+
+def shared_sample_choices():
+    """Resolve conflicting treatments in the same order as a serial preparation."""
+    if not is_swbf2():
+        return battle_sample_choices()
+    catalog = PUBLIC.parent / "common" / "shell" / "shell.json"
+    maps = json.loads(catalog.read_bytes()).get("maps", []) if catalog.is_file() else []
+    rank = {row["id"]: i for i, row in enumerate(maps)}
+    index = PUBLIC / "index.json"
+    missions = json.loads(index.read_bytes()).get("missions", {}) if index.is_file() else {}
+    first = {}
+    for mission, bank in sorted(missions.items()):
+        first.setdefault(bank, mission)
+    winners, conflicts, looped = {}, set(), set()
+    for path in sorted(PUBLIC.glob("*/sound.json")):
+        bank = path.parent.name
+        if bank == "shell":
+            continue
+        try:
+            manifest = json.loads(path.read_bytes())
+            world = manifest.get("map", bank)
+            kinds, loops = sample_kinds(manifest)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"Could not read sound treatments in {path}: {error}")
+            continue
+        order = (rank.get(world, len(rank)), world, first.get(bank, bank), bank)
+        looped.update(loops)
+        for sid, span in manifest.get("samples", {}).items():
+            choice = [bank, *span, kinds.get(sid, "effects"), sid in loops]
+            previous = winners.get(sid)
+            if previous and previous[1][-2:] != choice[-2:]:
+                conflicts.add(sid)
+            if previous is None or order > previous[0]:
+                winners[sid] = order, choice
+    choices = {sid: winners[sid][1] for sid in sorted(conflicts)}
+    if is_swbf2():
+        # Loop-safe processing preserves the endpoints for any battle that repeats the sample.
+        for sid in choices.keys() & looped:
+            choices[sid][-1] = True
+    return choices
+
+
+def session_sample_choices(session):
+    if session is None:
+        return shared_sample_choices()
+    path = session / "samples.json"
+    with segment_lock(OUT, "", "sample-choices", path=session / "samples.lock"):
+        if path.is_file():
+            return json.loads(path.read_bytes())
+        choices = shared_sample_choices()
+        # A newly installed battle can change the winner for existing battles.
+        repair_samples(choices)
+        write_json(path, choices)
+        return choices
+
+
+def chosen_sample(sid, choice, *, variant=False):
+    bank, offset, frames, rate, kind, loop = choice
+    with (PUBLIC / bank / "bank.bin").open("rb") as handle:
+        handle.seek(offset)
+        pcm = handle.read(frames * 2)
+    if len(pcm) != frames * 2:
+        raise ValueError(f"Incomplete prepared sample {sid} in {bank}")
+    digest = hashlib.sha256(struct.pack("<I", rate) + pcm).hexdigest()
+    job = (sid, pcm, rate, kind, loop, str(OUT), digest)
+    if variant:
+        return (*job, f"{sid}-{kind}-{'loop' if loop else 'once'}-{digest}")
+    return job
+
+
 # --- DSP ---------------------------------------------------------------------
 
 def k_weight(rate):
@@ -253,7 +353,7 @@ def resample(x, src, dst, loop):
     """soxr VHQ; a loop is resampled as a loop (wrapped so it joins up)."""
     if src == dst:
         return x.copy()
-    if not loop or len(x) < 64:
+    if not loop or (len(x) < 64 and not is_swbf2()):
         return soxr.resample(x, src, dst, quality="VHQ")
     pad = min(len(x), int(0.05 * src))
     wrapped = np.concatenate([x[-pad:], x, x[:pad]])
@@ -513,8 +613,11 @@ def upmix(stereo, layout):
     part, decorrelated by delays, goes to the surrounds. The LFE stays
     empty (the speakers' bass management takes the lows). Folded back down
     (L + 0.71 C + 0.71 S...), the fronts carry what they had."""
-    L, R = stereo
     n = 2048
+    frames = stereo.shape[1]
+    if is_swbf2() and frames < n:
+        stereo = np.pad(stereo, ((0, 0), (0, n - frames)))
+    L, R = stereo
     hop = 512
     f, t, ZL = signal.stft(L, RATE, nperseg=n, noverlap=n - hop)
     _, _, ZR = signal.stft(R, RATE, nperseg=n, noverlap=n - hop)
@@ -532,7 +635,7 @@ def upmix(stereo, layout):
     FR = ZR * (1 - amb) - C * 0.7071
     AL = ZL * amb
     AR = ZR * amb
-    inv = lambda Z: signal.istft(Z, RATE, nperseg=n, noverlap=n - hop)[1][: len(L)]
+    inv = lambda Z: signal.istft(Z, RATE, nperseg=n, noverlap=n - hop)[1][:frames]
     fl, fr, c, al, ar = (inv(Z) for Z in (FL, FR, C, AL, AR))
     delay = lambda x, ms: np.concatenate([np.zeros(int(ms * RATE / 1000)), x])[: len(x)]
     lfe = np.zeros_like(fl)
@@ -547,7 +650,14 @@ def upmix(stereo, layout):
 
 def write_flac(path, y):
     path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), np.clip(np.asarray(y).T, -1, 1), RATE, subtype="PCM_24", format="FLAC")
+    part = path.with_name(f".{uuid.uuid4().hex}.part")
+    try:
+        sf.write(str(part), np.clip(np.asarray(y).T, -1, 1), RATE, subtype="PCM_24", format="FLAC")
+        with part.open("rb+") as handle:
+            os.fsync(handle.fileno())
+        part.replace(path)
+    finally:
+        part.unlink(missing_ok=True)
 
 
 # Opus bit rates for the streams, by channel count: transparent for this
@@ -559,7 +669,6 @@ def write_opus(path, y):
     """A stream file as Ogg Opus via ffmpeg. Above two channels it uses
     channel mapping 255 (discrete): the channels stay in the file's order and
     none is treated as an LFE, which Chromium decodes as written."""
-    import subprocess
 
     y = np.clip(np.asarray(y, dtype=np.float32), -1, 1)
     channels = y.shape[0]
@@ -568,20 +677,44 @@ def write_opus(path, y):
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-f", "f32le", "-ar", str(RATE), "-ac", str(channels), "-i", "pipe:0",
         "-c:a", "libopus", "-b:a", OPUS_RATES.get(channels, "512k"), "-vbr", "on", "-application", "audio",
-        "-mapping_family", "255" if channels > 2 else "0", str(path),
+        "-mapping_family", "255" if channels > 2 else "0",
     ]
-    subprocess.run(cmd, input=y.T.tobytes(), check=True)
+    part = path.with_name(f".{uuid.uuid4().hex}.opus")
+    try:
+        subprocess.run([*cmd, str(part)], input=y.T.tobytes(), check=True)
+        with part.open("rb+") as output:
+            os.fsync(output.fileno())
+        part.replace(path)
+    finally:
+        part.unlink(missing_ok=True)
 
 
 def sample_job(args):
-    sid, pcm_bytes, rate, kind, loop, out = args
-    x = np.frombuffer(pcm_bytes, dtype="<i2").astype(np.float64) / 32768
-    y, report = enhance(x, rate, kind, loop)
-    path = Path(out) / "samples" / f"{sid}.flac"
-    write_flac(path, y)
-    report = {"file": f"samples/{sid}.flac", "rate": RATE, "frames": int(y.shape[-1]), "source_rate": rate, **report}
-    write_record(path.with_suffix(".json"), kind, loop, report)
-    return sid, report
+    sid, pcm_bytes, rate, kind, loop, out, *proof = args
+    root = Path(out)
+    source = proof[0] if proof else None
+    variant = len(proof) == 2
+    stem = proof[1] if variant else sid
+    path = root / "samples" / f"{stem}.flac"
+    with segment_lock(root, "samples", stem):
+        cached = cached_report(path.with_suffix(".json"), kind, loop, root, source)
+        if cached is not None:
+            return sid, cached
+        x = np.frombuffer(pcm_bytes, dtype="<i2").astype(np.float64) / 32768
+        y, report = enhance(x, rate, kind, loop)
+        file = None if variant and report["fallback"] else f"samples/{stem}.flac"
+        if file:
+            write_flac(path, y)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        report = {"file": file, "rate": RATE, "frames": int(y.shape[-1]), "source_rate": rate, **report}
+        if is_swbf2():
+            record_span(report, x.size)
+        proof = {"sourceSha256": source, "flacBytes": path.stat().st_size if file else 0} if source else {}
+        if is_swbf2():
+            proof["flacSha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        write_record(path.with_suffix(".json"), kind, loop, report, **proof)
+        return sid, report
 
 
 def segment_files(report, root):
@@ -610,15 +743,26 @@ def current_entry(path, kind, loop):
     return entry
 
 
-def cached_report(path, kind, loop):
+def cached_report(path, kind, loop, root=None, source=None):
     """The report of an item made before with the same settings, when every
     file of it is still there; else None."""
     entry = current_entry(path, kind, loop)
     if entry is None:
         return None
     report = entry.get("report") or {}
-    files = report_files(report, OUT)
+    if is_swbf2():
+        if "source_frames" not in report:
+            return None
+        if report.get("reason") == "empty" and report.get("source_frames") == 0:
+            return report
+    if source and report.get("fallback") is True and report.get("file") is None:
+        return report if entry.get("sourceSha256") == source else None
+    files = report_files(report, OUT if root is None else root)
     if not files or not all(file.exists() for file in files):
+        return None
+    if source and (entry.get("sourceSha256") != source or entry.get("flacBytes") != files[0].stat().st_size):
+        return None
+    if is_swbf2() and report.get("file") and entry.get("flacSha256") != hashlib.sha256(files[0].read_bytes()).hexdigest():
         return None
     return report
 
@@ -631,17 +775,17 @@ def cached_sample(sid, kind, loop):
     return cached_report(OUT / "samples" / f"{sid}.json", kind, loop)
 
 
-def write_record(path, kind, loop, report):
+def write_record(path, kind, loop, report, **proof):
     """An item's record in the shared folder, written whole: another
     sub-level's run finds it complete or not at all."""
     # Battles may share a sample and finish its enhancement concurrently.
     # A unique sibling keeps one writer from renaming another's staging file.
     with tempfile.NamedTemporaryFile(mode="w", dir=path.parent,
                                      prefix=path.name + ".", suffix=".part",
-                                     delete=False) as handle:
+                                     newline="\n", delete=False) as handle:
         part = Path(handle.name)
         try:
-            json.dump({"version": VERSION, "kind": kind, "loop": loop, "report": report}, handle)
+            json.dump({"version": VERSION, "kind": kind, "loop": loop, "report": report, **proof}, handle)
         except BaseException:
             part.unlink(missing_ok=True)
             raise
@@ -671,46 +815,419 @@ def replace_shared(part, path, kind, loop):
             raise
 
 
-def place(source, target):
-    """target as a hard link to source (the same bytes once on disk), or a
-    copy where links can't be made."""
-    target.parent.mkdir(parents=True, exist_ok=True)
+def write_json(path, data):
+    part = path.with_name(f".{uuid.uuid4().hex}.part")
     try:
-        if target.exists() and os.path.samefile(source, target):
-            return
-    except OSError:
-        pass
-    target.unlink(missing_ok=True)
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copyfile(source, target)
+        write_text_lf(part, json.dumps(data, indent=1, sort_keys=True))
+        part.replace(path)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+@contextmanager
+def segment_lock(out, stream, key, *, path=None):
+    """Reserve one byte per segment in the existing preparation lock file."""
+    if path is None:
+        path = out.parent.parent / ".locks" / "audio-index.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    offset = 1 + (zlib.crc32((stream + "/" + key).encode()) & 0x7fffffff)
+    with path.open("a+b") as handle:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(offset)
+            while True:
+                try:
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except PermissionError:
+                    time.sleep(0.05)
+        else:
+            import fcntl
+            fcntl.lockf(handle, fcntl.LOCK_EX, 1, offset)
+        yield  # Closing the descriptor also releases the lock after an interrupted job.
+
+
+def shared_stream_settings(session, stream, settings):
+    """The first reference chooses the treatment for a shared stream during this preparation."""
+    if session is None:
+        return settings
+    choices = session / "streams.json"
+    with segment_lock(OUT, "", ""):
+        saved = json.loads(choices.read_bytes()) if choices.exists() else {}
+        if stream in saved:
+            return tuple(saved[stream])
+        saved[stream] = settings
+        pending = choices.with_suffix(".tmp")
+        write_text_lf(pending, json.dumps(saved))
+        pending.replace(choices)
+        return settings
 
 
 def segment_job(args):
-    stream, key, raw, channels, substreams, interleave, size, rate, kind, loop, out = args
+    stream, key = args[:2]
+    kind, loop, out = args[-3:]
+    root = Path(out)
+    with segment_lock(root, stream, key):
+        report = cached_report(root / "streams" / stream / f"{key}.json", kind, loop, root)
+        if report is not None:
+            return stream, key, report
+        return encode_segment(args)
+
+
+def record_span(report, source_frames):
+    report["source_frames"] = source_frames
+    if report["loop"]:
+        report["source_loop"] = [0, source_frames]
+        report["loop_frames"] = [0, report["frames"]]
+
+
+def encode_segment(args, layouts=None):
+    stream, key, raw, channels, substreams, interleave, size, rate, *span, kind, loop, out = args
+    base = Path(out) / "streams" / stream
+    if span == [0]:
+        base.mkdir(parents=True, exist_ok=True)
+        report = {"files": {}, "rate": RATE, "frames": 0, "channels": channels * substreams,
+                  "source_rate": rate, "source_frames": 0, "kind": kind, "loop": loop,
+                  "fallback": True, "reason": "empty"}
+        write_record(base / f"{key}.json", kind, loop, report)
+        return stream, key, report
     if substreams > 1:
         parts = [bytearray() for _ in range(substreams)]
         for k, pos in enumerate(range(0, len(raw), interleave)):
             parts[k % substreams] += raw[pos:pos + interleave]
         decoded = []
         for part in parts:
-            decoded.extend(decode_xbox_adpcm(bytes(part[: size // substreams]), channels))
+            # Interleaved 2005 banks count playable frames across the padded planes.
+            length = len(part) if span else size // substreams
+            decoded.extend(decode_xbox_adpcm(bytes(part[:length]), channels))
     else:
         decoded = decode_xbox_adpcm(raw[:size], channels)
     frames = min(len(c) for c in decoded)
+    if span:
+        if frames < span[0]:
+            raise ValueError(f"{stream}/{key}: decoded {frames} source frames, expected {span[0]}")
+        frames = span[0]
     x = np.array([np.frombuffer(c, dtype=np.int16)[:frames] for c in decoded], dtype=np.float64) / 32768
     y, report = enhance(x, rate, kind, loop)
-    base = Path(out) / "streams" / stream
-    files = {"stereo" if y.shape[0] == 2 else f"{y.shape[0]}ch": f"streams/{stream}/{key}.opus"}
-    write_opus(base / f"{key}.opus", y)
+    native = "stereo" if y.shape[0] == 2 else f"{y.shape[0]}ch"
+    files = {native: f"streams/{stream}/{key}.opus"}
+    if layouts is None or native in layouts:
+        write_opus(base / f"{key}.opus", y)
     if kind == "music" and y.shape[0] == 2:
         for layout in ("5.1", "7.1"):
-            write_opus(base / f"{key}.{layout}.opus", upmix(y, layout))
+            if layouts is None or layout in layouts:
+                write_opus(base / f"{key}.{layout}.opus", upmix(y, layout))
             files[layout] = f"streams/{stream}/{key}.{layout}.opus"
     report = {"files": files, "rate": RATE, "frames": int(y.shape[-1]), "channels": int(y.shape[0]), "source_rate": rate, **report}
+    if span:
+        record_span(report, frames)
     write_record(base / f"{key}.json", kind, loop, report)
     return stream, key, report
+
+
+def segment_args(stream, key, index, data, kind, loop, out):
+    offset, size, frames, rate = index["segments"][key]
+    count = index.get("substreams", 1)
+    interleave = index.get("substreamInterleave", 0)
+    block = interleave * count
+    length = math.ceil(size / block) * block if count > 1 and block else size
+    span = ()
+    if is_swbf2():
+        if (index.get("format") != 5 or count < 1 or rate <= 0 or frames < 0 or frames % count
+                or bool(frames) != bool(size) or (count > 1 and interleave <= 0)
+                or offset < 0 or offset + length > len(data)):
+            raise ValueError(f"Invalid 2005 ADPCM segment {stream}/{key}")
+        span = (frames // count,)
+    return stream, key, data[offset:offset + length], index["channels"], count, interleave, size, rate, *span, kind, loop, str(out)
+
+
+_BIT_REVERSE = bytes(int(f"{n:08b}"[::-1], 2) for n in range(256))
+
+
+def complete_opus(path, frames, *, accept_decodable=False):
+    """Check every Ogg page, one logical stream, and the Opus play length."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        return False
+    pos = seq = 0
+    serial = skip = None
+    while pos + 27 <= len(data):
+        tag, version, flags, granule, stream, number, crc, count = struct.unpack_from("<4sBBqIIIB", data, pos)
+        packets = pos + 27 + count
+        end = packets + sum(data[pos + 27:packets])
+        if tag != b"OggS" or version or number != seq or end > len(data):
+            return False
+        page = data[pos:pos+22] + bytes(4) + data[pos+26:end]
+        reflected = zlib.crc32(page.translate(_BIT_REVERSE), 0xffffffff) ^ 0xffffffff
+        if int.from_bytes(reflected.to_bytes(4, "little").translate(_BIT_REVERSE), "big") != crc:
+            return False
+        if seq == 0:
+            if not flags & 2 or data[packets:packets+8] != b"OpusHead" or packets + 12 > end:
+                return False
+            serial = stream
+            skip = int.from_bytes(data[packets+10:packets+12], "little")
+        elif stream != serial or flags & 2:
+            return False
+        if flags & 4:
+            if end != len(data) or seq == 0 or granule <= skip:
+                return False
+            if granule - skip == frames:
+                return True
+            # Older manifests can disagree with the end granule of a complete encode.
+            return accept_decodable and subprocess.run(
+                ["ffmpeg", "-nostdin", "-v", "error", "-xerror", "-i", str(path), "-f", "null", "-"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120).returncode == 0
+        pos = end
+        seq += 1
+    return False
+
+
+def place_stream(source, target):
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.exists() and source.samefile(target):
+        return
+    part = target.with_name(f".{uuid.uuid4().hex}.part")
+    try:
+        try:
+            os.link(source, part)
+        except OSError:
+            shutil.copyfile(source, part)
+            with part.open("rb+") as output:
+                os.fsync(output.fileno())
+        part.replace(target)
+    finally:
+        part.unlink(missing_ok=True)
+
+
+def prepared_streams():
+    """Yield battle references and any shared encodes published before their battle manifest."""
+    referenced = set()
+    for manifest in sorted(OUT.glob("*/manifest.json")):
+        try:
+            for stream, segments in json.loads(manifest.read_bytes())["streams"].items():
+                for key, report in segments.items():
+                    yield manifest.parent, stream, key, report
+                    if isinstance(report, dict) and isinstance(report.get("files"), dict):
+                        referenced.add((stream, key))
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            print(f"Could not read Enhanced Sound manifest {manifest}: {error}", flush=True)
+    for record in sorted((OUT / "streams").glob("*/*.json")):
+        stream, key = record.parent.name, record.stem
+        if (stream, key) not in referenced:
+            try:
+                entry = json.loads(record.read_bytes())
+                if entry["version"] == VERSION:
+                    yield None, stream, key, entry["report"]
+            except (OSError, ValueError, KeyError, TypeError) as error:
+                print(f"Could not read Enhanced Sound receipt {record}: {error}", flush=True)
+
+
+def restore_battle_manifests():
+    """Rebuild interrupted optional manifests from the battle's prepared bank."""
+    ok = True
+    paths = set(OUT.glob("*/manifest.json"))
+    receipt = OUT.parent.parent / (".prepare-swbf2.json" if is_swbf2() else ".prepare.json")
+    try:
+        for step in json.loads(receipt.read_bytes())["done"]:
+            if isinstance(step, str) and step.startswith("audio:"):
+                bank = step[6:]
+                if bank and bank not in (".", "..") and not any(c in bank for c in "/\\:"):
+                    paths.add(OUT / bank / "manifest.json")
+    except (OSError, ValueError, TypeError, KeyError):
+        pass
+    for path in sorted(paths):
+        try:
+            battle = json.loads(path.read_bytes())
+            if isinstance(battle.get("streams"), dict) and isinstance(battle.get("samples"), dict):
+                continue
+        except (OSError, ValueError, AttributeError):
+            pass
+        name = path.parent.name
+        if not (PUBLIC / name / "sound.json").is_file():
+            print(f"Enhanced Sound for {name} is missing its source manifest", flush=True)
+            ok = False
+            continue
+        result = subprocess.run([sys.executable, __file__, name, "--jobs", "2"])
+        ok = result.returncode == 0 and ok
+    return ok
+
+
+def battle_sample(sid, report, battle, variant):
+    """The released sound reader follows the battle-relative file and its parity verdict."""
+    if not report.get("file"):
+        return report
+    master = OUT / report["file"]
+    name = f"samples/{sid}.flac" if variant else report["file"]
+    alias = battle / name
+    if not alias.exists() or (not master.samefile(alias) and not filecmp.cmp(master, alias, shallow=False)):
+        place_stream(master, alias)
+    return {**report, "file": name} if variant else report
+
+
+def repair_samples(choices=None, changed=None):
+    manifests = sorted(OUT.glob("*/manifest.json"))
+    if not manifests:
+        return True
+    if choices is None:
+        choices = shared_sample_choices()
+    verified = {}
+    ok = True
+    for path in manifests:
+        try:
+            manifest = json.loads(path.read_bytes())
+            samples = manifest.get("samples", {})
+            manifest_changed = False
+            banks = choices
+            if is_swbf2() and samples:
+                bank = path.parent.name
+                source = json.loads((PUBLIC / bank / "sound.json").read_bytes())
+                kinds, loops = sample_kinds(source)
+                banks = {sid: choices.get(sid, [bank, *span, kinds.get(sid, "effects"), sid in loops])
+                         for sid, span in source["samples"].items()}
+            for sid in banks.keys() & samples.keys():
+                bank = path.parent.name
+                variant = not is_swbf2()
+                request = banks[sid][bank] if variant else banks[sid]
+                filename = f"samples/{sid}.flac"
+                if changed is not None and not any(
+                    name == f"enhanced/{bank}/{filename}" or name in (f"enhanced/{filename}", f"enhanced/samples/{sid}.json")
+                    or name.startswith(f"enhanced/samples/{sid}-") for name in changed
+                ):
+                    continue
+                job = chosen_sample(sid, request, variant=True) if variant else chosen_sample(sid, request)
+                cache_key = job[-1] if variant else sid
+                if cache_key not in verified:
+                    _, verified[cache_key] = sample_job(job)
+                report = battle_sample(sid, verified[cache_key], path.parent, variant)
+                if samples[sid] != report:
+                    samples[sid] = report
+                    manifest_changed = True
+            if manifest_changed:
+                write_json(path, manifest)
+            if not is_swbf2():
+                for sid in choices.keys() & samples.keys():
+                    if samples[sid].get("file") is None:
+                        (path.parent / "samples" / f"{sid}.flac").unlink(missing_ok=True)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, subprocess.SubprocessError) as error:
+            ok = False
+            print(f"Could not update Enhanced Sound samples for {path.parent.name}: {error}", flush=True)
+    if ok and not is_swbf2():
+        # Battle aliases have been published by name. Retire the old single-treatment masters.
+        for sid in choices:
+            for suffix in (".flac", ".json"):
+                (OUT / "samples" / (sid + suffix)).unlink(missing_ok=True)
+    return ok
+
+
+
+def repair_streams(progress=None, *, record=None):
+    """Verify changed files. A failed repair is retried only after its inputs change."""
+    import zero_sound_health as health
+    root = OUT.parent.parent
+    if record is None:
+        record = health.load(root)
+    previous = record.get("streams", {})
+    files_checked = {}
+    inodes = {}
+    encoded = linked = 0
+    errors = (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, subprocess.SubprocessError)
+
+    def status(path, frames, source):
+        key = path.relative_to(OUT).as_posix()
+        stamp = health.stamp(path)
+        if key in files_checked and files_checked[key][:2] == stamp:
+            return files_checked[key][2]
+        old = previous.get(key)
+        if isinstance(old, list) and old[:2] == stamp:
+            denied = old[2:5] == ["failed", source, "permission"] and old[6:] == [os.access(path.parent, os.W_OK)]
+            if old[2:] == ["ok"] or old[2:5] == ["failed", source, "source"] or denied:
+                files_checked[key] = old
+                return old[2]
+        verdict = "damaged"
+        if stamp[0] is not None:
+            info = path.stat()
+            inode = (info.st_dev, info.st_ino or key, *stamp)
+            if inode not in inodes:
+                inodes[inode] = complete_opus(path, frames, accept_decodable=True)
+            if inodes[inode]:
+                verdict = "ok"
+        files_checked[key] = [*stamp, verdict]
+        return verdict
+
+    def failed(path, source, error):
+        key = path.relative_to(OUT).as_posix()
+        if health.permission_failure(error):
+            reason = ["permission", str(error), os.access(path.parent, os.W_OK)]
+        elif health.retryable_io(error) or isinstance(error, subprocess.SubprocessError):
+            reason = ["retry", str(error)]
+        else:
+            reason = ["source", str(error)]
+        files_checked[key] = [*health.stamp(path), "failed", source, *reason]
+        print(f"Enhanced Sound kept {key}: {error}", flush=True)
+
+    previous_battle = None
+    for battle, stream, key, report in prepared_streams():
+        if progress and battle is not None and battle != previous_battle:
+            progress(battle.name)
+            previous_battle = battle
+        try:
+            files = report["files"]
+            if any(not name or name in (".", "..") or any(c in name for c in "/\\:") for name in (stream, key)):
+                raise ValueError("Invalid stream name")
+            for layout, file in files.items():
+                suffix = "." + layout if layout in ("5.1", "7.1") else ""
+                if file != f"streams/{stream}/{key}{suffix}.opus":
+                    raise ValueError("Invalid stream layout path")
+            if not files:
+                continue
+            frames = report["frames"]
+            index = PUBLIC / "streams" / (stream + ".json")
+            bank = index.with_suffix(".bin")
+            source = [health.stamp(index), health.stamp(bank)]
+            bad = {layout for layout, file in files.items() if status(OUT / file, frames, source) == "damaged"}
+            if bad:
+                with segment_lock(OUT, stream, key):
+                    bad = {layout for layout in bad if status(OUT / files[layout], frames, source) == "damaged"}
+                    if bad:
+                        try:
+                            args = segment_args(stream, key, json.loads(index.read_bytes()), bank.read_bytes(),
+                                                report["kind"], report["loop"], OUT)
+                            encode_segment(args, bad)
+                            for layout in bad:
+                                master = OUT / files[layout]
+                                if status(master, frames, source) != "ok":
+                                    failed(master, source, "incomplete encode")
+                                else:
+                                    encoded += 1
+                        except errors as error:
+                            for layout in bad:
+                                failed(OUT / files[layout], source, error)
+            if battle is not None:
+                for file in files.values():
+                    master, target = OUT / file, battle / file
+                    master_state = status(master, frames, source)
+                    alias_source = [*source, health.stamp(master)]
+                    if status(target, frames, alias_source) == "damaged":
+                        if master_state != "ok":
+                            failed(target, alias_source, "shared stream unavailable")
+                            continue
+                        try:
+                            place_stream(master, target)
+                            files_checked[target.relative_to(OUT).as_posix()] = [*health.stamp(target), "ok"]
+                            linked += 1
+                        except errors as error:
+                            failed(target, alias_source, error)
+        except errors as error:
+            print(f"Could not verify Enhanced Sound stream {stream}/{key}: {error}", flush=True)
+    record["streams"] = files_checked
+    record["failedStreams"] = sum(row[2] == "failed" for row in files_checked.values())
+    if any(row[2] == "failed" and row[4] == "retry" for row in files_checked.values()):
+        record["retryEnhanced"] = health.retry_later(OUT, "stream encoder or filesystem error")
+    else:
+        record.pop("retryEnhanced", None)
+    health.save(root, record)
+    return encoded, linked
 
 
 def stream_kinds(manifest):
@@ -735,8 +1252,35 @@ def main():
     parser.add_argument("sublevel", nargs="?", default="nab2cw")
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 4)
     parser.add_argument("--only", choices=["samples", "streams"])
+    parser.add_argument("--stream-session", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--repair-streams", action="store_true", help="repair incomplete prepared Opus streams")
     parser.add_argument("--limit", type=int, default=0, help="process only this many items of each kind (a quick look)")
     args = parser.parse_args()
+    if args.repair_streams:
+        import zero_sound_health as health
+        if not os.access(OUT, os.W_OK):
+            return 0
+        manifests_ok = restore_battle_manifests()
+        record = health.load(OUT.parent.parent)
+        previous = record.get("enhanced", {})
+        current = health.inputs(PUBLIC, enhanced=True)
+        changed = {name for name in current.keys() | previous.keys() if previous.get(name) != current.get(name)}
+        if not previous or any(not name.startswith("enhanced/") or name.endswith("/manifest.json") for name in changed):
+            changed = None
+        samples_ok = True
+        try:
+            if changed is None or changed:
+                samples_ok = repair_samples(changed=changed)
+        except (OSError, ValueError, KeyError, TypeError, IndexError, AttributeError, subprocess.SubprocessError) as error:
+            samples_ok = False
+            print(f"Enhanced Sound sample repair deferred: {error}", flush=True)
+        from prepare import emit
+        def progress(bank):
+            emit("step", key="sound:enhanced", status="running", phase="extra", weight=1,
+                 label="Verifying Enhanced Sound", detail=f"Verifying Enhanced Sound: {bank}")
+        encoded, linked = repair_streams(progress, record=record)
+        print(f"Enhanced Sound repair: {encoded} streams encoded, {linked} battle files restored", flush=True)
+        return int(not (manifests_ok and samples_ok) or bool(record["failedStreams"]))
     src = PUBLIC / args.sublevel / "sound.json"
     if not src.exists():
         print(f"no {src}: run tools/extract.py first", file=sys.stderr)
@@ -746,31 +1290,44 @@ def main():
     out = OUT / args.sublevel
     out.mkdir(parents=True, exist_ok=True)
     result_path = out / "manifest.json"
-    result = json.loads(result_path.read_text()) if result_path.exists() else {}
+    try:
+        result = json.loads(result_path.read_bytes())
+        if not isinstance(result.get("streams"), dict) or not isinstance(result.get("samples"), dict):
+            raise ValueError("Invalid Enhanced Sound manifest")
+    except (OSError, ValueError, TypeError, AttributeError):
+        result = {}
     result.update({"version": VERSION, "tool": "tools/enhance_audio.py", "rate": RATE, "method": "dsp"})
     result.setdefault("samples", {})
     result.setdefault("streams", {})
     started = time.time()
     if args.only != "streams":
         kinds, loops = sample_kinds(manifest)
+        choices = session_sample_choices(args.stream_session)
         jobs = []
         reused = 0
         for sid, (offset, frames, rate) in manifest["samples"].items():
             kind, loop = kinds.get(sid, "effects"), sid in loops
-            report = cached_sample(sid, kind, loop)
+            variant = sid in choices and not is_swbf2()
+            if variant:
+                job = chosen_sample(sid, choices[sid][args.sublevel], variant=True)
+                report = cached_report(OUT / "samples" / f"{job[-1]}.json", kind, loop, OUT, job[6])
+            elif is_swbf2():
+                job = chosen_sample(sid, choices.get(sid, [args.sublevel, offset, frames, rate, kind, loop]))
+                report = cached_report(OUT / "samples" / f"{sid}.json", job[3], job[4], OUT, job[6])
+            else:
+                job = (sid, pcm[offset:offset + 2 * frames], rate, kind, loop, str(OUT))
+                report = cached_sample(sid, kind, loop)
             if report:
-                result["samples"][sid] = report
+                result["samples"][sid] = battle_sample(sid, report, out, variant)
                 reused += 1
                 continue
-            jobs.append((sid, pcm[offset:offset + 2 * frames], rate, kind, loop, str(OUT)))
+            jobs.append(job)
         if args.limit:
             jobs = jobs[: args.limit]
         if jobs:
             with ProcessPoolExecutor(args.jobs) as pool:
                 for sid, report in pool.map(sample_job, jobs, chunksize=4):
-                    result["samples"][sid] = report
-        for report in result["samples"].values():
-            place(OUT / report["file"], out / report["file"])
+                    result["samples"][sid] = battle_sample(sid, report, out, sid in choices and not is_swbf2())
         print(f"samples {len(jobs)} made, {reused} made before: {sum(1 for r in result['samples'].values() if r['fallback'])} fall back", flush=True)
     if args.only != "samples":
         kinds = stream_kinds(manifest)
@@ -779,20 +1336,18 @@ def main():
         for name in manifest.get("streams", []):
             index = json.loads((PUBLIC / "streams" / f"{name}.json").read_text())
             data = (PUBLIC / "streams" / f"{name}.bin").read_bytes()
-            kind, loop = kinds.get(name, ("voice" if "vo" in name else "ambience", False))
+            settings = kinds.get(name, ("voice" if "vo" in name else "ambience", False))
+            kind, loop = shared_stream_settings(args.stream_session, name, settings)
             items = list(index["segments"].items())
             if args.limit:
                 items = items[: args.limit]
-            for key, (offset, size, frames, rate) in items:
+            for key, _ in items:
                 report = cached_segment(name, key, kind, loop)
                 if report:
                     result["streams"].setdefault(name, {})[key] = report
                     reused += 1
                     continue
-                count = index.get("substreams", 1)
-                chunk = index.get("substreamInterleave", 0) * count
-                length = math.ceil(size / chunk) * chunk if count > 1 and chunk else size
-                jobs.append((name, key, data[offset:offset + length], index["channels"], count, index.get("substreamInterleave", 0), size, rate, kind, loop, str(OUT)))
+                jobs.append(segment_args(name, key, index, data, kind, loop, OUT))
         # The long segments (music) first, so no one of them ends the run alone.
         jobs.sort(key=lambda job: -job[6])
         if jobs:
@@ -802,9 +1357,9 @@ def main():
         for stream, segments in result["streams"].items():
             for report in segments.values():
                 for layout, source in segment_files(report, OUT).items():
-                    place(source, out / report["files"][layout])
+                    place_stream(source, out / report["files"][layout])
         print(f"stream segments {len(jobs)} made, {reused} made before", flush=True)
-    result_path.write_text(json.dumps(result, indent=1, sort_keys=True))
+    write_json(result_path, result)
     print(f"wrote {out} in {time.time() - started:.0f} s", flush=True)
     return 0
 

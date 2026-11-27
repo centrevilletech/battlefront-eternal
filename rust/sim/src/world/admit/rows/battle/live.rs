@@ -358,6 +358,7 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), Admi
     let tail = super::tail(cx.battle, cx.options, &facts, &mut |t| cx.intern(&mut call, t))?;
     call.row.resize(F4TailSetup::WORDS, 0.0); tail.put(&mut call.row, &mut call.heap);
     dispatch(world, cx, calls, "f4_tail_init", call)?;
+    admit_rules(world, cx, calls, &births)?;
     dispatch(world, cx, calls, "f4_tail_commands", scalar(&[]))?;
     let mut tail_sent = Sent::default();
     for def in live.classes.clone() { prepare_class(world, cx, calls, &mut tail_sent, &def, "f4_tail_unit_class", "f4_tail_weapon_class")?; }
@@ -437,4 +438,67 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), Admi
     cx.returned.push(("f3_factory_player_bind", 1.0));
     cx.ids.battle = Some(facts);
     Ok(())
+}
+
+pub(crate) fn admit_rules(world: &mut World, cx: &mut Cx, calls: &mut Calls, births: &[(F4Handle, Vec<String>)]) -> Result<(), AdmitError> {
+    if let Some(request) = world.battle.rule_request.as_ref().cloned() {
+        let objects = mission_objects(world, cx, births);
+        let regions = cx.battle.world.get("regions").and_then(bfe_content::Value::as_array);
+        let call = super::rule_selection::encode(&request, objects, regions, |call, label| cx.intern(call, label));
+        dispatch(world, cx, calls, super::rule_selection::EXPORT, call)?;
+        world.battle.rule_request = None;
+    }
+    Ok(())
+}
+
+/// Build the host's cold index from authored instance names and the handles
+/// returned by native admission. A vehicle pad names a spawner, not its hull.
+fn mission_objects(world: &mut World, cx: &Cx, animations: &[(F4Handle, Vec<String>)]) -> Vec<crate::battle::rules::objects::NamedObject> {
+    use crate::battle::rules::{events::ObjectHandle, objects::NamedObject};
+    let mut rows = Vec::new();
+    let instances = cx.battle.props.as_ref().and_then(|v| v.get("instances")).and_then(Value::as_array).unwrap_or(&[]);
+    let mut add = |handle, source: usize| {
+        let desc = &instances[source];
+        let field = |key| desc.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
+        rows.push(NamedObject { object: ObjectHandle::Prop(handle), name: field("name"), class: field("class") });
+    };
+    for (index, source) in super::super::props::live_sources(cx.battle).into_iter().enumerate() {
+        let desc = &instances[source];
+        if cx.battle.family == bfe_content::GameFamily::Swbf2 && desc.get("base").and_then(Value::as_str)==Some("armedbuilding") &&
+            desc.get("settings").and_then(|s|s.get("PilotType")).and_then(Value::as_str).is_some_and(|p|p.eq_ignore_ascii_case("self")) {
+            crate::units::f3_props::set_mission_turret(&mut world.units,index);
+        }
+        add(crate::units::f3_props::owner_in(world, index), source);
+    }
+    for (source, (handle, _)) in super::animated::instances(cx).into_iter().zip(animations) { add(handle.clone(), source); }
+    if crate::space::SpaceBattlefield::should_attach(cx.content) {
+        if let Some(data) = &cx.battle.swbf2 {
+            let map = &data.map_admission;
+            for obj in &map.placed {
+                if !obj.name.is_empty() && crate::space::objects::is_door(obj, map.map_classes.as_ref()) {
+                    rows.push(NamedObject { object: ObjectHandle::Door(obj.index as u32),
+                        name: Some(obj.name.clone()), class: Some(obj.class.clone()) });
+                }
+            }
+        }
+    }
+    let s = &world.sim.store;
+    let label = |id| String::from_utf16_lossy(world.sim.strings.units(id));
+    let placed = cx.battle.world.get("commandPosts").and_then(Value::as_array).unwrap_or(&[]);
+    for (index, &r) in s.command_posts.posts.iter().enumerate() {
+        let desc = placed.get(index);
+        let field = |key| desc.and_then(|d| d.get(key)).and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_owned);
+        // Hosts can also admit their own named posts. Authored unnamed posts
+        // receive a numeric display key from the native constructor.
+        let name = if desc.is_some() { field("name") } else { Some(label(s.post.get(r).unwrap().name)) };
+        rows.push(NamedObject { object: ObjectHandle::Post(SpawnPost::Post(r)), name, class: field("class") });
+    }
+    for &r in &s.mobile_posts.posts {
+        // A mobile post's native key identifies its fleet slot, without an authored instance name.
+        rows.push(NamedObject { object: ObjectHandle::Post(SpawnPost::MobilePost(r)), name: None, class: None });
+    }
+    for (vehicle, v) in s.vehicle.iter() {
+        rows.push(NamedObject { object: ObjectHandle::Vehicle { vehicle, life: v.target_generation }, name: None, class: Some(label(v.name)) });
+    }
+    rows
 }

@@ -353,6 +353,7 @@ mod texture_capability_tests {
 }
 /// Exclusively owned CPU assets moved from admission to the GL thread.
 pub(crate) struct Prepared {
+    characters: Option<crate::characters::assets::Prepared>,
     spawn_objectives: [Vec<String>; 2],
     spawn_vehicles: std::collections::HashMap<String, [Vec<String>; 2]>,
     menu_grid: Option<u32>,
@@ -372,6 +373,8 @@ pub(crate) struct Prepared {
     prepared_particles: Option<crate::online::particles::Prepared>,
     prepared_hud: Option<crate::online::hud::Prepared>,
     prepared_sound: Option<crate::online::sound_data::Prepared>,
+    prop_bumps: Option<std::collections::HashMap<String, usize>>,
+    sky_modes: Vec<crate::static_scene::SkyMode>,
     used: Vec<bool>,
     live: bool,
     shadow_size: usize,
@@ -389,7 +392,49 @@ impl Prepared{
 // Immediate native GL calls can wait for the GPU. That wait is not CPU pressure.
 pub(crate) use bfe_render::profile::CpuSample;
 
+pub use crate::particle_worker::install as set_particle_loading_context;
+
+pub(crate) struct FlightChart {
+    pub symbols: std::collections::BTreeMap<u32, String>,
+    pub path: String,
+    pub center: [f64; 2],
+    pub half: [f64; 2],
+}
+
+impl FlightChart {
+    fn read(content: &bfe_content_native::BattleContent) -> Option<Self> {
+        let world = content.map["world"].as_str()?;
+        let path = content.map["textures"].get(format!("{world}_map"))?.as_str()?;
+        let regions = content.content.battle.world.get("regions")?.as_array()?;
+        let bounds = regions.iter().find(|r| {
+            r.get("name").and_then(bfe_content::Value::as_str)
+                .is_some_and(|s| s.eq_ignore_ascii_case("mapbounds"))
+        })?;
+        let bounds = bfe_sim::space::bounds::parse_region(bounds)?;
+        let half = [bounds.half_extents[0], bounds.half_extents[2]];
+        let center = [bounds.center[0], bounds.center[2]];
+        if !half.iter().all(|v| v.is_finite() && *v > 0.) || !center.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        let mut symbols = std::collections::BTreeMap::new();
+        for side in &content.content.battle.sides {
+            let Some(units) = side.units.as_object() else { continue };
+            for (name, unit) in units.entries() {
+                if matches!(unit.get("base").and_then(bfe_content::Value::as_str), Some("flyer" | "commandflyer")) {
+                    if let Some(symbol) = unit.get("MapTexture").and_then(bfe_content::Value::as_str) {
+                        symbols.insert(audio_control::swbf2::zero_hash(name), symbol.to_ascii_lowercase());
+                    }
+                }
+            }
+        }
+        Some(Self { path: path.to_owned(), center, half, symbols })
+    }
+}
+
 pub struct Scene {
+    /// Map-relative prepared chart used by the 2005 flight instruments.
+    pub(crate) flight_chart: Option<FlightChart>,
+    pub(crate) characters: Option<crate::characters::Characters>,
     pub spawn_objectives: [Vec<String>;2],
     pub spawn_vehicles: std::collections::HashMap<String,[Vec<String>;2]>,
     pub menu_grid: Option<u32>,
@@ -429,6 +474,7 @@ pub struct Scene {
     reduced_far_terrain: bool,
     shadows_enabled: bool,
     shadow_bones: usize,
+    shadow_groups: usize,
     shadow_size: usize,
     features: [u32; L::FEATURES_LENGTH],
     bump_mapping: bool,
@@ -437,6 +483,9 @@ pub struct Scene {
     post_mode: usize,
     temporal_motion: Option<bfe_render::native_motion::NativeMotion>,
     blur_downsize: f64,
+    // The bloom targets' share of the scene: a 2005 map's own (its HDR
+    // effect's DownSizeFactor), a quarter otherwise.
+    bloom_downsize: f64,
     profile_start: Option<std::time::Instant>,
     /// This frame's last passes draw into the window itself, not the canvas (see `set_direct`).
     pub direct: bool,
@@ -446,6 +495,13 @@ pub struct Scene {
     vehicle_blur: bool,
     vehicle_speed: f64,
     depth_texture: u32,
+    is_swbf2: bool,
+    is_space: bool,
+    light2_data: Option<[f64; shader::LIGHT2_FLOATS]>,
+    light_regions: Vec<LightRegionMeta>,
+    active_shadow_region: Option<usize>,
+    near_far_plane: f64,
+    far_near: f64,
     far_reach: f64,
     distance_scale: f64,
     near_range: [f64; 2],
@@ -498,6 +554,9 @@ struct SceneFrame {
     aa: usize,
     // Where aaSamples and farAaSamples sit in the frame's values.
     slots: [usize; 2],
+    // Half-float colour: a 2005 map with its own bloom keeps the light its
+    // glowing surfaces give above white for the bloom to find.
+    wide: bool,
 }
 // The canvas dimensions are already device pixels, as in getDrawingBufferSize.
 fn render_extent(canvas:[i32;2],base:f64,adaptive:f64)->[i32;2]{
@@ -540,6 +599,33 @@ fn far_extent(size: [i32; 2], reduced: bool) -> [i32; 2] {
     let scale = (FAR_MIN_LINES / size[1].max(1) as f64).clamp(0.5, 1.);
     size.map(|v| ((v as f64 * scale).round() as i32).max(1))
 }
+// The near scene's colour image: half-float when `wide`.
+fn scene_image(size: [i32; 2], wide: bool) -> String {
+    if !wide {
+        return frame_image(size);
+    }
+    serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1016,"srgb":false,"renderTarget":true}).to_string()
+}
+/// A 2005 map's own bloom (its HDR effect, from the mission's effect pack).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Swbf2Bloom {
+    threshold: f64,
+    factor: f64,
+    passes: f64,
+    weight: f64,
+    downsize: f64,
+}
+fn swbf2_bloom(pack: &bfe_content::Value) -> Option<Swbf2Bloom> {
+    let hdr = pack.get("hdr")?;
+    let field = |key: &str| hdr.get(key).and_then(bfe_content::Value::as_f64).filter(|v| v.is_finite());
+    Some(Swbf2Bloom {
+        threshold: field("GlowThreshold")?,
+        factor: field("GlowFactor")?.max(0.),
+        passes: field("NumBloomPasses")?.max(0.).floor(),
+        weight: field("MaxTotalWeight")?,
+        downsize: field("DownSizeFactor")?.clamp(1. / 64., 1.),
+    })
+}
 fn frame_image(size: [i32; 2]) -> String {
     serde_json::json!({"width":size[0],"height":size[1],"depth":1,"target":glow::TEXTURE_2D,"format":1023,"dataType":1009,"srgb":false,"renderTarget":true}).to_string()
 }
@@ -564,6 +650,13 @@ impl Scene {
     ) -> Result<(Self, MapCamera), String> {
         Self::load_with_random(root, map, size, None, load)
     }
+    pub(crate) fn capture(root: &Path, map: &str, layer: Option<&str>, size: [i32; 2],
+        load: impl FnMut() -> glow::Context) -> Result<(Self, MapCamera), String> {
+        let (mut loader, map) = Loader::for_map(root, map);
+        loader.compressed = false;
+        Self::admit(loader.inspect(map, layer)?, map, size, None, false, load)
+    }
+
     /// Recorded random draws are admission facts, shared with a client view.
     /// Ordinary inspection uses one deterministic host stream instead.
     pub fn load_with_random(
@@ -578,7 +671,7 @@ impl Scene {
         }) {
             return Err("invalid foliage random admission stream".into());
         }
-        let mut loader = Loader::new(root);
+        let (mut loader, map) = Loader::for_map(root, map);
         loader.compressed = false;
         let content = loader.load(map, &format!("map={map}&seed=1"))?;
         Self::admit(content,map,size,random_values,false,load)
@@ -594,6 +687,25 @@ impl Scene {
         let prepared = Self::prepare_online(root, query,TextureOptions::discover(&load(),true))?;
         crate::loading_work::finish(Self::open_prepared(prepared, size, load))
     }
+    /// The scene of a 2005 battle's content a join plays.
+    pub(crate) fn prepare_online_content(content: bfe_content_native::BattleContent, map: &str) -> Result<Prepared, String> {
+        Self::prepare_scene(content, map, None, true)
+    }
+    /// A 2005 battle's content as a join plays it: the files its offered
+    /// digest was computed from as that reading saw them (`pinned`), every
+    /// other file from the folder.
+    pub(crate) fn online_content_swbf2(root: &Path, map: &str, query: &str, textures: TextureOptions,
+        pinned: Option<std::sync::Arc<bfe_content::files::Pinned>>) -> Result<bfe_content_native::BattleContent, String> {
+        let mut loader = Loader::from_resolved_root(root, bfe_family::GameFamily::Swbf2);
+        loader.compressed = textures.compressed;
+        loader.max_texture_size = textures.max_size;
+        loader.texture_capabilities = textures.capabilities;
+        loader.pinned = pinned;
+        loader.load_for_family(bfe_family::GameFamily::Swbf2, map, query)
+    }
+    /// The scene of a 2004 battle, from its query as written. A `family=` key
+    /// in it names nothing: a server copies a rotation entry's side field into
+    /// its query verbatim.
     pub(crate) fn prepare_online(root: &Path, query: &str, textures:TextureOptions) -> Result<Prepared, String> {
         let selection = bfe_content::mission::Query::parse(query);
         let map = if selection.get("map").is_empty() {
@@ -601,11 +713,57 @@ impl Scene {
         } else {
             selection.get("map")
         };
-        let mut loader = Loader::new(root);
+        // A qualified selection names its family; a bare id belongs to the root.
+        let (loader, map) = Loader::for_map(root, map);
+        Self::prepare_loaded(loader, map, query, textures, true)
+    }
+    pub(crate) fn prepare_characters(root:&Path,query:&str,textures:TextureOptions,live:bool)->Result<Prepared,String>{
+        let selection=bfe_content::mission::Query::parse(query);
+        let map=selection.get("map").strip_prefix("swbf2/").unwrap_or(selection.get("map"));
+        Self::prepare_selected(root, bfe_content_native::GameFamily::Swbf2, map, query, textures, live)
+    }
+    pub(crate) fn prepare_selected(
+        root: &Path, family: bfe_content_native::GameFamily, map: &str, query: &str,
+        textures: TextureOptions, live: bool,
+    ) -> Result<Prepared,String> {
+        Self::prepare_loaded(Loader::from_resolved_root(root, family), map, query, textures, live)
+    }
+    fn prepare_loaded(mut loader: Loader, map: &str, query: &str, textures: TextureOptions, live: bool)
+        -> Result<Prepared,String> {
         loader.compressed = textures.compressed;
-        loader.max_texture_size=textures.max_size;
-        loader.texture_capabilities=textures.capabilities;
-        Self::prepare_scene(loader.load(map, query)?, map, None, true)
+        loader.max_texture_size = textures.max_size;
+        loader.texture_capabilities = textures.capabilities;
+        let family = loader.family();
+        Self::prepare_scene(loader.load_for_family(family, map, query)?, map, None, live)
+    }
+    /// Open the map and active layers selected by an admitted developer mission.
+    pub fn load_developer_mission(
+        root: &Path,
+        resources: &bfe_sim::world::admit::mission::MissionResources,
+        size: [i32; 2],
+        mut load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        let textures = TextureOptions::discover(&load(), true);
+        let prepared = Self::prepare_developer_mission(root, resources, textures)?;
+        crate::loading_work::finish(Self::open_prepared(prepared, size, load))
+    }
+
+    fn prepare_developer_mission(
+        root: &Path,
+        resources: &bfe_sim::world::admit::mission::MissionResources,
+        textures: TextureOptions,
+    ) -> Result<Prepared, String> {
+        Self::prepare_scripted(root, &resources.selection.map, &resources.query, &resources.mission_json, textures, false)
+    }
+
+    pub(crate) fn prepare_scripted(
+        root: &Path, map: &str, query: &str, mission: &str, textures: TextureOptions, live: bool,
+    ) -> Result<Prepared, String> {
+        let mut loader = Loader::detect(root);
+        loader.compressed = textures.compressed;
+        loader.max_texture_size = textures.max_size;
+        loader.texture_capabilities = textures.capabilities;
+        Self::prepare_scene(loader.load_scripted_mission(map, query, mission)?, map, None, live)
     }
     fn admit(
         content: bfe_content_native::BattleContent,
@@ -624,6 +782,7 @@ impl Scene {
         random_values: Option<&[f64]>,
         live: bool,
     ) -> Result<Prepared, String> {
+        let characters=crate::characters::assets::prepare(&mut content)?;
         let spawn_screen = content.content.battle.world.get("spawnScreen");
         let strings = |value: Option<&bfe_content::Value>| {
             value
@@ -667,7 +826,7 @@ impl Scene {
         } else {
             None
         };
-        let menu_models = if live {
+        let menu_models = if live && (characters.is_none() || content.content.battle.common.get("holograms").is_some()) {
             crate::menu_models::prepare(&mut content)?
         } else {
             Vec::new()
@@ -779,7 +938,20 @@ impl Scene {
                 .ok_or_else(|| format!("missing foliage texture {}", class.texture))?;
             foliage_images.push(content.textures.load(path)?);
         }
-        let placed = if live{bfe_content_native::placed::admit_live(&content)?}else{bfe_content_native::placed::admit(&content)?};
+        let mut placed = if live {
+            bfe_content_native::placed::admit_live(&content)?
+        } else if content.static_inspection {
+            bfe_content_native::placed::admit_bind_poses(&content)?
+        } else {
+            bfe_content_native::placed::admit(&content)?
+        };
+        if live {
+            if let Some(space) = content.content.battle.swbf2.as_ref() {
+                let map = &space.map_admission;
+                placed.parts.retain(|p| !map.placed.get(p.instance).and_then(|p| p.door_animation.as_ref())
+                    .is_some_and(|d| d.has_bank(map.map_anim_banks.as_ref())));
+            }
+        }
         let water = crate::water_host::images(&content.map["water"], |name| {
             layers
                 .get(&name.to_lowercase())
@@ -804,11 +976,17 @@ impl Scene {
         } else {
             0
         };
+        let is_swbf2 = content.family == bfe_content_native::GameFamily::Swbf2;
+        let want_shadows = live || is_swbf2;
         let mut features = [0; L::FEATURES_LENGTH];
-        features[L::FEATURES_SHADOWS] = if live { 4 } else { 0 };
-        features[L::FEATURES_CSM] = live as u32;
+        features[L::FEATURES_SHADOWS] = if want_shadows { 4 } else { 0 };
+        features[L::FEATURES_CSM] = want_shadows as u32;
         features[L::FEATURES_POINTS] = (ORDNANCE_LIGHTS + posts) as u32;
-        let prepared_views = if live {
+        let prepared_views = if live && is_swbf2 {
+            // The 2005 presentation owns third-person characters. This family
+            // does not supply the released first-person arm package.
+            Some(crate::online::first_person::Prepared::default())
+        } else if live {
             Some(crate::online::first_person::Prepared::new(&mut content)?)
         } else {
             None
@@ -828,6 +1006,51 @@ impl Scene {
         } else {
             None
         };
+        let prop_bumps = if is_swbf2 {
+            let mut prop_bumps = std::collections::HashMap::new();
+            for part in &placed.parts {
+                let mesh = content
+                    .models
+                    .iter()
+                    .find(|m| m.name == format!("{}/{}", part.model, part.source))
+                    .ok_or("missing placed model resource")?;
+                let bump_name = mesh.material.extended.as_ref().and_then(|s| s.bump.as_deref());
+                if let Some(name) = bump_name.filter(|s| !s.is_empty()) {
+                    let lower = name.to_ascii_lowercase();
+                    if !prop_bumps.contains_key(&lower) {
+                        if let Some(path) = layers
+                            .get(&lower)
+                            .or_else(|| content.texture_paths.get(&lower))
+                            .cloned()
+                        {
+                            if let Ok(id) = content.textures.load(&path) {
+                                prop_bumps.insert(lower, id);
+                            }
+                        }
+                    }
+                }
+            }
+            Some(prop_bumps)
+        } else {
+            None
+        };
+        let sky_modes: Vec<_> = content
+            .world
+            .iter()
+            .map(|mesh| {
+                if mesh.material.kind != MaterialKind::Sky {
+                    return crate::static_scene::SkyMode::Opaque;
+                }
+                if !is_swbf2 {
+                    return if mesh.material.blend != Blend::Opaque {
+                        crate::static_scene::SkyMode::Blended
+                    } else {
+                        crate::static_scene::SkyMode::Opaque
+                    };
+                }
+                classify_swbf2_sky(mesh, &content.map, &content.textures.images)
+            })
+            .collect();
         let mut used = vec![false; content.textures.images.len()];
         for (i, mesh) in content
             .world
@@ -850,6 +1073,7 @@ impl Scene {
             .iter()
             .copied()
             .chain(water.all())
+            .chain(prop_bumps.iter().flat_map(|bumps| bumps.values()).copied())
         {
             used[id] = true;
         }
@@ -869,8 +1093,10 @@ impl Scene {
         if live {
             used.fill(true);
         }
+        if characters.is_some(){used.fill(true);}
         let lamps=crate::lamps::Lamps::prepare(&content)?;
         Ok(Prepared {
+            characters,
             spawn_objectives,
             spawn_vehicles,
             menu_grid,
@@ -888,6 +1114,8 @@ impl Scene {
             prepared_particles,
             prepared_hud,
             prepared_sound,
+            prop_bumps,
+            sky_modes,
             used,
             live, shadow_size:2048,
         })
@@ -895,9 +1123,31 @@ impl Scene {
     pub(crate) async fn open_prepared(
         prepared: Prepared,
         size: [i32; 2],
+        load: impl FnMut() -> glow::Context,
+    ) -> Result<(Self, MapCamera), String> {
+        let (mut scene, camera) = Self::open_prepared_shared(prepared, size, load).await?;
+        let second_queue = scene.is_swbf2;
+        if let Some(online) = &scene.online {
+            if let Some(frame) = &scene.frame {
+                let warm = match scene.resources.framebuffer(frame.target, false, 0) {
+                    Ok(target) => online.combat.particles.warm_mission(&mut scene.bridge, target, second_queue).await,
+                    Err(reason) => bfe_render::effects::check_warm_errors(&scene.bridge.r.core.gl).and(Err(reason)),
+                };
+                if let Err(reason) = warm {
+                    eprintln!("Particle batches will initialize during play: {reason}");
+                }
+            }
+        }
+        Ok((scene, camera))
+    }
+
+    async fn open_prepared_shared(
+        prepared: Prepared,
+        size: [i32; 2],
         mut load: impl FnMut() -> glow::Context,
     ) -> Result<(Self, MapCamera), String> {
         let Prepared {
+            characters,
             spawn_objectives,
             spawn_vehicles,
             menu_grid,
@@ -915,14 +1165,28 @@ impl Scene {
             prepared_particles,
             prepared_hud,
             prepared_sound,
+            prop_bumps,
+            sky_modes,
             used,
             live, shadow_size,
         } = prepared;
+        let is_swbf2 = content.family == bfe_content_native::GameFamily::Swbf2;
+        let want_shadows = live || is_swbf2;
+        let near_scene_end = content.map["distance"]["nearScene"][3]
+            .as_f64()
+            .filter(|v| v.is_finite() && *v > 0.3);
+        let is_space = is_swbf2
+            && content.map["distance"]["lowRes"].is_null()
+            && near_scene_end.is_some_and(|v| v >= 1000.);
+        let flight_chart = is_swbf2.then(|| FlightChart::read(&content)).flatten();
+        let far_near = if is_space { 25. } else { 2. };
+        let sky_scale = if is_space { 100. } else { 1. };
         crate::loading_work::frame().await;
         let canvas = Canvas::new(load(), size)?;
         let mut resources = Resources::new(load());
         resources.canvas = Some(canvas.framebuffer);
         let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
+        if is_swbf2 { bridge.r.motion.enable_extended_records(); }
         bridge.r.core.canvas_framebuffer = Some(canvas.framebuffer);
         let shadow_count=features[L::FEATURES_SHADOWS] as usize;
         bridge.r.cameras.input[bfe_render::cameras::layout::input::CASCADE_COUNT]=shadow_count as f64;
@@ -1007,8 +1271,47 @@ impl Scene {
             resources.upload(sample)?;
             ocean_mask = bridge.r.core.add_texture(resources.texture(sample)?);
         }
-        let mut static_content =
-            crate::static_scene::props(&mut bridge, &content, &textures, placed, shadow_count, true)?;
+        let mut static_content = if let Some(prop_bumps) = prop_bumps {
+            let bump_lookup: std::collections::HashMap<String, u32> = prop_bumps
+                .into_iter()
+                .filter_map(|(k, id)| {
+                    let tex = textures.get(id).copied()?;
+                    (tex != u32::MAX).then_some((k, tex))
+                })
+                .collect();
+            crate::static_scene::props_swbf2(
+                &mut bridge,
+                &content,
+                &textures,
+                placed,
+                shadow_count,
+                true,
+                &bump_lookup,
+            )?
+        } else {
+            crate::static_scene::props(
+                &mut bridge,
+                &content,
+                &textures,
+                placed,
+                shadow_count,
+                true,
+            )?
+        };
+        if is_swbf2 {
+            static_content.animations = crate::world_anim::WorldAnimations::new(
+                &content.map["worldAnimations"],
+                &static_content.record_names,
+                &static_content.records,
+            );
+            static_content.portals = crate::portals::PortalCuller::new(
+                &content.map["portals"],
+                &static_content.record_names,
+            );
+            if is_space {
+                static_content.shadow_distance = 350.;
+            }
+        }
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         for (class, image) in foliage.iter().zip(foliage_images) {
@@ -1036,7 +1339,19 @@ impl Scene {
                 bridge.r.core.state.reset();
             }
             if mesh.material.kind == MaterialKind::Sky {
-                let sky = crate::static_scene::sky(&mut bridge, mesh, &textures, far_slot, empty)?;
+                let sky = if is_swbf2 {
+                    crate::static_scene::sky_swbf2(
+                        &mut bridge,
+                        mesh,
+                        &textures,
+                        far_slot,
+                        empty,
+                        sky_modes[mesh_index],
+                        sky_scale,
+                    )?
+                } else {
+                    crate::static_scene::sky(&mut bridge, mesh, &textures, far_slot, empty)?
+                };
                 far_slot = crate::static_scene::sky_end(&sky);
                 static_content.skies.push(sky);
                 admitted += 1;
@@ -1068,12 +1383,21 @@ impl Scene {
                     max[k] = max[k].max(row[k] as f64);
                 }
             }
-            let source = bridge.static_source(
-                &authored.to_string(),
-                vertices,
-                mesh.geometry.indices.clone(),
-            )?;
-            if live && !mesh.material.far && mesh.material.blend == Blend::Opaque
+            let source = if is_swbf2 {
+                bridge.static_source_swbf2(
+                    record, mesh.material.extended.clone().ok_or("missing extended world surface")?,
+                    vertices,
+                    mesh.geometry.indices.clone(),
+                )?
+            } else {
+                bridge.static_source(
+                    &authored.to_string(),
+                    vertices,
+                    mesh.geometry.indices.clone(),
+                )?
+            };
+            let source_blended = bridge.static_source_blended(source);
+            if want_shadows && !mesh.material.far && !source_blended
                 && mesh.material.kind != MaterialKind::Terrain {
                 bridge.static_depth_add(source, mesh.material.texture.map_or(-1, |id| textures[id] as i32))?;
             }
@@ -1103,6 +1427,10 @@ impl Scene {
                     samplers[L::SAMPLERS_DETAIL] = textures[id] as i32;
                 }
             }
+            if is_swbf2 && mesh.material.kind == MaterialKind::Terrain {
+                // Ensure every terrain sampler slot holds a valid fallback texture.
+                samplers[L::SAMPLERS_LAYERS..L::SAMPLERS_LAYERS + 8].fill(neutral as i32);
+            }
             for (i, id) in layer_ids.iter().take(8).enumerate() {
                 samplers[L::SAMPLERS_LAYERS + i] = textures[*id] as i32;
             }
@@ -1124,7 +1452,7 @@ impl Scene {
                 far_slot as u32,
                 admitted as u32,
             )?;
-            if !mesh.material.far && mesh.material.blend == Blend::Opaque {
+            if !mesh.material.far && !source_blended {
                 near_world_ids.push(world_id);
             }
             if mesh.material.far {
@@ -1172,8 +1500,19 @@ impl Scene {
         use bfe_render::post_chain::layout::{facts as pf, program as pp};
         bridge.r.post_chain.input[pf::PROGRAMS..pf::PROGRAMS + pp::COUNT].fill(u32::MAX as f64);
         let post_images = Vec::new();
-        let frame = if live {
-            let source = resources.source(&frame_image(size))?;
+        let hdr = if is_swbf2 { swbf2_bloom(content.visual_effects()) } else { None };
+        if let Some(h) = hdr {
+            eprintln!("battle bloom: the map's own, threshold {} factor {} passes {} weight {} share {}", h.threshold, h.factor, h.passes, h.weight, h.downsize);
+            let f = &mut bridge.r.post_chain.input;
+            f[pf::HDR] = 1.;
+            f[pf::HDR_THRESHOLD] = h.threshold;
+            f[pf::HDR_FACTOR] = h.factor;
+            f[pf::HDR_PASSES] = h.passes;
+            f[pf::HDR_WEIGHT] = h.weight;
+        }
+        let wide = hdr.is_some();
+        let frame = if live || is_swbf2 {
+            let source = resources.source(&scene_image(size, wide))?;
             let sample = resources.sample(source, r#"{"wrapS":1001,"wrapT":1001,"wrapR":1001,"min":1006,"mag":1006,"anisotropy":1,"flip":false,"premultiply":false,"alignment":1,"mipmaps":false,"compare":null}"#)?;
             let target = resources.target(&frame_target(size, sample, true, 0))?;
             let texture = bridge.r.core.add_texture(resources.texture(sample)?);
@@ -1183,7 +1522,7 @@ impl Scene {
             let slots = ["aaSamples", "farAaSamples"].map(|name| {
                 shader::FRAME_OFFSETS[shader::FRAME_MEMBERS.iter().position(|(n, _)| *n == name).expect("frame catalog member")]
             });
-            Some(SceneFrame { source, sample, target, texture, samples: 0, far_samples: 0, aa: 0, slots })
+            Some(SceneFrame { source, sample, target, texture, samples: 0, far_samples: 0, aa: 0, slots, wide })
         } else {
             None
         };
@@ -1237,7 +1576,33 @@ impl Scene {
             size,
         )?;
         environment(&mut camera.view, &content.map);
-        if live {
+        let mut light2_data = None;
+        let mut light_regions = Vec::new();
+        if is_swbf2 {
+            let (l2, regions) = build_light2(&content.map, &content.content.battle.world);
+            bridge.r.core.set_light2(&l2);
+            light2_data = Some(l2);
+            for r in &regions {
+                if r.shadow_dir.is_some() { bridge.r.shadow.statics.regions[r.slot] = Some(r.volume()); }
+            }
+            light_regions = regions;
+            let (static_points, point_count) = collect_static_point_lights(&content.map);
+            if point_count > 0 {
+                camera.set_lights(&static_points, point_count);
+            }
+            if is_space {
+                set(&mut camera.view, "fade", &[480., 580.]);
+                camera.far_plane = 600.;
+                camera.resize(size);
+            } else {
+                let range = &content.map["distance"]["nearScene"];
+                let end = range[3].as_f64().filter(|v| v.is_finite() && *v > 0.3).unwrap_or(500.);
+                let start = range[1].as_f64().filter(|v| v.is_finite() && *v >= 0. && *v < end).unwrap_or(300.);
+                set(&mut camera.view, "fade", &[start, end]);
+                camera.far_plane = end;
+                camera.resize(size);
+            }
+        } else if live {
             // Graphics.applyDistance uses the authored near fade, including
             // the foliage cutoff. The inspector's wide diagnostic lens is
             // not a battle view-distance setting.
@@ -1249,12 +1614,17 @@ impl Scene {
             camera.resize(size);
         }
         let mut projection = Matrix4::default();
-        let top = 2. * (60.0f64.to_radians() * 0.5).tan();
+        let top = far_near * (60.0f64.to_radians() * 0.5).tan();
         let right = top * size[0] as f64 / size[1] as f64;
-        let far_reach = content.map["distance"]["farScene"][1]
-            .as_f64()
-            .unwrap_or(3000.);
-        projection.make_perspective(-right, right, top, -top, 2., far_reach, CoordinateSystem::WebGL);
+        let far_reach = if is_swbf2 {
+            content.map["distance"]["farScene"][1]
+                .as_f64()
+                .unwrap_or(3000.)
+                .max(content.map["distance"]["lowRes"]["maxDistance"].as_f64().unwrap_or(0.))
+        } else {
+            content.map["distance"]["farScene"][1].as_f64().unwrap_or(3000.)
+        };
+        projection.make_perspective(-right, right, top, -top, far_near, far_reach, CoordinateSystem::WebGL);
         deferred += static_content.deferred;
         eprintln!(
             "native static admission: props={}, foliage={}, water={}, sky={}",
@@ -1318,10 +1688,14 @@ impl Scene {
             bridge.r.core.state.reset();
             bridge.r.core.add_texture(texture)
         };
-        let online = if live {
+        let characters=characters.map(|data|crate::characters::Characters::new(data,&mut bridge,&textures)).transpose()?;
+        if characters.is_some(){content.units.clear();}
+        let family = content.content.battle.family;
+        let mut online = if live {
             Some(Box::new(
                 crate::online::replicas::Replicas::new(
                     &mut content,
+                    family,
                     &mut bridge,
                     &textures,
                     prepared_views.ok_or("missing first-person resources")?,
@@ -1337,6 +1711,9 @@ impl Scene {
         } else {
             None
         };
+        if let Some(fleet) = online.as_mut().and_then(|r| r.space_fleet.as_mut()) {
+            fleet.bind_props(&content, &static_content);
+        }
         // The water's near passes keep their values after everything the
         // effect data holds already.
         let water_fx = online.as_ref().map_or(0, |online| online.effects_end());
@@ -1345,22 +1722,31 @@ impl Scene {
         }
         let bones = static_content.records.iter()
             .map(|row| row[bfe_render::instances::REC_BONES] as usize)
-            .chain([online.as_ref().map_or(1, |resources| resources.max_bones())])
+            .chain([online.as_ref().map_or(1, |resources| resources.max_bones()),
+                characters.as_ref().map_or(1, |actors| actors.max_bones())])
             .max()
             .unwrap_or(1)
             .max(1);
-        let shadows = if live && shadow_count>0 {
-            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones,shadow_count,shadow_size).await?)
+        let shadow_groups = if online.is_some() {
+            bfe_render::instances::MAX_RECORDS * 4
+        } else {
+            static_content.records.iter().map(|row| (row[bfe_render::instances::REC_GROUPS] as usize).clamp(1, 4)).sum()
+        };
+        let shadows = if want_shadows && shadow_count>0 {
+            Some(crate::shadows::Shadows::new(&mut bridge, &mut resources, bones,shadow_groups,shadow_count,shadow_size).await?)
         } else {
             None
         };
-        bridge.r.world.depth_prepass(&mut bridge.r.core, live && shadow_count > 0)?;
+        if is_space && shadows.is_some() {
+            bridge.r.cameras.input[bfe_render::cameras::layout::input::MAX_FAR] = 350.;
+        }
+        bridge.r.world.depth_prepass(&mut bridge.r.core, want_shadows && shadow_count > 0)?;
         while !bridge.r.frame_reserve_role() {
             crate::loading_work::frame().await;
         }
         crate::loading_work::frame().await;
-        Ok((
-            Self {
+        let mut scene = Self {
+                flight_chart,
                 water: water_host.take(),
                 water_data: water_fx,
                 water_time: f64::NAN,
@@ -1368,6 +1754,7 @@ impl Scene {
                 storm,
                 flyers,
                 online,
+                characters,
                 bridge,
                 resources,
                 far_source,
@@ -1377,9 +1764,16 @@ impl Scene {
                 depth_source, depth_color_source, depth_sample, depth_color,
                 render_scale: 1., render_size: size, adaptive_scale:1., resolution_target:0.,resolution_limit:0.,resolution_configured:false,resolution_last_frame:None, resolution:bfe_sim::client::timing::Timing::new(), resolution_fence:None,resolution_queries:None,resolution_query_active:false,resolution_gpu_ms:f64::NAN,resolution_scene_ms:f64::NAN,resolution_cpu_ms:f64::NAN,resolution_cpu_sample:None,resolution_timestamps:None,
                 profile_start: None, profile_rss_after: false, direct: false,
-                post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
-                reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_size, features, bump_mapping: true, terrain_detail: true,
+                post_images, post_mode: 0, temporal_motion:None, blur_downsize:content.map["post"]["blur"]["downsize"].as_f64().filter(|v|v.is_finite()&&*v>0.).unwrap_or(0.25), bloom_downsize: hdr.map_or(0.25, |h| h.downsize), bloom: false, soft_focus: false, vehicle_blur:false,vehicle_speed:0.,
+                reduced_far_terrain: false, shadows_enabled: shadow_count>0, shadow_bones:bones, shadow_groups, shadow_size, features, bump_mapping: true, terrain_detail: true,
                 depth_texture,
+                is_swbf2,
+                is_space,
+                light2_data,
+                light_regions,
+                active_shadow_region: None,
+                near_far_plane: camera.far_plane,
+                far_near,
                 far_reach,
                 distance_scale: 1.,
                 near_range: [camera.view.values[bfe_render::cameras::layout::shader_frame::FADE], camera.view.values[bfe_render::cameras::layout::shader_frame::FADE + 1]],
@@ -1406,9 +1800,28 @@ impl Scene {
                 frame,
                 filtered,
                 anisotropy: 1.,
-            },
-            camera,
-        ))
+        };
+        if is_swbf2 && !live {
+            scene.bloom = true;
+            scene.post_mode = bfe_render::post_chain::layout::mode::OFF;
+            scene.configure_post()?;
+        }
+        Ok((scene, camera))
+    }
+    pub fn is_swbf2(&self) -> bool {
+        self.is_swbf2
+    }
+    /// Step world animations from the fixed 60 Hz simulation tick and
+    /// interpolation fraction so collision and rendered poses agree.
+    pub fn update_animations_sim(&mut self, tick: u32, alpha: f64) {
+        self.static_content.update_animations_sim(tick, alpha);
+    }
+    /// Apply the scene's authored near/far depth planes onto a fixed comparison
+    /// view while keeping the view's field of view and aspect ratio intact.
+    pub fn apply_authored_planes(&self, view: &mut View) {
+        let far = self.near_far_plane;
+        view.values[10] = -(far + 0.3) / (far - 0.3);
+        view.values[14] = -0.6 * far / (far - 0.3);
     }
     pub fn profile_memory(&self, label: &str) {
         if !self.bridge.r.core.profile.enabled {return;}
@@ -1443,8 +1856,9 @@ impl Scene {
     pub fn set_view_distance(&mut self, choice: &str) -> ([f64; 2], f64) {
         self.distance_scale = match choice { "far" => 2., "max" => 4., _ => 1. };
         let far = self.far_reach * self.distance_scale;
-        self.far_projection[10] = -(far + 2.) / (far - 2.);
-        self.far_projection[14] = -4. * far / (far - 2.);
+        let near = self.far_near;
+        self.far_projection[10] = -(far + near) / (far - near);
+        self.far_projection[14] = -2. * near * far / (far - near);
         // Short: the near scene ends where the 2004 game's shortest view distance
         // ended it; past that every object is its far scene image, as there.
         if choice == "short" {
@@ -1468,9 +1882,14 @@ impl Scene {
         eprintln!("battle graphics distance: factor={} adaptive={} shadow-cascades={} shadow-size={}",self.distance_scale,self.adaptive_scale,self.features[L::FEATURES_SHADOWS],self.shadow_size);
     }
 
-    pub fn set_post_effects(&mut self, bloom: bool, soft_focus: bool, upscaler: &str) -> Result<(),String> {
+    /// `bloom` is the 2004 bloom and glow setting, `light_bloom` the 2005 game's Light Bloom.
+    pub fn set_post_effects(&mut self, bloom: bool, light_bloom: bool, soft_focus: bool, upscaler: &str) -> Result<(),String> {
         use bfe_render::post_chain::layout::mode;
-        self.bloom = bloom;
+        let map_bloom = self.bridge.r.post_chain.input[bfe_render::post_chain::layout::facts::HDR] != 0.;
+        self.bloom = battle_bloom(self.is_swbf2, map_bloom, bloom, light_bloom);
+        if self.is_swbf2 {
+            eprintln!("battle bloom: {} (Light Bloom {})", if self.bloom { "on" } else { "off" }, if light_bloom { "on" } else { "off" });
+        }
         self.soft_focus = soft_focus;
         self.post_mode = match upscaler { "bilinear" => mode::BILINEAR, "spatial" => mode::SPATIAL, "off"=>mode::OFF, _ => mode::TEMPORAL };
         self.configure_post()
@@ -1481,15 +1900,20 @@ impl Scene {
         let intermediate=self.bloom||self.soft_focus&&self.bridge.r.post_chain.input[pf::BLUR_ENABLED]!=0.||self.post_mode>=mode::SPATIAL||self.vehicle_blur&&self.vehicle_speed>0.0001/0.085;
         let fxaa=self.frame.as_ref().is_some_and(|f|f.aa!=aa::OFF);
         let temporal=self.post_mode==mode::TEMPORAL;
-        if temporal&&self.temporal_motion.is_none(){self.temporal_motion=Some(bfe_render::native_motion::NativeMotion::new(&mut self.bridge.r.core)?);self.bridge.r.post_chain.invalidate();}
+        if temporal && self.temporal_motion.is_none() {
+            self.temporal_motion = Some(bfe_render::native_motion::NativeMotion::for_pass(
+                &mut self.bridge.r.core, &self.bridge.r.motion,
+            )?);
+            self.bridge.r.post_chain.invalidate();
+        }
         if !temporal{self.temporal_motion=None;}
         if intermediate||fxaa{
-            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast"),(pp::MOTION,"post-hud/motion"),(pp::RESOLVE,"post-hud/resolve"),(pp::SHARPEN,"post-hud/sharpen")]{
+            for (program,key) in [(pp::COPY,"post-hud/copy"),(pp::EXTRACT,"post-hud/bloom-extract"),(pp::BLUR,"post-hud/bloom-blur"),(pp::BILINEAR,"post-hud/bilinear"),(pp::SPATIAL,"post-hud/spatial"),(pp::COMPOSITE,"post-hud/composite"),(pp::FXAA,"post-hud/fxaa"),(pp::FXAA_FAST,"post-hud/fxaa-fast"),(pp::MOTION,"post-hud/motion"),(pp::RESOLVE,"post-hud/resolve"),(pp::SHARPEN,"post-hud/sharpen"),(pp::HDR_EXTRACT,"post-hud/hdr-extract"),(pp::HDR_BLUR,"post-hud/hdr-blur")]{
                 self.bridge.r.post_chain.input[pf::PROGRAMS+program]=self.bridge.add_owned_program(key)? as f64;
             }
         }
         let mut wanted=Vec::new();
-        if intermediate{wanted.extend([(pr::QUARTER,self.blur_downsize),(pr::BLOOM,0.25),(pr::SCRATCH,0.25),(pr::POST,1.),(pr::AA,1.)]);}
+        if intermediate{wanted.extend([(pr::QUARTER,self.blur_downsize),(pr::BLOOM,self.bloom_downsize),(pr::SCRATCH,self.bloom_downsize),(pr::POST,1.),(pr::AA,1.)]);}
         // FXAA before an upscale writes its own target even with no other effect on (the Performance preset).
         else if fxaa{wanted.push((pr::AA,1.));}
         if temporal{wanted.extend([(pr::HISTORY0,-1.),(pr::HISTORY1,-1.),(pr::MOTION,1.),(pr::VELOCITY,1.)]);}
@@ -1558,7 +1982,7 @@ impl Scene {
         self.bridge.effect_settings(count>0)?;
         self.bridge.r.foliage.configure_shadows(&mut self.bridge.r.core,count>0)?;
         self.bridge.static_world_settings(&self.features,&[0;L::FEATURES_LENGTH])?;
-        if count>0{self.shadows=Some(crate::loading_work::finish(crate::shadows::Shadows::new(&mut self.bridge,&mut self.resources,self.shadow_bones,count,size))?);}
+        if count>0{self.shadows=Some(crate::loading_work::finish(crate::shadows::Shadows::new(&mut self.bridge,&mut self.resources,self.shadow_bones,self.shadow_groups,count,size))?);}
         self.bridge.r.world.sort(false);self.bridge.r.core.state.reset();Ok(())
     }
 
@@ -1669,7 +2093,7 @@ impl Scene {
         self.resources.source_desc(self.far_source, &frame_image(far))?;
         self.resources.resize_target(self.far_target, &frame_target(far, self.far_sample, false, self.frame.as_ref().map_or(0, |f| f.far_samples)))?;
         if let Some(frame) = &self.frame {
-            self.resources.source_desc(frame.source, &frame_image(size))?;
+            self.resources.source_desc(frame.source, &scene_image(size, frame.wide))?;
             self.resources.resize_target(frame.target, &frame_target(size, frame.sample, true, frame.samples))?;
         }
         for (source, format, data_type) in [(self.depth_source, 1027, 1020), (self.depth_color_source, 1028, 1009)] {
@@ -1774,20 +2198,20 @@ impl Scene {
             &frame_target(new_size, self.far_sample, false, self.frame.as_ref().map_or(0, |frame| frame.far_samples)),
         )?;
         if let Some(frame) = &self.frame {
-            self.resources.source_desc(frame.source, &frame_image(new_size))?;
+            self.resources.source_desc(frame.source, &scene_image(new_size, frame.wide))?;
             self.resources.resize_target(frame.target, &frame_target(new_size, frame.sample, true, frame.samples))?;
         }
         self.image_step[bfe_render::post::STEP_WIDTH] = new_size[0] as f64;
         self.image_step[bfe_render::post::STEP_HEIGHT] = new_size[1] as f64;
         let mut projection = Matrix4::default();
-        let top = 2. * (60.0f64.to_radians() * 0.5).tan();
+        let top = self.far_near * (60.0f64.to_radians() * 0.5).tan();
         let right = top * new_size[0] as f64 / new_size[1] as f64;
         projection.make_perspective(
             -right,
             right,
             top,
             -top,
-            2.,
+            self.far_near,
             self.far_reach * self.distance_scale,
             CoordinateSystem::WebGL,
         );
@@ -1841,11 +2265,64 @@ impl Scene {
                 drawn,
                 dt,
             );
+            let mut piloting = false;
+            resources.hidden_crew.clear();
+            if let Some(characters) = &mut self.characters {
+                characters.set_hidden_crew(&[]);
+                characters.set_chair_riders(&[]);
+            }
+            if let (Some(history), Some(fleet)) = (&receiver.space, &mut resources.space_fleet) {
+                // Online: the predicted own craft or chair stands in for the
+                // replicated one.
+                let own_override = replay.space.as_ref().and_then(|s| s.override_pose.as_ref());
+                fleet.sample(history, receiver.clock.shown, camera, dt.min(8. / 60.), own_override);
+                if let Some((frame, alpha)) = history.sample(receiver.clock.shown) {
+                    piloting = frame.mount.is_some()
+                        || own_override.is_some()
+                        || history.latest().is_some_and(|latest| latest.mount.is_some());
+                    resources.hidden_crew.extend_from_slice(&frame.hidden_crew);
+                    if let Some(latest) = history.latest() {
+                        for &id in &latest.hidden_crew {
+                            if !resources.hidden_crew.contains(&id) {
+                                resources.hidden_crew.push(id);
+                            }
+                        }
+                    }
+                    // Online, a soldier in a craft's seat is hidden by the seats the server
+                    // replicates: his soldier record stays where he boarded.
+                    use bfe_presentation::network_layout::{net_kind as k, net_record as r};
+                    for row in receiver.active().filter(|row| row[r::KIND] as u32 == k::SOLDIER) {
+                        let id = (row[r::ID] as u32, row[r::GENERATION] as u32);
+                        if receiver.is_space_seated(id.0) && !resources.hidden_crew.contains(&id) {
+                            resources.hidden_crew.push(id);
+                        }
+                    }
+                    if let Some(characters) = &mut self.characters {
+                        characters.set_hidden_crew(&resources.hidden_crew);
+                        characters.set_chair_riders(&frame.chair_riders);
+                    }
+                    let mount_class = match own_override {
+                        Some(crate::local::flight_view::OwnSpaceOverride::Pilot { class, .. }) => Some(*class),
+                        _ => crate::local::flight_view::mounted(frame).map(|h| h.class),
+                    };
+                    resources.sound.swbf2_set_own_mount(mount_class, camera.first_person);
+                    fleet.place_props(&mut self.static_content, frame, alpha);
+                } else if own_override.is_some() {
+                    piloting = true;
+                }
+            }
             // Fixed comparison views must select the same lights and effects
             // as their drawn camera, after the player's camera phase too.
             crate::app::bench::apply_camera(camera);
             world.elements.copy_from_slice(&camera.snapshot().values[16..32]);world.invert();
-            resources.first_person.enabled = resources.cameras.eye_view;
+            resources.first_person.enabled = resources.cameras.eye_view && !piloting;
+            if let Some(characters) = &mut self.characters {
+                let scale = resources.shot_aim.borrow().classes.get(receiver.own.class)
+                    .map_or(1., |class| class.scale);
+                let hidden = piloting || resources.cameras.hides_infantry(receiver, camera, scale);
+                characters.network(receiver, replay, resources, hidden);
+                resources.present_swbf2_powers(receiver, characters, dt.min(8. / 60.));
+            }
             let scope_view = if receiver.own.remote.is_some() {
                 camera.first_person
             } else {
@@ -1860,12 +2337,24 @@ impl Scene {
             resources.animation_view(camera);
             self.bridge.r.core.profile.cpu("camera preparation", camera_timer);
             resources.finish_frame(receiver, replay, &world.elements, cue, &mut self.bridge.r.core.profile);
-            resources.capture_shot_scene(receiver, camera);
+            resources.capture_shot_scene(receiver, replay, camera);
             let ordnance_timer = self.bridge.r.core.profile.clock();
             resources.present_ordnance(receiver, replay, dt.min(8./60.), &mut self.bridge);
             self.bridge.r.core.profile.cpu("ordnance presentation", ordnance_timer);
             let effects_timer = self.bridge.r.core.profile.clock();
-            resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, &mut self.bridge);
+            if let Some(characters) = &mut self.characters {
+                resources.present_swbf2_arcs(
+                    receiver,
+                    characters,
+                    dt.min(8. / 60.),
+                    &world,
+                    &camera.snapshot().values[..16],
+                    self.size[1] as f64,
+                    &mut self.bridge,
+                );
+            } else {
+                resources.present_arcs(receiver, replay, dt.min(8./60.), &world, &camera.snapshot().values[..16], self.size[1] as f64, None, &mut self.bridge);
+            }
             resources.present_shields(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, self.depth_texture, &mut self.bridge);
             resources.present_weather(dt.min(8./60.), camera.position, &camera.snapshot().values, self.render_size, &mut self.resources, &mut self.bridge);
             resources.present_holograms(receiver, dt.min(8./60.), camera.position, &camera.snapshot().values, &world.elements, &mut self.bridge);
@@ -1873,17 +2362,29 @@ impl Scene {
             let hud_timer = self.bridge.r.core.profile.clock();
             resources.lights.frame(dt.min(8./60.), camera.position, camera.far());
             camera.set_lights(&resources.lights.packed, resources.lights.count);
-            let mounted = resources.cameras.mounted_aim(camera);
+            let mounted = resources.cameras.mounted_aim(camera).or_else(|| {
+                resources
+                    .space_fleet
+                    .as_ref()
+                    .and_then(|fleet| fleet.pilot_aim(camera))
+            });
             // Seated, the target search looks from the camera along the
             // seat's view; on foot, from the gun along its aim.
             let ray = match mounted {
                 Some(aim) => Some((camera.position, std::array::from_fn(|k| aim.point[k] - camera.position[k]))),
-                None => resources.aim_ray(receiver),
+                None => resources.aim_ray(receiver, replay),
             };
             resources.hud.target(&mut self.bridge, receiver, replay, ray);
             let reticle = mounted.or_else(||
-                resources.reticle_point(receiver).map(|point| crate::online::hud::Aim { point, project_x: false }));
+                resources.reticle_point(receiver, replay).map(|point| crate::online::hud::Aim { point, project_x: false }));
             resources.hud.aim(&mut self.bridge, camera.snapshot(), reticle, &resources.hulls);
+            if let Some((frame, alpha)) = receiver.space.as_ref().and_then(|s| s.sample(receiver.clock.shown)) {
+                frame.draw_lock(alpha, camera.snapshot(), &mut self.bridge);
+            }
+            // A mission's voice-overs play from the same view the screens read, whoever made it.
+            if let Some(view) = &receiver.mission_view {
+                resources.sound.swbf2_mission_voices(view);
+            }
             resources.sound.bleed = [resources.hud.teams[1][3], resources.hud.teams[2][3]];
             resources.sound.own_feet = resources.own_feet(receiver);
             std::mem::swap(&mut resources.sound.turret_seats, &mut resources.hulls.sound_turrets);
@@ -1899,6 +2400,8 @@ impl Scene {
     }
     pub fn online_frame(&mut self,client:&mut crate::online::client::Client,dt:f64){
         self.present_network(&client.receiver,&client.replay,&client.sender.history,&mut client.camera,dt);
+        // The frame's publications are in the HUD's summaries now.
+        if let Some(online)=&self.online {client.receiver.observe_mission(&*online.hud,&client.replay);}
         client.receiver.publications.clear();
     }
     pub fn draw(&mut self, view: &View) -> Result<(), String> {
@@ -2006,6 +2509,26 @@ impl Scene {
                 self.bridge.r.frames.plan.facts[f::TEMPORAL]=1.;
             }
         }
+        // In the static scenery viewer, step world animations from the view's explicit time.
+        // Live battles keep world animations out of the presentation clock and drive them
+        // explicitly from the fixed 60 Hz simulation tick via `update_animations_sim`.
+        if self.online.is_none() && !self.static_content.animations.is_empty() {
+            self.static_content.update_animations(view.values[35]);
+        }
+        if self.static_content.portals.is_active() {
+            let mut wide_proj = view.values[..16].try_into().unwrap_or([0.; 16]);
+            let far = self.far_reach * self.distance_scale;
+            wide_proj[10] = -(far + 0.3) / (far - 0.3);
+            wide_proj[14] = -0.6 * far / (far - 0.3);
+            let view_mat: [f64; 16] = view.values[16..32].try_into().unwrap();
+            let wide_vp = bfe_render::math::mul(&wide_proj, &view_mat);
+            let wide_frustum = bfe_render::math::Frustum::from_matrix(&wide_vp);
+            self.static_content.portals.update(
+                [view.values[32], view.values[33], view.values[34]],
+                &wide_frustum,
+                &wide_vp,
+            );
+        }
         let canopy_timer = self.bridge.r.core.profile.clock();
         if let Some(canopies)=&self.canopies{canopies.frame(&mut self.bridge,&mut self.resources,view,self.shadows_enabled)?;}
         self.bridge.r.core.profile.cpu("canopy preparation", canopy_timer);
@@ -2055,12 +2578,38 @@ impl Scene {
         self.bridge.r.far.input[bfe_render::far::FAR_CLEAR..bfe_render::far::FAR_CLEAR + 4]
             .copy_from_slice(&[0.04, 0.06, 0.09, 1.]);
         self.bridge.r.far.input[bfe_render::far::FAR_DRAW] = 1.;
-        self.publish(r::FAR, k::FAR, 0, 0, 0);
+        if self.is_space && matches!(component, Component::All | Component::Props) {
+            let far_records = self.static_content.select_range(
+                &mut self.bridge,
+                bfe_render::instances::MAX_RECORDS,
+                450.,
+                f64::INFINITY,
+                false,
+                self.static_content.portals.is_active(),
+            );
+            self.publish(r::FAR, k::FAR, far_records, 0, 0);
+        } else {
+            self.publish(r::FAR, k::FAR, 0, 0, 0);
+        }
         self.bridge.r.core.input[..shader::FRAME_FLOATS].copy_from_slice(&view.values);
         let cull_timer=self.bridge.r.core.profile.clock();
         let mut records = if matches!(component, Component::All | Component::Props) {
             let room=if component==Component::All{self.online.as_ref().map_or(0,|r|(r.record_budget()+r.hidden_shadow_budget()).min(bfe_render::instances::MAX_RECORDS))}else{0};
-            self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
+            let room = self.characters.as_ref().filter(|_| component == Component::All).map_or(room, |characters| {
+                (room + characters.visible_budget(&self.bridge)).min(bfe_render::instances::MAX_RECORDS)
+            });
+            if self.is_space {
+                self.static_content.select_range(
+                    &mut self.bridge,
+                    bfe_render::instances::MAX_RECORDS - room,
+                    0.,
+                    600.,
+                    true,
+                    self.static_content.portals.is_active(),
+                )
+            } else {
+                self.static_content.select_limit(&mut self.bridge,bfe_render::instances::MAX_RECORDS-room)
+            }
         } else {
             0
         };
@@ -2078,7 +2627,7 @@ impl Scene {
             })
             .max()
             .unwrap_or(0);
-        if component==Component::All{if let Some(online)=&mut self.online{let first=records;(records,bones)=online.append(&mut self.bridge,records,bones);crate::app::bench::drawn(&self.bridge,&view.values,first,records);}}
+        if component==Component::All{let first=records;if let Some(online)=&mut self.online{(records,bones)=online.append(&mut self.bridge,records,bones);}if let Some(c)=&mut self.characters{(records,bones)=c.append(&mut self.bridge,records,bones);}if self.online.is_some(){crate::app::bench::drawn(&self.bridge,&view.values,first,records,self.characters.as_ref());}}
         self.bridge.r.core.profile.cpu("instance list and culling",cull_timer);
         let lamp_timer = self.bridge.r.core.profile.clock();
         let online=&self.online;
@@ -2093,15 +2642,35 @@ impl Scene {
             motion.input[M::IN_VIEW_VIEW..M::IN_VIEW_VIEW+16].copy_from_slice(&view.values[16..32]);
             motion.input[M::IN_CURRENT..M::IN_CURRENT+16].copy_from_slice(&state[ps::CURRENT..ps::CURRENT+16]);motion.input[M::IN_PREVIOUS..M::IN_PREVIOUS+16].copy_from_slice(&state[ps::PREVIOUS..ps::PREVIOUS+16]);
             motion.input[M::IN_RANGE..M::IN_RANGE+2].copy_from_slice(&[0.,1.]);motion.input[M::IN_TARGET]=f[pf::RESOURCES+pr::VELOCITY*pr::STRIDE+pr::TEXTURE];motion.input[M::IN_SIZE..M::IN_SIZE+2].copy_from_slice(&self.render_size.map(|v|v as f64));motion.input[M::IN_DEPTH]=self.depth_texture as f64;motion.input[M::IN_CLEAR]=1.;
-            native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
+            let dropped_motion = native.prepare(&self.bridge.r.core,motion,records,state[ps::VALID]!=0.);
+            if dropped_motion > 0 {
+                self.bridge.r.instances.overflow.note_motion_drop(dropped_motion);
+            }
         }
         self.bridge.r.core.profile.cpu("motion preparation", motion_timer);
         let shadow_timer=self.bridge.r.core.profile.clock();
+        let active_regional_shadow = if self.is_swbf2 && !self.light_regions.is_empty() {
+            select_regional_shadow(&self.light_regions, [view.values[32], view.values[33], view.values[34]])
+        } else {
+            None
+        };
+        let desired_shadow_slot = if self.shadows_enabled && self.shadows.is_some() {
+            active_regional_shadow.as_ref().map(|r| r.slot)
+        } else {
+            None
+        };
+        if self.active_shadow_region != desired_shadow_slot {
+            self.active_shadow_region = desired_shadow_slot;
+            if let Some(l2) = &mut self.light2_data {
+                l2[shader::LIGHT2_META + 2] = desired_shadow_slot.map_or(0.0, |s| (s + 1) as f64);
+                self.bridge.r.core.set_light2(l2);
+            }
+        }
         if self.shadows_enabled { if let Some(shadows) = &mut self.shadows {
             let shadow_records = self.online.as_ref().map_or(records, |online| {
                 online.append_hidden_shadows(&mut self.bridge, records, bones)
             });
-            shadows.publish(&mut self.bridge, view, shadow_records)?;
+            shadows.publish(&mut self.bridge, view, shadow_records, active_regional_shadow.as_ref())?;
         }}
         self.bridge.r.core.profile.cpu("shadow preparation",shadow_timer);
         let packet_timer = self.bridge.r.core.profile.clock();
@@ -2127,7 +2696,7 @@ impl Scene {
                 projection.make_perspective(-right, right, top, -top, 0.3, 10., CoordinateSystem::WebGL);
                 projection.elements[8]=view.values[8];projection.elements[9]=view.values[9];
                 let source=&self.online;self.lamps.instances(&mut self.bridge.r.core,view_records,true,&mut |from,to|source.as_ref().is_none_or(|online|online.lamp_visible(from,to)));
-                if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);}
+                if let Some(native)=&mut self.temporal_motion{use bfe_render::motion as M;self.bridge.r.motion.input[M::IN_VIEW_PROJECTION..M::IN_VIEW_PROJECTION+16].copy_from_slice(&projection.elements);let dropped_view_motion = native.view(&self.bridge.r.core,&mut self.bridge.r.motion,view_records);if dropped_view_motion > 0 { self.bridge.r.instances.overflow.note_motion_drop(dropped_view_motion); }}
                 self.bridge.r.core.input[..16].copy_from_slice(&projection.elements);self.bridge.r.frames.plan.facts[f::VIEW_SHOWN]=1.;
                 // The view scene packs its own lights: only the copies syncViewLights makes.
                 if let Some(online)=&self.online{let l=&online.lights;let n=l.view_count;self.bridge.r.core.input[shader::FRAME_LIGHT_COUNT]=n as f64;self.bridge.r.core.input[shader::FRAME_LIGHTS..shader::FRAME_LIGHTS+n*8].copy_from_slice(&l.view_packed[..n*8]);}self.publish(r::VIEW,k::VIEW,view_records,view_bones,0);}}
@@ -2157,6 +2726,29 @@ impl Scene {
             .chunks_exact(t::LEN)
             .map(|row| row[t::PASS_DRAWS..].iter().sum::<f64>() as u64)
             .sum::<u64>();
+        if self.bridge.r.instances.overflow.finish_frame() {
+            let o = &self.bridge.r.instances.overflow;
+            eprintln!(
+                "instance bank overflow (frame drops={}, interval peak={}, overflow frames={}): dropped rec={} row={} blend={} bone={} skin={} motion={} (peaks rec={}/{} row={}/{} blend={}/{} bone={}/{})",
+                o.frame_drops,
+                o.last_report_peak_drops,
+                o.overflow_frames,
+                o.dropped_records,
+                o.dropped_rows,
+                o.dropped_blended,
+                o.dropped_bones,
+                o.dropped_caster_skins,
+                o.dropped_motion,
+                o.peak_records,
+                bfe_render::instances::MAX_RECORDS,
+                o.peak_rows,
+                self.bridge.r.instances.row_capacity(),
+                o.peak_blended,
+                bfe_render::instances::MAX_BLENDED,
+                o.peak_bones,
+                self.bridge.r.instances.bone_capacity(),
+            );
+        }
         Ok(())
     }
     // Water.update and Water.reflect for this frame: the host's rows and
@@ -2278,10 +2870,14 @@ impl Scene {
         let count = self.bridge.r.effects.input[fx::IN_DRAWS] as usize;
         self.bridge.r.effects.input[fx::IN_DRAWS] = self.water.as_ref().map_or(count, |host| host.draws_before_water(count)) as f64;
         let room = self.online.as_ref().map_or(0, |online| online.record_budget()).min(i::MAX_RECORDS);
+        let room = self.characters.as_ref().map_or(room, |characters| {
+            (room + characters.visible_budget(&self.bridge)).min(i::MAX_RECORDS)
+        });
         let mut records = self.static_content.select_limit(&mut self.bridge, i::MAX_RECORDS - room);
         let mut bones = self.bridge.r.core.input[i::IN_RECORDS..].chunks_exact(i::REC_STRIDE).take(records)
             .map(|row| (row[i::REC_BONE_AT] + row[i::REC_BONES]) as usize).max().unwrap_or(0);
         if let Some(online) = &mut self.online { (records, bones) = online.append(&mut self.bridge, records, bones); }
+        if let Some(c)=&mut self.characters{(records,bones)=c.append(&mut self.bridge,records,bones);}
         let online = &self.online;
         self.lamps.instances(&mut self.bridge.r.core, records, false,
             &mut |from, to| online.as_ref().is_none_or(|online| online.lamp_visible(from, to)));
@@ -2548,6 +3144,377 @@ fn environment(view: &mut View, map: &serde_json::Value) {
     set(view, "fogRange", &range);
 }
 
+fn classify_swbf2_sky(
+    mesh: &bfe_content_native::loader::Mesh,
+    map: &serde_json::Value,
+    images: &[bfe_content_native::textures::Image],
+) -> crate::static_scene::SkyMode {
+    use crate::static_scene::SkyMode;
+    let layer = mesh.material.record["skyLayer"].as_i64().unwrap_or(0);
+    if layer == 0 && map["skySource"].is_string() {
+        let black_dome = mesh.material.texture.and_then(|id| images.get(id)).is_some_and(|img| {
+            if img.format == bfe_render::texture_format::Format::Rgba {
+                img.data.chunks_exact(4).all(|px| px[0] == 0 && px[1] == 0 && px[2] == 0)
+            } else {
+                img.width <= 8 && img.height <= 8
+            }
+        });
+        if black_dome {
+            return SkyMode::Stars;
+        }
+    }
+    if mesh.material.flags & 2 != 0 {
+        return SkyMode::AlphaTest;
+    }
+    if mesh.material.blend != Blend::Opaque {
+        return SkyMode::Blended;
+    }
+    if layer > 0 {
+        let has_alpha = mesh.material.texture.and_then(|id| images.get(id)).is_some_and(|img| {
+            if img.format == bfe_render::texture_format::Format::Rgba {
+                img.data.chunks_exact(4).any(|px| px[3] < 255)
+            } else {
+                matches!(
+                    img.format,
+                    bfe_render::texture_format::Format::Bc3
+                        | bfe_render::texture_format::Format::Bc7
+                        | bfe_render::texture_format::Format::Astc
+                        | bfe_render::texture_format::Format::Etc2Rgba
+                        | bfe_render::texture_format::Format::PvrtcRgba
+                )
+            }
+        });
+        if has_alpha {
+            return SkyMode::Blended;
+        }
+    }
+    SkyMode::Opaque
+}
+
+fn parse_rgb_triplet(s: &str) -> Option<[f64; 3]> {
+    let mut it = s.split(',').filter_map(|p| p.trim().parse::<f64>().ok());
+    let (r, g, b) = (it.next()?, it.next()?, it.next()?);
+    Some([r / 255., g / 255., b / 255.])
+}
+
+#[derive(Clone, Copy)]
+struct LightRegionMeta {
+    slot: usize,
+    inverse: [f64; 16],
+    half: [f64; 3],
+    is_sphere: bool,
+    radius: f64,
+    dir0_scale: f64,
+    shadow_dir: Option<[f64; 3]>,
+}
+
+impl LightRegionMeta {
+    fn volume(&self) -> bfe_render::static_depth::Region {
+        bfe_render::static_depth::Region { inverse: self.inverse, half: self.half, radius: self.is_sphere.then_some(self.radius) }
+    }
+
+    fn weight(&self, p: [f64; 3]) -> f64 {
+        let m = &self.inverse;
+        let lx = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12];
+        let ly = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13];
+        let lz = m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14];
+        let inside = if self.is_sphere {
+            self.radius - (lx * lx + ly * ly + lz * lz).sqrt()
+        } else {
+            (self.half[0] - lx.abs())
+                .min(self.half[1] - ly.abs())
+                .min(self.half[2] - lz.abs())
+        };
+        (inside / 2.5 + 0.5).clamp(0.0, 1.0)
+    }
+}
+
+fn encode_region_bounds(built: &bfe_content::regions::BuiltRegion, band: f64) -> ([f64; 4], [f64; 3], bool, f64) {
+    let is_sphere = built
+        .kind
+        .as_ref()
+        .and_then(bfe_content::Value::as_str)
+        .is_some_and(|k| k.eq_ignore_ascii_case("sphere"));
+    if is_sphere {
+        ([built.radius, -1.0, 0.0, band], [built.radius, 0.0, 0.0], true, built.radius)
+    } else {
+        let half = [
+            built.half.first().copied().unwrap_or(0.),
+            built.half.get(1).copied().unwrap_or(0.),
+            built.half.get(2).copied().unwrap_or(0.),
+        ];
+        ([half[0], half[1], half[2], band], half, false, 0.0)
+    }
+}
+
+fn select_regional_shadow(
+    regions: &[LightRegionMeta],
+    eye: [f64; 3],
+) -> Option<crate::shadows::RegionalShadow> {
+    let mut dir0_scale = 1.0f64;
+    for r in regions {
+        let w = r.weight(eye);
+        if w > 0.0 {
+            dir0_scale = dir0_scale.min(1.0 + (r.dir0_scale - 1.0) * w);
+        }
+    }
+    if dir0_scale >= 0.25 {
+        return None;
+    }
+    for r in regions {
+        if let Some(direction) = r.shadow_dir {
+            if r.weight(eye) > 0.5 {
+                return Some(crate::shadows::RegionalShadow {
+                    slot: r.slot,
+                    direction,
+                    volume: r.volume(),
+                });
+            }
+        }
+    }
+    None
+}
+
+/// The 2005 game's full glow brightening, 1 + a + a squared at a = 1 (read
+/// from the game, not fitted to frames).
+const GLOW_2005: f64 = 3.;
+
+/// Whether a battle blooms. A 2004 battle follows the bloom and glow setting.
+/// A 2005 battle follows the Light Bloom setting, as the 2005 game does, and
+/// only a map that declares its own bloom blooms.
+fn battle_bloom(swbf2: bool, map_bloom: bool, bloom: bool, light_bloom: bool) -> bool {
+    if swbf2 { light_bloom && map_bloom } else { bloom }
+}
+
+fn build_light2(
+    map: &serde_json::Value,
+    world: &bfe_content::Value,
+) -> ([f64; shader::LIGHT2_FLOATS], Vec<LightRegionMeta>) {
+    let mut out = [0.0f64; shader::LIGHT2_FLOATS];
+    let mut metas = Vec::new();
+
+    // 1. Second global directional light: explicit backDirection/backColor,
+    //    or an additional non-regional directional light other than globalLights.light1.
+    let lighting = &map["lighting"];
+    if let (Ok(dir), Ok(col)) = (
+        serde_json::from_value::<[f64; 3]>(lighting["backDirection"].clone()),
+        serde_json::from_value::<[f64; 3]>(lighting["backColor"].clone()),
+    ) {
+        let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+        if len > 1e-6 {
+            out[shader::LIGHT2_BACK_DIR..shader::LIGHT2_BACK_DIR + 4]
+                .copy_from_slice(&[dir[0] / len, dir[1] / len, dir[2] / len, 1.0]);
+            out[shader::LIGHT2_BACK_COLOR..shader::LIGHT2_BACK_COLOR + 4]
+                .copy_from_slice(&[col[0] / 255., col[1] / 255., col[2] / 255., 0.35]);
+        }
+    } else if let Some(lights) = map["lights"].as_array() {
+        let primary = map["globalLights"]["light1"].as_str().unwrap_or("sun");
+        for l in lights {
+            let is_dir = l["type"].as_str() == Some("directional") || l["typeCode"].as_u64() == Some(1);
+            if !is_dir || l["region"].as_str().is_some_and(|r| !r.is_empty()) {
+                continue;
+            }
+            if l["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(primary)) {
+                continue;
+            }
+            if let (Ok(dir), Ok(col)) = (
+                serde_json::from_value::<[f64; 3]>(l["direction"].clone()),
+                serde_json::from_value::<[f64; 3]>(l["color"].clone()),
+            ) {
+                let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+                if len > 1e-6 {
+                    out[shader::LIGHT2_BACK_DIR..shader::LIGHT2_BACK_DIR + 4]
+                        .copy_from_slice(&[dir[0] / len, dir[1] / len, dir[2] / len, 1.0]);
+                    out[shader::LIGHT2_BACK_COLOR..shader::LIGHT2_BACK_COLOR + 4]
+                        .copy_from_slice(&[col[0], col[1], col[2], 0.2]);
+                    break;
+                }
+            }
+        }
+    }
+
+    // 2. World-space regions (up to 4): regional directional-light volumes
+    //    followed by shadow/ambient override volumes. Supports both box and sphere shapes.
+    let mut slot = 0usize;
+    let raw_regions = world.get("regions").and_then(bfe_content::Value::as_array);
+    if let (Some(lights), Some(regions)) = (map["lights"].as_array(), raw_regions) {
+        for l in lights {
+            if slot >= shader::MAX_LIGHT_REGIONS {
+                break;
+            }
+            let is_dir = l["type"].as_str() == Some("directional") || l["typeCode"].as_u64() == Some(1);
+            let Some(reg_name) = l["region"].as_str().filter(|s| !s.is_empty()) else {
+                continue;
+            };
+            if !is_dir {
+                continue;
+            }
+            let Some(reg) = regions.iter().find(|r| {
+                r.get("name")
+                    .and_then(bfe_content::Value::as_str)
+                    .is_some_and(|n| n.eq_ignore_ascii_case(reg_name))
+            }) else {
+                continue;
+            };
+            let (Ok(dir), Ok(col)) = (
+                serde_json::from_value::<[f64; 3]>(l["direction"].clone()),
+                serde_json::from_value::<[f64; 3]>(l["color"].clone()),
+            ) else {
+                continue;
+            };
+            let len = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+            if len <= 1e-6 {
+                continue;
+            }
+            let unit_dir = [dir[0] / len, dir[1] / len, dir[2] / len];
+            let built = bfe_content::regions::build_region(reg);
+            let (encoded_half, half, is_sphere, radius) = encode_region_bounds(&built, 2.5);
+            out[shader::LIGHT2_REGION_INV + slot * 16..shader::LIGHT2_REGION_INV + (slot + 1) * 16]
+                .copy_from_slice(&built.inverse.elements);
+            out[shader::LIGHT2_REGION_HALF + slot * 4..shader::LIGHT2_REGION_HALF + (slot + 1) * 4]
+                .copy_from_slice(&encoded_half);
+            out[shader::LIGHT2_REGION_AMB_TOP + slot * 4..shader::LIGHT2_REGION_AMB_TOP + (slot + 1) * 4]
+                .copy_from_slice(&[0., 0., 0., 1.0]);
+            out[shader::LIGHT2_REGION_AMB_BOT + slot * 4..shader::LIGHT2_REGION_AMB_BOT + (slot + 1) * 4]
+                .copy_from_slice(&[0., 0., 0., 1.0]);
+            out[shader::LIGHT2_REGION_DIR + slot * 4..shader::LIGHT2_REGION_DIR + (slot + 1) * 4]
+                .copy_from_slice(&[unit_dir[0], unit_dir[1], unit_dir[2], 1.0]);
+            out[shader::LIGHT2_REGION_DIR_COL + slot * 4..shader::LIGHT2_REGION_DIR_COL + (slot + 1) * 4]
+                .copy_from_slice(&[col[0], col[1], col[2], 0.0]);
+            metas.push(LightRegionMeta {
+                slot,
+                inverse: built.inverse.elements,
+                half,
+                is_sphere,
+                radius,
+                dir0_scale: 1.0,
+                shadow_dir: l["castShadow"].as_bool().unwrap_or(false).then_some(unit_dir),
+            });
+            slot += 1;
+        }
+    }
+    if let Some(regions) = raw_regions {
+        for reg in regions {
+            if slot >= shader::MAX_LIGHT_REGIONS {
+                break;
+            }
+            let Some(name) = reg.get("name").and_then(bfe_content::Value::as_str) else {
+                continue;
+            };
+            let mut parts = name.split_ascii_whitespace();
+            if !parts.next().is_some_and(|h| h.eq_ignore_ascii_case("shadow")) {
+                continue;
+            }
+            let mut dir0 = 1.0f64;
+            let mut dir1: Option<f64> = None;
+            let mut top: Option<[f64; 3]> = None;
+            let mut bot: Option<[f64; 3]> = None;
+            for token in parts {
+                if let Some((k, v)) = token.split_once('=') {
+                    if k.eq_ignore_ascii_case("directional") {
+                        if let Ok(x) = v.parse::<f64>() {
+                            dir0 = x.clamp(0., 1.);
+                        }
+                    } else if k.eq_ignore_ascii_case("directional1") {
+                        if let Ok(x) = v.parse::<f64>() {
+                            dir1 = Some(x.clamp(0., 1.));
+                        }
+                    } else if k.eq_ignore_ascii_case("colortop") {
+                        top = parse_rgb_triplet(v);
+                    } else if k.eq_ignore_ascii_case("colorbottom") {
+                        bot = parse_rgb_triplet(v);
+                    }
+                }
+            }
+            let has_amb = top.is_some() || bot.is_some();
+            let amb_top = top.or(bot).unwrap_or([0.; 3]);
+            let amb_bot = bot.or(top).unwrap_or([0.; 3]);
+            let built = bfe_content::regions::build_region(reg);
+            let (encoded_half, half, is_sphere, radius) = encode_region_bounds(&built, 2.5);
+            out[shader::LIGHT2_REGION_INV + slot * 16..shader::LIGHT2_REGION_INV + (slot + 1) * 16]
+                .copy_from_slice(&built.inverse.elements);
+            out[shader::LIGHT2_REGION_HALF + slot * 4..shader::LIGHT2_REGION_HALF + (slot + 1) * 4]
+                .copy_from_slice(&encoded_half);
+            out[shader::LIGHT2_REGION_AMB_TOP + slot * 4..shader::LIGHT2_REGION_AMB_TOP + (slot + 1) * 4]
+                .copy_from_slice(&[amb_top[0], amb_top[1], amb_top[2], dir0]);
+            out[shader::LIGHT2_REGION_AMB_BOT + slot * 4..shader::LIGHT2_REGION_AMB_BOT + (slot + 1) * 4]
+                .copy_from_slice(&[amb_bot[0], amb_bot[1], amb_bot[2], dir1.unwrap_or(dir0)]);
+            out[shader::LIGHT2_REGION_DIR + slot * 4..shader::LIGHT2_REGION_DIR + (slot + 1) * 4]
+                .copy_from_slice(&[0., 0., 0., 0.0]);
+            out[shader::LIGHT2_REGION_DIR_COL + slot * 4..shader::LIGHT2_REGION_DIR_COL + (slot + 1) * 4]
+                .copy_from_slice(&[0., 0., 0., if has_amb { 1.0 } else { 0.0 }]);
+            metas.push(LightRegionMeta {
+                slot,
+                inverse: built.inverse.elements,
+                half,
+                is_sphere,
+                radius,
+                dir0_scale: dir0,
+                shadow_dir: None,
+            });
+            slot += 1;
+        }
+    }
+
+    // A 2005 glowing surface: its colour times 1 + a + a squared. The game
+    // sets the glow amount a to 1 for every surface with the glow flag; a
+    // cut out or blended one glows by that, an opaque one takes a from its
+    // texture's alpha instead (the shaders read it there).
+    out[shader::LIGHT2_META..shader::LIGHT2_META + 4].copy_from_slice(&[slot as f64, GLOW_2005, 0., 0.]);
+    (out, metas)
+}
+
+fn collect_static_point_lights(map: &serde_json::Value) -> ([f64; shader::MAX_LIGHTS * 8], usize) {
+    let mut packed = [0.0f64; shader::MAX_LIGHTS * 8];
+    let mut count = 0usize;
+    let Some(lights) = map["lights"].as_array() else {
+        return (packed, 0);
+    };
+    for l in lights {
+        if count >= shader::MAX_LIGHTS {
+            break;
+        }
+        let is_point = l["type"].as_str() == Some("point") || l["typeCode"].as_u64() == Some(2);
+        if !is_point {
+            continue;
+        }
+        let (Ok(pos), Ok(col)) = (
+            serde_json::from_value::<[f64; 3]>(l["position"].clone()),
+            serde_json::from_value::<[f64; 3]>(l["color"].clone()),
+        ) else {
+            continue;
+        };
+        let range = l["range"].as_f64().unwrap_or(0.);
+        if !range.is_finite() || range <= 0. {
+            continue;
+        }
+        let at = count * 8;
+        packed[at..at + 4].copy_from_slice(&[pos[0], pos[1], pos[2], range]);
+        packed[at + 4..at + 8].copy_from_slice(&[col[0], col[1], col[2], 0.]);
+        count += 1;
+    }
+    (packed, count)
+}
+
+#[cfg(test)]
+mod online_scene_tests {
+    use super::*;
+
+    // A 2004 battle's scene is read by the 2004 loader whatever else its query
+    // carries: with no content, the refusal names the 2004 map either way.
+    #[test]
+    fn a_2004_query_that_carries_a_family_key_loads_the_2004_scene() {
+        let root = std::env::temp_dir().join(format!("bfe-online-scene-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let textures = || TextureOptions { compressed: false, max_size: 256, capabilities: 0 };
+        let refused = |query: &str| Scene::prepare_online(&root, query, textures()).err().unwrap();
+        let released = refused("?map=kam1&side=all&ai=enhanced&seed=1");
+        assert!(released.contains("kam1") && !released.contains("swbf2"), "{released}");
+        assert_eq!(refused("?map=kam1&side=all&family=swbf2&ai=enhanced&seed=1"), released);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
 #[cfg(test)]
 mod camera_tests {
     use super::*;
@@ -2639,6 +3606,135 @@ mod camera_tests {
         assert_eq!(far_extent([480,270],true),[480,270]);
         assert_eq!(far_extent([1,1],true),[1,1]);
         assert_eq!(far_extent([1920,1080],false),[1920,1080]);
+    }
+
+    #[test]
+    fn a_2005_map_blooms_with_its_effect_packs_hdr_block_and_its_glow_is_threefold() {
+        let pack = bfe_content::json::parse(
+            r#"{"hdr":{"Enable":1,"DownSizeFactor":0.4,"NumBloomPasses":3.7,"MaxTotalWeight":1.3,"GlowThreshold":0.6,"GlowFactor":1.5}}"#,
+        ).unwrap();
+        let bloom = swbf2_bloom(&pack).expect("bloom");
+        assert_eq!(bloom, Swbf2Bloom { threshold: 0.6, factor: 1.5, passes: 3., weight: 1.3, downsize: 0.4 });
+        let none = bfe_content::json::parse(r#"{"hdr":null,"spaceDust":{}}"#).unwrap();
+        assert_eq!(swbf2_bloom(&none), None);
+        let partial = bfe_content::json::parse(r#"{"hdr":{"GlowThreshold":0.6}}"#).unwrap();
+        assert_eq!(swbf2_bloom(&partial), None);
+        let (l2, _) = build_light2(&serde_json::json!({}), &bfe_content::Value::Null);
+        assert_eq!(l2[shader::LIGHT2_META + 1], 3.);
+    }
+
+    #[test]
+    fn a_2005_battle_blooms_by_light_bloom_and_a_2004_battle_by_bloom_and_glow() {
+        // 2005: the map's own bloom, by the Light Bloom setting alone.
+        assert!(battle_bloom(true, true, false, true));
+        assert!(!battle_bloom(true, true, true, false));
+        assert!(!battle_bloom(true, false, true, true));
+        // 2004: the bloom and glow setting alone, as before.
+        assert!(battle_bloom(false, false, true, false));
+        assert!(!battle_bloom(false, false, false, true));
+        // A fresh settings folder on any computer: the 2005 map blooms whatever quality preset
+        // a new install measures and picks, and the 2004 bloom keeps each preset's value.
+        for (renderer, fill, bloom_2004) in [
+            ("Intel(R) HD Graphics 3000", None, false),
+            ("a slow card", Some(9.), false),
+            ("a middle card", Some(0.9), false),
+            ("a fast card", Some(0.02), true),
+        ] {
+            let mut store = bfe_interface::settings::Settings::new();
+            store.fresh = true;
+            let gpu = bfe_interface::settings::classify_gpu(renderer, "");
+            store.adopt_hardware_defaults(Some(&gpu), None);
+            if let Some(preset) = fill.and_then(crate::app::settings::measured_preset) {
+                store.set("performancePreset", preset);
+            }
+            assert_eq!(store.get_bool("bloom"), bloom_2004, "{renderer}");
+            assert!(battle_bloom(true, true, store.get_bool("bloom"), store.get_bool("bloomSwbf2")), "{renderer}");
+        }
+    }
+    #[test]
+    fn build_light2_selects_non_primary_global_directional_as_fallback() {
+        let map = serde_json::json!({
+            "globalLights": {"light1": "main_sun"},
+            "lights": [
+                {"name": "main_sun", "type": "directional", "direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0]},
+                {"name": "rim_fill", "type": "directional", "direction": [0.0, 1.0, 0.0], "color": [0.25, 0.5, 0.75]}
+            ]
+        });
+        let world = bfe_content::json::parse("{}").unwrap();
+        let (l2, metas) = build_light2(&map, &world);
+        assert_eq!(l2[shader::LIGHT2_BACK_DIR..shader::LIGHT2_BACK_DIR + 4], [0.0, 1.0, 0.0, 1.0]);
+        assert_eq!(l2[shader::LIGHT2_BACK_COLOR..shader::LIGHT2_BACK_COLOR + 3], [0.25, 0.5, 0.75]);
+        assert_eq!(l2[shader::LIGHT2_META], 0.0);
+        assert!(metas.is_empty());
+    }
+
+    #[test]
+    fn build_light2_encodes_box_and_sphere_regions_and_regional_shadow_selection() {
+        let map = serde_json::json!({
+            "lights": [
+                {"name": "bay_lamp", "type": "directional", "direction": [0.0, -1.0, 0.0], "color": [0.6, 0.6, 0.6], "region": "bay_box", "castShadow": true}
+            ]
+        });
+        let world = bfe_content::json::parse(r#"{"regions":[
+            {"type":"box","name":"bay_box","size":[20,10,20]},
+            {"type":"sphere","name":"shadow directional=0","size":[15,0,0]}
+        ]}"#).unwrap();
+        let (l2, metas) = build_light2(&map, &world);
+        assert_eq!(l2[shader::LIGHT2_META], 2.0);
+        // Slot 0: box with non-negative half-extents.
+        assert_eq!(&l2[shader::LIGHT2_REGION_HALF..shader::LIGHT2_REGION_HALF + 3], &[20.0, 10.0, 20.0]);
+        // Slot 1: sphere encoded as [radius, -1.0, 0.0].
+        assert_eq!(&l2[shader::LIGHT2_REGION_HALF + 4..shader::LIGHT2_REGION_HALF + 7], &[15.0, -1.0, 0.0]);
+        assert_eq!(l2[shader::LIGHT2_REGION_AMB_TOP + 4 + 3], 0.0);
+        // Inside both the shadow suppression sphere and the bay box -> regional shadow activates.
+        let active = select_regional_shadow(&metas, [0.0, 0.0, 0.0]).expect("regional shadow inside bay");
+        assert_eq!(active.slot, 0);
+        assert_eq!(active.volume.half, metas[0].half);
+        assert_eq!(active.volume.inverse, metas[0].inverse);
+        // Outside the suppression sphere -> global sun shadows stay active.
+        assert!(select_regional_shadow(&metas, [19.0, 0.0, 0.0]).is_none());
+    }
+
+    #[test]
+    fn collect_static_point_lights_packs_only_positive_range_lights() {
+        let map = serde_json::json!({
+            "lights": [
+                {"name": "zero_range", "type": "point", "position": [1.0, 2.0, 3.0], "range": 0.0, "color": [1.0, 1.0, 1.0]},
+                {"name": "beacon", "type": "point", "position": [-4.0, 5.0, 6.0], "range": 12.0, "color": [0.9, 0.4, 0.2]}
+            ]
+        });
+        let (pts, count) = collect_static_point_lights(&map);
+        assert_eq!(count, 1);
+        assert_eq!(&pts[..4], &[-4.0, 5.0, 6.0, 12.0]);
+        assert_eq!(&pts[4..7], &[0.9, 0.4, 0.2]);
+    }
+
+    #[test]
+    #[ignore = "requires prepared 2005 missions"]
+    fn developer_scene_prepares_placed_objects_from_the_selected_family() {
+        use bfe_sim::world::admit::{mission::{MissionPreferences, MissionSelection}, Bots, Options};
+        let root = std::path::PathBuf::from(std::env::var_os("BFE_SWBF2_PREPARED").unwrap());
+        for (map, era, mode, side) in [("tat2", "gcw", "eli", "all"), ("spa6", "cw", "ass", "rep")] {
+            let options = Options {
+                family: bfe_content::GameFamily::Swbf2, mode: mode.into(), practice_target: None,
+                map: map.into(), seed: 59, side: side.into(), unit: None, enhanced: false,
+                heroes: false, name: None, bots: Bots::read("classic", "medium", "full"),
+            };
+            let selection = MissionSelection {
+                family: bfe_content::GameFamily::Swbf2, map: map.into(), era: era.into(),
+                mode: mode.into(), seed: options.seed,
+            };
+            let (_, journal) = crate::local::launch::Prepared::developer_mission(
+                &root, &options, &selection, MissionPreferences::default(),
+            ).unwrap();
+            let textures = TextureOptions { compressed: false, max_size: 4096, capabilities: 0 };
+            let scene = Scene::prepare_developer_mission(&root, &journal.resources, textures).unwrap();
+            assert!(!scene.placed.parts.is_empty());
+            let predicted = scene.content.content.battle.world.get("mission").unwrap().get("maxFlyHeight").unwrap().as_f64();
+            assert_eq!(predicted, Some(journal.resources.max_fly_height));
+            assert_ne!(predicted, Some(200.0));
+            println!("Developer scene {map} placed parts={}", scene.placed.parts.len());
+        }
     }
 
 }

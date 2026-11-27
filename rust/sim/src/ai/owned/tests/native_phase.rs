@@ -242,6 +242,25 @@ impl Native {
    props:owned::buildings::Buildings::new(0),seats:Default::default(),buildings:bfe_sim::battle::live_phase::Live::new(0,0,0),crew:None}
  }
 }
+/// Feed a ground helper's observed status through the soldier's ordinary interrupt checks.
+pub(crate) fn soldier_requests_recovery(status: f64) -> bool {
+    let mut world = Native::new(false, 1.);
+    let mut options = ctl::Options::default();
+    options.bind.vehicles = false;
+    options.bind.combat = false;
+    let mut core = ctl::Core::new(options, TeamTable::default(), ctl::difficulty::Difficulty::classic(Default::default()), 1);
+    let mut controller = ctl::controller::Controller::new(0);
+    controller.unit = Some(world.keys[0]);
+    controller.nav_control = Some(ControlObs { status, ..Default::default() });
+    core.controllers.push(controller);
+    let mut draws = LiveDraws {
+        a: crate::ai::random::ClassicRandom::new(1.),
+        b: crate::ai::random::ClassicRandom::new(2.),
+    };
+    core.interrupts_tick(&mut world, &mut draws, 0)
+        && core.controllers[0].commands.queue.first().is_some_and(|g| g.kind == ctl::controller::goal::RECOVERY)
+}
+
 #[test]
 fn canonical_core_runs_navigation_and_objectives_on_maps_with_and_without_a_graph() {
  for graph in [false,true] {for side in [1.,2.] {for enhanced in [false,true] {

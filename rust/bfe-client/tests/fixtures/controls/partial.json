@@ -1,0 +1,44 @@
+{
+  "profileName": "Test Pilot",
+  "privacyNoticeAccepted": false,
+  "nativeSettingsVersion": 2,
+  "complete": false,
+  "values": {
+    "aiDifficulty": "medium",
+    "battleSize": "full",
+    "effectsVolume": 1,
+    "interfaceVolume": 1,
+    "invertMouse": false,
+    "masterVolume": 0.800000011920929,
+    "menuTheme": "eternal",
+    "mouseSensitivity": 5,
+    "musicVolume": 1,
+    "playerName": "Test Pilot"
+  },
+  "shell": {
+    "master_volume": 0.8,
+    "music_volume": 1.0,
+    "interface_volume": 1.0,
+    "effects_volume": 1.0,
+    "menu_theme": "eternal",
+    "battle_size": "full",
+    "difficulty": "medium",
+    "mouse_sensitivity": 5.0,
+    "invert_y": false
+  },
+  "pauseKv": {
+    "aiDifficulty": "medium",
+    "battleSize": "full",
+    "effectsVolume": "100",
+    "interfaceVolume": "100",
+    "invertMouse": "false",
+    "invertY": "false",
+    "masterVolume": "80",
+    "menuTheme": "eternal",
+    "mouseSensitivity": "5.00",
+    "musicVolume": "100",
+    "playerName": "Test Pilot"
+  },
+  "iaPlaylist": [],
+  "iaRandom": false
+}

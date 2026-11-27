@@ -30,6 +30,7 @@ strict_clippy_crates=(
   basis-transcode
   bfe-online
   sim-gen
+  bfe-script
   bfe-ui
   bfe-interface
   bfe-shell
@@ -37,6 +38,8 @@ strict_clippy_crates=(
   bfe-battle-ui
   bfe-desktop
   bfe-server
+  bfe-family
+  bfe-storage
   xtask
 )
 test_crates=(
@@ -58,6 +61,7 @@ test_crates=(
   bfe-transport
   bfe-online
   sim-gen
+  bfe-script
   bfe-ui
   bfe-interface
   bfe-shell
@@ -65,6 +69,8 @@ test_crates=(
   bfe-battle-ui
   bfe-desktop
   bfe-server
+  bfe-family
+  bfe-storage
   xtask
 )
 
@@ -82,6 +88,13 @@ for crate in "${test_crates[@]}"; do
   test_pkg_args+=(-p "${crate}")
 done
 cargo test --manifest-path "${manifest}" --locked "${test_pkg_args[@]}"
+
+# The script runtime must give the same bits with the optimizer on: its tests run in
+# release as well (exceptional arithmetic, the differential corpus, hostile bounds).
+if [[ -f "rust/bfe-script/Cargo.toml" ]]; then
+  echo "==> Step 3b: bfe-script tests in release"
+  cargo test --manifest-path "${manifest}" --locked --release -p bfe-script
+fi
 
 echo "==> Step 4: Dedicated server startup smoke"
 smoke_tmp="$(mktemp -d "${TMPDIR:-/tmp}/bfe-ci-smoke.XXXXXX")"

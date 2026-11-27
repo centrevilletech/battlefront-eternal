@@ -3,6 +3,8 @@
 
 use crate::game_session::{GameSessionState, SessionAction};
 use crate::udp_peer::{valid_incoming_state_payload, PeerPath, UdpPeerState};
+use bfe_family::Selection;
+use bfe_sim::wire::revisions::{self, Descriptor, Request};
 use bfe_transport::connection::{Closed, Lane};
 use bfe_transport::crypto::{Identity, RetryTokens};
 use bfe_transport::layout::{close_code, network_contract};
@@ -66,6 +68,9 @@ pub struct ConnectedPeer {
     last_edges: Option<(Vec<u8>, f64)>,
     /// Superseding messages not queued because the reliable lane was backed up, or repeated.
     pub superseded: u64,
+    /// Set for a peer admitted to sit the battle out (`"missing-content"` or
+    /// `"content-mismatch"`): it has chat and the lobby scoreboard, no world.
+    pub sitting_out: Option<&'static str>,
 }
 
 /// Reliable bytes pending for a player above which superseding messages wait (see
@@ -82,6 +87,16 @@ pub enum WorldPeerEvent {
         address: String,
         prefix: String,
         path: PeerPath,
+        /// A 2005 match's plan with this client: what its input packets may
+        /// carry, as its sender decides by the same plan. None in a 2004 battle.
+        plan: Option<revisions::Plan>,
+    },
+    /// A client admitted to sit the battle out: it lacks the active map's
+    /// content. Only a server whose rotation includes the 2005 game does this.
+    SatOut {
+        id: String,
+        name: String,
+        reason: &'static str,
     },
     /// A client session closed or was evicted (`peer.once("closed", ...)`).
     Left {
@@ -262,10 +277,12 @@ struct PollSink<'a, F: FnMut(&str) -> bool> {
     now_ms: f64,
     content: &'a str,
     fingerprint: &'a str,
+    /// The active 2005 match; None while a 2004 battle runs.
+    descriptor: Option<&'a Descriptor>,
     max_players: usize,
     active_players: usize,
     is_banned: &'a mut F,
-    admitted: Vec<(u32, ClientInfo, SocketAddr, f64)>,
+    admitted: Vec<(u32, ClientInfo, SocketAddr, f64, Option<&'static str>)>,
     messages: Vec<(u32, Lane, bool, Vec<u8>)>,
     paths: Vec<(u32, SocketAddr)>,
     closed: Vec<u32>,
@@ -304,6 +321,28 @@ pub fn version_refusal(protocol: usize, profile: &str, simulation: &str) -> Stri
     }
 }
 
+/// The `match` announcement of the next battle: `query` and `delayMs`, as released for
+/// both games (a 2005 battle's query names its game).
+pub fn match_event(query: &str, delay_ms: u64) -> Value {
+    json!({ "type": "match", "query": query, "delayMs": delay_ms })
+}
+
+/// The refusal of a client whose discovery described a match that has ended.
+pub const MATCH_CHANGED: &str = "match-changed";
+
+/// Whether an admitted client sits the battle out, and why. Only a 2005
+/// match has the role; a 2004 battle refused content that differs, as
+/// released, whatever else its rotation holds. A 2005 battle role needs the
+/// match's verified digest: an operator's content label never stands for it.
+pub fn sit_out(hello: &Value, fingerprint: &str, swbf2: bool) -> Option<&'static str> {
+    if !swbf2 { return None; }
+    match hello.get("content") {
+        Some(Value::String(c)) if c == fingerprint => None,
+        Some(Value::Null) | None => Some("missing-content"),
+        Some(_) => Some("content-mismatch"),
+    }
+}
+
 impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     fn send_packet(&mut self, bytes: &[u8], to: SocketAddr) {
         self.relays.send(self.socket, bytes, to, self.now_ms);
@@ -314,13 +353,21 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
     /// Includes only the compact version/digest fields (`protocol`, `profile`, `simulation`, `content`,
     /// `fingerprint`) so the encrypted `RESPONSE` packet stays well below the 1200-byte UDP MTU.
     fn on_hello(&mut self) -> Value {
-        json!({
+        let mut hello = json!({
             "protocol": network_contract::PROTOCOL,
             "profile": network_contract::PROFILE,
             "simulation": network_contract::SIMULATION,
             "content": self.content,
             "fingerprint": self.fingerprint,
-        })
+        });
+        // A 2005 match names itself and its record table, and its content is
+        // its verified digest, so an operator's label of any length never
+        // enters its signed answer. A 2004 hello keeps its keys and values.
+        if let (Some(descriptor), Some(object)) = (self.descriptor, hello.as_object_mut()) {
+            object.insert("content".into(), Value::from(self.fingerprint));
+            object.insert("battle".into(), descriptor.json());
+        }
+        hello
     }
 
     /// Evaluates handshake admission policy (`server.admit` in `startUdpServer`):
@@ -342,14 +389,20 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
             .get("content")
             .and_then(Value::as_str)
             .unwrap_or_default();
-
-        // Reject clients running a mismatched wire protocol, snapshot profile, simulation build, or content pack.
-        if hello_protocol != network_contract::PROTOCOL
-            || hello_profile != network_contract::PROFILE
-            || hello_sim != network_contract::SIMULATION
-            || (hello_content != self.fingerprint && hello_content != self.content)
-        {
-            // Earlier games show this text as it is, so it says which side is out of date.
+        let version = hello_protocol == network_contract::PROTOCOL
+            && hello_profile == network_contract::PROFILE
+            && hello_sim == network_contract::SIMULATION;
+        let content = hello_content == self.fingerprint || hello_content == self.content;
+        let swbf1 = self.descriptor.is_none();
+        if swbf1 {
+            // A 2004 battle admits exactly as released, on any rotation.
+            // Reject clients running a mismatched wire protocol, snapshot profile, simulation build, or content pack.
+            if !version || !content {
+                // Earlier games show this text as it is, so it says which side is out of date.
+                let reason = version_refusal(hello_protocol, hello_profile, hello_sim);
+                return AdmitDecision::reject(close_code::VERSION as u64, &reason);
+            }
+        } else if !version {
             let reason = version_refusal(hello_protocol, hello_profile, hello_sim);
             return AdmitDecision::reject(close_code::VERSION as u64, &reason);
         }
@@ -364,13 +417,30 @@ impl<F: FnMut(&str) -> bool> ServerSink for PollSink<'_, F> {
         if self.active_players >= self.max_players {
             return AdmitDecision::reject(close_code::REJECTED as u64, "The server is full.");
         }
+        // A 2005 client names the match discovery described and the record
+        // revisions it reads. Any other match, including another match of the
+        // same selection, has ended: discovery is stale. A required record
+        // the client cannot read refuses this match alone, as a version.
+        if let Some(descriptor) = self.descriptor {
+            let request = match hello.get("battle").map(Request::read) {
+                None => return AdmitDecision::reject(close_code::REJECTED as u64, MATCH_CHANGED),
+                Some(Err(error)) => return AdmitDecision::reject(close_code::PROTOCOL as u64, error),
+                Some(Ok(request)) => request,
+            };
+            if !request.names(descriptor) {
+                return AdmitDecision::reject(close_code::REJECTED as u64, MATCH_CHANGED);
+            }
+            if let Err(unreadable) = revisions::check(&descriptor.records, &request.supports) {
+                return AdmitDecision::reject(close_code::VERSION as u64, unreadable.text());
+            }
+        }
         AdmitDecision::accept()
     }
 
     fn on_session(&mut self, session_id: u32, client: &ClientInfo, remote: SocketAddr, rtt: f64) {
         self.active_players += 1;
         self.admitted
-            .push((session_id, client.clone(), remote, rtt));
+            .push((session_id, client.clone(), remote, rtt, sit_out(&client.hello, self.fingerprint, self.descriptor.is_some())));
     }
 
     fn on_message(&mut self, session_id: u32, lane: Lane, text: bool, bytes: &[u8]) {
@@ -440,9 +510,18 @@ pub struct UdpGameServer {
     pub content: String,
     /// `bfe-content-sha256-...` digest verified during `on_admit`.
     pub fingerprint: String,
+    /// The active battle's game and mode, as its hellos and announcements name it.
+    pub battle: Selection,
+    /// The active 2005 match, named in its signed hello; None for a 2004 battle.
+    pub descriptor: Option<Descriptor>,
     /// The announced next battle (`query`, deadline in `now_ms` time) once this battle has
     /// ended: players who join during the end table are told it too, so they follow it.
     pub pending_match: Option<(String, f64)>,
+    /// The announced battle is the one running on this port: it started on the handed-over port
+    /// before the service cleared the announcement (it waits for the online registration to name
+    /// the new battle). `/info` may still name it as the next one; a player who joins is
+    /// welcomed to it.
+    pub announced_running: bool,
     /// Sessions the transport closed during a flush or an explicit close (see `SendOnlySink`).
     closed_outside_poll: Vec<u32>,
     /// Monotonic start instant for `now_ms()` (`performance.now()`).
@@ -455,6 +534,8 @@ pub struct UdpGameServer {
     bindings: Bindings,
     /// Completed `poll` calls, so a waiting caller knows answers can arrive.
     polls: u64,
+    /// What each source address may send while a 2005 match is hosted.
+    pub inbound: crate::inbound::Inbound,
 }
 
 impl UdpGameServer {
@@ -505,13 +586,17 @@ impl UdpGameServer {
             state_bytes_per_second,
             content,
             fingerprint,
+            battle: Selection::swbf1(),
+            descriptor: None,
             pending_match: None,
+            announced_running: false,
             closed_outside_poll: Vec::new(),
             start_instant: Instant::now(),
             recv_buf: [0u8; MAX_PACKET],
             relays: Relays::default(),
             bindings: Bindings::default(),
             polls: 0,
+            inbound: crate::inbound::Inbound::default(),
         })
     }
 
@@ -625,6 +710,21 @@ impl UdpGameServer {
         self.fingerprint = fingerprint;
     }
 
+    /// The peers sitting the battle out.
+    pub fn sit_out_peers(&self) -> Vec<String> {
+        self.peers.iter().filter(|(_, p)| p.sitting_out.is_some()).map(|(id, _)| id.clone()).collect()
+    }
+
+    /// The active battle, on admission and at every map change: a 2005
+    /// match's descriptor, or None for a 2004 battle.
+    pub fn set_match(&mut self, descriptor: Option<Descriptor>) {
+        self.battle = match &descriptor {
+            Some(d) => Selection::swbf2(&d.mode).unwrap_or_else(Selection::swbf1),
+            None => Selection::swbf1(),
+        };
+        self.descriptor = descriptor;
+    }
+
     /// Schedules UDP hole-punch datagrams (`0xb8`, `endpoint.punch`).
     pub fn punch(&mut self, candidates: &[CandidateEntry]) {
         let mut addrs = Vec::with_capacity(candidates.len());
@@ -676,6 +776,8 @@ impl UdpGameServer {
         let mut events = Vec::new();
 
         let mut admitted = Vec::new();
+        // Sources over the inbound limit too long: closed once the sockets are drained.
+        let mut over_limit: Vec<SocketAddr> = Vec::new();
         let mut messages = Vec::new();
         let mut paths = Vec::new();
         let mut closed = Vec::new();
@@ -688,6 +790,7 @@ impl UdpGameServer {
                 now_ms,
                 content: &self.content,
                 fingerprint: &self.fingerprint,
+                descriptor: self.descriptor.as_ref(),
                 max_players: self.max_players,
                 active_players: self.peers.len(),
                 is_banned: &mut is_banned,
@@ -704,6 +807,17 @@ impl UdpGameServer {
                         // Oversize or zero-length datagrams are dropped before touching the crypto or session tables.
                         if len == 0 || len > 1200 {
                             continue;
+                        }
+                        // A 2005 match's sources are held to the inbound limit before any decode.
+                        if self.descriptor.is_some() {
+                            match self.inbound.check(normalize_socket_addr(rinfo), len, now_ms) {
+                                crate::inbound::Verdict::Take => {}
+                                crate::inbound::Verdict::Drop => continue,
+                                crate::inbound::Verdict::Close => {
+                                    over_limit.push(normalize_socket_addr(rinfo));
+                                    continue;
+                                }
+                            }
                         }
                         let packet = &self.recv_buf[..len];
                         // A packet straight from a relayed peer's address moves it back to the direct path.
@@ -739,6 +853,16 @@ impl UdpGameServer {
                     if data.is_empty() || data.len() > 1200 {
                         continue;
                     }
+                    if self.descriptor.is_some() {
+                        match self.inbound.check(normalize_socket_addr(peer), data.len(), now_ms) {
+                            crate::inbound::Verdict::Take => {}
+                            crate::inbound::Verdict::Drop => continue,
+                            crate::inbound::Verdict::Close => {
+                                over_limit.push(normalize_socket_addr(peer));
+                                continue;
+                            }
+                        }
+                    }
                     sink.relays.route(peer, id);
                     self.endpoint.receive(data, peer, now_ms, &mut sink);
                 }
@@ -754,8 +878,24 @@ impl UdpGameServer {
             closed.append(&mut sink.closed);
         }
 
+        // A source over the inbound limit for five seconds in a row is closed.
+        over_limit.sort_unstable();
+        over_limit.dedup();
+        for address in over_limit {
+            let ids: Vec<String> = self.peers.iter()
+                .filter(|(_, p)| normalize_socket_addr(p.peer.path.address) == address)
+                .map(|(id, _)| id.clone())
+                .collect();
+            for id in ids {
+                eprintln!("inbound limit: closing {address}, over it in {} seconds in a row", crate::inbound::OVER_SECONDS);
+                self.close_peer(&id, close_code::KICKED as u16, "inbound rate over the limit", now_ms);
+                events.push(WorldPeerEvent::Left { id });
+            }
+            self.inbound.forget(address);
+        }
+
         // Admit newly established sessions (`admitSession`).
-        for (sid, client, remote, rtt) in admitted {
+        for (sid, client, remote, rtt, sitting_out) in admitted {
             let peer_id = client.id_hex.clone();
             let name = clean_player_name(client.hello.get("name").and_then(Value::as_str));
             let path = self.path_to(remote);
@@ -804,15 +944,27 @@ impl UdpGameServer {
                     session: game_session,
                     last_edges: None,
                     superseded: 0,
+                    sitting_out,
                 },
             );
-            events.push(WorldPeerEvent::Joined {
-                id: peer_id,
-                name,
-                address,
-                prefix,
-                path,
-            });
+            if let Some(reason) = sitting_out {
+                events.push(WorldPeerEvent::SatOut { id: peer_id, name, reason });
+            } else {
+                // The plan both ends computed from the signed table and this
+                // client's offer at admission.
+                let plan = self.descriptor.as_ref().and_then(|descriptor| {
+                    let request = client.hello.get("battle").map(Request::read)?.ok()?;
+                    revisions::plan(&descriptor.records, &request.supports).ok()
+                });
+                events.push(WorldPeerEvent::Joined {
+                    id: peer_id,
+                    name,
+                    address,
+                    prefix,
+                    path,
+                    plan,
+                });
+            }
         }
 
         // Update peer path on NAT rebinding (`session.on("path", ...)`).
@@ -838,6 +990,11 @@ impl UdpGameServer {
                     connected.peer.update_congestion(&mut ts.connection, now_ms);
                 }
                 if !text && lane == Lane::State {
+                    // A peer sitting the battle out has no world: its state lane is dropped.
+                    if connected.sitting_out.is_some() {
+                        connected.peer.metrics.record_drop("state");
+                        continue;
+                    }
                     // Reject any binary state payload that is not a valid `BNI1` input or `BNA1` ack keepalive.
                     if !valid_incoming_state_payload(&payload) {
                         connected.peer.state_invalid_drops += 1;
@@ -877,6 +1034,15 @@ impl UdpGameServer {
                                 break;
                             }
                             SessionAction::ClientStart { call_id, args } => {
+                                if connected.sitting_out.is_some() {
+                                    // Gameplay calls are refused while sitting out.
+                                    let reply = json!({"type": "reply", "id": call_id, "ok": false, "error": "sitting-out"}).to_string();
+                                    if let Some(ts) = self.endpoint.session_mut(sid) {
+                                        connected.peer.send_lane(&mut ts.connection, Lane::Events, true, reply.as_bytes(),
+                                            None, Self::unix_ms(), now_ms, false);
+                                    }
+                                    continue;
+                                }
                                 events.push(WorldPeerEvent::Start {
                                     id: peer_id.clone(),
                                     call_id,
@@ -884,12 +1050,18 @@ impl UdpGameServer {
                                 });
                             }
                             SessionAction::ClientChat { text, team } => {
+                                // A peer sitting out has no team channel.
+                                if connected.sitting_out.is_some() && team {
+                                    continue;
+                                }
                                 events.push(WorldPeerEvent::Chat {
                                     id: peer_id.clone(),
                                     text,
                                     team,
                                 });
                             }
+                            SessionAction::EdgeAck(_) | SessionAction::ResyncState | SessionAction::ForwardInput(_)
+                                if connected.sitting_out.is_some() => {}
                             SessionAction::EdgeAck(message) => {
                                 events.push(WorldPeerEvent::EdgeAck {
                                     id: peer_id.clone(),
@@ -1096,7 +1268,16 @@ impl UdpGameServer {
     pub fn pending_match_event(&self) -> Option<Value> {
         let (query, deadline) = self.pending_match.as_ref()?;
         let left = (deadline - self.now_ms()).max(0.).round() as u64;
-        Some(json!({ "type": "match", "query": query, "delayMs": left }))
+        Some(match_event(query, left))
+    }
+
+    /// The announced next battle for a player who joins now: the one the ended battle's end
+    /// table sends him on to. None once that battle is the one running here: he joins it.
+    pub fn joiner_match_event(&self) -> Option<Value> {
+        if self.announced_running {
+            return None;
+        }
+        self.pending_match_event()
     }
 
     pub fn broadcast_events(&mut self, payload: &Value) {
@@ -1277,7 +1458,7 @@ impl UdpGameServer {
     /// Returns endpoint-wide packet and rate-limit counters (`endpoint.stats()`).
     pub fn transport_metrics(&mut self, reset: bool) -> Value {
         let c = &mut self.endpoint.counters;
-        let out = json!({
+        let mut out = json!({
             "received": c.received,
             "sent": c.sent,
             "unknownSession": c.unknown_session,
@@ -1290,6 +1471,11 @@ impl UdpGameServer {
         });
         if reset {
             *c = Default::default();
+        }
+        // A 2005 battle's inbound limit (lifetime totals, like the world tick's).
+        if self.descriptor.is_some() {
+            out["inboundDropped"] = json!(self.inbound.dropped);
+            out["inboundDroppedBytes"] = json!(self.inbound.dropped_bytes);
         }
         out
     }
@@ -1342,6 +1528,163 @@ fn bind_dual_stack_udp(
     let sock4 = crate::sockets::udp(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port), false)
         .map_err(|e| format!("failed to bind UDP port {port}: {e}"))?;
     Ok((sock4, "IPv4"))
+}
+
+#[cfg(test)]
+#[path = "admission_corpus.rs"]
+mod admission_corpus;
+
+#[cfg(test)]
+mod admission_tests {
+    use super::*;
+    use super::admission_corpus::{cases, summary, Case, CONTENT, FINGERPRINT};
+    use bfe_sim::wire::revisions::{Entry, Support, Supports, Table, SOLDIER, SUPPORTS, WRITES};
+
+    const TOKEN: &str = "5eed0000000000000000000000000000";
+    const OTHER: &str = "5eef0000000000000000000000000000";
+
+    fn decide(case: &Case, descriptor: Option<&Descriptor>) -> (bool, u64, String, Option<&'static str>) {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (mut relays, mut bindings) = (Relays::default(), Bindings::default());
+        let banned = case.banned;
+        let mut is_banned = |_: &str| banned;
+        let mut sink = PollSink { socket: &socket, relays: &mut relays, bindings: &mut bindings, now_ms: 0., content: CONTENT,
+            fingerprint: FINGERPRINT, descriptor, max_players: 8, active_players: case.active, is_banned: &mut is_banned,
+            admitted: Vec::new(), messages: Vec::new(), paths: Vec::new(), closed: Vec::new() };
+        let client = ClientInfo { id: [7; 32], id_hex: "07".repeat(32), public_key: String::new(), hello: case.hello.clone() };
+        let decision = sink.on_admit(&client, "127.0.0.1:9".parse().unwrap());
+        let role = if decision.accept { sit_out(&case.hello, FINGERPRINT, descriptor.is_some()) } else { None };
+        (decision.accept, decision.code, decision.reason, role)
+    }
+
+    fn eli(records: &[Entry]) -> Descriptor {
+        Descriptor { mode: "eli".into(), map: "swbf2/kam9".into(), token: TOKEN.into(), records: Table::of(records) }
+    }
+    fn request(token: &str, supports: Supports) -> Value {
+        Request { mode: "eli".into(), map: "swbf2/kam9".into(), token: token.into(), supports }.json()
+    }
+
+    // Captured from the released build's admission with this corpus.
+    const RELEASED: &str = "3:This server runs an olde=676;3:Your game and this serve=367;3:Your game data differs f=233;3:Your game is older than =2521;4:The server is full.=16;4:You are banned from this=12;accept=175;digest=8dca48c46ab52ec4";
+
+    #[test]
+    fn a_2004_battle_admits_exactly_as_released() {
+        let summary = summary(|case| { let (a, c, r, _) = decide(case, None); (a, c, r) });
+        println!("admission corpus {summary}");
+        assert_eq!(summary, RELEASED);
+    }
+
+    // Every corpus hello, asking for this match, another one, a malformed
+    // one, or none, against a 2005 match.
+    #[test]
+    fn a_2005_match_admits_only_its_own_requests_and_sits_out_missing_content() {
+        let match_ = eli(WRITES);
+        let mut roles = std::collections::BTreeMap::<String, u32>::new();
+        for (i, mut case) in cases().into_iter().enumerate() {
+            let asked = match i % 5 {
+                0 => None,
+                1 => Some(request(OTHER, Supports::of(SUPPORTS))),
+                2 => Some(json!({"family": "swbf2"})),
+                _ => Some(request(TOKEN, Supports::of(SUPPORTS))),
+            };
+            if let (Some(asked), Some(object)) = (&asked, case.hello.as_object_mut()) { object.insert("battle".into(), asked.clone()); }
+            let (accept, code, reason, role) = decide(&case, Some(&match_));
+            let version = case.hello.get("protocol") == Some(&json!(network_contract::PROTOCOL))
+                && case.hello.get("profile") == Some(&json!(network_contract::PROFILE))
+                && case.hello.get("simulation") == Some(&json!(network_contract::SIMULATION));
+            if !version { assert!(!accept && code == close_code::VERSION as u64, "{}", case.hello); continue; }
+            if case.banned || case.active >= 8 { assert!(!accept && code == close_code::REJECTED as u64); continue; }
+            match i % 5 {
+                0 | 1 => assert_eq!((accept, code, reason.as_str()), (false, close_code::REJECTED as u64, MATCH_CHANGED)),
+                2 => assert!(!accept && code == close_code::PROTOCOL as u64),
+                _ => {
+                    assert!(accept);
+                    // Only the verified digest gives the battle role; the
+                    // configured label sits out like any other digest.
+                    let digest = case.hello.get("content") == Some(&json!(FINGERPRINT));
+                    assert_eq!(role.is_none(), digest);
+                    if case.hello.get("content") == Some(&json!(CONTENT)) { assert_eq!(role, Some("content-mismatch")); }
+                    *roles.entry(role.unwrap_or("battle").to_string()).or_default() += 1;
+                }
+            }
+        }
+        // Every role is reached by the corpus.
+        assert_eq!(roles.len(), 3, "{roles:?}");
+    }
+
+    // A server one revision ahead, and a client one revision ahead.
+    #[test]
+    fn a_future_revision_refuses_one_match_with_the_update_text() {
+        let ours = json!({"protocol": network_contract::PROTOCOL, "profile": network_contract::PROFILE,
+            "simulation": network_contract::SIMULATION, "content": FINGERPRINT, "name": "P"});
+        let joining = |supports: Supports| { let mut hello = ours.clone(); hello["battle"] = request(TOKEN, supports); Case { hello, banned: false, active: 0 } };
+        let future_server = eli(&[WRITES[0], Entry { kind: SOLDIER, revision: 2, required: true }]);
+        let (accept, code, reason, _) = decide(&joining(Supports::of(SUPPORTS)), Some(&future_server));
+        assert_eq!((accept, code), (false, close_code::VERSION as u64));
+        assert!(reason.starts_with("Your game is older than this server's Battlefront II battle"), "{reason}");
+        // The same client still joins the server's 2004 battle, as released.
+        assert!(decide(&Case { hello: ours.clone(), banned: false, active: 0 }, None).0);
+        // A future optional record does not refuse; a required one does.
+        let optional = eli(&[WRITES[0], WRITES[1], Entry { kind: 99, revision: 1, required: false }]);
+        assert!(decide(&joining(Supports::of(SUPPORTS)), Some(&optional)).0);
+        let required = eli(&[WRITES[0], WRITES[1], Entry { kind: 99, revision: 1, required: true }]);
+        assert_eq!(decide(&joining(Supports::of(SUPPORTS)), Some(&required)).1, close_code::VERSION as u64);
+        // A newer client that still implements this build's revisions joins it.
+        let support = |kind, min, max| Support { kind, min, max };
+        let newer = Supports::of(&[support(1, 1, 2), support(2, 1, 2), support(3, 2, 2), support(24, 1, 2), support(26, 1, 1), support(28, 1, 1), support(99, 1, 1)]);
+        assert!(decide(&joining(newer), Some(&eli(WRITES))).0);
+        // One that no longer implements them is told the server is older.
+        let (accept, _, reason, _) = decide(&joining(Supports::of(&[support(1, 2, 2), support(2, 2, 2), support(26, 2, 2)])), Some(&eli(WRITES)));
+        assert!(!accept && reason.contains("once the server updates"), "{reason}");
+    }
+
+    #[test]
+    fn only_a_2005_match_names_itself_in_the_server_hello() {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (mut relays, mut bindings) = (Relays::default(), Bindings::default());
+        let mut no = |_: &str| false;
+        let match_ = eli(WRITES);
+        for (descriptor, keys) in [(None, 5), (Some(&match_), 6)] {
+            let mut sink = PollSink { socket: &socket, relays: &mut relays, bindings: &mut bindings, now_ms: 0., content: CONTENT,
+                fingerprint: FINGERPRINT, descriptor, max_players: 8, active_players: 0, is_banned: &mut no,
+                admitted: Vec::new(), messages: Vec::new(), paths: Vec::new(), closed: Vec::new() };
+            let hello = sink.on_hello();
+            assert_eq!(hello.as_object().unwrap().len(), keys);
+            assert_eq!(hello.get("battle").map(|b| Descriptor::read(b).unwrap()), descriptor.cloned());
+            assert_eq!(hello["content"], if descriptor.is_some() { FINGERPRINT } else { CONTENT });
+        }
+        assert_eq!(match_event("?map=a", 5).to_string(), r#"{"delayMs":5,"query":"?map=a","type":"match"}"#);
+        assert_eq!(match_event("?map=swbf2/kam9&match=00", 5).to_string(), r#"{"delayMs":5,"query":"?map=swbf2/kam9&match=00","type":"match"}"#);
+    }
+
+    // The largest answer a 2005 match writes, whatever the operator's content
+    // label, through the real signed handshake.
+    #[test]
+    fn the_largest_2005_answer_fits_the_signed_handshake() {
+        use bfe_transport::{crypto::{Identity, RetryTokens}, handshake::{ClientHandshake, Event, ServerHandshakes}, layout::limits};
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (mut relays, mut bindings) = (Relays::default(), Bindings::default());
+        let mut no = |_: &str| false;
+        let table: Vec<Entry> = (1..=32).map(|kind| Entry { kind, revision: u16::MAX, required: true }).collect();
+        let longest = Descriptor { mode: "m".repeat(32), map: format!("swbf2/{}", "k".repeat(32)), token: "f".repeat(32),
+            records: Table::of(&table) };
+        let label = "l".repeat(4_000);
+        let mut sink = PollSink { socket: &socket, relays: &mut relays, bindings: &mut bindings, now_ms: 0., content: &label,
+            fingerprint: FINGERPRINT, descriptor: Some(&longest), max_players: 8, active_players: 0, is_banned: &mut no,
+            admitted: Vec::new(), messages: Vec::new(), paths: Vec::new(), closed: Vec::new() };
+        let answer = sink.on_hello();
+        let length = serde_json::to_vec(&answer).unwrap().len();
+        println!("largest 2005 answer {length} bytes, limit {}", limits::MAX_HELLO);
+        assert!(answer["content"] == FINGERPRINT && length <= 700, "{length}");
+        let (server_id, client_id) = (Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
+        let mut server = ServerHandshakes::new(server_id.clone(), RetryTokens::from_secret([7; 32], 10_000.));
+        let mut client = ClientHandshake::new(client_id, server_id.id, br#"{"protocol":4}"#).unwrap();
+        let mut initiation = [0; limits::INITIATION_BYTES];
+        client.initiation(&[], &mut initiation).unwrap();
+        let response = server.initiation(&initiation, "127.0.0.1:40000", "127.0.0.1", false, &answer, 100., |_| false).unwrap();
+        assert_eq!(client.receive(&response), Event::Established);
+        assert_eq!(serde_json::from_slice::<Value>(&client.server_hello).unwrap(), answer);
+    }
 }
 
 #[cfg(test)]

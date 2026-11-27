@@ -1,5 +1,11 @@
 //! Control tabs, default bindings, key label formatting, and exclusive rebinding.
 
+mod context;
+mod swbf2;
+pub use context::{BindingMap, ControlContext};
+pub use swbf2::{swbf2_key_caption, swbf2_key_labels};
+use bfe_family::GameFamily;
+
 use crate::options::say;
 use std::collections::{BTreeMap, HashMap};
 
@@ -683,9 +689,62 @@ pub fn hotkey_rows(
         .collect()
 }
 
+/// Identifiers needed to look up the 2005 game's control labels in its prepared text.
+pub fn swbf2_control_label_keys() -> impl Iterator<Item = &'static str> {
+    swbf2::TABS.iter().flat_map(|tab| {
+        std::iter::once(tab.label_key).chain(swbf2::controls(tab.id).iter().map(|c| c.row.label_key))
+    }).filter(|key| !key.is_empty()).chain(swbf2::MODIFIERS.iter().map(|&(_, key, _)| key))
+}
+
+pub fn tabs_for(family: GameFamily) -> &'static [HotkeyTab] {
+    match family {
+        GameFamily::Swbf1 => &TABS,
+        GameFamily::Swbf2 => &swbf2::TABS,
+    }
+}
+
+pub fn hotkey_rows_for(
+    family: GameFamily,
+    tab: &str,
+    bindings: &BTreeMap<String, Vec<String>>,
+    strings: &HashMap<String, String>,
+) -> Vec<HotkeyRow> {
+    match family {
+        GameFamily::Swbf1 => hotkey_rows(tab, bindings, strings),
+        GameFamily::Swbf2 => swbf2::controls(tab).iter().map(|c| swbf2::row(&c.row, bindings, strings)).collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battlefront_ii_contexts_have_independent_defaults_and_page_order() {
+        let settings = crate::Settings::new();
+        for context in ControlContext::ALL {
+            let keys = context.bindings(&settings);
+            let mut assigned = std::collections::HashSet::new();
+            for code in keys.values().flatten() {
+                assert!(ControlContext::bindable(code) && assigned.insert(code), "{context:?} {code}");
+            }
+            assert!(!keys.contains_key("presses.prone"));
+        }
+        let infantry = ControlContext::Infantry.defaults();
+        let flight = ControlContext::Starfighter.defaults();
+        assert_eq!(infantry["presses.targetLock"], ["KeyQ", "Mouse3"]);
+        assert_eq!(infantry["presses.squadCommand"], ["F4", "Numpad4"]);
+        assert_eq!(flight["trick"], ["AltLeft", "ControlRight"]);
+        assert_eq!(flight["immelmann"], ["KeyC", "Numpad1"]);
+        assert!(!flight.contains_key("zoom"));
+        let jedi = ControlContext::Jedi.defaults();
+        let strings = HashMap::from([("ifs.controls.lightsaberblock".into(), "local block".into())]);
+        let rows = hotkey_rows_for(GameFamily::Swbf2, "jedi", &jedi, &strings);
+        assert_eq!(rows[1].label, "LOCAL BLOCK:");
+        assert_eq!(jedi["holds.block"], ["KeyF", "Mouse1"]);
+        assert_eq!(jedi["presses.nextSecondary"], ["Digit1", "WheelUp"]);
+        assert!(!jedi.contains_key("presses.zoom"));
+    }
 
     // Frozen hotkeyRows output with default bindings and no localized strings.
     // This covers order, fixed text and the action keys the input dispatcher uses.

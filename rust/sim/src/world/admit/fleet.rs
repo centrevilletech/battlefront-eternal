@@ -163,6 +163,14 @@ fn pull_values(pose: &HullPose, pad: &[f64; 16], visual: [f64; 3]) -> Vec<f64> {
 /// The stage: `new Vehicles` then attachF2, every call dispatched in the
 /// page's order and kept in `rows`.
 pub fn construct(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(), AdmitError> {
+    if cx.battle.family == bfe_content::GameFamily::Swbf2 && cx.battle.vehicle_def.is_none() {
+        return construct_swbf2_props_only(world, cx, rows);
+    }
+    construct_swbf1(world, cx, rows)
+}
+
+// Released 2004 fleet::construct kept verbatim.
+fn construct_swbf1(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(), AdmitError> {
     let Some(data) = cx.battle.vehicle_def.clone() else {
         // No vehicle pack: attachF3 installs the map rules (fleet::build).
         let calls = super::rows::build(Stage::Fleet, cx)?;
@@ -188,6 +196,103 @@ pub fn construct(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(), 
     // aiTarget's id).
     for m in &mut made { m.target = world.sim.store.units.add(|id| Member::VehicleTarget(Ref::new(id, 0))); }
     attach_f2(world, cx, rows, &data, &mut made, &hulls, &extras, &shapes, kernel)?;
+    Ok(())
+}
+
+/// 2005 maps have placed props, destructible posts, and armed turrets even when
+/// no 2004-format vehicle pack is present. Construct prop collision bodies
+/// (admitting world-animated props as single moving bodies in model space so
+/// baked and moving copies never coexist), initialize the seat owner and map
+/// rules, and register turrets and objective posts without touching the 2004
+/// empty-fleet path.
+fn construct_swbf2_props_only(world: &mut World, cx: &mut Cx, rows: &mut Rows) -> Result<(), AdmitError> {
+    let kernel = cx.ids.kernel.as_ref().ok_or(AdmitError::Unavailable(Stage::Kernels))?.world as usize;
+    construct_swbf2_prop_bodies(world, cx)?;
+    let mut props = Vec::new();
+    let posed = prop_poses(world, cx, &mut props);
+    rows.calls.push((Stage::Fleet, props));
+    posed?;
+    let mut calls = Vec::new();
+    let mut planned_strings = cx.strings.clone();
+    calls.push(fleet::map_call(&cx.battle.world, cx.content.collision.kill_y, &mut planned_strings)?.in_context(cx, Stage::Fleet)?);
+    calls.push(fleet::seats_init().in_context(cx, Stage::Fleet)?);
+    calls.push(fleet::collision(kernel as i32, -1).into_row(Stage::Fleet));
+    let bodies = body_refs(world, cx, &[], kernel);
+    calls.push(fleet::bodies(bodies).into_row(Stage::Fleet));
+    let empty_spawns = Value::Object(std::rc::Rc::new(bfe_content::Object::from_written(vec![(
+        std::rc::Rc::from("spawns"),
+        Value::Array(std::rc::Rc::new(Vec::new())),
+    )])));
+    for export in fleet::init(&empty_spawns, &mut planned_strings)? {
+        calls.push(export.in_context(cx, Stage::Fleet)?);
+    }
+    sequence::replay(world, Stage::Fleet, &calls, cx)?;
+    rows.calls.push((Stage::Fleet, calls));
+    attach_turrets(world, cx, rows)?;
+    publish_receipts(cx, kernel, -1, &[])
+}
+
+/// 2005 prop body installer: static props get fixed world-space bodies
+/// (`moving = 0`), while world-animated props (`prop.world_animated == true`,
+/// e.g. orbiting frigates and their hierarchy turrets) get a single moving
+/// kernel body (`moving = 1`) over their unbaked model-space triangles placed
+/// at their `t = 0` instance matrix. Never installs both a baked and a moving
+/// body for the same prop.
+fn construct_swbf2_prop_bodies(world: &mut World, cx: &mut Cx) -> Result<(), AdmitError> {
+    let content = cx.content;
+    let instances = cx.battle.props.as_ref().and_then(|p| p.get("instances")).and_then(Value::as_array).map(|i| i.to_vec()).unwrap_or_default();
+    let mut positions: Vec<(*const f32, usize)> = Vec::new();
+    let mut serial = world.collision.state.bodies.len() as f64;
+    for prop in &content.prop_bodies {
+        let desc = instances.get(prop.instance).ok_or_else(|| error("a prop body names no instance"))?;
+        let first = if desc.get("unbuilt").is_some_and(|u| u.truthy()) { "unbuilt" } else { "built" };
+        let inst_matrix: [f64; 16] = if prop.world_animated {
+            let arr = desc
+                .get("matrix")
+                .and_then(Value::as_array)
+                .filter(|m| m.len() >= 16)
+                .ok_or_else(|| error("a world-animated prop body has no placement matrix"))?;
+            std::array::from_fn(|k| to_number(arr.get(k)))
+        } else {
+            Matrix4::default().elements
+        };
+        for (look, (name, shape)) in [("built", &prop.built), ("destroyed", &prop.destroyed), ("unbuilt", &prop.unbuilt)].into_iter().enumerate() {
+            let Some(shape) = shape else { continue };
+            let key = std::rc::Rc::as_ptr(&shape.positions) as *const f32;
+            let id = match positions.iter().find(|(k, _)| *k == key) {
+                Some(&(_, id)) => id,
+                None => { let id = world.collision.positions(&shape.positions); positions.push((key, id)); id }
+            };
+            let bvh = build_bvh(Positions::F32(&shape.positions), &shape.indices);
+            let tree = world.collision.tree(id, &shape.indices, &bvh);
+            world.collision.tree_polygon_ids(tree, shape.polygons.len() as u32).copy_from_slice(&shape.polygons);
+            let moving = u32::from(prop.world_animated);
+            let body = world.collision.body_new(tree, moving);
+            if body < 0 { return Err(error("the collision world has no room for a prop")); }
+            serial += 1.0;
+            world.collision.body_offset(body as u32, serial * 16777216.0);
+            let (min, max) = local_bounds(&shape.positions, &shape.indices);
+            if prop.world_animated {
+                let local = [min[0], min[1], min[2], max[0], max[1], max[2]];
+                cx.ids.prop_local_bounds.push((body as u32, local));
+                let world_box = box_apply_matrix4(&local, &inst_matrix);
+                let mut inv = Matrix4 { elements: inst_matrix };
+                inv.invert();
+                let io = world.collision.io_mut();
+                io[20..26].copy_from_slice(&world_box);
+                io[26..42].copy_from_slice(&inst_matrix);
+                io[42..58].copy_from_slice(&inv.elements);
+            } else {
+                let io = world.collision.io_mut();
+                io[20..23].copy_from_slice(&min);
+                io[23..26].copy_from_slice(&max);
+            }
+            world.collision.body_set(body as u32);
+            world.movement.flags_mut()[body as usize] = u8::from(name == first);
+            world.collision.enable_body(body as u32, name == first);
+            cx.ids.prop_kernels.push((prop.instance, look as u8, body as u32));
+        }
+    }
     Ok(())
 }
 

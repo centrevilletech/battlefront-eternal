@@ -1,5 +1,7 @@
 //! Battlefront Eternal in-battle UI crate (`bfe-battle-ui`).
 
+/// Battle presentation selected at map admission.
+pub mod battle2;
 /// In-battle text chat log, channel state (`ALL` / `TEAM`), and key routing.
 pub mod chat;
 /// Shared-memory HUD Float64Array state/event publisher.

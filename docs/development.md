@@ -209,6 +209,8 @@ The engine, desktop client, dedicated server, and build tools live in the Cargo 
 - `rust/bfe-content-native`, `rust/content`, `rust/bfe-pose`, `rust/three`, `rust/jsrt` and `rust/v8math`: shared content loaders, pose sampling, math and number/sort/RNG semantics.
 - `rust/sim-gen`: the store code generator; `rust/sim/build.rs` runs it to write the `gen` module into the build's OUT_DIR.
 - `rust/xtask`: writes and checks the generated layouts and shader tables (`cargo xtask`).
+- `rust/bfe-test-alloc`: the counting global allocator that zero-allocation tests share (a dev-dependency only). A test installs it with `#[global_allocator] static ALLOCATOR: bfe_test_alloc::Counting = bfe_test_alloc::Counting::new();` and reads the counts with `measure_thread`, `measure_all` and the other functions of the crate; no test file carries its own allocator.
+- `rust/bfe-wide`: a 64-bit value held as two 32-bit words (`Wide`) and the 64-bit FNV-1a hash (`Fnv`). A digest that is compared between builds, a generator state that replays a battle, or a bit set over more than 32 things uses it, so the code names no 64-bit integer type and the bits stay exactly those of the same arithmetic in one 64-bit word; its tests check every operation against results computed outside Rust. Feed a digest with `Fnv::small` for a number that fits 32 bits and `Fnv::word` for a whole word.
 
 ### Code generation and schema checks (`cargo xtask`)
 
@@ -352,7 +354,7 @@ by `build/native/fetch-toolchain.py`, and the legal notices in `LICENSE`,
 - **`linux` (`ubuntu-24.04`):** Runs `build/ci/check-generated.sh` (`cargo xtask check`) and `build/ci/linux.sh` (running `cargo fmt --check`, strict `cargo clippy --locked --all-targets --no-deps -- -D warnings`, `cargo test --locked` across all workspace crates, the ALSA null-device audio test `cpal_null_device_runs_master_pcm`, and the `bfeserver` startup check). It also runs the Python tests of the tools (`build/ci/python-tests.py`, `tests/test_*.py`).
 - **`linux-arm64` (`ubuntu-24.04-arm`, required blocking gate):** Runs `build/ci/linux-arm64.sh`, first executing the self-contained cross-architecture published-bytes determinism gate (`cargo test -p sim --test arm64_determinism`), then executing the full workspace crate test suite on `aarch64` with `--no-fail-fast` and `RUST_BACKTRACE=1 --nocapture`. The same native test suite is a blocking gate in `.github/workflows/release.yml`'s `linux-arm64` job.
 - **`windows` (`windows-latest`, MSVC):** Runs `build/ci/windows.sh`, building the native Windows executables (`bfe-client`, `bfeserver`, `bfe-online`) for `x86_64-pc-windows-msvc`, running all device-independent unit and integration tests, and checking `bfeserver.exe --version`.
-- **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `render-smoke` and runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe`, compiling and linking all 1,046 shader variants and drawing one scene per family (see [docs/renderer-smoke.md](renderer-smoke.md)).
+- **`renderer-smoke-native` (`ubuntu-24.04`):** Builds `render-smoke` and runs `python3 tools/renderer-smoke-native.py` over Mesa `llvmpipe`, compiling and linking all 1,395 shader variants and drawing one scene per family (see [docs/renderer-smoke.md](renderer-smoke.md)).
 
 ### Cross-architecture determinism and local `aarch64` testing (`qemu-user`)
 
@@ -383,3 +385,24 @@ cargo test --manifest-path rust/Cargo.toml --locked --target aarch64-unknown-lin
   -p sim --test arm64_determinism \
   -- --nocapture
 ```
+
+### Fixed-camera world capture
+
+Developers can render one view of a prepared map with the native client:
+
+```sh
+BFE_BENCH="world=$MAP&view=$CAMERA" bfe-client --content-dir "$CONTENT" \
+  --shots-dir "$OUT" --width 1600 --height 900 --no-audio
+```
+
+The camera JSON uses the same column-major `projection`, `inverse` (world to
+camera), and world-space `position` arrays as a battle's bench `view`. The
+client draws the static scene into its usual framebuffer, saves `world.png`,
+and exits. For a 2005 world, point the content directory at the prepared
+family root and use `world=swbf2/<map>`. Live and scenery admission also
+accept a bare map name on the marked `swbf2/.content` root. Other roots
+default to the 2004 reader for bare names. Append `&layer=<name>` to select a mission
+layer. The capture reads just
+the prepared map, uses full-detail objects, and shows placed models in their
+rest poses. Leaving out the layer draws the base world. A 2004 capture uses
+normal prepared battle dependencies.

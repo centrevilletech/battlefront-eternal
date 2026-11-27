@@ -9,7 +9,7 @@ fn app() -> ShellApp {
         family: GameFamily::Swbf1,
         id: id.into(),
         name: id.into(),
-        name_key: None,
+        title_resolved: true, name_key: None,
         extracted: Some(true),
         eras: [
             ("cw".into(), MapEraInfo::default()),
@@ -105,4 +105,45 @@ fn direct_connect_uses_address_and_port_and_brackets_ipv6() {
         };
         assert_eq!(launch.port, Some(19471));
     }
+}
+
+// The host form offers only maps of a game this build can play, so a 2005 map
+// that shares a 2004 map's id is never hosted as the 2004 map.
+#[test]
+fn host_dialog_offers_only_maps_of_a_playable_game() {
+    let map = |family: GameFamily, id: &str, name: &str| ShellMap {
+        family,
+        id: id.into(),
+        name: name.into(),
+        title_resolved: true, name_key: None,
+        extracted: Some(true),
+        eras: [("gcw".into(), MapEraInfo::default())].into(),
+        fly: None,
+        load: None,
+    };
+    let mut app = ShellApp::new(
+        ShellData {
+            maps: vec![
+                map(GameFamily::Swbf2, "kam9", "Later kam9"),
+                map(GameFamily::Swbf1, "kam9", "Earlier kam9"),
+                map(GameFamily::Swbf1, "bes2", "bes2"),
+            ],
+            ..ShellData::default()
+        },
+        None,
+    );
+    app.profile.name = "PLAYER TWO".into();
+    app.unlock_gate();
+    app.push_screen(ScreenId::Multiplayer);
+    app.request_host();
+    assert_eq!((app.host_config.family, app.host_config.map.as_str()), (GameFamily::Swbf1, "kam9"));
+    assert_eq!(
+        app.host_choices(2),
+        vec![("kam9".to_string(), "Earlier kam9".to_string()), ("bes2".to_string(), "bes2".to_string())]
+    );
+    app.host_control(HostControl::Start);
+    let Some(ShellAction::LaunchMultiplayer(launch)) = app.take_action() else {
+        panic!("host launch");
+    };
+    assert_eq!((launch.family, launch.map.as_str(), launch.refused.as_deref()), (GameFamily::Swbf1, "kam9", None));
 }

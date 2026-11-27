@@ -101,10 +101,11 @@ the servers it set up. Removing a drop-in and restarting the unit puts that
 server back on what its unit names.
 
 The archive can also run without systemd (a container, LinuxGSM): with it
-unpacked into `<bfe>`, prepare the data and start the server directly:
+unpacked into `<bfe>`, prepare the 2004 data into `<data>` and start the server
+pointing at `<data>` (2005 preparation by hand is not supported yet):
 
 ```sh
-BFE_GAME_DIR=<retail> BFE_CONTENT_DIR=<data> <bfe>/toolchain/python/bin/python3 <bfe>/tools/prepare.py --core-only
+BFE_FAMILY=swbf1 BFE_GAME_DIR=<retail> BFE_CONTENT_DIR=<data> <bfe>/toolchain/python/bin/python3 <bfe>/tools/prepare.py --core-only
 BFE_DATA_DIR=<data> BFE_STATE_DIR=<state> <bfe>/bfeserver --serve
 ```
 
@@ -120,7 +121,7 @@ The data only needs preparing again when a release changes `tools/` or
 | `<root>/game-data` | Link to `<root>/data/<key>` |
 | `<root>/instances/<name>/` | Another server's `server`, `engine` and `game-data` links |
 | `<root>/versions/<version>/` | Installed releases (`.bfe-install.json` written last) |
-| `<root>/data/<key>/` | Prepared game data, owned by root, readable by the server |
+| `<root>/data/<key>/` | Prepared game data (flat root for `swbf1`, `swbf2/.content/` subfolder for `swbf2`), owned by root, readable by the server |
 | `<root>/retail/` | The owned game, read only by the preparation |
 | `<root>/node/` | Node.js, which runs the updater and the launcher |
 | `/etc/bfeserver-update.json` | Configuration |

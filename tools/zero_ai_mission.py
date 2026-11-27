@@ -49,7 +49,7 @@ SCHEMA = 1
 GENERATOR = "zero_ai_mission.py 1"
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME  # noqa: E402
+from zero_paths import GAME, write_text_lf  # noqa: E402
 from zero_paths import PUBLIC  # noqa: E402
 
 # Mission calls the AI reads (Lua names as the original game registers them).
@@ -593,7 +593,7 @@ def write(name, side="rep", game=GAME, public=PUBLIC):
     out = build(name, side, game, public)
     folder = public / "maps" / name
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / "ai-mission.json").write_text(json.dumps(out, indent=1))
+    write_text_lf(folder / "ai-mission.json", json.dumps(out, indent=1))
     return out
 
 

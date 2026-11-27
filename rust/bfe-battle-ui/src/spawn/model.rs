@@ -276,6 +276,28 @@ pub trait SpawnPort {
     fn camera_shots(&self) -> Vec<CameraShot>;
     /// Overrides the world camera with `shot` while the spawn screen is open, or `None` on close.
     fn set_view_shot(&mut self, shot: Option<CameraShot>);
+    /// Number of classes in `team`'s roster.
+    fn roster_len(&self, team: u8) -> usize {
+        self.roster(team).len()
+    }
+    /// Whether the class at `index` of `team`'s roster may be taken now. Every
+    /// class of a 2004 roster may; a 2005 mission limits each class, and a
+    /// class opens and closes while the screen is up.
+    fn class_open(&self, team: u8, index: usize) -> bool {
+        let _ = (team, index);
+        true
+    }
+    /// Seconds the player still waits before a deployment is accepted (the
+    /// 2005 game's personal respawn clock, of which it shows no number), or
+    /// `None` when nothing waits.
+    fn deploy_wait(&self) -> Option<f64> {
+        None
+    }
+    /// Whether a deployment must name a post. A 2005 mission places a player
+    /// who names none itself.
+    fn post_required(&self) -> bool {
+        true
+    }
 }
 
 /// Default front-line post selection algorithm (`FakeSpawnPort.choosePost`):
@@ -440,6 +462,7 @@ impl SpawnModel {
         } else {
             human.class_index.min(max_idx)
         };
+        self.class_index = self.open_class_from(port, self.class_index, 0);
         let t_slot = (self.team as usize).min(2);
         let remembered = self.last_post[t_slot].as_deref().or(human.post.as_deref());
         let picked = port.choose_post(self.team, remembered);
@@ -482,7 +505,7 @@ impl SpawnModel {
             return false;
         }
         let roster = port.roster(self.team);
-        if index >= roster.len() || index == self.class_index {
+        if index >= roster.len() || index == self.class_index || !port.class_open(self.team, index) {
             return false;
         }
         self.class_index = index;
@@ -497,7 +520,8 @@ impl SpawnModel {
         if n == 0 {
             return false;
         }
-        self.select_class(port, (self.class_index + 1) % n)
+        let index = self.open_class_from(port, (self.class_index + 1) % n, 1);
+        self.select_class(port, index)
     }
 
     /// Steps to the previous class, wrapping from `0` to the last (`SpawnModel.previousClass`).
@@ -506,7 +530,33 @@ impl SpawnModel {
         if n == 0 {
             return false;
         }
-        self.select_class(port, (self.class_index + n - 1) % n)
+        let index = self.open_class_from(port, (self.class_index + n - 1) % n, n - 1);
+        self.select_class(port, index)
+    }
+
+    /// The class nearest `start` going on by `step` (wrapping, `start` itself
+    /// included) that `port` lets the player take, or `start` when none is open.
+    fn open_class_from(&self, port: &dyn SpawnPort, start: usize, step: usize) -> usize {
+        let n = port.roster_len(self.team);
+        let step = if step == 0 { 1 } else { step };
+        (0..n)
+            .map(|k| (start + k * step) % n)
+            .find(|&i| port.class_open(self.team, i))
+            .unwrap_or(start)
+    }
+
+    /// Moves the selection off a class that has closed while the screen is up
+    /// (a 2005 mission's class at its limit) to the next open one, wrapping.
+    pub fn check_class(&mut self, port: &dyn SpawnPort) -> bool {
+        if self.state != SpawnState::Choosing || port.class_open(self.team, self.class_index) {
+            return false;
+        }
+        let n = port.roster_len(self.team);
+        if n == 0 {
+            return false;
+        }
+        let index = self.open_class_from(port, (self.class_index + 1) % n, 1);
+        self.select_class(port, index)
     }
 
     /// Switches between team 1 and team 2 (`SpawnModel.switchTeam`).
@@ -549,8 +599,8 @@ impl SpawnModel {
             return false;
         }
         self.team = team;
-        self.class_index = 0;
-        let class_name = roster[0].class_name.clone();
+        self.class_index = self.open_class_from(port, 0, 1);
+        let class_name = roster[self.class_index].class_name.clone();
         let eligible = self.eligible_posts(port);
         let picked = if !eligible.is_empty() {
             let idx = ((random_01.clamp(0.0, 0.999_999) * eligible.len() as f64).floor() as usize)
@@ -564,7 +614,7 @@ impl SpawnModel {
             source,
         });
         self.events.push(SpawnEvent::Class {
-            index: 0,
+            index: self.class_index,
             class_name,
         });
         self.set_post(picked, PostChangeReason::Team, true);
@@ -630,11 +680,18 @@ impl SpawnModel {
     /// Commits the current team, class, and command post choice (`SpawnModel.commit`).
     /// Returns `None` if not in `Choosing` state or if the team has no class or post.
     pub fn commit(&mut self, port: &dyn SpawnPort) -> Option<SpawnRequest> {
-        if self.state != SpawnState::Choosing {
+        if self.state != SpawnState::Choosing
+            || !port.class_open(self.team, self.class_index)
+            || port.deploy_wait().is_some_and(|seconds| seconds > 0.0)
+        {
             return None;
         }
         let class_name = self.class_name(port)?;
-        let post = self.post.clone()?;
+        let post = match self.post.clone() {
+            Some(post) => post,
+            None if !port.post_required() => String::new(),
+            None => return None,
+        };
         self.state = SpawnState::Committed;
         let req = SpawnRequest {
             team: self.team,

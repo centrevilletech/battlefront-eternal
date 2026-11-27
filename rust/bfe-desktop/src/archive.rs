@@ -6,15 +6,19 @@ use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
+use bfe_content::layout::{family_dir, prepare_state_file};
+use bfe_family::GameFamily;
 use crc32fast::Hasher as Crc32Hasher;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::discover::{inspect_install, walk_ignore_case};
+use crate::discover::{game_profile, inspect_install_for, walk_ignore_case};
 use crate::paths::resolve_from;
 use crate::prepare::{
-    checkout_content_version, prepared_content_current, read_content_version, read_prepare_state,
+    checkout_content_version, game_lvl_pc_path, prepared_content_current, read_content_version,
+    read_prepare_state,
 };
+use crate::swbf2_tree;
 
 /// Manifest entry filename inside `.bfecontent` ZIP archives.
 ///
@@ -26,10 +30,14 @@ pub const MANIFEST_NAME: &str = "bfe-content-manifest.json";
 /// Mirrors `RECEIPT` in the desktop host.
 pub const RECEIPT_NAME: &str = ".bfe-import.json";
 
-/// Archive format identifier stored in `bfe-content-manifest.json`.
+/// Archive format identifier stored in `bfe-content-manifest.json` for 2004 (`swbf1`) exports.
 ///
 /// Mirrors `FORMAT` in the desktop host.
 pub const ARCHIVE_FORMAT: &str = "battlefront-eternal-content";
+
+/// Distinct archive format identifier stored in `bfe-content-manifest.json` for 2005 (`swbf2`)
+/// exports so released 2004 builds decline them cleanly instead of importing them flat.
+pub const ARCHIVE_FORMAT_SWBF2: &str = "battlefront-eternal-swbf2-content";
 
 /// Archive manifest schema version.
 ///
@@ -100,11 +108,11 @@ pub struct SourceReceipt {
 }
 
 /// Deserialized representation of `bfe-content-manifest.json`: the client build's
-/// manifest, field for field. Unknown fields (an older native dialect wrote several)
-/// are ignored, like the client importer ignores them.
+/// manifest, field for field. Unknown fields (including any future extra members)
+/// are ignored, identically to the released 2004 importer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ArchiveManifest {
-    /// Must equal [`ARCHIVE_FORMAT`] (`"battlefront-eternal-content"`).
+    /// Must equal [`ARCHIVE_FORMAT`] (`swbf1`) or [`ARCHIVE_FORMAT_SWBF2`] (`swbf2`).
     pub format: String,
     /// Must equal [`ARCHIVE_VERSION`] (`1`).
     pub version: u32,
@@ -116,6 +124,39 @@ pub struct ArchiveManifest {
     pub source: Option<SourceReceipt>,
     /// Manifest file records (stored entries and `linkTo` aliases).
     pub files: Vec<ManifestFileEntry>,
+}
+
+impl ArchiveManifest {
+    /// Returns the game family identified by [`Self::format`], or `None` if unsupported.
+    pub fn family(&self) -> Option<GameFamily> {
+        if self.format == ARCHIVE_FORMAT {
+            Some(GameFamily::Swbf1)
+        } else if self.format == ARCHIVE_FORMAT_SWBF2 {
+            Some(GameFamily::Swbf2)
+        } else {
+            None
+        }
+    }
+}
+
+/// Validates a relative archive entry path against traversal, control characters,
+/// Windows reserved device names, and (when `content_only` is true) allowed top-level roots
+/// for `family`.
+pub fn safe_path_for(
+    name: &str,
+    content_only: bool,
+    family: GameFamily,
+) -> Result<Vec<String>, String> {
+    if family == GameFamily::Swbf1 {
+        return safe_path(name, content_only);
+    }
+    let parts = safe_path(name, false)?;
+    // A 2005 archive carries everything of its tree but the tree's machinery and the names
+    // the archive keeps for itself (`swbf2_tree::archive_entry_ok`).
+    if content_only && !swbf2_tree::archive_entry_ok(name) {
+        return Err(format!("Not prepared game content: {}", name));
+    }
+    Ok(parts)
 }
 
 /// Validates a relative archive entry path against traversal, control characters,
@@ -204,7 +245,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 ///
 /// Mirrors the `stat.nlink > 1 && stat.ino > 0` check in `walk` in the desktop host.
 #[cfg(unix)]
-fn hardlink_key(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
+pub(crate) fn hardlink_key(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
     use std::os::unix::fs::MetadataExt;
     if meta.nlink() > 1 && meta.ino() > 0 {
         Some((meta.dev(), meta.ino()))
@@ -217,7 +258,7 @@ fn hardlink_key(_path: &Path, meta: &fs::Metadata) -> Option<(u64, u64)> {
 /// number and the 64-bit file index of the open file, when the file has more than one link.
 /// `std`'s `MetadataExt` offers these only on nightly, so ask `GetFileInformationByHandle`.
 #[cfg(windows)]
-fn hardlink_key(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+pub(crate) fn hardlink_key(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::{
         Foundation::HANDLE,
@@ -238,14 +279,14 @@ fn hardlink_key(path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
 
 /// Other platforms report no link identity; every file is exported as its own payload.
 #[cfg(not(any(unix, windows)))]
-fn hardlink_key(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
+pub(crate) fn hardlink_key(_path: &Path, _meta: &fs::Metadata) -> Option<(u64, u64)> {
     None
 }
 
 /// Exportable content file tuple `(relative_path, full_path, size_bytes, hardlink_key)`.
 pub type ContentFileRecord = (String, PathBuf, u64, Option<(u64, u64)>);
 
-/// Walks a prepared content directory and collects all exportable files under
+/// Walks a prepared 2004 (`swbf1`) content directory and collects all exportable files under
 /// `common/`, `sides/`, `maps/`, `audio/`, and `.prepare.json`.
 ///
 /// Rejects symlinks and verifies that every path passes [`safe_path`].
@@ -276,6 +317,19 @@ pub fn list_content_files(root: &Path) -> Result<Vec<ContentFileRecord>, String>
     }
     out.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(out)
+}
+
+/// Walks a prepared content directory for `family` and collects all exportable files: for
+/// 2004 those of [`list_content_files`], for 2005 every file of the tree
+/// ([`swbf2_tree::content_files`]).
+pub fn list_content_files_for(
+    root: &Path,
+    family: GameFamily,
+) -> Result<Vec<ContentFileRecord>, String> {
+    if family == GameFamily::Swbf1 {
+        return list_content_files(root);
+    }
+    swbf2_tree::content_files(root)
 }
 
 /// Recursively walks a content subdirectory (`common`, `sides`, `maps`, or `audio`)
@@ -1124,9 +1178,19 @@ fn valid_sha256(sha: &str) -> bool {
             .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
 }
 
-/// Validates a parsed [`ArchiveManifest`] and returns the total byte count of its records.
+/// Validates a parsed [`ArchiveManifest`] for the 2004 (`swbf1`) archive format
+/// and returns the total byte count of its records.
 pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
-    if manifest.format != ARCHIVE_FORMAT
+    validate_manifest_for(manifest, GameFamily::Swbf1)
+}
+
+/// Validates a parsed [`ArchiveManifest`] for `family` and returns the total
+/// byte count of its records.
+pub fn validate_manifest_for(
+    manifest: &ArchiveManifest,
+    family: GameFamily,
+) -> Result<u64, String> {
+    if manifest.family() != Some(family)
         || manifest.version != ARCHIVE_VERSION
         || manifest.files.is_empty()
         || manifest.files.len() > MAX_FILES
@@ -1137,7 +1201,7 @@ pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
     let mut seen: BTreeMap<&str, &ManifestFileEntry> = BTreeMap::new();
     let mut folded: BTreeMap<String, &ManifestFileEntry> = BTreeMap::new();
     for file in &manifest.files {
-        safe_path(&file.path, true)?;
+        safe_path_for(&file.path, true, family)?;
         // The earlier build folds with NFC then lower case; content names are ASCII, so lower case alone.
         let key = file.path.to_lowercase();
         if seen.contains_key(file.path.as_str()) {
@@ -1167,7 +1231,7 @@ pub fn validate_manifest(manifest: &ArchiveManifest) -> Result<u64, String> {
         let Some(link) = &file.link_to else {
             continue;
         };
-        safe_path(link, true)?;
+        safe_path_for(link, true, family)?;
         let valid = seen.get(link.as_str()).is_some_and(|target| {
             target.link_to.is_none()
                 && !std::ptr::eq(*target, file)
@@ -1271,6 +1335,9 @@ fn mtime_ms(meta: &fs::Metadata) -> Option<f64> {
 pub struct ExportSummary {
     /// Output archive path.
     pub archive_path: PathBuf,
+    /// Game family exported in this archive.
+    #[serde(default)]
+    pub family: GameFamily,
     /// Number of manifest file records written.
     pub files: usize,
     /// Total logical uncompressed bytes across all manifest entries.
@@ -1281,7 +1348,23 @@ pub struct ExportSummary {
     pub maps: Vec<String>,
 }
 
-/// Exports a prepared content directory to an archive the client build imports.
+/// Exports a prepared content directory for `family` to an archive.
+pub fn export_content_for(
+    content_dir: &Path,
+    family: GameFamily,
+    archive_path: &Path,
+    tools_dir: Option<&Path>,
+) -> Result<ExportSummary, String> {
+    export_content_with_progress_for(
+        content_dir,
+        family,
+        archive_path,
+        tools_dir,
+        |_, _, _, _| Ok(()),
+    )
+}
+
+/// Exports a prepared 2004 (`swbf1`) content directory to an archive the client build imports.
 ///
 /// Writes to a temporary sibling file first and renames it on completion.
 pub fn export_content(
@@ -1289,17 +1372,31 @@ pub fn export_content(
     archive_path: &Path,
     tools_dir: Option<&Path>,
 ) -> Result<ExportSummary, String> {
-    export_content_with_progress(content_dir, archive_path, tools_dir, |_, _, _, _| Ok(()))
+    export_content_for(content_dir, GameFamily::Swbf1, archive_path, tools_dir)
 }
 
-/// Like [`export_content`], reporting `(phase, file, done, total)` in bytes as the client
-/// does (`Checking content`, `Recording original source hashes`, `Exporting content`).
-/// An `Err` from the callback cancels the export and removes the partial file.
-///
-/// Ports `exportContent`: hash every file first, build the
-/// manifest, then write the manifest entry followed by the stored files in sorted order.
+/// Like [`export_content`], reporting `(phase, file, done, total)` in bytes for `GameFamily::Swbf1`.
 pub fn export_content_with_progress(
     content_dir: &Path,
+    archive_path: &Path,
+    tools_dir: Option<&Path>,
+    progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
+) -> Result<ExportSummary, String> {
+    export_content_with_progress_for(
+        content_dir,
+        GameFamily::Swbf1,
+        archive_path,
+        tools_dir,
+        progress,
+    )
+}
+
+/// Like [`export_content_for`], reporting `(phase, file, done, total)` in bytes as the client
+/// does (`Checking content`, `Recording original source hashes`, `Exporting content`).
+/// An `Err` from the callback cancels the export and removes the partial file.
+pub fn export_content_with_progress_for(
+    content_dir: &Path,
+    family: GameFamily,
     archive_path: &Path,
     tools_dir: Option<&Path>,
     mut progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
@@ -1310,21 +1407,53 @@ pub fn export_content_with_progress(
         None => checkout_content_version()?,
     };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let root = resolve_from(&cwd, content_dir);
-    let out = resolve_from(&cwd, archive_path);
-    // Prevent exporting an archive inside the very content directory being archived.
-    if out.starts_with(&root) {
-        return Err("Save the export outside the game data folder".to_string());
-    }
-    let state = read_prepare_state(Some(&root));
-    if !prepared_content_current(state.as_ref(), &content_version) {
-        return Err(
-            "Prepared content is incomplete or outdated; prepare it again before exporting."
-                .to_string(),
-        );
-    }
-
-    let files = list_content_files(&root)?;
+    let content_root = resolve_from(&cwd, content_dir);
+    let mut out = resolve_from(&cwd, archive_path);
+    // A 2005 export holds its tree's lock from the check to the end of the archive write.
+    let mut swbf2_lock = None;
+    let (root, state, files) = if family == GameFamily::Swbf1 {
+        let root = content_root.clone();
+        // Prevent exporting an archive inside the very content directory being archived.
+        if out.starts_with(&root) {
+            return Err("Save the export outside the game data folder".to_string());
+        }
+        let state = read_prepare_state(Some(&root));
+        if !prepared_content_current(state.as_ref(), &content_version) {
+            return Err(
+                "Prepared content is incomplete or outdated; prepare it again before exporting."
+                    .to_string(),
+            );
+        }
+        let files = list_content_files(&root)?;
+        (root, state, files)
+    } else {
+        // The 2005 tree is found as a start finds it, complete by the test preparation and
+        // verification use, and locked until the archive is written; the export carries every
+        // file of it but its machinery (`swbf2_tree::content_files`).
+        let tools = swbf2_tree::swbf2_tools(tools_dir)?;
+        out = swbf2_tree::archive_destination(archive_path, &tools, false)?;
+        let selected = swbf2_tree::locate(content_dir)?;
+        if out.starts_with(&selected.root) {
+            return Err("Save the export outside the game data folder".to_string());
+        }
+        match fs::symlink_metadata(&out) {
+            Ok(m) if m.is_file() && m.len() == 0 => {}
+            Ok(m) if m.is_file() => {
+                let mut prior = File::open(&out).map_err(|e| e.to_string())?;
+                read_archive_for(&mut prior, family)
+                    .map_err(|_| "The export destination already holds a different file.".to_string())?;
+            }
+            Ok(_) => return Err("The export destination must be a regular file.".into()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.to_string()),
+        }
+        let session = swbf2_tree::complete_session(content_dir, &tools)?;
+        let state = swbf2_tree::record_state(&session.tree.dir);
+        let files = swbf2_tree::content_files(&session.tree.dir)?;
+        let root = session.tree.dir.clone();
+        swbf2_lock = Some(session);
+        (root, state, files)
+    };
     if files.is_empty() {
         return Err("No prepared content files were found to export.".to_string());
     }
@@ -1388,14 +1517,17 @@ pub fn export_content_with_progress(
     progress("Recording original source hashes", "", done, total)?;
     let state_game = state.as_ref().and_then(|s| s.game.as_deref());
     let manifest = ArchiveManifest {
-        format: ARCHIVE_FORMAT.to_string(),
+        format: match family {
+            GameFamily::Swbf1 => ARCHIVE_FORMAT.to_string(),
+            GameFamily::Swbf2 => ARCHIVE_FORMAT_SWBF2.to_string(),
+        },
         version: ARCHIVE_VERSION,
         created: Some(iso_timestamp(std::time::SystemTime::now())),
         source: source_manifest(&root, state_game),
         files: records,
     };
     // `validateManifest(manifest)` runs before anything is written, so a bad tree fails early.
-    validate_manifest(&manifest)?;
+    validate_manifest_for(&manifest, family)?;
     let manifest_bytes =
         serde_json::to_vec(&manifest).map_err(|e| format!("Failed serializing manifest: {}", e))?;
     if manifest_bytes.len() as u64 > MAX_MANIFEST {
@@ -1443,6 +1575,7 @@ pub fn export_content_with_progress(
             .map_err(|e| format!("Failed renaming archive into place: {}", e))?;
         Ok(ExportSummary {
             archive_path: out.clone(),
+            family,
             files: manifest.files.len(),
             bytes: total,
             archive_bytes,
@@ -1454,6 +1587,7 @@ pub fn export_content_with_progress(
     if result.is_err() {
         let _ = fs::remove_file(&temp_path);
     }
+    drop(swbf2_lock);
     result
 }
 
@@ -1490,6 +1624,9 @@ fn hash_and_crc_file(
 pub struct InspectArchiveResult {
     /// Canonical archive path.
     pub archive_path: PathBuf,
+    /// Game family stored in this archive (defaults to `swbf1` for pre-change bundles).
+    #[serde(default)]
+    pub family: GameFamily,
     /// Number of manifest file records.
     pub files: usize,
     /// Total uncompressed bytes across all manifest entries.
@@ -1503,8 +1640,13 @@ pub struct InspectArchiveResult {
 /// What the central directory and manifest of an archive say, checked the way the import
 /// checks them before it writes anything: entry kinds, the manifest, and that the stored
 /// entries and the stored manifest records are the same set.
-fn read_archive(
+///
+/// Enforces `family`: a 2004 (`swbf1`) read runs the released checks and declines
+/// 2005 archives with the released error; a 2005 (`swbf2`) read accepts only the
+/// 2005 archive format and receipt path.
+fn read_archive_for(
     file: &mut File,
+    family: GameFamily,
 ) -> Result<(BTreeMap<String, ZipEntryInfo>, ArchiveManifest, u64), String> {
     let entries = read_zip_entries(file)?;
     for entry in entries.values() {
@@ -1517,7 +1659,7 @@ fn read_archive(
             return Err("Encrypted content exports are not supported".to_string());
         }
         if entry.name != MANIFEST_NAME {
-            safe_path(&entry.name, true)?;
+            safe_path_for(&entry.name, true, family)?;
         }
     }
     let manifest_entry = entries
@@ -1526,7 +1668,7 @@ fn read_archive(
     let raw = read_entry_bytes(file, manifest_entry, MAX_MANIFEST)?;
     let manifest: ArchiveManifest = serde_json::from_slice(&raw)
         .map_err(|_| "Unsupported or invalid content export".to_string())?;
-    let total = validate_manifest(&manifest)?;
+    let total = validate_manifest_for(&manifest, family)?;
     let stored = manifest
         .files
         .iter()
@@ -1539,17 +1681,27 @@ fn read_archive(
     Ok((entries, manifest, total))
 }
 
-/// Validates an archive's central directory and manifest without extracting files.
+/// Validates a 2004 (`swbf1`) archive's central directory and manifest without extracting files.
 ///
+/// Declines 2005 archives with the same errors as the released build.
 /// Mirrors the manifest inspection step of `importContent`.
 pub fn inspect_archive(archive_path: &Path) -> Result<InspectArchiveResult, String> {
+    inspect_archive_for(archive_path, GameFamily::Swbf1)
+}
+
+/// Validates an archive's central directory and manifest for `family` without extracting files.
+pub fn inspect_archive_for(
+    archive_path: &Path,
+    family: GameFamily,
+) -> Result<InspectArchiveResult, String> {
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let resolved = resolve_from(&cwd, archive_path);
     let mut file = File::open(&resolved)
         .map_err(|e| format!("Failed to open archive {}: {}", resolved.display(), e))?;
-    let (_, manifest, total) = read_archive(&mut file)?;
+    let (_, manifest, total) = read_archive_for(&mut file, family)?;
     Ok(InspectArchiveResult {
         archive_path: resolved,
+        family,
         files: manifest.files.len(),
         total_bytes: total,
         maps: manifest_maps(&manifest),
@@ -1557,12 +1709,16 @@ pub fn inspect_archive(archive_path: &Path) -> Result<InspectArchiveResult, Stri
     })
 }
 
-/// Summary returned when importing an archive via [`import_content`].
+/// Summary returned when importing an archive via [`import_content`] or [`import_content_for`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportSummary {
-    /// Final imported content directory path (`<destination_parent>/content-<id>`).
+    /// Final imported content root path (`<destination_parent>/content-<id>`):
+    /// flat for `swbf1`, containing `swbf2/.content/` for `swbf2`.
     pub content_dir: PathBuf,
+    /// Game family imported from the archive (`swbf1` for pre-change bundles).
+    #[serde(default)]
+    pub family: GameFamily,
     /// Number of manifest file records extracted/restored.
     pub files: usize,
     /// Total uncompressed bytes extracted/restored.
@@ -1571,8 +1727,8 @@ pub struct ImportSummary {
     pub maps: Vec<String>,
 }
 
-/// Extracts and verifies an archive into a new `content-<id>` directory under
-/// `destination_parent`.
+/// Extracts and verifies a 2004 (`swbf1`) archive into a new `content-<id>` directory
+/// under `destination_parent`. Declines 2005 archives exactly as the released build does.
 pub fn import_content(
     archive_path: &Path,
     destination_parent: &Path,
@@ -1580,26 +1736,75 @@ pub fn import_content(
     import_content_with_progress(archive_path, destination_parent, |_, _, _, _| Ok(()))
 }
 
+/// Extracts and verifies an archive for `family` into a new `content-<id>` directory
+/// under `destination_parent`. A 2005 import succeeds only when the restored tree is complete
+/// for the tools in `tools_dir` (or the checkout's).
+pub fn import_content_for(
+    archive_path: &Path,
+    family: GameFamily,
+    destination_parent: &Path,
+    tools_dir: Option<&Path>,
+) -> Result<ImportSummary, String> {
+    import_content_with_progress_for(
+        archive_path,
+        family,
+        destination_parent,
+        tools_dir,
+        |_, _, _, _| Ok(()),
+    )
+}
+
 /// Like [`import_content`], reporting `(phase, file, done, total)` in bytes while it works
 /// (`Importing and verifying`, then `Restoring shared content`), as `onProgress` does in the
 /// browser build. The callback runs at least every 64 KiB of data; an `Err` from it cancels
 /// the import, removes the staging directory and is returned unchanged.
+///
+/// Accepts only 2004 (`swbf1`) archives; 2005 archives go through
+/// [`import_content_with_progress_for`].
 pub fn import_content_with_progress(
     archive_path: &Path,
     destination_parent: &Path,
+    progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
+) -> Result<ImportSummary, String> {
+    import_content_with_progress_for(
+        archive_path,
+        GameFamily::Swbf1,
+        destination_parent,
+        None,
+        progress,
+    )
+}
+
+/// Like [`import_content_for`], reporting `(phase, file, done, total)` in bytes while it works.
+pub fn import_content_with_progress_for(
+    archive_path: &Path,
+    family: GameFamily,
+    destination_parent: &Path,
+    tools_dir: Option<&Path>,
     mut progress: impl FnMut(&str, &str, u64, u64) -> Result<(), String>,
 ) -> Result<ImportSummary, String> {
+    let swbf2_tools = match family {
+        GameFamily::Swbf1 => None,
+        GameFamily::Swbf2 => Some(swbf2_tree::swbf2_tools(tools_dir)?),
+    };
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let resolved_archive = resolve_from(&cwd, archive_path);
-    let parent = resolve_from(&cwd, destination_parent);
-    fs::create_dir_all(&parent)
-        .map_err(|e| format!("Failed creating {}: {}", parent.display(), e))?;
-
+    let parent = match &swbf2_tools {
+        Some(tools) => swbf2_tree::archive_destination(destination_parent, tools, true)?,
+        None => resolve_from(&cwd, destination_parent),
+    };
     // Stage into `.import-<id>` first and rename to `content-<id>` only after every file
     // hash, alias and the receipt are in place.
     let id = random_hex_suffix();
     let staging = parent.join(format!(".import-{}", id));
     let target = parent.join(format!("content-{}", id));
+
+    if swbf2_tools.is_some() {
+        swbf2_tree::require_new_tree(&target)?;
+        swbf2_tree::require_new_tree(&staging)?;
+    }
+    fs::create_dir_all(&parent)
+        .map_err(|e| format!("Failed creating {}: {}", parent.display(), e))?;
 
     let mut file = File::open(&resolved_archive).map_err(|e| {
         format!(
@@ -1609,10 +1814,19 @@ pub fn import_content_with_progress(
         )
     })?;
 
+    // Reserve the staging directory exclusively. Cleanup below owns only this new directory.
+    if swbf2_tools.is_some() {
+        fs::create_dir(&staging).map_err(|e| format!("Failed creating {}: {e}", staging.display()))?;
+    }
     let result = (|| -> Result<ImportSummary, String> {
-        let (entries, manifest, total) = read_archive(&mut file)?;
+        let (entries, manifest, total) = read_archive_for(&mut file, family)?;
         check_disk_space(&parent, total)?;
-        fs::create_dir_all(&staging).map_err(|e| format!("Failed creating staging dir: {}", e))?;
+        let family_staging = family_dir(&staging, family);
+        fs::create_dir_all(&family_staging)
+            .map_err(|e| format!("Failed creating staging dir: {}", e))?;
+        if family == GameFamily::Swbf2 {
+            swbf2_tree::mark_new_tree(&family_staging)?;
+        }
 
         // Stored files first, in manifest order; aliases wait until their targets exist.
         let mut done = 0u64;
@@ -1627,8 +1841,8 @@ pub fn import_content_with_progress(
                 .get(&item.path)
                 .filter(|e| e.size == item.size)
                 .ok_or_else(|| format!("Unexpected archive entry: {}", item.path))?;
-            let mut dest = staging.clone();
-            dest.extend(safe_path(&item.path, true)?);
+            let mut dest = family_staging.clone();
+            dest.extend(safe_path_for(&item.path, true, family)?);
             extract_entry_to_file(&mut file, entry, &dest, item, |n| {
                 done += n;
                 progress("Importing and verifying", &item.path, done, total)
@@ -1640,10 +1854,10 @@ pub fn import_content_with_progress(
             let Some(link_to) = item.link_to.as_ref() else {
                 continue;
             };
-            let mut src = staging.clone();
-            src.extend(safe_path(link_to, true)?);
-            let mut dst = staging.clone();
-            dst.extend(safe_path(&item.path, true)?);
+            let mut src = family_staging.clone();
+            src.extend(safe_path_for(link_to, true, family)?);
+            let mut dst = family_staging.clone();
+            dst.extend(safe_path_for(&item.path, true, family)?);
             if let Some(p) = dst.parent() {
                 fs::create_dir_all(p).map_err(|e| e.to_string())?;
             }
@@ -1674,12 +1888,18 @@ pub fn import_content_with_progress(
         // Retain provenance outside the playable roots, as the manifest itself: the client's
         // `relocatePreparation` reads `source` from this receipt.
         let receipt = serde_json::to_vec(&manifest).map_err(|e| e.to_string())?;
-        fs::write(staging.join(RECEIPT_NAME), receipt)
+        fs::write(family_staging.join(RECEIPT_NAME), receipt)
             .map_err(|e| format!("Failed writing {}: {}", RECEIPT_NAME, e))?;
+        // A 2005 import is a success only when the restored tree, its record under its own
+        // name, is complete by the test verification uses.
+        if let Some(tools) = &swbf2_tools {
+            swbf2_tree::check_restored(&family_staging, tools)?;
+        }
         fs::rename(&staging, &target)
             .map_err(|e| format!("Failed moving imported content into place: {}", e))?;
         Ok(ImportSummary {
             content_dir: target.clone(),
+            family,
             files: manifest.files.len(),
             bytes: total,
             maps: manifest_maps(&manifest),
@@ -1702,13 +1922,13 @@ pub struct RelocateResult {
     pub reason: Option<String>,
 }
 
-/// Verifies a local Star Wars Battlefront (2004) installation (`install_dir`)
-/// against the `.bfe-import.json` source `.lvl` hashes of `content_dir`, and
-/// updates `<content_dir>/.prepare.json`'s `game` field when they match.
-///
-/// Mirrors `relocatePreparation` in the desktop host.
-pub fn relocate_preparation(
+/// Verifies a local installation for `family` against the `.bfe-import.json`
+/// source `.lvl` hashes of `content_dir`, and updates the family preparation
+/// receipt's `game` field when they match (`<content>/.prepare.json` for `swbf1`,
+/// `<content>/swbf2/.content/.prepare-swbf2.json` for `swbf2`).
+pub fn relocate_preparation_for(
     content_dir: &Path,
+    family: GameFamily,
     install_dir: &Path,
     tools_dir: Option<&Path>,
 ) -> Result<RelocateResult, String> {
@@ -1724,23 +1944,57 @@ pub fn relocate_preparation(
         });
     }
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let root = resolve_from(&cwd, content_dir);
-    // Validate that `install_dir` is a genuine Star Wars Battlefront (2004) installation.
-    let Some(install) = inspect_install(install_dir) else {
+    let content_root = resolve_from(&cwd, content_dir);
+    // Validate that `install_dir` is a genuine installation for `family`.
+    let Some(install) = inspect_install_for(install_dir, family) else {
         return Ok(RelocateResult {
             ok: false,
-            reason: Some(
-                "That folder does not look like Star Wars Battlefront (2004).".to_string(),
-            ),
+            reason: Some(format!(
+                "That folder does not look like {}.",
+                game_profile(family).display_name
+            )),
         });
     };
-    let state = read_prepare_state(Some(&root));
-    if !prepared_content_current(state.as_ref(), &content_version) {
-        return Ok(RelocateResult {
+    let not_current = || {
+        Ok(RelocateResult {
             ok: false,
             reason: Some("Prepared content is not current.".to_string()),
-        });
-    }
+        })
+    };
+    // A 2005 record changes only under the tools' lock, held to the end of this function.
+    let mut swbf2 = None;
+    let root = if family == GameFamily::Swbf1 {
+        let state = read_prepare_state(Some(&content_root));
+        if !prepared_content_current(state.as_ref(), &content_version) {
+            return not_current();
+        }
+        content_root.clone()
+    } else {
+        // The tree is found as a start finds it, and only a complete tree this engine wrote
+        // is locked (nothing is made in a folder before its ownership is established).
+        let tools = swbf2_tree::swbf2_tools(tools_dir)?;
+        let session = match swbf2_tree::complete_session(content_dir, &tools) {
+            Ok(session) => session,
+            Err(reason) => {
+                return Ok(RelocateResult {
+                    ok: false,
+                    reason: Some(reason),
+                })
+            }
+        };
+        let identified = match swbf2_tree::identify_install(install_dir) {
+            Ok(identified) => identified,
+            Err(reason) => {
+                return Ok(RelocateResult {
+                    ok: false,
+                    reason: Some(reason),
+                })
+            }
+        };
+        let root = session.tree.dir.clone();
+        swbf2 = Some((session, identified));
+        root
+    };
 
     // Read `.bfe-import.json` to retrieve the `source.files` `.lvl` fingerprints.
     let receipt_raw = match fs::read_to_string(root.join(RECEIPT_NAME)) {
@@ -1813,29 +2067,44 @@ pub fn relocate_preparation(
         }
     }
 
-    // Rewrite `.prepare.json` with the new install's `GameData/Data/_LVL_PC` path.
-    let prep_file = root.join(".prepare.json");
+    // Rewrite the family's preparation receipt with the new install's `_LVL_PC` / `_lvl_pc` path.
+    let prep_file = root.join(prepare_state_file(family));
     let mut prep_json: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(&prep_file).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
-    let new_game = install
-        .dir
-        .join("GameData")
-        .join("Data")
-        .join("_LVL_PC")
-        .to_string_lossy()
-        .into_owned();
+    let new_game = match &swbf2 {
+        None => game_lvl_pc_path(&install.dir, family)
+            .to_string_lossy()
+            .into_owned(),
+        Some((_, identified)) => identified.lvl_pc.to_string_lossy().into_owned(),
+    };
     if let Some(obj) = prep_json.as_object_mut() {
         obj.insert("game".to_string(), serde_json::Value::String(new_game));
     }
     let mut out_bytes = serde_json::to_vec_pretty(&prep_json).map_err(|e| e.to_string())?;
     out_bytes.push(b'\n');
-    fs::write(&prep_file, out_bytes).map_err(|e| e.to_string())?;
+    match &swbf2 {
+        None => fs::write(&prep_file, out_bytes).map_err(|e| e.to_string())?,
+        Some((session, _)) => swbf2_tree::replace_record(session, &out_bytes)?,
+    }
 
     Ok(RelocateResult {
         ok: true,
         reason: None,
     })
+}
+
+/// Verifies a local Star Wars Battlefront (2004) installation (`install_dir`)
+/// against the `.bfe-import.json` source `.lvl` hashes of `content_dir`, and
+/// updates `<content_dir>/.prepare.json`'s `game` field when they match.
+///
+/// Mirrors `relocatePreparation` in the desktop host.
+pub fn relocate_preparation(
+    content_dir: &Path,
+    install_dir: &Path,
+    tools_dir: Option<&Path>,
+) -> Result<RelocateResult, String> {
+    relocate_preparation_for(content_dir, GameFamily::Swbf1, install_dir, tools_dir)
 }
 
 /// Generates a 16-character random hex suffix for temporary staging paths.
@@ -1847,4 +2116,25 @@ fn random_hex_suffix() -> String {
     let mut bytes = [0u8; 8];
     let _ = getrandom::getrandom(&mut bytes);
     hex_encode(&bytes)
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::safe_path;
+
+    #[test]
+    fn archive_paths_reject_traversal_and_device_names() {
+        for ok in ["maps/zz9/map.json", ".prepare.json", "common/hud/zz.json", "maps/zz9/com10.bin"] {
+            assert!(safe_path(ok, false).is_ok(), "{ok}");
+        }
+        for bad in [
+            "../zz", "maps/../zz", "maps//zz", "/maps/zz", "maps/zz/", r"maps\zz",
+            "maps/zz:stream", "CON", "con.txt", "maps/NUL", "maps/com1/x", "maps/lpt9.json",
+            "maps/zz./x", "maps/zz /x", "maps/./x",
+        ] {
+            assert!(safe_path(bad, false).is_err(), "{bad}");
+        }
+        assert!(safe_path("elsewhere/zz.bin", true).is_err());
+        assert!(safe_path("maps/zz9/map.json", true).is_ok());
+    }
 }

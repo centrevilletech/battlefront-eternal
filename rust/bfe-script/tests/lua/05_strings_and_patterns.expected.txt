@@ -1,0 +1,18 @@
+basic	5	bcd	def		abc123!	ABC123!	ababab	
+byte_char	65	67	nil	ABC
+fmt1	-5 12 255 ff FF 0xff 0XFF 77 077
+fmt2	00042 +7  7 hi       hi he A %
+fmt3	1.50 1.500e+00 1.23E+03 1.5 1E-05
+fmt4	"a\"b\\c\
+d"
+find_plain	7	9
+find_pat	1	8	key	1234
+find_pos	5	7	5	bar	8
+find_bal	2	8
+find_frontier	5	7
+find_backref	4	8	cd
+find_min	1	5	one
+gfind	one|two|three
+gsub_str	1:a, 2:b, 3:c	3
+gsub_lim	bba	2
+gsub_fn	11  31	3

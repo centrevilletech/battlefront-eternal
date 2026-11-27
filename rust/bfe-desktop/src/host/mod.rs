@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bfe_content::layout::family_dir;
+use bfe_family::{swbf2, GameFamily};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -240,7 +242,10 @@ pub enum TeamAssignment {
 /// Game and network options passed to [`HostController::start`], combining the desktop host
 /// host dialog options (and the desktop host) with the
 /// native client's `SET GAME OPTIONS` screen (`rust/bfe-shell/src/screens.rs`).
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Written by the serializer below, which writes what these attributes say,
+/// except that a 2004 host writes neither `family` nor `gameMode`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostOptions {
     /// Server display name (`1..=80` non-whitespace characters; `options.name` in the desktop host).
@@ -288,6 +293,68 @@ pub struct HostOptions {
     /// Optional immediate spawn toggle (`autoSpawn: true` in `config.json`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_spawn: Option<bool>,
+    /// The game of the hosted map: the 2004 game unless set; written only for
+    /// the 2005 game. A host of a game this build cannot play is refused.
+    #[serde(default, skip_serializing_if = "GameFamily::is_default")]
+    pub family: GameFamily,
+    /// The mode of a 2005 map (conquest when unset). A 2004 host ignores it, as
+    /// it always hosted conquest whatever mode the shell carried, and does not
+    /// write it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_mode: Option<String>,
+}
+
+// The derived serializer's output for the fields above, in their order; the
+// family and the mode only for a 2005 host, so 2004 options are written as the
+// released build wrote them.
+impl Serialize for HostOptions {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let later = !self.family.is_default();
+        let optional = [
+            !self.playlist.is_empty(),
+            self.password.is_some(),
+            self.ai_units_per_team.is_some(),
+            self.ai_difficulty.is_some(),
+            self.reinforcements_pct.is_some(),
+            self.victory_timer_sec.is_some(),
+            self.friendly_fire.is_some(),
+            self.heroes_enabled.is_some(),
+            self.team_assignment.is_some(),
+            self.auto_spawn.is_some(),
+            later,
+            later && self.game_mode.is_some(),
+        ];
+        let mut out = serializer.serialize_struct("HostOptions", 6 + optional.iter().filter(|written| **written).count())?;
+        out.serialize_field("name", &self.name)?;
+        out.serialize_field("mode", &self.mode)?;
+        out.serialize_field("map", &self.map)?;
+        out.serialize_field("side", &self.side)?;
+        out.serialize_field("maxPlayers", &self.max_players)?;
+        out.serialize_field("relay", &self.relay)?;
+        macro_rules! optional {
+            ($written:expr, $key:literal, $value:expr) => {
+                if $written {
+                    out.serialize_field($key, $value)?;
+                } else {
+                    out.skip_field($key)?;
+                }
+            };
+        }
+        optional!(optional[0], "playlist", &self.playlist);
+        optional!(optional[1], "password", &self.password);
+        optional!(optional[2], "aiUnitsPerTeam", &self.ai_units_per_team);
+        optional!(optional[3], "aiDifficulty", &self.ai_difficulty);
+        optional!(optional[4], "reinforcementsPct", &self.reinforcements_pct);
+        optional!(optional[5], "victoryTimerSec", &self.victory_timer_sec);
+        optional!(optional[6], "friendlyFire", &self.friendly_fire);
+        optional!(optional[7], "heroesEnabled", &self.heroes_enabled);
+        optional!(optional[8], "teamAssignment", &self.team_assignment);
+        optional!(optional[9], "autoSpawn", &self.auto_spawn);
+        optional!(optional[10], "family", &self.family);
+        optional!(optional[11], "gameMode", &self.game_mode);
+        out.end()
+    }
 }
 
 impl Default for HostOptions {
@@ -312,6 +379,8 @@ impl Default for HostOptions {
             heroes_enabled: None,
             team_assignment: None,
             auto_spawn: None,
+            family: GameFamily::Swbf1,
+            game_mode: None,
         }
     }
 }
@@ -328,6 +397,10 @@ impl HostOptions {
         }
         // Enforce `maxPlayers` bounds (`options.maxPlayers < 2 || options.maxPlayers > MAX_MATCH_PLAYERS`).
         if self.max_players < 2 || self.max_players > MAX_MATCH_PLAYERS {
+            return Err("Invalid host settings".to_string());
+        }
+        // A 2005 map follows the shared 2005 field rules (its side names its era).
+        if self.family == GameFamily::Swbf2 && self.swbf2_entry().is_none() {
             return Err("Invalid host settings".to_string());
         }
         // Validate map ID against `/^[a-z0-9_-]{1,32}$/` and faction ID against `['rep', 'cis', 'all', 'imp']`.
@@ -350,11 +423,20 @@ impl HostOptions {
     /// (`rotation: [`swbf1/${options.map}:${options.side}:conquest`]` in the desktop host).
     pub fn effective_rotation(&self) -> Vec<String> {
         // Default to a single conquest entry when no multi-map playlist is specified.
-        if self.playlist.is_empty() {
-            vec![format!("swbf1/{}:{}:conquest", self.map, self.side)]
-        } else {
-            self.playlist.clone()
+        if !self.playlist.is_empty() {
+            return self.playlist.clone();
         }
+        let entry = match self.family {
+            GameFamily::Swbf1 => None,
+            GameFamily::Swbf2 => self.swbf2_entry().map(|entry| entry.format()),
+        };
+        vec![entry.unwrap_or_else(|| format!("swbf1/{}:{}:conquest", self.map, self.side))]
+    }
+
+    // The 2005 entry these options name: the map, the era of the side, the mode.
+    fn swbf2_entry(&self) -> Option<swbf2::Entry> {
+        let era = if matches!(self.side.as_str(), "all" | "imp") { "gcw" } else { "cw" };
+        swbf2::Entry::from_fields(&self.map, Some(era), self.game_mode.as_deref())
     }
 
     /// Builds the `config.json` JSON object for `bfeserver` using strictly valid keys from
@@ -433,8 +515,12 @@ fn is_valid_map_id(map: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
-/// Validates a rotation entry against `swbf1/<map>:<side>:<mode>` (`valid_playlist_entry` in `bfe-server`).
+/// Validates a rotation entry against `swbf1/<map>:<side>:<mode>` (`valid_playlist_entry` in `bfe-server`),
+/// or a 2005 entry in the complete form of `bfe_family::swbf2`.
 fn is_valid_rotation_entry(entry: &str) -> bool {
+    if swbf2::is_entry(entry) {
+        return swbf2::Entry::parse_complete(entry).is_some();
+    }
     // Require the `swbf1/` family prefix (`BF2 simulation is not implemented` in `bfe-server`).
     let Some(rest) = entry.strip_prefix("swbf1/") else {
         return false;
@@ -848,6 +934,43 @@ struct ControllerInner {
     unit: Option<String>,
 }
 
+/// Verifies that prepared `common/common.json` and `maps/<map>/map.json` files
+/// exist for the selected map and every playlist entry through `family_dir`.
+fn check_host_content_present(content_root: &Path, options: &HostOptions) -> Result<(), String> {
+    let (map_family, map_id) = GameFamily::split_id(&options.map);
+    let family_content = family_dir(content_root, map_family);
+    if !family_content.join("common").join("common.json").is_file()
+        || !family_content
+            .join("maps")
+            .join(map_id)
+            .join("map.json")
+            .is_file()
+    {
+        return Err("Import the selected map from your game before hosting.".to_string());
+    }
+    for entry in &options.playlist {
+        if let Some(raw_map_id) = map_id_from_rotation_entry(entry) {
+            let (entry_family, entry_map) = GameFamily::split_id(raw_map_id);
+            let entry_root = family_dir(content_root, entry_family);
+            if !entry_root
+                .join("common")
+                .join("common.json")
+                .is_file()
+                || !entry_root
+                    .join("maps")
+                    .join(entry_map)
+                    .join("map.json")
+                    .is_file()
+            {
+                return Err(
+                    "Import the selected map from your game before hosting.".to_string()
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 impl HostController {
     /// Creates a new [`HostController`] and ensures `<state_root>` exists with mode `0700` on Unix
     /// (`mkdirSync(stateRoot, { recursive: true, mode: 0o700 })` in `createHostController` in the desktop host).
@@ -1152,33 +1275,24 @@ impl HostController {
         // Step 2: Validate `options` (`if (!options || ...) throw Error('Invalid host settings')`).
         options.validate()?;
 
+        // Step 2b: a game this build cannot play is refused before anything is read or launched.
+        options.family.require_available().map_err(|e| e.to_string())?;
+        for entry in &options.playlist {
+            if swbf2::is_entry(entry) {
+                GameFamily::Swbf2.require_available().map_err(|e| e.to_string())?;
+            }
+        }
+
         // Step 3: Require online privacy notice consent before public hosting
         // (`if (options.mode === 'public' && !await consent()) throw Error('Accept the online privacy notice before hosting publicly.')`).
         if options.mode == HostMode::Public && !self.config.online_consent {
             return Err("Accept the online privacy notice before hosting publicly.".to_string());
         }
 
-        // Step 4: Verify prepared content (`common/common.json` and `maps/<map>/map.json`) before spawning
-        // (`if (!existsSync(path.join(content, 'common/common.json')) || !existsSync(path.join(content, 'maps', options.map, 'map.json')))` in the desktop host).
-        let content = &self.config.content_root;
-        if !content.join("common").join("common.json").is_file()
-            || !content
-                .join("maps")
-                .join(&options.map)
-                .join("map.json")
-                .is_file()
-        {
-            return Err("Import the selected map from your game before hosting.".to_string());
-        }
-        for entry in &options.playlist {
-            if let Some(map_id) = map_id_from_rotation_entry(entry) {
-                if !content.join("maps").join(map_id).join("map.json").is_file() {
-                    return Err(
-                        "Import the selected map from your game before hosting.".to_string()
-                    );
-                }
-            }
-        }
+        // Step 4: Verify prepared content (`common/common.json` and `maps/<map>/map.json`)
+        // through the family content root before spawning `bfeserver`.
+        let content_root = &self.config.content_root;
+        check_host_content_present(content_root, options)?;
 
         // Step 5: Verify that the bundled `bfeserver` executable exists
         // (`throw Error('The server runtime is missing. Install the complete desktop release.')`).
@@ -1195,7 +1309,7 @@ impl HostController {
         // Step 6: Write `<state_root>/config.json` with mode `0600` using strictly valid `bfeserver` config keys.
         let server_cfg = options.to_server_config_json(
             &self.config.engine_root,
-            content,
+            content_root,
             self.config.game_port,
             &self.config.master_url,
         );
@@ -1227,7 +1341,7 @@ impl HostController {
         );
         server_env.insert(
             "BFE_DATA_DIR".to_string(),
-            content.to_string_lossy().into_owned(),
+            content_root.to_string_lossy().into_owned(),
         );
         server_env.insert("PORT".to_string(), self.config.admin_port.to_string());
 
@@ -1812,6 +1926,120 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    // A 2004 host keeps the released options, checks and config whatever mode
+    // the shell carried; a 2005 host is refused before content or the server.
+    #[test]
+    fn a_2004_host_is_the_released_host_and_a_2005_host_is_refused_first() {
+        let released = serde_json::to_value(HostOptions::default()).unwrap();
+        assert!(released.get("family").is_none() && released.get("gameMode").is_none(), "{released}");
+        for mode in ["duel", "ConQuest", "../any"] {
+            let options = HostOptions { game_mode: Some(mode.into()), ..HostOptions::default() };
+            assert_eq!(options.validate(), Ok(()));
+            assert_eq!(options.effective_rotation(), vec!["swbf1/nab2:rep:conquest"]);
+        }
+        let later = HostOptions { family: GameFamily::Swbf2, map: "kam9".into(), side: "imp".into(), game_mode: Some("hunt".into()), ..HostOptions::default() };
+        assert_eq!(later.validate(), Ok(()));
+        assert_eq!(later.effective_rotation(), vec!["swbf2/kam9:gcw:hunt"]);
+        assert!(HostOptions { game_mode: Some("Hunt".into()), ..later.clone() }.validate().is_err());
+        assert!(HostOptions { playlist: vec!["swbf2/kam9:rep:hunt".into()], ..HostOptions::default() }.validate().is_err());
+
+        let dir = temp_test_dir("family");
+        let cfg = HostControllerConfig::new(dir.join("state"), dir.join("content"));
+        let controller = HostController::new(cfg).unwrap();
+        let unavailable = "Battlefront II (2005) is not available in this build";
+        assert_eq!(controller.start(&later).unwrap_err(), unavailable);
+        let mixed = HostOptions { playlist: vec!["swbf1/nab2:rep:conquest".into(), "swbf2/kam9:gcw:hunt".into()], ..HostOptions::default() };
+        assert_eq!(controller.start(&mixed).unwrap_err(), unavailable);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // The options as the released build wrote them (its fields and attributes).
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ReleasedOptions {
+        name: String,
+        mode: HostMode,
+        map: String,
+        side: String,
+        max_players: u32,
+        relay: RelayPolicy,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        playlist: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        password: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ai_units_per_team: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ai_difficulty: Option<AiDifficulty>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reinforcements_pct: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        victory_timer_sec: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        friendly_fire: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        heroes_enabled: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        team_assignment: Option<TeamAssignment>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auto_spawn: Option<bool>,
+    }
+
+    fn released(options: &HostOptions) -> String {
+        let o = options.clone();
+        serde_json::to_string(&ReleasedOptions {
+            name: o.name,
+            mode: o.mode,
+            map: o.map,
+            side: o.side,
+            max_players: o.max_players,
+            relay: o.relay,
+            playlist: o.playlist,
+            password: o.password,
+            ai_units_per_team: o.ai_units_per_team,
+            ai_difficulty: o.ai_difficulty,
+            reinforcements_pct: o.reinforcements_pct,
+            victory_timer_sec: o.victory_timer_sec,
+            friendly_fire: o.friendly_fire,
+            heroes_enabled: o.heroes_enabled,
+            team_assignment: o.team_assignment,
+            auto_spawn: o.auto_spawn,
+        })
+        .unwrap()
+    }
+
+    // 2004 options are written byte for byte as the released build wrote them, whatever
+    // family or mode they were read with; a 2005 host adds its family and mode.
+    #[test]
+    fn a_2004_host_writes_the_released_options() {
+        let full = HostOptions {
+            playlist: vec!["swbf1/nab2:rep:conquest".into()],
+            password: Some("pw".into()),
+            ai_units_per_team: Some(4),
+            ai_difficulty: Some(AiDifficulty::Hard),
+            reinforcements_pct: Some(150),
+            victory_timer_sec: Some(30),
+            friendly_fire: Some(true),
+            heroes_enabled: Some(false),
+            team_assignment: Some(TeamAssignment::PlayerSelect),
+            auto_spawn: Some(true),
+            ..HostOptions::default()
+        };
+        for options in [HostOptions::default(), full.clone()] {
+            for game_mode in [None, Some("duel".to_string())] {
+                let options = HostOptions { game_mode, ..options.clone() };
+                assert_eq!(serde_json::to_string(&options).unwrap(), released(&options));
+            }
+        }
+        let read: HostOptions = serde_json::from_str(r#"{"name":"N","mode":"lan","map":"nab2","side":"rep","maxPlayers":8,"relay":"auto","family":"swbf1","gameMode":"duel"}"#).unwrap();
+        assert_eq!((read.family, read.game_mode.as_deref()), (GameFamily::Swbf1, Some("duel")), "kept in memory");
+        assert_eq!(serde_json::to_string(&read).unwrap(), r#"{"name":"N","mode":"lan","map":"nab2","side":"rep","maxPlayers":8,"relay":"auto"}"#);
+        let later = HostOptions { family: GameFamily::Swbf2, game_mode: Some("hunt".into()), ..full };
+        let written = serde_json::to_string(&later).unwrap();
+        assert_eq!(written, format!(r#"{},"family":"swbf2","gameMode":"hunt"}}"#, released(&later).trim_end_matches('}')));
+        assert_eq!(serde_json::from_str::<HostOptions>(&written).unwrap(), later);
+    }
+
     /// Verifies `ClosePrompt` and `CloseChoice` against the `before-quit` dialog in the desktop host.
     #[test]
     fn close_prompt_matches_host_strings() {
@@ -1836,8 +2064,6 @@ mod tests {
     #[test]
     fn start_outside_builds_systemd_user_unit_and_checks_active() {
         // Verify `start_outside` and `unit_active_with_program`.
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = temp_test_dir("outside");
         let args_out = dir.join("systemd-args.txt");
         let fake_systemd = dir.join("fake-systemd-run.sh");
@@ -1845,8 +2071,7 @@ mod tests {
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{}\"\nexit 0\n",
             args_out.display()
         );
-        fs::write(&fake_systemd, script.as_bytes()).unwrap();
-        fs::set_permissions(&fake_systemd, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&fake_systemd, script.as_bytes());
 
         let mut env_map = BTreeMap::new();
         env_map.insert("PORT".to_string(), "18460".to_string());
@@ -2013,8 +2238,7 @@ admin_srv.shutdown()
 info_srv.shutdown()
 print("bfeserver stopped", flush=True)
 "#;
-        fs::write(&fake_server, py_script.as_bytes()).unwrap();
-        fs::set_permissions(&fake_server, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&fake_server, py_script.as_bytes());
 
         // Pre-populate a >8 MiB log file (`LOG_ROTATE_BYTES + 1024`) to verify log truncation on `start()`
         // (`if (existsSync(log) && statSync(log).size > 8388608) writeFileSync(log, '')` in the desktop host).
@@ -2135,8 +2359,6 @@ print("bfeserver stopped", flush=True)
     fn early_exit_and_readiness_timeout_report_exact_errors() {
         // Verify exact error strings when the child exits early (`Server exited (7). See the hosting log.`)
         // or never becomes ready (`The server is still starting. Check its status or hosting log.`).
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = temp_test_dir("errors");
         let state_root = dir.join("state");
         let content_root = dir.join("content");
@@ -2144,8 +2366,7 @@ print("bfeserver stopped", flush=True)
 
         // 1. Early exit with code 7.
         let exit_bin = dir.join("exit7.sh");
-        fs::write(&exit_bin, b"#!/bin/sh\nexit 7\n").unwrap();
-        fs::set_permissions(&exit_bin, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&exit_bin, b"#!/bin/sh\nexit 7\n");
 
         let mut cfg = HostControllerConfig::new(state_root.clone(), content_root.clone());
         cfg.executable = exit_bin;
@@ -2161,8 +2382,7 @@ print("bfeserver stopped", flush=True)
 
         // 2. Readiness timeout (child stays alive briefly without opening `/admin` or `/info`).
         let sleep_bin = dir.join("sleep.sh");
-        fs::write(&sleep_bin, b"#!/bin/sh\nsleep 1\n").unwrap();
-        fs::set_permissions(&sleep_bin, fs::Permissions::from_mode(0o755)).unwrap();
+        crate::test_programs::write(&sleep_bin, b"#!/bin/sh\nsleep 1\n");
 
         cfg.executable = sleep_bin;
         cfg.ready_poll_attempts = 3;
@@ -2175,6 +2395,102 @@ print("bfeserver stopped", flush=True)
             "The server is still starting. Check its status or hosting log."
         );
 
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn host_start_checks_content_through_family_dir() {
+        let dir = temp_test_dir("family-root");
+        let state_root = dir.join("state");
+        let content_root = dir.join("content");
+        create_fake_content_dir(&content_root);
+
+        // Missing server binary lets us verify Step 4 (content check) passed and reached Step 5.
+        let mut cfg = HostControllerConfig::new(state_root, content_root.clone());
+        cfg.executable = dir.join("missing-bfeserver");
+        let controller = HostController::new(cfg).unwrap();
+
+        let err = controller.start(&HostOptions::default()).unwrap_err();
+        assert_eq!(
+            err,
+            "The server runtime is missing. Install the complete desktop release."
+        );
+
+        // Removing the map from the flat 2004 root fails Step 4 with the import error.
+        fs::remove_file(content_root.join("maps/nab2/map.json")).unwrap();
+        let err_missing = controller.start(&HostOptions::default()).unwrap_err();
+        assert_eq!(
+            err_missing,
+            "Import the selected map from your game before hosting."
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn host_content_check_resolves_swbf2_through_family_dir() {
+        let dir = temp_test_dir("family-root-swbf2");
+        let content_root = dir.join("content");
+        let bf2_root = family_dir(&content_root, GameFamily::Swbf2);
+        fs::create_dir_all(bf2_root.join("common")).unwrap();
+        fs::create_dir_all(bf2_root.join("maps/testmap1")).unwrap();
+        fs::write(bf2_root.join("common/common.json"), b"{}").unwrap();
+        fs::write(bf2_root.join("maps/testmap1/map.json"), b"{}").unwrap();
+
+        let swbf2_opts = HostOptions {
+            map: "swbf2/testmap1".to_string(),
+            playlist: vec!["swbf2/testmap1:rep:conquest".to_string()],
+            ..HostOptions::default()
+        };
+        assert!(check_host_content_present(&content_root, &swbf2_opts).is_ok());
+
+        // Missing map in swbf2/.content fails even if flat 2004 has a map of the same id.
+        fs::remove_file(bf2_root.join("maps/testmap1/map.json")).unwrap();
+        fs::create_dir_all(content_root.join("common")).unwrap();
+        fs::create_dir_all(content_root.join("maps/testmap1")).unwrap();
+        fs::write(content_root.join("common/common.json"), b"{}").unwrap();
+        fs::write(content_root.join("maps/testmap1/map.json"), b"{}").unwrap();
+        assert_eq!(
+            check_host_content_present(&content_root, &swbf2_opts).unwrap_err(),
+            "Import the selected map from your game before hosting."
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Optional integration check: when `BFE_HOST_REAL_SERVER` and `BFE_CONTENT_DIR`
+    /// are provided, spawns the real `bfeserver` via `HostController::start` and stops it.
+    #[cfg(unix)]
+    #[test]
+    fn host_starts_real_bfeserver_when_provided() {
+        let (Some(bin), Some(content)) = (
+            env::var_os("BFE_HOST_REAL_SERVER").map(PathBuf::from),
+            env::var_os("BFE_CONTENT_DIR").map(PathBuf::from),
+        ) else {
+            return;
+        };
+        let dir = temp_test_dir("real-host");
+        let state_root = dir.join("state");
+        let mut cfg = HostControllerConfig::new(state_root, content);
+        cfg.executable = bin;
+        cfg.admin_port = free_loopback_port();
+        cfg.game_port = free_loopback_port();
+        cfg.launch_outside = false;
+        cfg.ready_poll_attempts = 40;
+        cfg.ready_poll_interval = Duration::from_millis(250);
+
+        let controller = HostController::new(cfg).unwrap();
+        let join = controller.start(&HostOptions::default()).unwrap();
+        assert!(!join.address.is_empty());
+        assert!(controller.status().active);
+        let _ = controller.stop().unwrap();
+        for _ in 0..50 {
+            if !controller.status().active {
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(!controller.status().active);
         let _ = fs::remove_dir_all(&dir);
     }
 }

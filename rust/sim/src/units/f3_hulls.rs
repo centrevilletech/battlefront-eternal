@@ -8,6 +8,7 @@ use crate::gen::*;
 use crate::store::{Ref, StrId};
 use crate::vehicles::{damage::HullDamageWorld, module::{self as fleet, f2}, Hull};
 use three::{Matrix4, Vector3};
+use crate::battle::rules::{awards::{Destroyed,SystemTransition},events::{Event,ObjectHandle}};
 
 // Vehicle construction binds both the collision owner and its mixed-registry
 // member. Lookups use those numeric slots; no class names enter a hit loop.
@@ -19,6 +20,14 @@ pub(super) struct Hulls {
     serial: u32,
     keys: Vec<StrId>,
     fact_versions: Vec<Option<u64>>,
+    mission: Vec<MissionHull>,
+}
+
+#[derive(Clone, Debug, Default)]
+struct MissionHull {
+    kind:u8,
+    eligible_when_empty: bool,
+    death:Option<Event>,
 }
 fn binding(hulls: &Hulls, r: Ref<Vehicle>) -> &F3HullSetup {
     hulls.rows[r.slot as usize].as_ref().filter(|row| row.hull == r).expect("prepared hull combat")
@@ -49,6 +58,10 @@ pub fn f3_hull_in(world_ctx: &mut crate::world::owner::World) {
     if let Some(id) = id { all.members[id] = Some(input.hull); }
     all.bodies[body.slot as usize] = Some(input.hull);
     let slot = input.hull.slot as usize;
+    if world_ctx.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) {
+        all.mission.resize_with(all.rows.len(), MissionHull::default);
+        all.mission[slot] = MissionHull::default();
+    }
     all.rows[slot] = Some(input);
     // Traps may have been prepared before this variant existed. Fleet birth
     // reserves their victim snapshots too, rather than growing them on crush.
@@ -67,6 +80,8 @@ pub fn f3_hull_in(world_ctx: &mut crate::world::owner::World) {
 // of private kernel slots. Prepared hulls consume their range only on birth.
 pub(crate) fn body_serial_in(units: &mut super::owner::Units, serial: u32) { units.hulls.get_or_insert_with(Hulls::default).serial = serial; }
 pub(crate) fn prepared_count_in(units: &super::owner::Units) -> usize { units.hulls.as_ref().expect("prepared unit service").rows.iter().flatten().filter(|r| r.member.is_none()).count() }
+/// Hulls that take their registry ids later, when they are born.
+pub(crate) fn unborn_in(units: &super::owner::Units) -> usize { units.hulls.as_ref().map_or(0, |_| prepared_count_in(units)) }
 pub(crate) fn reserve_members_in(units: &mut super::owner::Units, count: usize) {
     let hulls = units.hulls.get_or_insert_with(Hulls::default);
     hulls.members.resize(hulls.members.len().max(count), None);
@@ -278,7 +293,12 @@ impl HullDamageWorld for HullDamage<'_, '_> {
     fn damaged_hull(&mut self, index: usize, amount: f64, attacker: &OrdnanceOwner) {
         // Vehicle.onDamaged is a notice. Its sampled values stay before the
         // later destruction and class-blast records in the shared stream.
-        notice_in(self.w, reference_in(&self.w.sim, index), F3HullEvent::Damaged, amount, *attacker);
+        let r=reference_in(&self.w.sim,index);
+        if self.w.battle.rule_events.as_ref().is_some_and(|q|q.mission_events()) {
+            let event=mission_hull_event(self.w,r,SystemTransition::Damage,*attacker);
+            self.w.battle.rule_events.as_mut().unwrap().push(event);
+        }
+        notice_in(self.w, r, F3HullEvent::Damaged, amount, *attacker);
     }
     fn set_damage_body(&mut self, body: u32, enabled: bool) {
         if let Some(collision) = self.w.fleet.collision.as_mut() {
@@ -286,7 +306,14 @@ impl HullDamageWorld for HullDamage<'_, '_> {
         }
     }
     fn start_respawn(&mut self, index: usize) { f2::respawn_clock_in(self.w, index); }
-    fn destroy_hull_crew(&mut self, index: usize) { f2::live_seats::destroyed_with_in(self.w, index, Some(self.services.reborrow())); }
+    fn destroy_hull_crew(&mut self, index: usize) {
+        if self.w.battle.rule_events.as_ref().is_some_and(|q|q.mission_events()) {
+            let v=self.w.sim.store.vehicle.get(self.hull).expect("admitted hull");
+            let event=mission_hull_event(self.w,self.hull,SystemTransition::Kill,v.last_attacker);
+            self.w.units.hulls.as_mut().unwrap().mission[self.hull.slot as usize].death=Some(event);
+        }
+        f2::live_seats::destroyed_with_in(self.w,index,Some(self.services.reborrow()));
+    }
     fn destroyed_hull(&mut self, index: usize) {
         let r = reference_in(&self.w.sim, index);
         let owner = self.w.sim.store.vehicle.get(r).expect("destroyed hull").last_attacker;
@@ -298,7 +325,14 @@ impl HullDamageWorld for HullDamage<'_, '_> {
             _ => None,
         };
         if crate::battle::f4_core::active_in(&mut self.w.battle) {
-            crate::battle::f4_core::achievement_in(self.w, character, F4CommandOp::VehicleDestroyed);
+            if self.w.battle.rule_events.as_ref().is_some_and(|q|q.mission_events()) {
+                let event=self.w.units.hulls.as_mut().unwrap().mission[r.slot as usize].death.take()
+                    .unwrap_or_else(||mission_hull_event(self.w,r,SystemTransition::Kill,owner));
+                self.w.battle.rule_events.as_mut().unwrap().push(event);
+                crate::battle::f4_core::achievement_in(self.w,character,F4CommandOp::VehicleDestroyed);
+            } else {
+                crate::battle::f4_core::hull_killed(self.w,r,character);
+            }
         } else if let Some(character) = character {
             // Game.vehicleDestroyed updates an achievement immediately.
             // It sees committed mirrors but cannot call damage or a solver.
@@ -344,3 +378,64 @@ fn array(v: Vector3) -> [f64; 3] { [v.x, v.y, v.z] }
 
 
 
+
+pub(crate) fn digest_mission(units:&super::owner::Units,h:&mut crate::battle::script::state::MissionDigest) {
+    if let Some(hulls)=&units.hulls { h.field(&hulls.mission); }
+}
+
+pub(crate) fn prepare_mission(units:&mut super::owner::Units) {
+    if let Some(hulls)=&mut units.hulls {hulls.mission.resize_with(hulls.rows.len(),MissionHull::default);}
+}
+
+impl crate::world::owner::World {
+    fn mission_hull_mut(&mut self, vehicle: Ref<Vehicle>) -> crate::battle::rules::objects::RuleResult<&mut MissionHull> {
+        use crate::battle::rules::objects::RuleError;
+        if !self.battle.rule_events.as_ref().is_some_and(|q|q.mission_events()) {return Err(RuleError::NotAvailable);}
+        if !self.sim.store.vehicle.contains(vehicle) {return Err(RuleError::StaleHandle);}
+        let hulls = self.units.hulls.as_mut().ok_or(RuleError::NotAvailable)?;
+        let slot = vehicle.slot as usize;
+        if hulls.rows.get(slot).and_then(Option::as_ref).is_none_or(|row| row.hull != vehicle) {
+            return Err(RuleError::NotAvailable);
+        }
+        hulls.mission.get_mut(slot).ok_or(RuleError::NotAvailable)
+    }
+    /// Classify an admitted fleet variant for occupied-craft scoring.
+    pub fn set_mission_vehicle_kind(&mut self,vehicle:Ref<Vehicle>,kind:u8)->crate::battle::rules::objects::RuleResult<()> {
+        self.mission_hull_mut(vehicle)?.kind = kind;
+        Ok(())
+    }
+    /// Mark a fleet variant whose destruction awards an enemy point even with no seat occupied.
+    pub fn set_mission_empty_vehicle_eligible(&mut self, vehicle: Ref<Vehicle>, eligible: bool) -> crate::battle::rules::objects::RuleResult<()> {
+        self.mission_hull_mut(vehicle)?.eligible_when_empty = eligible;
+        Ok(())
+    }
+}
+fn mission_hull_event(w:&crate::world::owner::World,vehicle:Ref<Vehicle>,transition:SystemTransition,owner:OrdnanceOwner)->Event {
+    let s=&w.sim.store;
+    let v=s.vehicle.get(vehicle).expect("admitted hull");
+    let attacker=match owner {
+        OrdnanceOwner::Null=>Attacker::Null, OrdnanceOwner::Player=>Attacker::Player,
+        OrdnanceOwner::Unit(r)=>Attacker::Unit(r), OrdnanceOwner::Vehicle(r)=>Attacker::Vehicle(r),
+        OrdnanceOwner::OwnerSnapshot(r)=>Attacker::OwnerSnapshot(r),
+    };
+    let credit=w.mission_credit(attacker);
+    let kind=|r:Ref<Vehicle>| w.units.hulls.as_ref().and_then(|h|h.mission.get(r.slot as usize)).map_or(0,|h|h.kind);
+    let killer_vehicle=match owner {
+        OrdnanceOwner::Vehicle(r)=>Some(r),
+        _=>credit.and_then(|c|s.character.get(c.character?)?.unit).and_then(|r|s.unit.get(r)?.seat).and_then(|r|s.seat_lease.get(r)?.vehicle),
+    };
+    let occupied=v.seats.iter().any(|seat|seat.lease.and_then(|r|s.seat_lease.get(r)).is_some());
+    let destroyed = if occupied {
+        Destroyed::OccupiedVehicle { victim_kind: kind(vehicle), killer_kind: killer_vehicle.map_or(0, kind) }
+    } else if w.units.hulls.as_ref().and_then(|h| h.mission.get(vehicle.slot as usize)).is_some_and(|h| h.eligible_when_empty) {
+        Destroyed::EligibleEmptyVehicle
+    } else {
+        Destroyed::Other
+    };
+    Event::MissionObject {object:ObjectHandle::Vehicle{vehicle,life:v.target_generation},transition,team:target_team_in(&w.sim,v) as i32,
+        kind:destroyed,credit,absorbed:0.0}
+}
+pub(crate) fn mission_hull_spawn(w:&mut crate::world::owner::World,r:Ref<Vehicle>) {
+    let event=mission_hull_event(w,r,SystemTransition::Respawn,OrdnanceOwner::Null);
+    w.battle.rule_events.as_mut().unwrap().push(event);
+}

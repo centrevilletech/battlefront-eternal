@@ -125,6 +125,7 @@ pub struct PropDef {
     pub weapon_id: Option<u16>,
 }
 
+#[derive(Default)]
 pub struct Defs {
     pub names: Names,
     pub classes: Vec<ClassDef>,
@@ -147,6 +148,14 @@ fn table_id(table: &[String], name: Option<&str>) -> Option<u16> {
 
 impl Defs {
     pub fn build(c: &Content) -> Result<Defs, String> {
+        if c.battle.family == bfe_family::GameFamily::Swbf2 {
+            return Self::build_swbf2(c);
+        }
+        Self::build_swbf1(c)
+    }
+
+    // Released 2004 Defs::build kept verbatim without family branches inside.
+    fn build_swbf1(c: &Content) -> Result<Defs, String> {
         let registry = entity_registry(c)?;
         let combat_ids: HashMap<usize, u16> =
             registry.combat.iter().enumerate().filter_map(|(i, (_, v))| identity(v).map(|id| (id, (i + 1) as u16))).collect();
@@ -315,6 +324,27 @@ impl Defs {
             }
         }
         Ok(Defs { names, classes, weapons, items, vehicles, props, registry, combat_ids })
+    }
+
+    fn build_swbf2(c: &Content) -> Result<Defs, String> {
+        let mut defs = Self::build_swbf1(c)?;
+        for class in &mut defs.classes {
+            let side_name = defs.names.text(class.side).to_string();
+            let class_name = defs.names.text(class.name).to_string();
+            let unit_key = format!("{side_name}/{class_name}");
+            let bank = c
+                .unit_clips
+                .iter()
+                .find(|(k, _)| *k == unit_key)
+                .map(|(_, b)| b)
+                .or_else(|| class.clips.map(|i| &c.body_clips[i].1));
+            if let Some(bank) = bank {
+                let find_duration = |suffix: &str| bank.swbf2_slot(suffix).map_or(0., |clip| clip.duration);
+                class.getup_time = find_duration("prone_getup_stand");
+                class.dive_time = crate::DIVE_LENGTH * find_duration("diveforward");
+            }
+        }
+        Ok(defs)
     }
 
     /// The wire's combat id of a definition (by identity, as

@@ -34,6 +34,11 @@
 // the key three would have sorted it by in its transparent list; each is an
 // item of the transparent pass's list (transparent.rs Source), drawn where
 // three would have drawn it among everything else that blends.
+#[cfg(not(target_arch = "wasm32"))]
+mod particle_warm;
+#[cfg(not(target_arch = "wasm32"))]
+pub use particle_warm::SharedParticleDraws;
+
 use crate::core::{bytes, Core, GlState, MultiDraw, Stats, Value, PASS_EFFECTS, PASS_VIEW, UNIT_MAP};
 use crate::math::{self, Mat4};
 use crate::transparent::{three_z, Item, Source, View};
@@ -99,6 +104,10 @@ mod settings;
 struct FixedValue<L> {value:MaterialValue,location:Option<L>,cache:usize,data:Vec<f32>}
 
 struct Batch<C: HasContext> {
+    #[cfg(not(target_arch = "wasm32"))]
+    corner: u32,
+    #[cfg(not(target_arch = "wasm32"))]
+    locations: Vec<u32>,
     program: usize,
     texture: Option<C::Texture>,
     blend: Blend,
@@ -140,6 +149,48 @@ struct Batch<C: HasContext> {
     // Its depth test, function and write when not a particle's (tested
     // less-or-equal, not written): batch_depth.
     depth: Option<(bool, u32, bool)>,
+}
+
+// A cancelled scene load can drop its future while the fence is pending.
+struct WarmFence<'a, C: HasContext>(&'a C, C::Fence);
+
+impl<C: HasContext> Drop for WarmFence<'_, C> {
+    fn drop(&mut self) {
+        unsafe { self.0.delete_sync(self.1) };
+    }
+}
+
+pub fn check_warm_errors<C: HasContext>(gl: &C) -> Result<(), String> {
+    let first = unsafe { gl.get_error() };
+    if first == glow::NO_ERROR {
+        return Ok(());
+    }
+    let mut error = first;
+    while error != glow::NO_ERROR && error != glow::CONTEXT_LOST {
+        error = unsafe { gl.get_error() };
+    }
+    Err(format!("particle warm-up graphics error {first:#x}"))
+}
+
+/// Yield between nonblocking polls so the window can present during driver work.
+pub async fn finish_warm_commands<C, F>(gl: &C, mut next_frame: impl FnMut() -> F) -> Result<(), String>
+where C: HasContext, F: std::future::Future<Output = ()>,
+{
+    let completion = unsafe { gl.fence_sync(glow::SYNC_GPU_COMMANDS_COMPLETE, 0) }.map(|f| WarmFence(gl, f));
+    check_warm_errors(gl)?;
+    let fence = completion?;
+    unsafe { gl.flush() };
+    loop {
+        next_frame().await;
+        let status = unsafe { gl.client_wait_sync(fence.1, 0, 0) };
+        check_warm_errors(gl)?;
+        match status {
+            glow::ALREADY_SIGNALED | glow::CONDITION_SATISFIED => break,
+            glow::TIMEOUT_EXPIRED => continue,
+            _ => return Err(format!("particle fence status {status:#x}")),
+        }
+    }
+    Ok(())
 }
 
 struct Owner<C: HasContext> {
@@ -238,6 +289,7 @@ pub struct EffectsPass<C: HasContext> {
     pub data: Vec<f32>,
     pub matrices: Vec<f64>,
     pub clipped:u64,
+    pub dropped_particle_rows: u32,
     staging: Vec<f32>,
 }
 
@@ -375,7 +427,7 @@ impl<C: HasContext> EffectsPass<C> {
         };
         EffectsPass {
             quad, quad_index, batches: vec![], owners: vec![], meshes: vec![], models: vec![], ranges: vec![], counts: vec![], offsets: vec![], held: vec![], value_ids: HashMap::new(),
-            clipped:0,input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], matrices: vec![0.0; MATRICES_LEN], staging: Vec::with_capacity(1<<22),
+            clipped:0,dropped_particle_rows:0,input: vec![0.0; INPUT_LEN], data: vec![0.0; DATA_LEN], matrices: vec![0.0; MATRICES_LEN], staging: Vec::with_capacity(1<<22),
         }
     }
 
@@ -441,6 +493,10 @@ impl<C: HasContext> EffectsPass<C> {
         let mut b = [0u32; 7];
         b.copy_from_slice(&blend[..7]);
         self.batches.push(Batch {
+            #[cfg(not(target_arch = "wasm32"))]
+            corner,
+            #[cfg(not(target_arch = "wasm32"))]
+            locations: attributes.chunks_exact(2).map(|a| a[0]).collect(),
             program: program as usize, texture: if texture < 0 { None } else { core.textures.get(texture as usize).copied() }, blend: b,
             vao, vbo, retained:vec![], capacity: 0, fixed_instances:false,bounded:false,multiplier:1,constants:vec![],sizes, stride, owner: if owner < 0 { None } else { Some(owner as usize) }, slots,
             camera_slots: ["projectionMatrix", "modelViewMatrix"].map(|name| p.uniforms.iter().find(|u| u.0 == name).and_then(|u| u.1.clone())),
@@ -537,6 +593,54 @@ impl<C: HasContext> EffectsPass<C> {
         if capacity<=b.capacity{return;}
         unsafe{core.gl.bind_buffer(glow::ARRAY_BUFFER,Some(b.vbo));core.gl.buffer_data_size(glow::ARRAY_BUFFER,(capacity*b.stride*4)as i32,glow::DYNAMIC_DRAW);core.gl.bind_buffer(glow::ARRAY_BUFFER,None);}
         b.capacity=capacity;b.retained.resize(capacity*b.stride,0.);self.staging.resize(self.staging.len().max(capacity*b.stride),0.);
+    }
+    /// Exercise each prepared vertex layout and material on the battle target.
+    /// The loading screen owns the context between batches and while the driver
+    /// completes the last draw. A failed warm-up leaves normal buffer growth enabled.
+    pub async fn warm_particle_batches<M, I, F>(
+        &mut self,
+        core: &mut Core<C, M>,
+        target: C::Framebuffer,
+        batches: I,
+        mut next_frame: impl FnMut() -> F,
+    ) -> Result<(), String>
+    where
+        M: MultiDraw,
+        I: Iterator<Item = (u32, usize)> + Clone,
+        F: std::future::Future<Output = ()>,
+    {
+        if batches.clone().next().is_none() {
+            return Ok(());
+        }
+        for (handle, at) in batches.clone() {
+            next_frame().await;
+            core.state.reset();
+            let stats = core.stats;
+            let mut viewport = [0; 4];
+            let previous = unsafe {
+                core.gl.get_parameter_i32_slice(glow::VIEWPORT, &mut viewport);
+                let previous = core.gl.get_parameter_framebuffer(glow::DRAW_FRAMEBUFFER_BINDING);
+                core.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, Some(target));
+                core.gl.viewport(0, 0, 1, 1);
+                previous
+            };
+            let i = handle as usize;
+            let capacity = self.batches[i].capacity;
+            self.bind_batch(core, i);
+            self.draw_batch(core, [i, 1, 0, at, capacity]);
+            unsafe {
+                core.gl.bind_framebuffer(glow::DRAW_FRAMEBUFFER, previous);
+                core.gl.viewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+            }
+            core.state.reset();
+            core.stats = stats;
+            check_warm_errors(&core.gl)?;
+        }
+        finish_warm_commands(&core.gl, next_frame).await?;
+        for (handle, _) in batches {
+            self.batches[handle as usize].bounded = true;
+        }
+        Ok(())
     }
     /// Native admission seals the emitter texture's fixed maximum too. The
     /// normal uploader owns its format and sampler state; replaying a cold

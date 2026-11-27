@@ -2,8 +2,8 @@
 //! and snapshot-cosmetic-outbox.js. Event identities
 //! are opaque host tokens; key replacement never changes insertion order.
 use super::codec::{Result, Writer};
-use super::records::{quantize_pitch, quantize_position, quantize_yaw};
-use crate::gen::WireBounds;
+use super::{records::{quantize_pitch, quantize_yaw}, PositionBounds};
+use bfe_presentation::network::position::PositionWidth;
 use jsrt::{js_max, js_min, js_round, JsMap};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -200,26 +200,23 @@ pub fn decode_bolt_into(schema:f64,tick:f64,bytes:&[u8],e:&mut Compact)->Result<
     }
     Ok(())
 }
-fn compact(e: &Compact, b: &WireBounds) -> bool {
+fn compact(e: &Compact, b: &PositionBounds) -> bool {
     let Some(p) = e.view.position else {
         return false;
     };
-    let within = |n: f64, min: f64, extent: f64| n >= min && n <= min + extent;
-    within(p[0], b.x_min, b.x_extent)
-        && within(p[1], b.y_min, b.y_extent)
-        && within(p[2], b.z_min, b.z_extent)
+    b.contains(p)
         && (e.view.schema != 1.0 || e.offset.iter().all(|v| v.abs() * 256.0 <= 32767.0))
 }
 
 pub fn encode_cosmetic_event(
     record: &Record,
-    bounds: &WireBounds,
+    bounds: &PositionBounds,
     view: Option<&Compact>,
 ) -> Result<Vec<u8>> {
     let mut w = Writer::default(); encode_cosmetic_event_into(record, bounds, view, &mut w)?; Ok(w.0)
 }
 /// Encoded bytes stay in the publisher's event bank through all client offers.
-pub fn encode_cosmetic_event_into(record: &Record, bounds: &WireBounds, view: Option<&Compact>, target: &mut Writer) -> Result<()> {
+pub fn encode_cosmetic_event_into(record: &Record, bounds: &PositionBounds, view: Option<&Compact>, target: &mut Writer) -> Result<()> {
     target.0.clear(); let mut w = target;
     u32(&mut w, record.id)?;
     u32(&mut w, record.generation)?;
@@ -237,7 +234,9 @@ pub fn encode_cosmetic_event_into(record: &Record, bounds: &WireBounds, view: Op
         None
     };
     if let Some(e) = e.filter(|e| compact(e, bounds)) {
-        u8(&mut w, if record.schema == 1.0 { 1.0 } else { 2.0 })?;
+        let width = bounds.width();
+        let tag = record.schema + if width == PositionWidth::Wide { 2. } else { 0. };
+        u8(&mut w, tag)?;
         for n in [
             e.expiry_tick,
             e.definition,
@@ -255,8 +254,8 @@ pub fn encode_cosmetic_event_into(record: &Record, bounds: &WireBounds, view: Op
         u32(&mut w, e.execution_tick)?;
         u8(&mut w, e.channel)?;
         u8(&mut w, e.surface)?;
-        for n in quantize_position(e.view.position.unwrap(), bounds) {
-            u16(&mut w, n)?;
+        for n in bounds.encode(e.view.position.unwrap()) {
+            w.position_code(n, width)?;
         }
         let dir = e.view.direction.ok_or("invalid cosmetic direction")?;
         let yaw = v8math::atan2(dir[0], dir[2]);
@@ -809,7 +808,7 @@ fn put_key(out: &mut Vec<f64>, key: &[u16]) {
     out.extend(key.iter().map(|n| *n as f64));
 }
 impl Session {
-    pub fn run(&mut self, op: u32) -> Result<()> {
+    pub fn run(&mut self, op: u32, bounds: &PositionBounds) -> Result<()> {
         self.words.clear();
         self.bytes.clear();
         let mut r = Input {
@@ -826,17 +825,16 @@ impl Session {
                     combat: r.flag()?,
                     payload: self.payload.clone(),
                 };
-                let bounds = WireBounds {
-                    x_min: r.number()?,
-                    x_extent: r.number()?,
-                    y_min: r.number()?,
-                    y_extent: r.number()?,
-                    z_min: r.number()?,
-                    z_extent: r.number()?,
-                };
+                let x = r.number()?;
+                let dx = r.number()?;
+                let y = r.number()?;
+                let dy = r.number()?;
+                let z = r.number()?;
+                let dz = r.number()?;
+                bounds.check_box([x, y, z], [dx, dy, dz])?;
                 let view = if r.flag()? { Some(r.compact()?) } else { None };
                 r.done()?;
-                self.bytes = encode_cosmetic_event(&record, &bounds, view.as_ref())?;
+                self.bytes = encode_cosmetic_event(&record, bounds, view.as_ref())?;
             }
             1 => {
                 let view = r.view()?;
@@ -991,8 +989,9 @@ pub(crate) fn wire_cosmetics_run_in(w: &mut crate::world::owner::World, ptr: usi
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
 if owner.cosmetics.get(ptr as usize).is_none() {return 0;}
 
+    let bounds = owner.bounds();
     let s = owner.cosmetics.get_mut(ptr as usize).unwrap();
-    s.error = s.run(op).err();
+    s.error = s.run(op, &bounds).err();
     s.error.is_some() as u32
 
 }

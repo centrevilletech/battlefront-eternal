@@ -3,7 +3,7 @@
 //! and the remaining foreign AI operations need the lifecycle interface.
 use crate::world::owner::World as Root;
 use super::{f4_live::with_store_in, mobile::MobileEvent, observation::{Mount,Mounts},
-    owned_world::Services, registry::Targets, world::Member as BattleMember};
+    owned_world::Services, registry::Targets, rules::events::EventQueue, world::Member as BattleMember};
 use crate::{ gen::*, store::{Ref, StrId}, units::f3::{self,WorldServices}};
 use three::Vector3;
 
@@ -33,7 +33,7 @@ pub struct Actions<'w, 'a,F:Lifecycle,H:HumanDriver> { pub w: &'w mut Root,
     pub effects:[StrId;3],
 }
 fn array(p:Vector3)->[f64;3] {[p.x,p.y,p.z]}
-fn character(s:&Store, local:Option<Ref<Unit>>, owner:Attacker)->Option<Ref<Character>> {
+pub(super) fn character(s:&Store, local:Option<Ref<Unit>>, owner:Attacker)->Option<Ref<Character>> {
     match owner {
         Attacker::Unit(r)=>s.unit.get(r).and_then(|u|u.character),
         Attacker::Player=>local.and_then(|r|s.unit.get(r)).and_then(|u|u.character),
@@ -90,9 +90,16 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
     }
     fn wreck(&mut self,s:&mut Store,r:Ref<Vehicle>) {
         s.vehicle.get_mut(r).expect("boundary hull").last_attacker=OrdnanceOwner::Null;
+        crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, r);
         with_store_in(self.w,s,|w|crate::units::f3_hulls::mutate_in(w, r,f64::INFINITY,Some(OrdnanceOwner::Null),self.services.reborrow()));
     }
     fn set_hull_health(&mut self,s:&mut Store,r:Ref<Vehicle>,value:f64) {
+        if value == 0.0 && self.w.battle.rule_events.is_some() {
+            // A script or a kill region sets health directly. Reload the pooled
+            // hull from this row before its crew and destruction callbacks run.
+            s.vehicle.get_mut(r).expect("current fleet hull").last_attacker = OrdnanceOwner::Null;
+            crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, r);
+        }
         with_store_in(self.w,s,|w|crate::units::f3_hulls::mutate_in(w, r,value,None,self.services.reborrow()));
     }
     fn spawn(&mut self,s:&mut Store,r:Ref<Character>,class:Option<StrId>,post:SpawnPost,at:[f64;3],yaw:Option<f64>)->Option<Ref<Unit>> {
@@ -123,6 +130,24 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
     fn battle_over(&mut self,s:&mut Store,loser:f64) {
         with_store_in(self.w,s,|w|{self.lifecycle.battle_over(w,loser,self.services.reborrow());});
     }
+    fn rule_objects(&mut self) -> Option<&mut dyn super::rules::objects::ObjectServices> { Some(self) }
+    fn rule_events(&mut self) -> Option<&mut EventQueue> {
+        self.w.battle.rule_events.as_mut()
+    }
+    fn ai_goal_pass(&mut self, s: &mut Store, bots: &mut crate::ai::goals::GoalController, table: &dyn crate::ai::goals::GoalTable, dt: f64) {
+        with_store_in(self.w, s, |w| {
+            if let Some(ai) = self.services.ai.as_deref_mut() {
+                ai.goal_pass(w, self.services.recon, self.services.queries, bots, table, dt);
+            }
+        });
+    }
+    fn ai_soldier_inputs(&mut self, s: &mut Store, inputs: &mut crate::ai::goals::SoldierInputs, dt: f64) {
+        with_store_in(self.w, s, |w| {
+            if let Some(ai) = self.services.ai.as_deref_mut() {
+                ai.soldier_inputs(w, self.services.recon, self.services.queries, inputs, dt);
+            }
+        });
+    }
     fn human_tail(&mut self,s:&mut Store,dt:f64,commands:&[super::human::Command],prepared:&mut super::owned_world::Prepared) {
         self.human.step(self.w,s,dt,commands,prepared,self.services.reborrow(),self.lifecycle,self.local);
     }
@@ -138,3 +163,159 @@ impl<F:Lifecycle,H:HumanDriver> Services for Actions<'_, '_,F,H> {
 impl<F:Lifecycle,H:HumanDriver> super::stats::TextWorld for Actions<'_, '_, F,H> { fn text_nonempty(&self,id:StrId)->bool { !self.w.sim.strings.units(id).is_empty() } }
 
 impl<F:Lifecycle,H:HumanDriver> super::spawning::RandomWorld for Actions<'_, '_, F,H> { fn random_next(&mut self, stream:u32)->f64 { f3::random_next_in(&mut self.w.units,stream) as f64 } }
+
+use super::rules::events::{ObjectHandle, ObjectProperty, ObjectState, RuleError, RuleResult};
+use super::rules::objects::ObjectServices;
+
+impl<F: Lifecycle, H: HumanDriver> ObjectServices for Actions<'_, '_, F, H> {
+    fn add_landing_region(&mut self, name: &str) -> RuleResult<()> {
+        self.w.space_add_landing_region(name).map(|_| ()).ok_or(RuleError::NotAvailable)
+    }
+    fn passage_barrier(&mut self, name: &str, enabled: bool) -> bool {
+        self.w.space_set_passage_barrier(name, enabled)
+    }
+    fn text(&self, id: StrId) -> RuleResult<&[u16]> {
+        self.w.sim.strings.list.get(id.0 as usize).map(Vec::as_slice).ok_or(RuleError::NotAvailable)
+    }
+
+    fn goal_alive(&self, s: &Store, object: &ObjectHandle) -> RuleResult<bool> {
+        if let ObjectHandle::Prop(h) = object {
+            let live = super::f4::live_ref(&self.w.battle);
+            return match h.kind {
+                F4ObjectKind::Building => live.buildings.get(h).map(|b| b.state.building.alive() && b.state.building.health > 0.0).ok_or(RuleError::StaleHandle),
+                F4ObjectKind::Trap => live.traps.get(h).map(|t| t.state.built && t.state.health > 0.0).ok_or(RuleError::StaleHandle),
+                F4ObjectKind::Animated => Ok(live.animated.get(h).is_some()),
+                _ => Err(RuleError::NotAvailable),
+            };
+        }
+        self.state(s, object).map(|state| state.alive)
+    }
+
+    fn shields(&self,s:&Store,object:&ObjectHandle)->RuleResult<(f64,f64,f64)> { shields(self.w,s,object) }
+    fn current(&self,s:&Store,object:&ObjectHandle)->RuleResult<ObjectHandle> { current(self.w,s,object) }
+    fn state(&self,s:&Store,object:&ObjectHandle)->RuleResult<ObjectState> { object_state(self.w,s,object) }
+
+    fn change(&mut self, s: &mut Store, object: &ObjectHandle, property: ObjectProperty) -> RuleResult<()> {
+        if self.current(s, object)? != *object { return Err(RuleError::StaleHandle); }
+        match property {
+            ObjectProperty::MaxShield(_) | ObjectProperty::AddShield(_) | ObjectProperty::CurrentShield(_)
+                if !self.w.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) => return Err(RuleError::NotAvailable),
+            ObjectProperty::Health(v) if !v.is_finite() || v < 0.0 => return Err(RuleError::InvalidValue),
+            ObjectProperty::MaxHealth(v) if !v.is_finite() || v <= 0.0 => return Err(RuleError::InvalidValue),
+            ObjectProperty::Team(t) if t.fract() != 0.0 || !(0.0..super::spawning::TEAM_COUNT as f64).contains(&t) => return Err(RuleError::InvalidValue),
+            _ => {}
+        }
+        match object {
+            ObjectHandle::Prop(h) => {
+                let index = crate::units::f3_props::building_of_in(&self.w.units, h).ok_or(RuleError::NotAvailable)?;
+                with_store_in(self.w, s, |w| {
+                    if let ObjectProperty::Health(value) = property {
+                        if value == 0.0 { super::f4::set_attacker_in(&mut w.battle, h, Attacker::Null); }
+                        crate::units::f3_props::command_hit_in(w, index, value, None, None, self.services.reborrow());
+                        Ok(())
+                    } else {
+                        crate::units::f3_props::rule_property(w, index, property)
+                    }
+                })
+            }
+            ObjectHandle::Vehicle { vehicle, .. } => {
+                let v = s.vehicle.get_mut(*vehicle).unwrap();
+                match property {
+                    ObjectProperty::Health(value) => {
+                        if !s.vehicles.vehicles.contains(vehicle) { return Err(RuleError::NotAvailable); }
+                        self.set_hull_health(s, *vehicle, value);
+                        return Ok(());
+                    }
+                    ObjectProperty::MaxHealth(max) => v.max_health = max,
+                    ObjectProperty::Team(team) => v.team = Some(team),
+                    ObjectProperty::Visible(visible) => v.visible = visible,
+                    _ => return Err(RuleError::NotAvailable),
+                }
+                crate::vehicles::module::f2::mark_changed_in(&mut self.w.fleet, *vehicle);
+                Ok(())
+            }
+            ObjectHandle::Door(instance) => {
+                let ObjectProperty::Locked(locked) = property else { return Err(RuleError::NotAvailable) };
+                let id = self.w.space().and_then(|s| s.doors.iter().find(|d| d.instance == *instance as usize))
+                    .ok_or(RuleError::StaleHandle)?.id;
+                self.w.space_set_door_locked(id, locked).then_some(()).ok_or(RuleError::NotAvailable)
+            }
+            ObjectHandle::Post(SpawnPost::Post(r)) => match property {
+                ObjectProperty::Team(team) => with_store_in(self.w, s, |w| {
+                    crate::units::f3_props::rule_post_team(w, *r, team)
+                }),
+                _ => Err(RuleError::NotAvailable),
+            },
+            ObjectHandle::Post(SpawnPost::MobilePost(_)) => Err(RuleError::NotAvailable),
+        }
+    }
+}
+
+pub(super) fn shields(w:&Root, s: &Store, object: &ObjectHandle) -> RuleResult<(f64, f64, f64)> {
+        if !w.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) { return Err(RuleError::NotAvailable); }
+        if current(w,s,object)? != *object { return Err(RuleError::StaleHandle); }
+        let ObjectHandle::Prop(h) = object else { return Err(RuleError::NotAvailable); };
+        let i = crate::units::f3_props::building_of_in(&w.units, h).ok_or(RuleError::NotAvailable)?;
+        let shield = crate::units::f3_props::mission_shields(&w.units, i);
+        Ok((shield.current, shield.maximum, shield.recharge))
+    }
+
+pub(super) fn current(w:&Root, s: &Store, object: &ObjectHandle) -> RuleResult<ObjectHandle> {
+        let stale = RuleError::StaleHandle;
+        match object {
+            ObjectHandle::Prop(h) => {
+                let live = super::f4::live_if(&w.battle).ok_or(stale)?;
+                let current = match h.kind {
+                    F4ObjectKind::Building => live.buildings.current(h),
+                    F4ObjectKind::Trap => live.traps.current(h),
+                    F4ObjectKind::Animated => live.animated.current(h),
+                    _ => None,
+                };
+                current.map(ObjectHandle::Prop).ok_or(stale)
+            }
+            ObjectHandle::Vehicle { vehicle, .. } => Ok(ObjectHandle::Vehicle {
+                vehicle: *vehicle, life: s.vehicle.get(*vehicle).ok_or(stale)?.target_generation,
+            }),
+            ObjectHandle::Door(i) if w.space().is_some_and(|s| s.doors.iter().any(|d| d.instance == *i as usize)) => Ok(object.clone()),
+            ObjectHandle::Post(SpawnPost::Post(r)) if s.post.contains(*r) => Ok(object.clone()),
+            ObjectHandle::Post(SpawnPost::MobilePost(r)) if s.mobile_post.contains(*r) => Ok(object.clone()),
+            _ => Err(stale),
+        }
+    }
+
+pub(super) fn object_state(w:&Root, s: &Store, object: &ObjectHandle) -> RuleResult<ObjectState> {
+        if current(w,s,object)? != *object { return Err(RuleError::StaleHandle); }
+        let (alive, team, health) = match object {
+            ObjectHandle::Prop(h) => {
+                let live = super::f4::live_ref(&w.battle);
+                let (alive, health, max) = match h.kind {
+                    F4ObjectKind::Trap => {
+                        let t = live.traps.get(h).ok_or(RuleError::StaleHandle)?;
+                        (t.state.built && t.state.health > 0.0, t.state.health, t.settings.max_health)
+                    }
+                    F4ObjectKind::Building => {
+                        let b = live.buildings.get(h).ok_or(RuleError::StaleHandle)?;
+                        (b.state.building.alive() && b.state.building.health > 0.0, b.state.building.health, b.settings.max_health)
+                    }
+                    _ => return Err(RuleError::NotAvailable),
+                };
+                let team = crate::units::f3_props::building_of_in(&w.units, h)
+                    .map(|i| crate::units::f3_props::rule_team(&w.units, i));
+                (alive, team, Some((health, max)))
+            }
+            ObjectHandle::Vehicle { vehicle, .. } => {
+                let v = s.vehicle.get(*vehicle).unwrap();
+                (v.alive, v.team, Some((v.health, v.max_health)))
+            }
+            ObjectHandle::Door(_) => (true, None, None),
+            ObjectHandle::Post(SpawnPost::Post(r)) => {
+                let p = s.post.get(*r).unwrap();
+                (p.active, Some(p.team), None)
+            }
+            ObjectHandle::Post(SpawnPost::MobilePost(r)) => {
+                let p = s.mobile_post.get(*r).unwrap();
+                (p.active, Some(p.team), None)
+            }
+        };
+        Ok(ObjectState { alive, team, health })
+    }

@@ -1,0 +1,10 @@
+local hub = {0, 0, 0}
+local tip = {8, 0, -2}
+local turn = {0, 2, 0}
+local pendulum = {}
+pendulum.Time = {0.375, 0.625, 1.125}
+pendulum.Vec = {hub, tip, hub}
+pendulum.Ore = {turn, hub, turn}
+pendulum.Slope = {tip, turn, hub}
+pendulum.RSlope = {hub, turn, tip}
+Land = pendulum

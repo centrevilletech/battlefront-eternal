@@ -10,11 +10,38 @@ BFE_CONTENT_DIR moves the output, public/ by default, to another folder
 import os
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
+import zero_family
+
+FAMILY = zero_family.current()
+PROFILE = zero_family.profile(FAMILY)
 ROOT = Path(__file__).resolve().parents[1]
-INSTALL = (Path(os.environ["BFE_GAME_DIR"]) if os.environ.get("BFE_GAME_DIR") else ROOT / "data" / "game" / "install") / "GameData"
-GAME = INSTALL / "Data" / "_LVL_PC"
+INSTALL = (Path(os.environ["BFE_GAME_DIR"]) if os.environ.get("BFE_GAME_DIR") else ROOT.joinpath(*PROFILE.default_install_subpath)) / "GameData"
+GAME = INSTALL.joinpath(*PROFILE.data_subpath)
 PUBLIC = Path(os.environ["BFE_CONTENT_DIR"]) if os.environ.get("BFE_CONTENT_DIR") else ROOT / "public"
+
+
+def write_text_lf(path, text):
+    """Write prepared text (JSON) with LF bytes on every platform: default
+    text mode would translate newlines to CRLF on Windows, and a Windows
+    preparation must produce the same bytes as a Linux one."""
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def atomic_write(path, data, label, *, sync=False):
+    """Publish a complete file with ordinary creation permissions, including the caller's umask."""
+    part = path.with_name(f".bfe-{label}-{uuid4().hex}.part")
+    handle = part.open("xb")
+    try:
+        with handle:
+            handle.write(data)
+            if sync:
+                handle.flush()
+                os.fsync(handle.fileno())
+        part.replace(path)
+    finally:
+        part.unlink(missing_ok=True)
 
 
 def child(base, *parts):
@@ -35,6 +62,19 @@ def child(base, *parts):
             return None
         at = at / name
     return at
+
+
+if FAMILY == zero_family.SWBF2:
+    parent = INSTALL.parent.resolve()
+    # Helpers start in the project directory. Give them the caller's exact
+    # installation and output locations before the working directory changes.
+    if os.environ.get("BFE_GAME_DIR"):
+        os.environ["BFE_GAME_DIR"] = str(parent)
+    if os.environ.get("BFE_CONTENT_DIR"):
+        PUBLIC = PUBLIC.absolute()
+        os.environ["BFE_CONTENT_DIR"] = str(PUBLIC)
+    INSTALL = child(parent, "GameData") or parent / "GameData"
+    GAME = child(INSTALL, *PROFILE.data_subpath) or INSTALL.joinpath(*PROFILE.data_subpath)
 
 
 @contextmanager

@@ -10,7 +10,7 @@
 // three drew in between, and each pass changes only what differs from what
 // the last draw left (GlState), counting every call it makes.
 use crate::math::{self, Frustum, Mat4};
-use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, LAMP_TABLE_WIDTH, MAX_LIGHTS, SHADOW_FLOATS, WORLD_LAMP_UNIFORMS};
+use crate::shader::{self, Kind, Stage, FRAME_FLOATS, FRAME_LIGHT_COUNT, LAMP_TABLE_WIDTH, LIGHT2_FLOATS, MAX_LIGHTS, SHADOW_FLOATS, WORLD_LAMP_UNIFORMS};
 use glow::HasContext;
 
 // Fixed texture units.
@@ -59,6 +59,8 @@ pub const VIEW_ACTORS: usize = 5;
 pub const VIEWS: usize = 6;
 // Where the shadow receivers read BfeShadow (shader.rs); BfeFrame is 0.
 pub const SHADOW_BINDING: u32 = 1;
+// Where extended lighting shaders read BfeLight2 (shader.rs).
+pub const LIGHT2_BINDING: u32 = 2;
 
 // The passes, in the order the renderer makes them and its stats count
 // their draws.
@@ -381,6 +383,13 @@ pub struct Core<C: HasContext, M: MultiDraw> {
     shadow: Vec<f32>,
     shadow_ubo: C::Buffer,
     shadow_maps: Vec<C::Texture>,
+    // Extended lighting block (shader.rs BfeLight2): second global directional light,
+    // glow boost, and up to four world-space light/shadow regions. Dormant on 2004 maps.
+    pub light2_input: Vec<f64>,
+    light2: Vec<f32>,
+    light2_ubo: C::Buffer,
+    light2_active: bool,
+    light2_dirty: bool,
     // The lamp table (shader.rs LAMP_*): every lamp source of the map, two
     // texels a source; uploaded at the next phase when it changed.
     lamp_texture: C::Texture,
@@ -486,11 +495,19 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             gl.bind_buffer(glow::UNIFORM_BUFFER, None);
             ubo
         };
+        let light2_ubo = unsafe {
+            let ubo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::UNIFORM_BUFFER, Some(ubo));
+            gl.buffer_data_size(glow::UNIFORM_BUFFER, (LIGHT2_FLOATS * 4) as i32, glow::DYNAMIC_DRAW);
+            gl.bind_buffer(glow::UNIFORM_BUFFER, None);
+            ubo
+        };
         let lamp_texture = upload_texture(&gl, 1, 1);
         unsafe { gl.bind_texture(glow::TEXTURE_2D, None) };
         Core {
             gl, multi, scene_stamp: 0, programs: vec![], owned_programs: vec![], instance_programs: vec![], geometries: vec![], textures: vec![], far_map: None, frame_ubos, framebuffers: vec![],
             shadow_input: vec![0.0; SHADOW_FLOATS], shadow: vec![0.0; SHADOW_FLOATS], shadow_ubo, shadow_maps: vec![],
+            light2_input: vec![0.0; LIGHT2_FLOATS], light2: vec![0.0; LIGHT2_FLOATS], light2_ubo, light2_active: false, light2_dirty: false,
             lamp_texture, lamps: vec![], lamps_dirty: false, frame: vec![0.0; FRAME_FLOATS],
             input: vec![0.0; input_len], bones: vec![0.0; bones_len], state: GlState::default(), stats: Stats::default(), profile: crate::profile::Profile::default(), scene_end_mark: None, log: vec![], fault: None, #[cfg(not(target_arch = "wasm32"))] canvas_framebuffer: None,
             held: Default::default(),
@@ -511,6 +528,11 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
     pub(crate) fn release_framebuffer(&self, f: C::Framebuffer) {
         self.held.borrow_mut().retain(|h| !matches!(h, Held::Framebuffer(x) if *x == f));
         unsafe { self.gl.delete_framebuffer(f) };
+    }
+
+    /// Borrow a registered sample in another pass sharing the same graphics context.
+    pub fn sample_texture(&self, id: u32) -> Option<C::Texture> {
+        self.textures.get(id as usize).copied()
     }
 
     pub fn add_texture(&mut self, t: C::Texture) -> u32 {
@@ -628,6 +650,9 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             if let Some(block) = receiver {
                 gl.uniform_block_binding(program, block, SHADOW_BINDING);
             }
+            if let Some(block) = gl.get_uniform_block_index(program, "BfeLight2") {
+                gl.uniform_block_binding(program, block, LIGHT2_BINDING);
+            }
             gl.use_program(Some(program));
             for (name, unit) in SAMPLERS {
                 if let Some(l) = gl.get_uniform_location(program, name) {
@@ -718,6 +743,22 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
         unsafe {
             gl.bind_vertex_array(Some(geo.vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(geo.buffers[buffer as usize]));
+            gl.enable_vertex_attrib_array(location);
+            gl.vertex_attrib_pointer_f32(location, size, ty, normalized, stride, offset);
+            gl.bind_vertex_array(None);
+            gl.bind_buffer(glow::ARRAY_BUFFER, None);
+        }
+    }
+
+    /// Bind a vertex stream owned by another geometry. Each material range
+    /// owns its VAO and index buffer; the mesh retains its vertex buffer.
+    #[allow(clippy::too_many_arguments)]
+    pub fn geometry_pointer_from(&self, target: u32, source: u32, buffer: usize, location: u32,
+        size: i32, ty: u32, normalized: bool, stride: i32, offset: i32) {
+        let gl = &self.gl;
+        unsafe {
+            gl.bind_vertex_array(Some(self.geometries[target as usize].vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.geometries[source as usize].buffers[buffer]));
             gl.enable_vertex_attrib_array(location);
             gl.vertex_attrib_pointer_f32(location, size, ty, normalized, stride, offset);
             gl.bind_vertex_array(None);
@@ -835,6 +876,39 @@ impl<C: HasContext, M: MultiDraw> Core<C, M> {
             self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, 0, Some(ubo));
         }
         self.stats.gl_calls += 3;
+        if self.light2_active {
+            self.bind_light2();
+        }
+    }
+
+    pub fn set_light2(&mut self, values: &[f64]) {
+        let n = values.len().min(LIGHT2_FLOATS);
+        self.light2_input[..n].copy_from_slice(&values[..n]);
+        if n < LIGHT2_FLOATS {
+            self.light2_input[n..].fill(0.0);
+        }
+        self.light2_active = true;
+        self.light2_dirty = true;
+    }
+
+    pub fn bind_light2(&mut self) {
+        if !self.light2_active {
+            return;
+        }
+        if self.light2_dirty {
+            for i in 0..LIGHT2_FLOATS {
+                self.light2[i] = self.light2_input[i] as f32;
+            }
+            unsafe {
+                self.gl.bind_buffer(glow::UNIFORM_BUFFER, Some(self.light2_ubo));
+                crate::core::spare_view_slot();
+                self.gl.buffer_sub_data_u8_slice(glow::UNIFORM_BUFFER, 0, bytes(&self.light2));
+            }
+            self.stats.gl_calls += 2;
+            self.light2_dirty = false;
+        }
+        unsafe { self.gl.bind_buffer_base(glow::UNIFORM_BUFFER, LIGHT2_BINDING, Some(self.light2_ubo)) };
+        self.stats.gl_calls += 1;
     }
 
     // The camera and light count of the frame block's values in `input`.
@@ -1060,6 +1134,7 @@ impl<C: HasContext, M: MultiDraw> Drop for Core<C, M> {
         fn unique<T: Ord>(mut v: Vec<T>) -> Vec<T> { v.sort(); v.dedup(); v }
         let mut buffers: Vec<C::Buffer> = self.frame_ubos.to_vec();
         buffers.push(self.shadow_ubo);
+        buffers.push(self.light2_ubo);
         let mut arrays = Vec::new();
         let mut textures = vec![self.lamp_texture];
         let mut framebuffers: Vec<C::Framebuffer> = self.framebuffers.iter().map(|f| f.2).collect();

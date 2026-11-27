@@ -1,0 +1,11 @@
+0	true	nil
+0.5	false	`setfenv' cannot change environment of given function
+-0.5	false	`setfenv' cannot change environment of given function
+0.75	false	`setfenv' cannot change environment of given function
+0	true	nil
+0	true	nil
+0.25	false	`setfenv' cannot change environment of given function
+true	true	true
+false	bad argument #1 to `getfenv' (level must be non-negative)
+true	true
+false	`setfenv' cannot change environment of given function

@@ -39,10 +39,11 @@ import struct
 from pathlib import Path
 
 import zero_addon
+import zero_family
 from ucfb import child, chunks, cstr_at
 from zero_hash import fnv1a
 from zero_lua import calls, load, mission_scripts
-from zero_paths import GAME
+from zero_paths import GAME, write_text_lf
 
 # The original game's defaults (SkyObjectClass constructor).
 DEFAULT_COUNT = 1
@@ -51,8 +52,8 @@ DEFAULT_DISTANCE = 300.0
 DEFAULT_IN_DIRECTION = 3.0
 DEFAULT_LIFETIME = 1000.0
 
-# The era each army fights in (tools/extract.py SIDE_ERAS).
-SIDE_ERAS = {"rep": "cw", "cis": "cw", "all": "gcw", "imp": "gcw"}
+# The era each army fights in (tools/zero_family.py).
+SIDE_ERAS = zero_family.profile().side_eras
 
 # The velocity ranges, in the ship's right, up and forward axes.
 AXES = {"VelocityX": 0, "VelocityY": 1, "VelocityZ": 2}
@@ -200,7 +201,7 @@ def side_archives(game=GAME):
     the add-ons' own (Jabba's Palace's Gamorreans). The game's win."""
     found = {}
     for base in [Path(game)] + [add_on.root for add_on in zero_addon.add_ons(game)]:
-        folder = zero_addon.child(base, "SIDE")
+        folder = zero_addon.child(base, zero_family.profile().side_dir)
         try:
             paths = sorted(folder.iterdir()) if folder else []
         except OSError:
@@ -339,7 +340,7 @@ def write_sky_flyers(out, sky_config, missions, fallback_textures=None, loads=No
         "models": records,
         "textures": table,
     }
-    (out / "flyers.json").write_text(json.dumps(content))
+    write_text_lf(out / "flyers.json", json.dumps(content))
     for kind in ("missions", "enhanced"):
         summary = {mission: [kept[i]["model"] for i in indices] for mission, indices in content[kind].items()}
         print(f"  sky flyers ({'classic' if kind == 'missions' else 'enhanced'}): {summary}", flush=True)

@@ -527,3 +527,245 @@ standing for good:
 - **Boundary orientation.** With the half-plane rule "inside when every
   dot(p − start, (−dz, dx)) <= 0", every command post of nab2, bes2, kam1,
   geo1 and hot1 is inside its map's boundary.
+
+## Battlefront II (2005) navigation
+
+Support for 2005 maps lives in `rust/sim/src/ai/nav/swbf2/` (`mod.rs`,
+`graph.rs`, `cursor.rs`, `goto.rs`, `load.rs`), kept separate from the released
+2004 navigation modules so 2004 behavior and digests stay unchanged.
+
+### Admission payload (schema 2)
+
+Battle admission selects the navigation reader from the battle's game family.
+The 2004 reader receives its original bytes. The 2005 reader receives a
+schema 2 row with the map's planning graph, blocking groups, barriers, hints,
+boundary names, paths and regions, even on maps without a graph. The optional
+planning binary supplies the blocking groups' routing changes.
+
+### Floors, corridors and orders
+
+A hub's XZ position locates its disc on the planning plane. At map admission,
+downward collision probes find supported levels in that disc. An isolated
+soldier mover tests each directed corridor at 60 Hz, including launch corridors
+and corner detours. Its final position must be grounded on the destination
+level. A hub can therefore serve two floors at the same horizontal position.
+
+Straight recovery moves and direct approaches clip a local segment against
+barriers and collision, backing off 0.25 m from an obstructed barrier face and
+failing when a request over 0.5 m leaves less than 0.2 m of walkable progress.
+They follow the floor in the requested horizontal
+direction. Route orders use the planning graph. Combat approaches can end on
+a supported position within sight of their target. Capture approaches can end
+within the capture area's acceptance distance.
+
+The point query and the routed ground order share the same attachments, corridor
+directions, class bits and enabled barriers. Both endpoints require support and
+headroom. A clear segment can shorten an approach within a supported floor or a
+straight ordinary corridor in its permitted direction.
+A nearby alternative disc must also be reachable in the appropriate direction.
+Outside either endpoint's disc, the search compares reachable entrances by
+total walking length, including the approach and the exit.
+The helper submits one waypoint at a time. A soldier already standing on the
+entrance can enter the corridor immediately. Inside the one-metre infantry
+arrival circle, the helper can hand off to the next ordinary segment after
+checking it from the actual feet. An obstructed turn keeps its current
+waypoint, and an airborne segment retains its certified launch position.
+In a 2005 battle a soldier off the ground keeps the leg it left the ground on:
+the leg does not finish in the air, and an order given in the air is planned
+where the soldier lands. In the air the 2005 stick accelerates the body with no
+speed limit, so the bot steers for the velocity that brings it down on its
+waypoint (the time to the waypoint's height under gravity 18) instead of
+straight at it, at full stick while a metre a second or more is missing.
+On a corner the soldier can steer
+to a validated bend. With no viable leg, or after sustained lack of progress, it
+clears the movement request and reports failure. Final arrival checks horizontal
+range and height on the supported destination floor. For nonzero ground segments the
+native clearance query also drives a separate, preallocated soldier mover.
+Ordinary descents require floor support through the descent, including when
+the capsule briefly leaves the ground on a slope. If a walking segment has
+no support under the centre of the starting footprint, the floor check
+samples 0.25 m away in the order +X, -X, +Z, -Z. The mover still starts
+at the soldier's feet. A separate destination needs support at its centre.
+A certified climb on a
+two-way connection may also have a descending leg with up to six metres of fall.
+A straight walk in a 2005 battle (a recovery move) may step off a ledge deeper
+than that, down to the eight metres the floor search looks below; the same
+physical drop check passes it with that limit. A recovery that has stood three
+seconds in one spot (the game's stall time) with no checked step left walks on
+as the game's straight walk does: two metres toward its point, its own
+collision deciding, over a floor that lies below the end within those eight
+metres and through no solid barrier. A soldier that can jet out under open sky
+does that instead.
+An authored jump must reach its landing floor. Under an overhang the survey
+can place an exposed touchdown beyond the landing hub and certify a walk back
+to it. Every distinct admitted soldier jump profile must complete the airborne
+segment. A changed collision body on the jump requires fresh certification.
+Above 32 distinct profiles the survey declines ordinary jump links. In interiors, room-sector polygons
+bound the floor search. Long multi-level arcs also sample near-endpoint bends
+to locate ramps situated close to either hub. Door passages are surveyed with
+the door open. Barriers and planning groups gate locked doors, while surveyed
+proximity-door passages remain plannable so a soldier can approach and wait
+briefly for the shutter to open before crossing (failing cleanly if it stays
+shut). Current colliders still govern every live segment and every non-door
+corridor.
+The junction uses a supported point within its disc that clears the enabled
+barriers. Jump corridors use the storeys
+connected to the approach and exit. An ambiguous launch or landing is omitted.
+
+Blocking a planning group or changing an authored barrier invalidates the
+destination rows. A ground leg crossing a restored barrier or a newly blocked
+arc stops immediately. A body flag change rechecks ground legs near that body.
+When only moving bodies join, leave, swap, or change enabled flags in collision
+world order while the static bodies keep their positions and order, navigation
+clears its directed segment cache and flags overlapping active legs for recheck
+without discarding surveyed static corridors, door passages, or warmed
+destination rows. A static body flag change revokes only the surveyed door
+passages and floor corridors whose segments meet that body, keeping unaffected
+proximity doors and warmed destination rows intact when no corridor changes.
+Other controls keep their movement requests. Native approach queries also check
+the collision world order and enabled-body state before reusing previously
+tested segments.
+
+The five low barrier bits apply to the five traversal classes. The enabled
+state is independent. Map admission composes base-world barriers and hints
+followed by records in the mission's active layers. Hints retain their ordered
+properties and the additional types 7 and 8 participate in capacity assignment.
+Each native hint's source selects its original record in the composed array,
+including after radius expansion. That record retains its package-local
+`sourceIndex` and, for a layer, the enclosing package key in `sourceLayer`.
+Barrier records use the same package-local convention.
+
+### Route queries and storage bounds
+
+During a bot decision, `ai::control::world::World::nav_route_distance(from, to,
+radius, mask)` returns a route status, distance and hop count from the navigation
+and collision owners already borrowed for that phase. Distance is in metres.
+The 2004 reader and helper use their released storage. Its optional distance
+query explores positive baked choices for the destination without consuming a
+random draw. With a 2005 graph, a point query searches the supported corridors
+using deterministic shortest distances and stable indices. Destination rows
+and working arrays are allocated on admission. Small graphs precompute soldier
+rows for radii up to 0.30, 0.40, 0.45, 0.48 and 0.50 m. Each row certifies the
+upper bound of its band. Larger radii retain their exact footprint. Endpoints
+and local approaches always use the asking soldier's radius.
+
+Navigation admits four soldier route questions across all callers per simulation
+tick, including four before the first tick. Further calls return `Unknown`
+immediately. Each admitted query and each movement order may perform 16 uncached
+mover checks and examine 400,000 row entries. An order shares those credits
+across its exact destination, objective or combat approaches, and replans.
+Across all route questions and order searches on a tick, navigation also caps
+the examined row entries at 400,000. Exhaustion of an order's own credits ends
+its search. A query can return a route already proved. When a replacement Route
+order exhausts its credits, it reports failure and lets the soldier finish the
+current certified leg. A soldier starting from rest reserves one of the same 16
+checks for a short local approach.
+Both paths signal the controller when the order is refused. An active executor
+keeps steering and reports its own status. Once it finishes, the controller
+counts time without an executor and can request recovery after five seconds
+for a soldier or six seconds for a droideka. Installing a new leg clears the signal.
+On a doorway approach with multiple surveyed bends, a moving soldier finishes
+the turn if its velocity still carries it away from the outgoing leg.
+Checking the execution of live legs is limited to 512 physical checks per tick.
+A changed leg waits for clearance before the executor can steer along it again.
+Direct walking checks made by combat before it orders a pursuit are limited to
+16 per tick across all soldiers. Exhaustion declines the direct walk and combat
+can request a Route order. Native combat callers use
+`owned::live::direct_walk_clear`.
+
+External callers outside the bot controller (such as space hangar pilot routing)
+can walk a soldier to a world point on a 2005 map through
+`World::nav_walk_begin`, `World::nav_walk_step`, and `World::nav_walk_stop`,
+returning `NavWalkStatus::{Waiting, Moving, Arrived, Failed}`. Each unit slot
+receives a pre-reserved external control and `Swbf2GroundGoto` at 2005
+admission (`ai_world_begin_swbf2`), isolated from the controller's own helper
+so `ai_world_phase_in` and post-AI callers do not overwrite each other's routes.
+External walks share `GroundProbe`'s 10,000-unit per-tick collision allowance,
+participate in `Navigation::resume_walks`, and overwrite movement, posture,
+jump, and jet intent on `Moving`, `Waiting`, and `Arrived` ticks. Navigation
+admits at most 2 new external walk starts per tick across all callers; targets
+on disconnected floor groups are rejected by `Floors::may_connect` before any
+floor raycast, mover check, or start credit is spent. In a 2004 battle no
+external walk slots are reserved and `nav_walk_*` immediately returns `Failed`
+(or no-ops on stop).
+
+A search first compares the levels near both ends. Levels joined by corridors
+form a group, whatever the direction or present state of those corridors. When
+no entrance in reach of the start shares a group with an exit in reach of the
+goal, no search can connect them and no physical check is made. This answers
+questions between two ships, where every deck is its own group.
+
+The admission survey and the live battle run the same ground check: the floor
+under the line, then a private mover driven along it. In the battle all checks
+of a tick draw on one allowance of 10,000 units of collision work, about two
+milliseconds on the reference x86-64 machine. A check costs four units to begin.
+A ray costs three and one more for every 40 enabled bodies. A mover step costs
+three, one more for every three moving bodies in the world, two for each
+triangle around the part of the body that met the world last, and 200 more when
+it tries the space over a step ahead. The charge depends only on the collision
+world and is the same on every machine. Route plans stop at half of the
+allowance and straight or direct steps at two thirds. Legs under way, route
+questions and direct walks can use all of it.
+
+A tick also runs at most six searches from a point to a point (each finds the
+floors' attachments at both ends), shared by every order. When an order's own
+point has no route, its plan tries the objective's floor and then sixteen
+approaches around the point; an order that finds no search left waits, and its
+plan goes on in a later tick with the places it has not tried yet.
+
+A plan, a step or a leg that runs out of work waits for the next tick. Its
+check stops between two steps, keeps its own private mover, and goes on before
+any other check of its kind, whoever asks first. The answer is kept for the
+order that asked. A check without an answer is neither clear nor blocked: it is
+not cached and costs the order no credit. A change of the collision bodies or
+of their enabled flags drops a stopped check and a kept answer, and so do eight
+ticks in which nothing asks for that kind. Route questions and direct walks do
+not wait. Without work left a question is `Unknown` and a direct walk declined.
+
+At the start of every tick navigation goes on with what is waiting: first with
+soldiers that stand on a leg, then with orders from the longest wait to the
+shortest. New orders of the tick come after them. A waiting plan is searched
+from where it began while the soldier stays within two metres, so that each
+tick goes on with the checks of the last one. Its first leg is still checked
+from the soldier's feet. Meanwhile the soldier walks its present leg to its
+end. A newer order for the same control, the soldier's death or a seat ends the
+wait. After one second of waiting the order is refused as above.
+
+A soldier can attach at a checked projection along a directed straight or single-bend corridor (including ramp bends), and destination attachment filters candidates to the connected floor groups reached by the start attachments so isolated floor nodes never shadow reachable corridors. Without
+a graph, a successful direct walk also returns `Reachable`. A goal whose centre
+is inside an enabled barrier, or two disconnected discs whose plausible local
+attachments preserve the same disconnection, can establish `Unreachable`.
+A start overlapping a barrier, ambiguous junction, missing attachment, or
+unsupported traversal mask can yield `Unknown`. Goal selection can try an
+unknown destination and rank a proven unreachable destination last.
+
+`Swbf2Graph::hub_route_distance` describes authored topology. Ground planning
+uses the physical corridors above. The routing choice made by `next_arc` from
+the packed slot and weight words is **provisional**. An indexed weight-group change applies its checked XOR delta. A named
+connection in a multi-connection group switches independently. Both operations
+update the authored distances and invalidate the affected route choices.
+
+Admission accepts at most 256 hubs and 65,535 authored arcs, eight supported
+levels per hub and 131,072 directed floor corridors. A shared 262,144-unit budget covers floor pairs, bend candidates, doorway
+samples and tested indoor links. An indoor opening first uses 56 candidate sites. A missing approach can
+search two deck patches of at most 65 by 65 sites each, meeting at the typed
+door. Every admitted segment passes the same barrier and mover checks. An
+ordinary candidate needs at most two movement drives, each bounded by segment
+length. Up to 4,096 indoor passages store six intermediate points apiece. A
+corridor record contains
+two level indices, an arc index, an optional bend and a length. Each corridor
+has one reverse index for the destination search. Each destination row uses one
+index, one length and one 16-bit hop count per level. The rows share an 8 MiB limit on those arrays. A small
+graph can reserve one row per floor and soldier band, plus a scratch row.
+Larger graphs retain at most 256 cached rows. The native
+clearance cache has 4,096 directed segment entries and room for the collision
+world's enabled-body flags. Five packed words per ordered hub pair occupy at
+most 1.25 MiB. Up to ten authored distance/hop tables occupy at most 3.75 MiB.
+The reusable authored search heap holds at most twice the arc count plus one.
+Up to sixteen group bits select admitted deltas with at most 32 MiB of decoded
+bytes in total. The authored barrier grid admits at most 1,048,576 cell entries.
+The active packages together admit up to 65,535 source records of each kind
+and 262,144 property rows. Records share a 16 MiB budget charging 16 bytes per
+JSON value plus the UTF-8 lengths of keys and strings, including layer keys.
+Admission checks block boundaries, row widths and decoded
+lengths. Toggles and searches reuse their existing buffers.

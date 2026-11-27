@@ -29,6 +29,8 @@ screenshots of the 2004 game: Geonosis (Republic), Kamino (CIS) and Hoth
 | `rust/bfe-client` (`app/page_battle/backdrop.rs`, `director.rs`) | The 2004 look's hologram room, and the battle behind the screen: the mission's camera shots, drifting, cut to the one that sees the post picked |
 | `rust/bfe-interface` | The window titles' intro animation, the interface's 3D (its material, lights, model scales and camera), the windows' 9-slice, text wrapping, the hotspots' point-in-quad test (the shared interface kit, [menus.md](menus.md)) |
 | `rust/bfe-client` (`app/battle.rs`) | The screen over the running battle, and its port to the world (see [human-spawn.md](human-spawn.md)) |
+| `rust/bfe-client` (`app/battle/screens/launcher.rs`) | The port's second feeder: a 2005 battle's mission (see [Both games](#both-games)) |
+| `rust/bfe-client` (`characters/preview.rs`) | A 2005 class's body on the stage |
 | `rust/bfe-render` (`hud_model`) | The spawn map and the HUD layer the Classic screen draws on |
 | `rust/bfe-battle-ui` (`pause`) | RESPAWN in the pause menu |
 | `rust/audio-control` | The `interface` sound event |
@@ -324,6 +326,42 @@ client's renderer (`rust/bfe-client` `app/page_battle`):
   its elements go through the screen's input as the Classic view's
   hotspots do (the hologram's posts by a ray), so keys, the wheel and the
   right button work as before.
+
+## Both games
+
+One launcher serves both games: the same model, input, controller and
+front end's look. Its port (`LiveSpawnPort`) has two feeders. A 2004 battle
+fills it from the replicated HUD metadata as before. A 2005 battle fills it
+from its mission's observation, which a local battle and an online one keep
+on the same receiver, and the same metadata. A 2005 battle always takes the
+front end's look: the Classic view is the 2004 game's own screen.
+
+What a 2005 mission adds, each empty for a 2004 battle:
+
+- **Teams.** Both, when the mission lets the player choose; their 2005
+  names; where the mission counts points, a plate counts the team's points
+  and its bar fills toward the limit.
+- **Classes.** Every class of the team's roster in the mission's order, up to
+  16, heroes included, with their weapons and powers. The mission limits
+  each class; a class at its limit is drawn faint with the game's own line
+  ("Too many units already!") in place of its weapons, cannot be picked by
+  key or click, and a selection on a class that fills moves to the next open
+  one.
+- **Posts.** The mission's posts on the hologram map, eligible as the
+  player's own summary lists them. A mission that places a player who names
+  no post deploys without one.
+- **Countdown.** While the mission's personal respawn countdown runs, SPAWN
+  is dim and shows the seconds left in place of its key, and a press does not
+  commit.
+- **The stage.** The picked class's own model in its idle stance, posed by
+  the class's animation player at the 60 Hz clock and skinned for the stage;
+  the mission's team icons (or its sides', where the content carries only
+  those) beside the plates in place of the 2004 holograms; the mission's map
+  picture on the hologram. The 2005 content has no room, so the 2004 look's
+  stage also shows the battle behind.
+- **Space Assault** deploys through the launcher too (pilot and marine
+  classes, the hangars on the map). `BFE_DEV_SWBF2_DIRECT_SPAWN=1` starts a
+  developer battle already deployed.
 
 ## Not the original's
 

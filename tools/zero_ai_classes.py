@@ -49,8 +49,9 @@ import zero_weapons  # noqa: E402
 GENERATOR = "tools/zero_ai_classes.py 1"
 SCHEMA = 1
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME  # noqa: E402
-SHARED = [common_archive(GAME), GAME / "core.lvl"]
+import zero_family  # noqa: E402
+from zero_paths import GAME, write_text_lf  # noqa: E402
+SHARED = zero_family.profile().shared_archive_paths(GAME)
 from zero_paths import PUBLIC  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -427,7 +428,7 @@ def extract(side, archive=None, out_path=None):
     else:
         target = PUBLIC / "sides" / side / "ai.json"
         target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(out, indent=1))
+    write_text_lf(target, json.dumps(out, indent=1))
     print(f"{side}: {len(classes)} classes, {len(weapons)} weapons -> {target}")
     return out
 

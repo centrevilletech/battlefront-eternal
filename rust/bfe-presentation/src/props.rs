@@ -336,6 +336,14 @@ impl Props {
         self.turret_input.resize(self.turrets.len() * crate::layout::turret_presentation_input::STRIDE, 0.0);
         start
     }
+    /// Place a space turret on its moving parent before posing the drum and gun.
+    pub fn place_turret(&mut self, index: usize, matrix: [f64; 16]) {
+        let scene = &mut self.turrets[index].scene;
+        if let Some(&root) = scene.nodes.first() {
+            scene.tree.node_mut(root).matrix.elements = matrix;
+        }
+    }
+
     /// The first PropBone of a prop's (`trap` false) or a trap's bones.
     pub fn bone_start(&self, trap: bool, index: usize) -> usize {
         let props: usize = self.props.iter().map(|p| p.bones).sum();

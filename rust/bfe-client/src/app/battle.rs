@@ -9,7 +9,7 @@
 //!   `ChatController`) into `Scene.canvas.framebuffer` via a single `scene.draw(&view)`
 //!   pass per frame.
 //! - **Exclusive `Context::world_admit` Admission**: Instant Action admits the mission
-//!   simulation exclusively through `WorldThread::admit_instant_action` (`Prepared::new` ->
+//!   simulation exclusively through `WorldThread::admit_selected` (`Prepared::selected` ->
 //!   `Context::world_admit`) on a dedicated `"bfe-world-60hz"` thread; no stand-in or
 //!   fallback authority exists. If admission fails, the error is surfaced to the player.
 //! - **Non-blocking Render/World Coupling**: The render thread drains `Publication`
@@ -43,7 +43,7 @@
 //! ## Instant Action vs Online Authority Parity
 //! | Aspect | `BattleAuthority::InstantAction` | `BattleAuthority::Online` |
 //! |---|---|---|
-//! | World Admission | `WorldThread::admit_instant_action` (`Context::world_admit`) | Remote/local `bfeserver` (`GET /info` + UDP/WebRTC) |
+//! | World Admission | `WorldThread::admit_selected` (`Context::world_admit`) | Remote/local `bfeserver` (`GET /info` + UDP/WebRTC) |
 //! | Simulation Thread | Dedicated 60 Hz `"bfe-world-60hz"` thread | Server-authoritative 60 Hz loop |
 //! | Snapshot Delivery | Lock-free `mpsc::Receiver<Publication>` (`poll_publications`) | Network datagrams (`OnlineClient::receive`) |
 //! | Input Delivery | `WorldMessage::Step { command, look, flight }`, stamped for its world tick | `OnlineClient::step` + `OnlineClient::send` |
@@ -94,12 +94,17 @@
 //!   `PLAYER LIST` (`show_player_list = true`), and keeps the network session
 //!   running while the overlay is open.
 
+pub mod screens;
+#[cfg(test)]
+mod admission_controls;
+mod shortcuts;
+use bfe_interface::hotkeys::ControlContext;
 use crate::{
     app::settings::AppSettingsStore,
     audio::SharedAudioRouter,
     generated_input::{ClientCommand, ClientFlightCommand, ClientLook},
     host::{World, STEP},
-    input::{Input, ViewActions},
+    input::{BattleInput, InputTrigger, ViewActions},
     local::{
         options::Options as LocalOptions,
         thread::{WorldMessage, WorldThread, WorldTickStats},
@@ -150,12 +155,31 @@ fn initial_policy(source: &bfe_content::Value, era: &str) -> bfe_content::missio
     bfe_content::mission::spawn_policy(&query, world.get("mission"))
 }
 
+fn next_online_launch(launch: &MultiplayerLaunch, next: Option<&crate::online::rotation::NextMatch>) -> MultiplayerLaunch {
+    let mut launch = launch.clone();
+    if let Some(next) = next {
+        launch.family = next.family;
+        launch.map.clone_from(&next.map);
+        launch.side.clone_from(&next.side);
+        if next.family == GameFamily::Swbf2 {
+            launch.era.clone_from(&next.era);
+        }
+    } else {
+        // Turned away because the server changed battle meanwhile: which battle it
+        // runs now is known once it answers (the loading screen follows then).
+        launch.map.clear();
+    }
+    launch
+}
+
 /// Worker-owned admission results contain no GL objects or render-thread Rc values.
 pub struct InstantAdmission {
     request: BattleRequest,
     playlist_index: usize,
+    family: GameFamily,
     map_id: String,
     era: String,
+    mode: String,
     world: WorldThread,
     admitted: crate::local::thread::AdmittedWorldInfo,
 }
@@ -164,8 +188,65 @@ pub struct OnlineAdmission {
     /// The `HOST:PORT` that answered; later /info probes (rotation, rejoin) ask it.
     target: String,
     server_info: crate::online::info::Server,
+    /// The battle the server named, resolved once before any content was read.
+    selection: crate::online::selection::Selection,
     endpoint: Box<bfe_transport::endpoint::Endpoint>,
-    graphics: crate::scene::Prepared,
+    /// The scene of the battle this join plays; none for a 2005 battle it
+    /// sits out.
+    graphics: Option<crate::scene::Prepared>,
+    /// Whether this build plays the 2005 game.
+    gate: bfe_family::Gate,
+}
+
+impl OnlineAdmission {
+    /// The map-free connection of a 2005 battle this join sits out, with the
+    /// launch to carry on to the next battle; none for a battle it plays.
+    pub fn sit_out(self) -> Result<(crate::online::sitout::SitOut, MultiplayerLaunch), Self> {
+        use crate::online::sitout::{SitOut, Why};
+        if self.graphics.is_some() {
+            return Err(self);
+        }
+        let Some(expected) = self.selection.join.clone() else { return Err(self) };
+        let why = if self.gate.plays(GameFamily::Swbf2) { Why::NoMap } else { Why::Unavailable };
+        let client = crate::online::lobby_client::LobbyClient::connect(self.endpoint, expected);
+        Ok((SitOut::new(client, self.target, self.server_info.query, why), self.launch))
+    }
+}
+
+/// The scene of the battle a join plays: a 2004 battle's from the content
+/// root and its query, as released; a 2005 battle's by the 2005 loader from
+/// the 2005 content folder and its content query, reading the files the
+/// offered digest was computed from as they were then (the selection's pinned
+/// generation, released once read); none for a 2005 battle the join sits
+/// out, which reads no 2005 content.
+fn online_scene(
+    root: &Path,
+    server: &crate::online::info::Server,
+    selection: &mut crate::online::selection::Selection,
+    textures: crate::scene::TextureOptions,
+) -> Result<Option<crate::scene::Prepared>, String> {
+    match selection.family {
+        GameFamily::Swbf1 => Scene::prepare_online(root, &server.query, textures).map(Some),
+        GameFamily::Swbf2 if selection.sits_out() => Ok(None),
+        GameFamily::Swbf2 => {
+            let content = online_content_swbf2(root, server, selection, textures)?;
+            Scene::prepare_online_content(content, &selection.map).map(Some)
+        }
+    }
+}
+
+/// The content of a 2005 battle a join plays, from which its scene and its
+/// prediction are made: the files its offered digest was computed from as
+/// they were read then, every other file from the folder.
+fn online_content_swbf2(
+    root: &Path,
+    server: &crate::online::info::Server,
+    selection: &mut crate::online::selection::Selection,
+    textures: crate::scene::TextureOptions,
+) -> Result<bfe_content_native::BattleContent, String> {
+    let query = bfe_family::swbf2::content_query(&server.query, &selection.map).ok_or("invalid Battlefront II battle query")?;
+    let pinned = selection.pinned.take();
+    Scene::online_content_swbf2(&GameFamily::Swbf2.content_dir(root), &selection.map, &query, textures, pinned)
 }
 
 /// Transition out of the active battle.
@@ -196,6 +277,10 @@ pub enum BattleTransition {
     },
     /// Rejoin the ready server match after the end table.
     NextOnlineBattle { launch: MultiplayerLaunch },
+    /// The server's signed answer gave this 2005 join the sit-out role: the
+    /// map-free session takes the battle's connection
+    /// ([`BattleController::hand_over_sit_out`]).
+    SitOutOnline,
     /// Exit the entire application to the desktop (`EXIT TO WINDOWS`).
     ExitToWindows,
 }
@@ -247,6 +332,27 @@ pub struct LiveSpawnPort {
     pub pending_suicide: bool,
     post_vehicles:std::collections::HashMap<String,[Vec<String>;2]>,
     spawn_eligibility: HudOwnSummary,
+    /// What a 2005 mission adds (nothing in a 2004 battle).
+    pub mission: MissionLauncher,
+}
+
+/// What a 2005 mission adds to the launcher's port. The default, a 2004
+/// battle's, adds nothing.
+#[derive(Clone, Debug, Default)]
+pub struct MissionLauncher {
+    /// Seconds the mission's personal clock still holds a deployment (the
+    /// 2005 game shows no number for it).
+    pub deploy_wait: Option<f64>,
+    /// The mission places a player who names no post.
+    pub places: bool,
+    /// A post without a display name shows none (the 2005 game names none of
+    /// these posts on its spawn screen), never its mission label.
+    pub unnamed_posts: bool,
+    /// Per team, the points limit when the mission counts points (the plate's
+    /// count is then the team's points).
+    pub points: [Option<u32>; 2],
+    /// The game's own line for a class at its limit.
+    pub closed_note: String,
 }
 
 /// The spawn screen's Math.random (gives its model no
@@ -440,6 +546,7 @@ impl LiveSpawnPort {
             pending_suicide: false,
             post_vehicles:std::collections::HashMap::new(),
             spawn_eligibility: HudOwnSummary::default(),
+            mission: MissionLauncher::default(),
         }
     }
 
@@ -598,6 +705,30 @@ impl SpawnPort for LiveSpawnPort {
 
     /// Sets the active spawn screen camera preview shot.
     fn set_view_shot(&mut self, _shot: Option<CameraShot>) {}
+
+    fn roster_len(&self, team: u8) -> usize {
+        match team {
+            1 => self.rosters[0].len(),
+            2 => self.rosters[1].len(),
+            _ => 0,
+        }
+    }
+
+    /// A class of a 2005 mission's roster closes at its limit; every 2004 class stays open.
+    fn class_open(&self, team: u8, index: usize) -> bool {
+        match team {
+            1 | 2 => self.rosters[usize::from(team == 2)].get(index).is_none_or(|c| c.eligible),
+            _ => true,
+        }
+    }
+
+    fn deploy_wait(&self) -> Option<f64> {
+        self.mission.deploy_wait
+    }
+
+    fn post_required(&self) -> bool {
+        !self.mission.places
+    }
 }
 
 /// Scoreboard port wrapping [`WorldScoreboardPort`] and tracking `DONE` / restart triggers.
@@ -822,10 +953,14 @@ pub enum BattleAuthority {
         request: BattleRequest,
         /// Index of the active mission within `request.playlist`.
         playlist_index: usize,
+        /// The game the battle belongs to.
+        family: GameFamily,
         /// Mission map identifier (e.g. `"nab2"`, `"tat1"`, `"bes1"`).
         map_id: String,
         /// Era code (`"cw"` or `"gcw"`).
         era: String,
+        /// The battle's mode (`"conquest"` for every 2004 battle).
+        mode: String,
         /// Dedicated 60 Hz background world simulation thread.
         world: WorldThread,
         /// Local snapshot/event publication receiver.
@@ -843,13 +978,76 @@ pub enum BattleAuthority {
     Online {
         /// Multiplayer server launch descriptor.
         launch: MultiplayerLaunch,
+        /// The game the battle belongs to, as the server's reply named it.
+        family: GameFamily,
         /// Mission map identifier reported by `/info`.
         map_id: String,
         /// Era code (`"cw"` or `"gcw"`).
         era: String,
+        /// The battle's mode, as the server's summary named it (conquest otherwise).
+        mode: String,
         /// Live WebRTC / UDP online client session.
         client: Box<OnlineClient>,
     },
+}
+
+/// A 2005 space craft's seat: the pilot flies it, every other seat works a turret, as the
+/// battle screen shows it.
+fn space_seat_context(mount: Option<usize>, seat: u8) -> Option<ControlContext> {
+    mount.map(|_| if seat == 0 { ControlContext::Starfighter } else { ControlContext::Turret })
+}
+
+fn swbf2_context(receiver: &Receiver, classes: &[HudClassMeta]) -> ControlContext {
+    let own = &receiver.own;
+    // An online Space seat or chair (the own body the server sends) first;
+    // a local Space battle's chair and seats follow below.
+    if receiver.in_space_chair() || receiver.in_space_gunner() {
+        return ControlContext::Turret;
+    }
+    if receiver.in_space_pilot() {
+        return ControlContext::Starfighter;
+    }
+    if own.mount.is_some() {
+        if receiver.in_gunner_seat() {
+            return ControlContext::Turret;
+        }
+        return if receiver.in_aircraft() { ControlContext::Starfighter } else { ControlContext::Vehicle };
+    }
+    if receiver.space.as_ref().and_then(|s| s.latest()?.chair).is_some() { return ControlContext::Turret; }
+    if let Some(context) = receiver.space.as_ref().and_then(|s| s.latest()).and_then(|f| space_seat_context(f.mount, f.mount_seat)) {
+        return context;
+    }
+    if own.flight.is_some() { return ControlContext::Starfighter; }
+    if own.vehicle != 0. || own.walker { return ControlContext::Vehicle; }
+    if classes.iter().any(|class| class.registry_id == own.class && class.jedi_controls) {
+        return ControlContext::Jedi;
+    }
+    ControlContext::Infantry
+}
+
+impl BattleAuthority {
+    /// The game the battle belongs to.
+    pub fn family(&self) -> GameFamily {
+        match self {
+            Self::InstantAction { family, .. } | Self::Online { family, .. } => *family,
+        }
+    }
+
+    /// The battle's mode.
+    pub fn mode(&self) -> &str {
+        match self {
+            Self::InstantAction { mode, .. } | Self::Online { mode, .. } => mode,
+        }
+    }
+
+    /// The receiver the battle's screens read, whichever authority runs it:
+    /// the local thread's publication receiver or the network client's.
+    pub fn receiver(&self) -> &Receiver {
+        match self {
+            Self::InstantAction { receiver, .. } => &**receiver,
+            Self::Online { client, .. } => &client.receiver,
+        }
+    }
 }
 
 /// Unified controller for an active Instant Action or Online battle.
@@ -863,7 +1061,7 @@ pub struct BattleController {
     /// Native 3D scene, terrain/sky/unit passes, and HUD bridge.
     pub scene: Box<Scene>,
     /// Keyboard and mouse 3D gameplay input accumulator.
-    pub input: Input,
+    pub input: BattleInput,
     /// Monotonic 60 Hz client input tick counter.
     pub input_tick: u32,
     /// Fractional frame time accumulator for 60 Hz input stepping.
@@ -877,6 +1075,7 @@ pub struct BattleController {
     pub spawn_port: LiveSpawnPort,
     /// `bfe-battle-ui` spawn screen state machine and renderer.
     pub spawn_ctrl: SpawnScreenController,
+    mission_screen: Option<Box<screens::Live>>,
     /// Live data port feeding the scoreboard.
     pub scoreboard_port: LiveScoreboardPort,
     /// `bfe-battle-ui` scoreboard state machine and renderer (`Table`, `Details`, `Awards`).
@@ -940,7 +1139,7 @@ pub struct BattleController {
 
 impl BattleController {
     /// Admits and starts an Instant Action battle for `request.playlist[playlist_index]`
-    /// exclusively through `Context::world_admit`.
+    /// through the authority for its selected game family.
     ///
     /// Resolves the selected mission and its canonical startup faction, then
     /// admits a paused local World. The loading worker owns this cold call;
@@ -955,22 +1154,18 @@ impl BattleController {
         textures: crate::scene::TextureOptions,
         scene_ready: impl FnOnce(Result<crate::scene::Prepared, String>) + Send,
     ) -> Result<InstantAdmission, String> {
-        // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`.
+        // Resolve the target map ID and era from `request.playlist[playlist_index]` or `request`
+        // (`BattleRequest::battle_at`, which the loading screen reads too). A game this build
+        // cannot play is refused before any content is read.
         let default_era = request.era.clone().unwrap_or_else(|| "cw".to_string());
-        let (map_id, era) = if let Some(entry) = request
-            .playlist
-            .as_ref()
-            .and_then(|p| p.entries.get(playlist_index))
-        {
-            (
-                entry.map.clone(),
-                entry.era.clone().unwrap_or(default_era),
-            )
-        } else {
-            (request.map.clone(), default_era)
-        };
+        let planned = request.battle_at(playlist_index);
+        super::instant::check(planned).map_err(|e| e.to_string())?;
+        let (family, mode) = (planned.family, planned.mode.to_string());
+        let (map_id, era) = (
+            planned.map.to_string(),
+            planned.era.map(str::to_string).unwrap_or(default_era),
+        );
 
-        // Build the mission CLI flags (`--map`, `--side`, `--seed`) for `Prepared::new`.
         // launchUrl carries map/era, not a faction pick. Use the canonical
         // spawnPolicy over the selected mission, including team1's fallback
         // when DEFAULT_UNIT is absent (Hoth's first team is Imperial).
@@ -982,49 +1177,85 @@ impl BattleController {
         {
             return Err("invalid map name".into());
         }
-        let files = DirFiles::new(content_dir);
+        let root = super::instant::content_root(content_dir, family);
+        let content_dir = root.as_ref();
+        if family == GameFamily::Swbf2 {
+            use bfe_content_native::setup::{Ai, BattleOptions};
+            use bfe_sim::world::admit::mission::{MissionPreferences, MissionSelection};
+            let space = mode == "ass";
+            let side = swbf2_mission_side(
+                &era,
+                std::env::var("BFE_DEV_SWBF2_TEAM").ok().as_deref(),
+            )?;
+            let seed = super::bench::seed().unwrap_or(playlist_index as u32 + 1);
+            let selection = MissionSelection { family, map: map_id.clone(), era: era.clone(), mode: mode.clone(), seed };
+            let launch = BattleOptions { family, map: map_id.clone(), mode: mode.clone(), seed,
+                side: side.into(), unit: std::env::var("BFE_DEV_SWBF2_UNIT").ok(), heroes: false,
+                ai: if bots.mode == "enhanced" { Ai::Enhanced } else { Ai::Classic } };
+            launch.check()?;
+            let population = bfe_sim::world::admit::Bots { friendly_fire: bots.friendly_fire,
+                ..bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size) };
+            let options = LocalOptions::world_from(launch, Some(player_name), population)?;
+            let assault_target = std::env::var("BFE_DEV_SWBF2_ASSAULT_TARGET").ok()
+                .map(|value| value.parse().map_err(|_| "invalid mission score limit"))
+                .transpose()?;
+            let bots_per_team = match (space, std::env::var_os("BFE_DEV_SWBF2_ASSAULT_BOTS")) {
+                (true, Some(value)) => Some(value.to_str().and_then(|v| v.parse().ok())
+                    .ok_or("invalid Space Assault bot count")?),
+                _ => super::bench::mission_ai_units_per_team()?,
+            };
+            let preferences = MissionPreferences {
+                assault_target,
+                bots_per_team,
+                // Both battles open the spawn launcher; a developer start may deploy at once.
+                direct_spawn: std::env::var("BFE_DEV_SWBF2_DIRECT_SPAWN").as_deref() == Ok("1"),
+            };
+            let (world, mut admitted) = WorldThread::admit_scripted(content_dir, options, selection, preferences)?;
+            let mission = admitted.mission_json.take().ok_or("missing admitted mission")?;
+            let fingerprint = bfe_content_native::fingerprint::hash_for_family(&DirFiles::from_resolved_root(content_dir, family), family, &admitted.query)?;
+            eprintln!("Instant Action {family:?}/{map_id}:{era}:{mode} {fingerprint}; world {}", admitted.query);
+            scene_ready(Scene::prepare_scripted(content_dir, &map_id, &admitted.query, &mission, textures, true));
+            return Ok(InstantAdmission { request, playlist_index, family, map_id, era, mode, world, admitted });
+        }
+        let files = DirFiles::new(content_dir, bfe_family::GameFamily::Swbf1);
         let bytes = files
             .read(&format!("maps/{map_id}/map.json"))
             .ok_or("missing map mission metadata")?;
         let source = bfe_content::json::parse_bytes(&bytes).map_err(|e| e.to_string())?;
         let policy = initial_policy(&source, &era);
-        let local_options = LocalOptions {
-            root: content_dir.to_path_buf(),
-            battle: vec![
-                "--map".to_string(),
-                map_id.clone(),
-                "--side".to_string(),
-                policy.side,
-                "--unit".to_string(),
-                policy.class_name,
-                "--seed".to_string(),
-                super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
-                "--ai".to_string(),
-                if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
-            ]
-            .into_iter()
-            .chain(bots.heroes.then(|| "--heroes".to_string()))
-            .collect(),
-            audio: true,
-            duration: None,
-            name: Some(player_name.to_string()),
-            bots: bfe_sim::world::admit::Bots {
-                friendly_fire: bots.friendly_fire,
-                ..bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size)
-            },
+        let (side, unit) = (policy.side, policy.class_name);
+        let population = bfe_sim::world::admit::Bots {
+            friendly_fire: bots.friendly_fire,
+            ..bfe_sim::world::admit::Bots::read(&bots.mode, &bots.difficulty, &bots.size)
         };
 
         // The world thread admits the battle while this worker reads the
         // scene's content for the same mission query (the query the admission
         // reports back, checked below) and hands it to the window at once.
-        let query = format!("{}&spawnscreen=1", local_options.world()?.query());
+        use bfe_content_native::setup::BattleOptions;
+        let mut arguments = vec![
+            "--map".to_string(), map_id.clone(), "--side".to_string(), side,
+            "--unit".to_string(), unit, "--seed".to_string(),
+            super::bench::seed().unwrap_or(playlist_index as u32 + 1).to_string(),
+            "--ai".to_string(), if bots.mode == "enhanced" { "enhanced" } else { "classic" }.to_string(),
+        ];
+        if bots.heroes { arguments.push("--heroes".to_string()); }
+        let battle = BattleOptions {
+            family, mode: mode.clone(), ..BattleOptions::from_args(&arguments)?
+        };
+        let options = LocalOptions::world_from(battle, Some(player_name), population)?;
+        let bots_fielded = options.bots.fielded;
+        let spawn_screen = true;
+        let mut query = options.query();
+        query.push_str("&spawnscreen=1");
         let started = std::time::Instant::now();
         let (admission, world_time) = std::thread::scope(|scope| {
             let world = scope.spawn(|| {
-                let admission = WorldThread::admit_instant_action(&local_options);
+                let admission = WorldThread::admit_selected(content_dir, options, spawn_screen, population.friendly_fire);
                 (admission, started.elapsed())
             });
-            scene_ready(Scene::prepare_online(content_dir, &query, textures));
+            let scene = Scene::prepare_selected(content_dir, family, &map_id, &query, textures, true);
+            scene_ready(scene);
             eprintln!(
                 "battle loading: scene content prepared in {:.0} ms",
                 started.elapsed().as_secs_f64() * 1000.
@@ -1033,15 +1264,17 @@ impl BattleController {
         });
         eprintln!("battle loading: world admitted in {:.0} ms", world_time.as_secs_f64() * 1000.);
         let (world, admitted) = admission?;
-        eprintln!("battle loading: world {} with bots {}", admitted.query, if local_options.bots.fielded { "on" } else { "off" });
+        eprintln!("battle loading: world {} with bots {}", admitted.query, if bots_fielded { "on" } else { "off" });
         if admitted.query != query {
             return Err(format!("world admitted {} but the scene was read for {query}", admitted.query));
         }
         Ok(InstantAdmission {
             request,
             playlist_index,
+            family,
             map_id,
             era,
+            mode,
             world,
             admitted,
         })
@@ -1064,18 +1297,40 @@ impl BattleController {
         let InstantAdmission {
             request,
             playlist_index,
+            family,
             map_id,
             era,
+            mode,
             mut world,
             admitted,
         } = world.await?;
         // Route the live battle sound mixer into `SharedAudioRouter`.
         let replicas = scene.online.as_mut().ok_or("missing online replicas")?;
+        if replicas.wire_bounds != admitted.wire_bounds {
+            return Err("world and scene loaded different position bounds".into());
+        }
         replicas.hud.auto_build = false;
         replicas.hud.show_squad_orders(settings.interface.get_string("aiMode") != "off");
 
         // Initialize the local `Receiver`, client-side `Replay`, and `Sender`.
-        let mut receiver = Box::new(Receiver::new(admitted.registry));
+        let mut receiver = Box::new(Receiver::with_bounds(admitted.registry, admitted.wire_bounds));
+        receiver.control_family = family;
+        if family == GameFamily::Swbf2 {
+            receiver.enable_local_infantry_view();
+            if admitted.space_counts.fighters > 0 {
+                receiver.space = Some(crate::local::space::History::new(admitted.space_counts));
+                replicas.reserve_space_fleet(admitted.space_counts.fighters);
+            }
+        }
+        if admitted.space_counts.fighters > 0 {
+            receiver.space = Some(crate::local::space::History::new(admitted.space_counts));
+            if let Some(fleet) = &mut replicas.space_fleet {
+                fleet.reserve(admitted.space_counts.fighters);
+            }
+            if let Some(effects) = &mut replicas.space_effects {
+                effects.reserve_fleet(admitted.space_counts.fighters);
+            }
+        }
         receiver.registry = true;
         receiver.welcomed = true;
         receiver.own.id = admitted.player_id;
@@ -1087,6 +1342,7 @@ impl BattleController {
                 .ok_or("native prediction resources already admitted")?,
         );
         let mut sender = Box::new(Sender::new(&replicas.turns));
+        sender.set_swbf2_models(replicas.swbf2_turn_models.clone());
         sender.aim_scene=Some(replicas.shot_aim.clone());
         sender.auto_spawn = false;
 
@@ -1117,13 +1373,16 @@ impl BattleController {
         );
 
         crate::loading_work::frame().await;
-        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let leaving = super::leaving::LeavingFeed::load(&super::instant::content_root(content_dir, family), &map_id);
         let mut battle = Self::finish_init(
+            &super::instant::content_root(content_dir, family),
             BattleAuthority::InstantAction {
                 request,
                 playlist_index,
+                family,
                 map_id,
                 era: era.clone(),
+                mode,
                 world,
                 receiver,
                 sender,
@@ -1162,10 +1421,13 @@ impl BattleController {
         server_address: Option<String>,
         settings: &AppSettingsStore,
         textures:crate::scene::TextureOptions,
-        mut on_map: impl FnMut(&str),
+        mut on_map: impl FnMut(GameFamily, &str),
     ) -> Result<OnlineAdmission, String> {
-        // The loading screen shows the battle's planet once the server has said which it is.
-        let mut tell_map = |query: &str| on_map(bfe_content::mission::Query::parse(query).get("map"));
+        // A listing that names a game this build cannot play (or two games) is refused before
+        // the server is contacted; the server's fresh reply is checked again below.
+        if let Some(why) = &launch.refused {
+            return Err(why.clone());
+        }
         // Targets in order: the listing's endpoints (or the LAN/direct address),
         // then an explicit override, then a `HOST:PORT` server id or `BFE_SERVER_TARGET`.
         let mut targets = launch.direct_targets();
@@ -1179,34 +1441,47 @@ impl BattleController {
             }));
         }
         let id_path = crate::online::info::default_identity()?;
+        // What this build plays: a 2005 battle it does not is sat out.
+        let gate = bfe_family::online_gate();
         // A listed server without a direct address: its listing and the master's
         // signalling (hole punching, then the relay) replace /info.
         if targets.is_empty() {
             let Some(id) = launch.listed_identity().map(str::to_string) else {
                 return Err("No server address specified for online join".to_string());
             };
-            let (server_info, endpoint) = crate::online::info::prepare_listed(
+            let (server_info, selection, endpoint) = crate::online::info::prepare_listed(
                 &id,
                 content_dir,
                 &id_path,
                 &settings.player.profile_name,
-                &mut |query: &str| tell_map(query),
+                gate,
+                // Signalling checks the announced query before it reaches this callback.
+                &mut |query| {
+                    if let Ok(next) = crate::online::selection::Selection::announced(query) {
+                        on_map(next.family, &next.map);
+                    }
+                },
             )?;
-            tell_map(&server_info.query);
-            let graphics = Scene::prepare_online(content_dir, &server_info.query, textures)?;
+            on_map(selection.family, &selection.map);
+            let mut selection = selection;
+            let graphics = online_scene(content_dir, &server_info, &mut selection, textures)?;
             return Ok(OnlineAdmission {
                 launch,
                 target: format!("{}{id}", crate::online::info::LISTED),
                 server_info,
+                selection,
                 endpoint,
                 graphics,
+                gate,
             });
         }
 
         // Probe `/info` and prepare the authenticated endpoint (`online::info::prepare`), trying
         // each target in turn. A server changing battle or restarting may not answer for a moment:
         // while every target fails that way, try again for up to ten seconds. The first error from
-        // a server that answered explains more than an unreachable address does.
+        // a server that answered explains more than an unreachable address does. A reply naming
+        // a battle this build will not join ends the join: the server's other addresses name
+        // the same battle.
         // A server whose battle is over (end table) names the next battle: wait until it runs
         // that one and join it, rather than load the finished battle and be turned away.
         let mut started = std::time::Instant::now();
@@ -1222,12 +1497,15 @@ impl BattleController {
                     &id_path,
                     &settings.player.profile_name,
                     launch.listed_identity(),
+                    gate,
                 ) {
                     Ok(ready) => {
                         if let Some(next) = &ready.0.next {
                             let since = *between.get_or_insert_with(|| {
                                 eprintln!("online join: {target} is between battles; waiting for the next one");
-                                tell_map(&next.query);
+                                if let Ok(next) = crate::online::selection::Selection::announced(&next.query) {
+                                    on_map(next.family, &next.map);
+                                }
                                 std::time::Instant::now()
                             });
                             if since.elapsed() < std::time::Duration::from_secs(90) {
@@ -1237,11 +1515,15 @@ impl BattleController {
                             }
                         }
                         eprintln!("online join: {target} answered");
-                        tell_map(&ready.0.query);
+                        on_map(ready.1.family, &ready.1.map);
                         admitted = Some((target.clone(), ready));
                         break 'rounds;
                     }
-                    Err(error) => {
+                    Err(crate::online::info::PrepareError::Refused(error)) => {
+                        eprintln!("online join: {target}: {error}");
+                        return Err(error);
+                    }
+                    Err(crate::online::info::PrepareError::Failed(error)) => {
                         eprintln!("online join: {target}: {error}");
                         retry &= crate::online::info::transient(&error);
                         let answered = !crate::online::info::unreachable(&error);
@@ -1256,7 +1538,7 @@ impl BattleController {
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        let (target, (server_info, endpoint)) = match admitted {
+        let (target, (server_info, mut selection, endpoint)) = match admitted {
             Some(ready) => ready,
             None => {
                 let error = failure.map(|(_, e)| e).unwrap_or_default();
@@ -1268,14 +1550,24 @@ impl BattleController {
             }
         };
 
-        let graphics = Scene::prepare_online(content_dir, &server_info.query,textures)?;
+        let graphics = online_scene(content_dir, &server_info, &mut selection, textures)?;
         Ok(OnlineAdmission {
             launch,
             target,
             server_info,
+            selection,
             endpoint,
             graphics,
+            gate,
         })
+    }
+    /// The map-free session of an online join the server gave the sit-out
+    /// role, with the launch it carries on to the next battle.
+    pub fn hand_over_sit_out(&mut self) -> Option<(crate::online::sitout::SitOut, MultiplayerLaunch)> {
+        match &mut self.authority {
+            BattleAuthority::Online { client, launch, .. } => client.hand_over().map(|session| (session, launch.clone())),
+            _ => None,
+        }
     }
     pub async fn open_online(
         content_dir: &Path,
@@ -1288,29 +1580,17 @@ impl BattleController {
         let OnlineAdmission {
             launch,
             target,
-            server_info,
+            server_info: _,
+            selection: chosen,
             endpoint,
             graphics,
+            gate: _,
         } = prepared;
-        let selection = bfe_content::mission::Query::parse(&server_info.query);
-        let map_id = if selection.get("map").is_empty() {
-            if launch.map.is_empty() {
-                "nab2".to_string()
-            } else {
-                launch.map.clone()
-            }
-        } else {
-            selection.get("map").to_string()
-        };
-        let era = if selection.get("era").is_empty() {
-            if launch.era.is_empty() {
-                "cw".to_string()
-            } else {
-                launch.era.clone()
-            }
-        } else {
-            selection.get("era").to_string()
-        };
+        let graphics = graphics.ok_or("a battle sat out has no scene")?;
+        let (map, era) = chosen.display(&launch.map, &launch.era);
+        let map_id = map.value().to_owned();
+        let era = era.value().to_owned();
+        let root = super::instant::content_root(content_dir, chosen.family);
 
         // Load the 3D scene and HUD replicas for the server's active mission query.
         let mut graphics=graphics;
@@ -1328,15 +1608,24 @@ impl BattleController {
         );
 
         // Open the WebRTC / UDP session to `bfeserver`.
-        let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera, target, server_info.query.clone())?);
+        let mut client = Box::new(OnlineClient::connect(endpoint, replicas, camera, target, chosen.query.clone())?);
+        client.receiver.control_family = chosen.family;
         client.sender.auto_spawn = false;
+        // A 2005 match: nothing it sends is read before its signed answer names the
+        // match this join asked for, with a record table this build reads.
+        if let Some(expected) = chosen.join.clone() {
+            client.expect_match(expected);
+        }
 
-        let leaving = super::leaving::LeavingFeed::load(content_dir, &map_id);
+        let leaving = super::leaving::LeavingFeed::load(root.as_ref(), &map_id);
         let mut battle = Self::finish_init(
+            root.as_ref(),
             BattleAuthority::Online {
                 launch,
+                family: chosen.family,
                 map_id,
                 era: era.clone(),
+                mode: chosen.mode,
                 client,
             },
             scene,
@@ -1356,12 +1645,13 @@ impl BattleController {
     /// ## UI Controller Initialization
     /// - Computes logical interface height (`interface_height(w, h)`) for the 1024-wide
     ///   3D HUD coordinate space.
-    /// - Initializes `SpawnScreenController` (`GameFamily::Swbf1`), copying `MapProjection`
+    /// - Initializes `SpawnScreenController` (for the battle's game family), copying `MapProjection`
     ///   from `replicas.hud.map` and `BattleUiAssets` from `scene.bridge.hud_model`,
     ///   and opens the spawn screen (`OpenReason::Start`).
     /// - Initializes `ScoreboardController`, `PauseMenu` (with `RESTART MISSION` in
     ///   Instant Action and `PLAYER LIST` in Online), and `ChatController`.
     fn finish_init(
+        family_root: &Path,
         authority: BattleAuthority,
         mut scene: Scene,
         mut spawn_port: LiveSpawnPort,
@@ -1370,12 +1660,16 @@ impl BattleController {
         size: [i32; 2],
         settings: &AppSettingsStore,
     ) -> Result<Self, String> {
+        // The battle's views follow the game of its map.
+        let family = authority.family();
         let aspect = size[0].max(1) as f64 / size[1].max(1) as f64;
         let height = interface_height(size[0] as f64, size[1] as f64);
 
         // Configure `SpawnScreenController` with the mission's overhead map projection and UI assets.
-        let mut spawn_ctrl =
-            SpawnScreenController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
+        let mut spawn_ctrl = match family {
+            GameFamily::Swbf1 => SpawnScreenController::try_with_family(family, height).map_err(|e| e.to_string())?,
+            GameFamily::Swbf2 => SpawnScreenController::new(height),
+        };
         if let Some(replicas) = &scene.online {
             if let Some(map_arr) = replicas.hud.map {
                 spawn_ctrl.view.map_proj = MapProjection {
@@ -1398,21 +1692,28 @@ impl BattleController {
         }
         for (team,objectives) in spawn_port.teams.iter_mut().zip(&scene.spawn_objectives) {team.objectives.clone_from(objectives);}
         spawn_port.post_vehicles=std::mem::take(&mut scene.spawn_vehicles);
-        spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
-        eprintln!("spawn screen shown: initial class and post selection");
+        if family == GameFamily::Swbf1 {
+            spawn_ctrl.open(&mut spawn_port, OpenReason::Start, height);
+            eprintln!("spawn screen shown: initial class and post selection");
+        }
 
         let mut scoreboard_port = LiveScoreboardPort::new(is_online, era);
+        scoreboard_port.inner.family = family;
         for (header, team) in scoreboard_port.inner.teams.iter_mut().zip(&spawn_port.teams) {
             if let Some(header) = header {
                 header.name=team.name.clone();header.side=Some(team.side.clone());header.logo=Some(team.logo.clone());
             }
         }
-        let mut scoreboard_ctrl =
-            ScoreboardController::try_with_family(GameFamily::Swbf1, height).map_err(|e| e.to_string())?;
+        let mut scoreboard_ctrl = match family {
+            GameFamily::Swbf1 => ScoreboardController::try_with_family(family, height).map_err(|e| e.to_string())?,
+            GameFamily::Swbf2 => ScoreboardController::new(height),
+        };
 
         // Configure `PauseMenu` (`RESTART MISSION` enabled in Instant Action, `PLAYER LIST` in Online).
-        let mut pause_menu =
-            PauseMenu::try_with_family(GameFamily::Swbf1).map_err(|e| e.to_string())?;
+        let mut pause_menu = match family {
+            GameFamily::Swbf1 => PauseMenu::try_with_family(family).map_err(|e| e.to_string())?,
+            GameFamily::Swbf2 => PauseMenu::new(),
+        };
         pause_menu.enable_respawn(Some(PauseRespawnConfig {
             label: None,
             prompt: None,
@@ -1437,10 +1738,26 @@ impl BattleController {
         };
         if page_battle.spawn { spawn_ctrl.view.theme_hotspots=Some(Vec::with_capacity(64)); }
         if page_battle.scoreboard { scoreboard_ctrl.view.theme_hotspots=Some(Vec::with_capacity(128)); }
+        let mission_screen = match &authority {
+            BattleAuthority::InstantAction { family:GameFamily::Swbf2, map_id, mode, .. }
+            | BattleAuthority::Online { family:GameFamily::Swbf2, map_id, mode, .. } =>
+                Some(Box::new(screens::Live::admit(&mut scene, family_root, map_id, mode, &pause_page.theme, &settings.player.profile_name)?)),
+            _ => None,
+        };
+        // A 2005 mission's map, as its admission completed it, places the launcher's posts.
+        if let (Some(_), Some(map_arr)) = (&mission_screen, scene.online.as_ref().and_then(|r| r.hud.map)) {
+            spawn_ctrl.view.map_proj = MapProjection {
+                map_x: map_arr[0],
+                map_z: map_arr[1],
+                map_half: map_arr[2],
+                post_icon_size: 6.0 * map_arr[3],
+            };
+        }
         let mut ctrl = Self {
+            mission_screen,
             authority,
             scene: Box::new(scene),
-            input: Input::default(),
+            input: BattleInput::default(),
             input_tick: 0,
             input_accumulator: 0.0,
             keys_released: false,
@@ -1481,7 +1798,52 @@ impl BattleController {
             modifiers_chat: false,
         };
         ctrl.sync_input_settings(settings);
+        if ctrl.feed_launcher() {
+            ctrl.launcher_emblems()?;
+            if ctrl.spawn_port.human.phase != "alive" {
+                ctrl.spawn_ctrl.open(&mut ctrl.spawn_port, OpenReason::Start, ctrl.height);
+                eprintln!("spawn screen shown: initial class and post selection");
+            }
+        }
         Ok(ctrl)
+    }
+
+    /// A 2005 mission's team icons stand on the launcher's stage as its emblems.
+    fn launcher_emblems(&mut self) -> Result<(), String> {
+        let Some(screen) = &self.mission_screen else {
+            return Ok(());
+        };
+        for team in &self.spawn_port.teams {
+            // The mission's own team icon, else its side's (the prepared content
+            // may carry only the side icons).
+            let texture = [team.logo.clone(), format!("{}_icon", team.side)]
+                .iter()
+                .find_map(|name| screen.art.handle(name))
+                .and_then(|asset| self.scene.bridge.hud_model.assets.get(asset as usize))
+                .map(|asset| asset.texture);
+            eprintln!("launcher emblem: side={} icon={} texture={texture:?}", team.side, team.logo);
+            if let Some(texture) = texture {
+                self.page_battle.add_flat_logo(&mut self.scene, &team.side, texture)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Fills the launcher's port from a 2005 mission's observation; false for a
+    /// 2004 battle, whose port the released HUD feeder fills.
+    fn feed_launcher(&mut self) -> bool {
+        let (Some(screen), Some(replicas)) = (&mut self.mission_screen, &self.scene.online) else {
+            return false;
+        };
+        let receiver: &Receiver = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => receiver,
+            BattleAuthority::Online { client, .. } => &client.receiver,
+        };
+        let Some(observed) = receiver.mission_view.as_deref() else {
+            return false;
+        };
+        screen.feed_launcher(&mut self.spawn_port, observed, &replicas.hud, (receiver.own.team, receiver.own.alive));
+        true
     }
 
     pub fn resize(
@@ -1516,11 +1878,18 @@ impl BattleController {
         }
     }
 
+    fn mission_overlay(&self) -> bool {
+        match (&self.mission_screen, &self.scene.online) {
+            (Some(screen), Some(replicas)) => screen.overlay(self.authority.receiver(),&replicas.hud),
+            _=>false,
+        }
+    }
+
     /// Returns true if any 2D/3D battle overlay (`SpawnScreen`, `Scoreboard`, `PauseMenu`, `Chat`)
     /// is currently open and capturing or overlaying the battle view.
     #[inline]
     pub fn is_overlay_open(&self) -> bool {
-        self.spawn_ctrl.is_open()
+        self.mission_overlay() || self.spawn_ctrl.is_open()
             || self.scoreboard_ctrl.model.is_open()
             || self.pause_menu.is_open
             || self.pause_menu.waiting()
@@ -1530,7 +1899,7 @@ impl BattleController {
     /// Returns true when the window should lock/grab the mouse cursor for 3D camera look.
     #[inline]
     pub fn wants_pointer_lock(&self) -> bool {
-        !self.spawn_ctrl.is_open()
+        !self.mission_overlay() && !self.spawn_ctrl.is_open()
             && !self.scoreboard_ctrl.model.is_open()
             && !self.pause_menu.is_open
             && !self.chat.is_open()
@@ -1616,15 +1985,14 @@ impl BattleController {
                     });
                 }
                 BattleAuthority::Online { client, .. } => {
-                    client.sender.auto_spawn = true;
-                    client.sender.spawned = false;
-                    if client.receiver.own.team != 0 && client.receiver.own.team != choice.team {
-                        client.sender.request_team(&client.receiver, choice.team);
-                    }
-                    // SpawnModel.commit names the selected authored class and
-                    // post. Index zero is a real first class, not an instruction
-                    // to discard its post and ask the server to pick another.
-                    client.sender.request_spawn(&client.receiver, choice.team, choice.class_reg_id as usize, choice.post_reg_id as usize);
+                    dispatch_online_spawn(
+                        &mut client.sender,
+                        &client.receiver,
+                        self.mission_screen.is_some(),
+                        choice.team,
+                        choice.class_reg_id as usize,
+                        choice.post_reg_id as usize,
+                    );
                 }
             }
         }
@@ -1654,7 +2022,7 @@ impl BattleController {
         self.modifiers_chat = chat_modifiers;
     }
 
-    /// Synchronizes `keyBindings`, `flightBindings`, and starfighter response settings into
+    /// Synchronizes the battle family's bindings and starfighter response settings into
     /// `self.input` whenever `settings.interface.revision` advances (zero steady-frame allocations).
     fn sync_input_settings(&mut self, settings: &AppSettingsStore) {
         let rev = settings.interface.revision;
@@ -1672,7 +2040,7 @@ impl BattleController {
             BattleAuthority::InstantAction { camera, .. } => camera.set_view_range(fade, far),
             BattleAuthority::Online { client, .. } => client.camera.set_view_range(fade, far),
         }
-        if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
+        if let Err(err)=self.scene.set_post_effects(settings.interface.get_bool("bloom"), settings.interface.get_bool("bloomSwbf2"), settings.interface.get_bool("softFocus"), &settings.interface.get_string("upscaler")){eprintln!("battle settings: post effects not applied: {err}");}
         if let Err(err)=self.scene.set_tree_detail(settings.interface.get_string("treeDetail")!="original"){eprintln!("battle settings: tree detail not applied: {err}");}
         if let Err(err)=self.scene.set_vehicle_blur(settings.interface.get_bool("vehicleMotionBlur")){eprintln!("battle settings: vehicle blur not applied: {err}");}
         if let Err(err)=self.scene.set_lamp_lighting(settings.interface.get_bool("lampLighting")){eprintln!("battle settings: lamp lighting not applied: {err}");}
@@ -1722,35 +2090,29 @@ impl BattleController {
                 destruction: settings.interface.get_string("destructionEffects") == "enhanced",
             });
         }
-        let empty = std::collections::BTreeMap::new();
-        let kb = settings
-            .interface
-            .get_bindings_ref("keyBindings")
-            .unwrap_or(&empty);
-        let fb = settings
-            .interface
-            .get_bindings_ref("flightBindings")
-            .unwrap_or(&empty);
-        self.input.set_bindings(kb, fb);
-        let flight = bfe_interface::flight_bindings(Some(fb));
-        let takeoff = flight
-            .get("takeoff")
-            .and_then(|codes| codes.first())
-            .map_or("", String::as_str);
-        self.scene.set_flight_hud_key(&bfe_interface::key_name(takeoff));
+        let family = self.authority.family();
+        self.input.set_profile(family, &settings.interface);
+        if let Some(live) = &mut self.mission_screen {
+            live.apply_bindings(&settings.interface);
+        }
+        let strings = self.scene.online.as_ref().map(|replicas| &replicas.hud.strings);
+        let caption = super::control_strings::takeoff_caption(family, &settings.interface, |key| {
+            strings?.get(&bfe_content::odf::fnv(key)).map(String::as_str)
+        });
+        self.scene.set_flight_hud_key(&caption);
         let f_scale = settings.interface.get_f64("flightSensitivity");
-        self.input.flight_scale = if f_scale.is_finite() && f_scale > 0.0 {
+        self.input.device.flight_scale = if f_scale.is_finite() && f_scale > 0.0 {
             f_scale.clamp(0.2, 3.0)
         } else {
             1.0
         };
         let f_curve = settings.interface.get_f64("flightResponseCurve");
-        self.input.flight_curve = if f_curve.is_finite() && f_curve > 0.0 {
+        self.input.device.flight_curve = if f_curve.is_finite() && f_curve > 0.0 {
             f_curve.clamp(1.0, 3.0)
         } else {
             1.35
         };
-        self.input.flight_invert = settings.interface.get_bool("flightInvertY");
+        self.input.device.flight_invert = settings.interface.get_bool("flightInvertY");
         self.death_classic = settings.interface.get_string("deathCamera") == "classic";
         let first = settings.interface.get_bool("flightFirstPerson");
         match &mut self.authority {
@@ -1759,16 +2121,31 @@ impl BattleController {
         }
     }
 
+    fn sync_swbf2_context(&mut self) {
+        if self.authority.family() != GameFamily::Swbf2 { return; }
+        let receiver = match &self.authority {
+            BattleAuthority::InstantAction { receiver, .. } => &**receiver,
+            BattleAuthority::Online { client, .. } => &client.receiver,
+        };
+        let classes = self.scene.online.as_ref().map_or(&[][..], |r| r.hud.class_meta.as_slice());
+        self.input.set_context(swbf2_context(receiver, classes));
+    }
+
     fn take_step_command(
         &mut self,
         generation: u32,
         active_gameplay: bool,
         settings: &AppSettingsStore,
-    ) -> (ClientCommand, ClientLook, ClientFlightCommand, ViewActions) {
+    ) -> (ClientCommand, ClientLook, ClientFlightCommand, ViewActions, crate::input::Swbf2Actions) {
         self.sync_input_settings(settings);
+        self.sync_swbf2_context();
         self.input_tick = self.input_tick.wrapping_add(1);
-        self.input.sample(self.input_tick, generation, active_gameplay,
-            self.aspect, settings.interface.mouse_scale(), settings.player.shell.invert_y)
+        // The transport revision can consume the resolved 2005 actions at this boundary.
+        let ((command, look, flight, view), actions) = self.input.sample_battle(
+            self.input_tick, generation, active_gameplay,
+            self.aspect, settings.interface.mouse_scale(), settings.player.shell.invert_y,
+        );
+        (command, look, flight, view, actions)
     }
 
     /// Steps the battle simulation/network client and renders one complete frame into
@@ -1900,16 +2277,7 @@ impl BattleController {
         // must not gate a server restart or a notification preceding game-over.
         if let BattleAuthority::Online { client, launch, .. } = &self.authority {
             if client.rotation_ready {
-                let mut launch = launch.clone();
-                if let Some(next) = &client.receiver.next_match {
-                    let query = bfe_content::mission::Query::parse(&next.query);
-                    launch.map = query.get("map").into();
-                    launch.side = query.get("side").into();
-                } else {
-                    // Turned away because the server changed battle meanwhile: which battle it
-                    // runs now is known once it answers (the loading screen follows then).
-                    launch.map.clear();
-                }
+                let launch = next_online_launch(launch, client.receiver.next_match.as_ref());
                 eprintln!("online match ready: map={} side={}", launch.map, launch.side);
                 return Ok(Some(BattleTransition::NextOnlineBattle { launch }));
             }
@@ -1943,7 +2311,7 @@ impl BattleController {
             };
         }
 
-        let ui_captures_input = self.spawn_ctrl.is_open()
+        let ui_captures_input = self.mission_overlay() || self.spawn_ctrl.is_open()
             || self.scoreboard_ctrl.model.is_open()
             || self.pause_menu.is_open
             || self.chat.is_open();
@@ -1980,18 +2348,23 @@ impl BattleController {
 
         let (generation, flight_mode) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
-                (receiver.own.generation as u32, receiver.in_aircraft())
+                (receiver.own.generation as u32, receiver.uses_flight_controls())
             }
             BattleAuthority::Online { client, .. } => {
-                (client.generation(), client.receiver.in_aircraft())
+                (client.generation(), client.receiver.uses_flight_controls())
             }
         };
-        self.input.flight_mode = flight_mode;
+        if self.authority.family() == GameFamily::Swbf1 {
+            self.input.device.flight_mode = flight_mode;
+        } else {
+            self.sync_swbf2_context();
+        }
         let mut step_cmds: [Option<(
             ClientCommand,
             ClientLook,
             ClientFlightCommand,
             ViewActions,
+            crate::input::Swbf2Actions,
         )>; MAX_FRAME_STEPS] = std::array::from_fn(|_| None);
         for slot in step_cmds.iter_mut().take(steps) {
             *slot = Some(self.take_step_command(generation, active_gameplay, settings));
@@ -1999,9 +2372,9 @@ impl BattleController {
         // Mouse motion those steps did not take (a frame between two ticks,
         // which is most frames above 60 a second): the view turns by it in
         // this frame, and the next step's command carries the same counts.
-        let loose = if active_gameplay { self.input.loose_look() } else { ClientLook::default() };
+        let loose = if active_gameplay { self.input.device.loose_look() } else { ClientLook::default() };
         let (mouse_scale, invert_mouse) = (settings.interface.mouse_scale(), settings.player.shell.invert_y);
-        for (_, _, _, actions) in step_cmds.iter().flatten() {
+        for (_, _, _, actions, _) in step_cmds.iter().flatten() {
             if actions.map {
                 self.scene.bridge.hud_model_observe(
                     bfe_render::hud_model::layout::HudCommand::TOGGLE_MAP,
@@ -2036,11 +2409,12 @@ impl BattleController {
                 // Stopped means what stops the world below: the pause menu or
                 // a hidden window. An unfocused window's world plays on and
                 // must keep getting commands (empty ones: input is shut).
-                let halted = self.pause_menu.is_open || hidden;
+                let result_shown = self.mission_screen.is_some() && receiver.mission_score.is_some_and(|s| s.outcome.is_some());
+                let halted = self.pause_menu.is_open || hidden || result_shown;
                 if !halted {
                     *now_ms += dt * 1000.0;
                 }
-                world.set_paused(self.pause_menu.is_open);
+                world.set_paused(self.pause_menu.is_open || result_shown);
                 // As the client's local world thread: a battle without the window's
                 // focus plays on (a released mouse opens the pause menu, which
                 // freezes it); only a hidden window suspends it.
@@ -2056,12 +2430,12 @@ impl BattleController {
                 sender.local_lateness(world.command_counts()[2]);
                 receiver.clock.advance(dt).map_err(str::to_string)?;
 
-                camera.set_flight_mode(receiver.in_aircraft());
+                camera.set_flight_mode(receiver.uses_flight_controls());
                 let mut held_now = 0;
-                for (mut cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
+                for (mut cmd, look, flight, actions, extra) in step_cmds.into_iter().flatten() {
                     if actions.perspective {
                         camera.first_person = !camera.first_person;
-                        if receiver.in_aircraft() {
+                        if receiver.uses_flight_controls() {
                             settings.interface.set("flightFirstPerson", camera.first_person);
                         }
                     }
@@ -2073,8 +2447,18 @@ impl BattleController {
                     }
                     self.keys_released = halted;
                     cmd.first_person = Some(camera.first_person);
+                    // A Space battle's pilot controls ride beside the command to the Space seat driver.
+                    let pilot_controls = (receiver.control_family == GameFamily::Swbf2 && receiver.space.is_some())
+                        .then(|| crate::local::space::controls(&cmd, &look, &flight, extra.use_held));
+                    let infantry_controls = (receiver.control_family == GameFamily::Swbf2).then_some(bfe_sim::units::infantry::Controls {
+                        sprint: extra.sprint, roll: extra.roll, block: extra.block, block_pressed: extra.block_pressed,
+                        melee_held: extra.melee_held, melee_pressed: extra.melee_pressed,
+                        offhand_pressed: extra.offhand_pressed,
+                        lock_pressed: extra.target_lock,
+                        hold_to_block: settings.player.swbf2_hold_to_block.unwrap_or(false),
+                    });
                     sender.local_next_tick(world.latest_tick() + 1.);
-                    sender.tick(&cmd, &look, &flight, receiver, 0.0, *now_ms);
+                    sender.tick_with_infantry(&cmd, &look, &flight, infantry_controls, receiver, 0.0, *now_ms);
                     // The world takes each command at the tick the sender stamped
                     // it for and acknowledges its sequence; prediction replays the
                     // same stamps, so the two agree.
@@ -2083,12 +2467,14 @@ impl BattleController {
                     self.commands_sent += 1;
                     held_now = cmd.held;
                     world.send(WorldMessage::Step {
+                        infantry: infantry_controls,
+                        pilot: pilot_controls,
                         command: cmd,
                         look,
                         flight,
                         view_tick: crate::online::clock::rendered_tick(receiver.clock.shown, receiver.latest),
                         fire_aim: sender.fire_aim,
-                        flight_mode: receiver.in_aircraft(),
+                        flight_mode: receiver.uses_flight_controls(),
                     });
                 }
                 if !halted {
@@ -2110,8 +2496,13 @@ impl BattleController {
                 sender.set_loose(&loose, mouse_scale, invert_mouse, alpha_interp);
                 sender.preview(receiver);
                 sender.ease_walker_turn(receiver, dt);
-                replay.frame(receiver, sender);
-                replay.present(alpha_interp, dt, &sender.history.loose, &receiver.own);
+                if receiver.infantry_view.is_some() {
+                    replay.present_local_infantry(receiver, sender);
+                } else {
+                    replay.frame(receiver, sender);
+                    sender.note_replayed_state(replay.body.as_ref().and_then(|_| replay.swbf2_state()));
+                    replay.present(alpha_interp, dt, &sender.history.loose, &receiver.own);
+                }
                 crate::app::trace_own_aim(receiver, sender, replay);
                 if let Some(hull) = &replay.fleet.state {
                     let offset = replay.fleet.offset();
@@ -2162,11 +2553,19 @@ impl BattleController {
                 if let Err(err) = client.receive(dt) {
                     return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                 }
-                for (cmd, look, flight, actions) in step_cmds.into_iter().flatten() {
+                if client.sits_out() {
+                    return Ok(Some(BattleTransition::SitOutOnline));
+                }
+                for (mut cmd, look, flight, actions, extra) in step_cmds.into_iter().flatten() {
+                    if client.receiver.control_family == GameFamily::Swbf2 {
+                        extra.put(&mut cmd);
+                        client.sender.soldier = extra.soldier(settings.player.swbf2_hold_to_block.unwrap_or(false));
+                        client.sender.use_held = extra.use_held;
+                    }
                     if let Err(err) = client.step(&cmd, &look, &flight, &actions, STEP) {
                         return Ok(Some(BattleTransition::LeaveOnline { reason: Some(err) }));
                     }
-                    if actions.perspective && client.receiver.in_aircraft() {
+                    if actions.perspective && client.receiver.uses_flight_controls() {
                         settings.interface.set("flightFirstPerson", client.camera.first_person);
                     }
                 }
@@ -2211,7 +2610,12 @@ impl BattleController {
                 BattleAuthority::InstantAction { receiver, .. } => receiver,
                 BattleAuthority::Online { client, .. } => &client.receiver,
             };
-            super::bench::drawn_note(self.input.pointer_metrics().0, receiver.latest, receiver.own.id);
+            super::bench::drawn_note(
+                self.input.pointer_metrics().0,
+                receiver.latest,
+                receiver.own.id,
+                receiver.own.generation,
+            );
         }
         let (own_alive, own_dead, own_removed, game_over) = match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
@@ -2268,6 +2672,7 @@ impl BattleController {
         // completes (phase == Awaiting, corpse removed). Opening early hides
         // DeathShot and causes COMMIT_WAIT (1.0 s) to cancel an early SPAWN click.
         if self.death_screen_pending
+            && (self.authority.family() == GameFamily::Swbf1 || self.mission_screen.is_some())
             && !own_alive
             && !self.scene.online.as_ref().is_some_and(|r| r.hud.over)
         {
@@ -2322,7 +2727,21 @@ impl BattleController {
         if settings.interface.get_bool("showStats") {
             self.update_stats_line();
         }
-        if overlay_active {
+        let mission_drawn = if let (Some(screen),Some(replicas)) =
+            (&mut self.mission_screen,&self.scene.online) {
+            let receiver = self.authority.receiver();
+            if receiver.mission_score.is_some_and(|s|s.outcome.is_some()) {
+                view = *screen.end_camera.get_or_insert(view);
+            }
+            screen.set_theme(&self.pause_page.theme);
+            screen.apply_bindings(&settings.interface);
+            !self.pause_menu.is_open && !self.chat.is_open() && !self.spawn_ctrl.is_open() && screen.draw_live(receiver,&replicas.hud,&view,
+                self.spawn_ctrl.view.map_proj,&mut self.scene.bridge.hud_model.batch,self.size,
+                alpha_interp as f32)
+        } else {false};
+        if mission_drawn {
+            if !overlay_active && self.frames>2 {self.steady_frames+=1;}
+        } else if overlay_active {
             self.sync_ports_cold(&settings.player.profile_name);
             self.update_and_build_overlays(dt);
         } else {
@@ -2333,7 +2752,7 @@ impl BattleController {
             }
         }
 
-        let full_sync = self.frames == 0 || self.overlay_was_active || overlay_active;
+        let full_sync = mission_drawn || self.frames == 0 || self.overlay_was_active || overlay_active;
         self.overlay_was_active = overlay_active;
         self.scene.bridge.hud_sync_batch(full_sync);
 
@@ -2343,7 +2762,7 @@ impl BattleController {
         let page_spawn=self.page_battle.spawn&&self.spawn_ctrl.is_open()&&!self.pause_menu.is_open;
         let page_score=self.page_battle.scoreboard&&self.scoreboard_ctrl.model.is_open()&&!self.pause_menu.is_open;
         let pause_groups=self.scene.bridge.r.hud.input[render_hud::IN_GROUPS];
-        if self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
+        if (self.authority.family() == GameFamily::Swbf2 && !mission_drawn) || self.pause_menu.is_open||page_spawn||page_score {self.scene.bridge.r.hud.input[render_hud::IN_GROUPS]=0.;}
         if page_spawn {self.page_battle.direct(&mut view);}
         let motion=match &self.authority{BattleAuthority::InstantAction{replay,..}=>replay.fleet.vehicle_motion(),BattleAuthority::Online{client,..}=>client.replay.fleet.vehicle_motion()};
         self.scene.vehicle_motion(motion.0,motion.1,dt)?;
@@ -2410,30 +2829,35 @@ impl BattleController {
     /// so string/vector cloning inside `ScoreboardPort` and `SpawnPort` never allocates
     /// during steady-state combat rendering.
     fn sync_ports_cold(&mut self, profile_name: &str) {
+        let previous_team = self.spawn_port.human.team;
+        let fed = self.feed_launcher();
         let Some(replicas) = &self.scene.online else {
             return;
         };
         match &self.authority {
             BattleAuthority::InstantAction { receiver, .. } => {
-                self.spawn_port.sync_from_hud(
-                    &replicas.hud.teams,
-                    &replicas.hud.post_meta,
-                    &replicas.hud.own_summary,
-                    receiver.own.alive,
-                    receiver.own.team,
-                );
+                if !fed {
+                    self.spawn_port.sync_from_hud(
+                        &replicas.hud.teams,
+                        &replicas.hud.post_meta,
+                        &replicas.hud.own_summary,
+                        receiver.own.alive,
+                        receiver.own.team,
+                    );
+                }
                 self.scoreboard_port
                     .sync_from_state(profile_name, &replicas.hud, receiver);
             }
             BattleAuthority::Online { client, .. } => {
-                let previous_team = self.spawn_port.human.team;
-                self.spawn_port.sync_from_hud(
-                    &replicas.hud.teams,
-                    &replicas.hud.post_meta,
-                    &replicas.hud.own_summary,
-                    client.receiver.own.alive,
-                    client.receiver.own.team,
-                );
+                if !fed {
+                    self.spawn_port.sync_from_hud(
+                        &replicas.hud.teams,
+                        &replicas.hud.post_meta,
+                        &replicas.hud.own_summary,
+                        client.receiver.own.alive,
+                        client.receiver.own.team,
+                    );
+                }
                 // follows the authoritative teamChanged
                 // event even when its initial screen opened before welcome.
                 if self.spawn_port.human.team != previous_team {
@@ -2703,6 +3127,23 @@ impl BattleController {
         let line = &mut self.scene.bridge.hud_model.stats_line;
         line.len = 0;
         let _ = write!(line, "{fps:.0} fps | mean frame {:.2} ms | {}x{} Native", mean * 1000., self.size[0], self.size[1]);
+        let overflow = &self.scene.bridge.r.instances.overflow;
+        if overflow.total_drops() > 0 {
+            let _ = write!(
+                line,
+                " | clipped rec={} row={} blend={} bone={}",
+                overflow.dropped_records,
+                overflow.dropped_rows,
+                overflow.dropped_blended,
+                overflow.dropped_bones,
+            );
+            if overflow.dropped_caster_skins > 0 {
+                let _ = write!(line, " skin={}", overflow.dropped_caster_skins);
+            }
+            if overflow.dropped_motion > 0 {
+                let _ = write!(line, " motion={}", overflow.dropped_motion);
+            }
+        }
     }
 
     // Pausing is a cold diagnostic boundary: record the actual displayed view
@@ -2730,7 +3171,7 @@ impl BattleController {
             camera.aim(), camera.first_person, sender.command_sequence(), receiver.corrected_sequence,
             receiver.own.alive, receiver.own.mount, receiver.own.body_schema,
             self.input.pointer_metrics().0, self.input.pointer_metrics().1,
-            self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.0));
+            self.scene.online.as_ref().and_then(|scene| scene.turns.get(receiver.own.class)).map_or(0., |turn| turn.max_turn));
         eprintln!(
             "motion view: fovY={} aspect={} size={:?} prediction={:?} displayed={:?} fault={:?}",
             (2. * (1. / camera.snapshot().values[5]).atan()).to_degrees(),
@@ -2803,6 +3244,51 @@ impl BattleController {
         repeat: bool,
         settings: &mut AppSettingsStore,
     ) {
+        if self.authority.family() == GameFamily::Swbf2 {
+            if let Some(trigger) = InputTrigger::from_dom_code(code) {
+                if self.handle_overlay_binding(trigger, down, repeat, settings) { return; }
+            }
+        }
+        let allow_chat = self.authority.family() == GameFamily::Swbf1 && !self.modifiers_chat;
+        self.handle_device_key(code, down, repeat, allow_chat, settings);
+    }
+
+    fn handle_overlay_binding(&mut self, trigger: InputTrigger, down: bool, repeat: bool, settings: &mut AppSettingsStore) -> bool {
+        if self.authority.family() != GameFamily::Swbf2 { return false; }
+        self.sync_input_settings(settings);
+        self.sync_swbf2_context();
+        if !self.pause_menu.is_open && !self.chat.is_open() && !self.spawn_ctrl.is_open() {
+            if let (Some(screen),Some(replicas)) =
+                (&mut self.mission_screen,&self.scene.online) {
+                let receiver = self.authority.receiver();
+                if screen.event(receiver,&replicas.hud,self.spawn_ctrl.view.map_proj,&mut self.input,trigger,down,repeat,self.cursor_px,
+                    &mut self.scoreboard_port.done_triggered) {
+                    return true;
+                }
+            }
+        }
+        let overlays = shortcuts::Overlays {
+            chat: self.chat.is_open(), pause: self.pause_menu.is_open,
+            spawn: self.spawn_ctrl.is_open(), scoreboard: self.scoreboard_ctrl.model.is_open(),
+        };
+        match overlays.route(&mut self.input, trigger, down, repeat, self.modifiers_chat) {
+            shortcuts::Route::Physical => false,
+            shortcuts::Route::Gameplay(key) => {
+                if !repeat { self.input.key_with_modifiers(key, down, self.modifiers_shift_or_ctrl); }
+                true
+            }
+            shortcuts::Route::MenuKey(key) => {
+                self.handle_device_key(key, down, repeat, true, settings);
+                true
+            }
+            shortcuts::Route::ReleaseRoster => {
+                self.scoreboard_ctrl.input.held.remove("Tab");
+                false
+            }
+        }
+    }
+
+    fn handle_device_key(&mut self, code: &str, down: bool, repeat: bool, allow_chat: bool, settings: &mut AppSettingsStore) {
         self.sync_input_settings(settings);
 
         // Always update held-key tracking on keyup for SpawnScreen (`Space`/`Tab`) and
@@ -2858,14 +3344,14 @@ impl BattleController {
         }
         if down
             && !repeat
-            && !self.modifiers_chat
+            && allow_chat
             && !self.pause_menu.is_open
             && matches!(code, "KeyT" | "KeyY")
         {
             let act = route_battle_key(
                 code,
                 repeat,
-                self.modifiers_chat,
+                false,
                 &mut self.chat,
                 self.spawn_ctrl.is_open(),
                 self.scoreboard_ctrl.model.is_open(),
@@ -3098,8 +3584,9 @@ impl BattleController {
         &mut self,
         button: u8,
         down: bool,
-        settings: &AppSettingsStore,
+        settings: &mut AppSettingsStore,
     ) {
+        if self.handle_overlay_binding(InputTrigger::Mouse(button), down, false, settings) { return; }
         let pt = to_interface(
             self.cursor_px[0],
             self.cursor_px[1],
@@ -3182,6 +3669,7 @@ impl BattleController {
         }
 
         self.sync_input_settings(settings);
+        self.sync_swbf2_context();
         let mb = match button {
             0 => MouseButton::Left,
             1 => MouseButton::Middle,
@@ -3198,7 +3686,14 @@ impl BattleController {
     /// Scrolls the spawn class/post list when `SpawnScreenController` is open,
     /// scrolls the scoreboard table when `ScoreboardController` is open, or cycles
     /// the player's active weapon slot in `self.input` during 3D combat.
-    pub fn handle_wheel(&mut self, delta_y: f64) {
+    pub fn handle_wheel(&mut self, delta_y: f64, settings: &mut AppSettingsStore) {
+        if !self.spawn_ctrl.is_open() && !self.scoreboard_ctrl.model.is_open() && delta_y != 0. {
+            let trigger = if delta_y < 0. { InputTrigger::WheelUp } else { InputTrigger::WheelDown };
+            if self.handle_overlay_binding(trigger, true, false, settings) {
+                self.handle_overlay_binding(trigger, false, false, settings);
+                return;
+            }
+        }
         if self.spawn_ctrl.is_open() {
             self.spawn_ctrl
                 .input
@@ -3210,6 +3705,7 @@ impl BattleController {
         } else if !self.pause_menu.is_open {
             // `delta_y` follows DOM `WheelEvent.deltaY` (`< 0` up, `> 0` down), whereas
             // `Input::wheel(y)` expects `> 0` for `WheelUp` (`NextPrimary`) and `< 0` for `WheelDown`.
+            self.sync_swbf2_context();
             self.input.wheel(-delta_y);
         }
     }
@@ -3329,8 +3825,35 @@ fn reset_hud_layer(input: &mut [f64]) {
 mod tests {
     use super::*;
     #[test]
+    fn controls_follow_the_owned_class_and_occupied_seat() {
+        use bfe_presentation::network_layout::net_kind;
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        let class = HudClassMeta { jedi_controls: true, registry_id: 7, team: 1, roster_order: 0,
+            side: String::new(), class_name: String::new(), display_name: String::new(), weapons: vec![] };
+        let classes = [class];
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Infantry);
+        receiver.own.class = 7;
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Jedi);
+        receiver.own.mount_kind = net_kind::VEHICLE;
+        receiver.own.mount = Some((4, 2, 0));
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Vehicle);
+        receiver.own.flight = Some(1);
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Starfighter);
+        receiver.own.mount = Some((4, 2, 1));
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Turret);
+        receiver.own.mount_kind = net_kind::TURRET;
+        receiver.own.mount = Some((4, 2, 0));
+        assert_eq!(swbf2_context(&receiver, &classes), ControlContext::Turret);
+        // A space craft's seats agree with the battle screen's: only the pilot flies.
+        assert_eq!(space_seat_context(Some(3), 0), Some(ControlContext::Starfighter));
+        assert_eq!(space_seat_context(Some(3), 2), Some(ControlContext::Turret));
+        assert_eq!(space_seat_context(None, 2), None);
+    }
+
+    #[test]
     fn mission_team_order_drives_spawn_classes() {
         let class = |team, side: &str, name: &str, id, order| HudClassMeta {
+            jedi_controls: false,
             team,
             side: side.into(),
             class_name: name.into(),
@@ -3529,6 +4052,30 @@ impl Drop for BattleController {
 mod startup_policy_tests {
     use super::initial_policy;
     #[test]
+    #[ignore = "requires the prepared mission_setup_fixture.py test copy and BFE_DEV_SWBF2_IA=1"]
+    fn a_setup_draw_reaches_the_menu_loading_error_before_opening_a_scene() {
+        use super::*;
+        let root = std::path::PathBuf::from(std::env::var_os("BFE_SETUP_TEST_CONTENT").unwrap());
+        // The menu hands Instant Action the content folder, which holds the 2005 copy at
+        // swbf2/.content, so the test copy must be made there.
+        let folder = root.parent().and_then(std::path::Path::parent).unwrap();
+        assert_eq!(bfe_content::layout::family_dir(folder, GameFamily::Swbf2), root,
+            "BFE_SETUP_TEST_CONTENT must name <folder>/swbf2/.content");
+        assert!(super::super::instant::enabled(), "the 2005 battles open only with BFE_DEV_SWBF2_IA=1");
+        let mut request = BattleRequest::single("swbf2/tat2", Some("gcw")).unwrap();
+        request.mode = "eli".into();
+        let textures = crate::scene::TextureOptions { compressed: false, max_size: 512, capabilities: 0 };
+        let error = BattleController::prepare_instant_action(folder, request, 0, &BotSettings::default(),
+            "Player", textures, |_| panic!("setup draw sent a scene")).err().unwrap();
+        let common: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("common/common.json")).unwrap()).unwrap();
+        let label = |key| common["strings"][bfe_content::zero_hash::fnv1a_hex(key)].as_str().unwrap();
+        let expected = format!("{} ({}) could not start. The battle ended in a draw.",
+            label("mapname.name.tat2"), label("modename.name.elimination"));
+        assert!(error.contains(&expected), "{error}");
+        assert!(!error.contains("tat2g_eli"));
+    }
+
+    #[test]
     fn menu_launch_uses_the_selected_missions_roster_for_both_eras() {
         let source = serde_json::json!({"missions": {
             "battle_cw": {"mission": {"era": "cw", "sides": ["cis", "rep"], "teams": {
@@ -3574,5 +4121,296 @@ impl BotSettings {
             size: settings.get_string("battleSize"),
             friendly_fire: settings.get_bool("friendlyFire"),
         }
+    }
+}
+
+#[cfg(test)]
+mod family_tests {
+    use super::{BattleController, BotSettings};
+    use bfe_shell::launch::{parse_rotation, BattleRequest, GameFamily};
+
+    const UNAVAILABLE: &str = "Battlefront II (2005) is not available in this build";
+
+    fn prepare(request: BattleRequest, index: usize) -> String {
+        let textures = crate::scene::TextureOptions { compressed: false, max_size: 0, capabilities: 0 };
+        let root = std::path::Path::new("/nonexistent/content");
+        BattleController::prepare_instant_action(root, request, index, &BotSettings::default(), "Pilot", textures, |_| {})
+            .err()
+            .unwrap_or_default()
+    }
+
+    // The planned battle is what preparation plays and what the loading screen shows.
+    #[test]
+    fn a_2004_playlist_slot_keeps_the_released_precedence() {
+        // The current entry wins over a top-level override of the same game, as released.
+        let request = BattleRequest::from_rotation(Some("hot1"), Some("gcw"), parse_rotation(Some("swbf1/nab2:rep:conquest")), 0, false).unwrap();
+        let planned = request.battle_at(0);
+        assert_eq!((planned.family, planned.map, planned.era), (GameFamily::Swbf1, "nab2", Some("rep")));
+        let request = BattleRequest::from_rotation(Some("tat2"), Some("gcw"), parse_rotation(Some("swbf1/tat2:cw:duel")), 0, false).unwrap();
+        assert_eq!(request.battle_at(0).era, Some("cw"));
+        // A 2004 battle reaches its content (missing here) whatever its mode.
+        let long = format!("swbf1/nab2:cw:{}", "m".repeat(65));
+        for list in [long.as_str(), "swbf1/nab2:cw:duel", "nab2:rep"] {
+            let request = BattleRequest::from_rotation(None, None, parse_rotation(Some(list)), 0, false).unwrap();
+            assert_eq!(prepare(request, 0), "missing map mission metadata", "{list}");
+        }
+    }
+
+    #[test]
+    fn a_2005_battle_is_refused_before_content_whichever_way_it_is_reached() {
+        let mixed = parse_rotation(Some("swbf1/tat2:gcw:conquest,swbf2/tat2:gcw:eli"));
+        let first = BattleRequest::from_rotation(None, None, mixed.clone(), 0, false).unwrap();
+        assert_eq!(prepare(first.clone(), 0), "missing map mission metadata");
+        assert_eq!(prepare(first.next(|| 0.5), 1), UNAVAILABLE);
+        assert_eq!(prepare(first, 1), UNAVAILABLE, "a direct index plays that slot");
+        // An override naming the other game plays the override.
+        let over = BattleRequest::from_rotation(Some("swbf2/tat2"), None, parse_rotation(Some("swbf1/tat2:gcw:conquest")), 0, false).unwrap();
+        assert_eq!(over.battle_at(0).family, GameFamily::Swbf2);
+        assert_eq!(prepare(over, 0), UNAVAILABLE);
+        let back = BattleRequest::from_rotation(Some("swbf1/tat2"), None, parse_rotation(Some("swbf2/tat2:gcw:eli")), 0, false).unwrap();
+        let planned = back.battle_at(0);
+        assert_eq!((planned.family, planned.mode), (GameFamily::Swbf1, "conquest"));
+        assert_eq!(prepare(back, 0), "missing map mission metadata");
+        let bare = BattleRequest::from_rotation(Some("tat2"), None, parse_rotation(Some("swbf2/tat2:gcw:eli")), 0, false).unwrap();
+        assert_eq!(prepare(bare, 0), UNAVAILABLE);
+    }
+
+    // Serves one body to every connection and counts the connections.
+    fn info_server(body: String) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = asked.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(8) {
+                let Ok(mut stream) = stream else { continue };
+                count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request);
+                let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            }
+        });
+        (address, asked)
+    }
+
+    // A reply naming a battle this build will not join ends the join: the same server's
+    // other addresses name the same battle, and are not asked. A 2005 battle, which this
+    // build does not play, is joined to sit it out at the address that answered.
+    #[test]
+    fn a_refused_battle_is_not_asked_of_another_address() {
+        use bfe_transport::layout::network_contract as contract;
+        let dir = std::env::temp_dir().join(format!("bfe-family-addresses-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let paths = bfe_desktop::paths::DesktopPaths {
+            user_data_dir: dir.clone(),
+            user_data: dir.clone(),
+            managed_content_dir: dir.join("game-data"),
+            content_root: dir.clone(),
+            settings_file: dir.join("desktop-settings.json"),
+            player_settings_file: dir.join("player-settings.json"),
+            timings_file: dir.join("prepare-timings.json"),
+            prepare_log_file: dir.join("prepare.log"),
+            update_root: None,
+            project_root: dir.clone(),
+        };
+        let settings = crate::app::settings::AppSettingsStore::load(paths);
+        let id = "ab".repeat(32);
+        let reply = |extra: &str| {
+            format!(
+                r#"{{"id":"{id}","protocol":{},"profile":"{}","simulation":"{}","content":"c","query":"?map=tat2&side=all&match={}"{extra}}}"#,
+                contract::PROTOCOL,
+                contract::PROFILE,
+                contract::SIMULATION,
+                "4".repeat(32)
+            )
+        };
+        for (refusing, sits_out) in [(r#","battle":{"family":"swbf2"}"#, true), (r#","battle":{"family":"swbf9"}"#, false),
+            (r#","rotation":[{"family":"swbf1","map":"swbf2/tat2"}]"#, false)] {
+            let (first, _) = info_server(reply(refusing));
+            let (second, asked) = info_server(reply(""));
+            let (host, port) = first.rsplit_once(':').unwrap();
+            let launch = super::MultiplayerLaunch {
+                kind: bfe_shell::screens::MultiplayerKind::Online,
+                server_id: id.clone(),
+                family: GameFamily::Swbf1,
+                map: "tat2".into(),
+                side: "all".into(),
+                era: "gcw".into(),
+                mode: "conquest".into(),
+                address: Some(host.into()),
+                port: Some(port.parse().unwrap()),
+                relay_always: false,
+                fallbacks: vec![second],
+                player_name: "Pilot".into(),
+                refused: None,
+            };
+            let textures = crate::scene::TextureOptions { compressed: false, max_size: 0, capabilities: 0 };
+            let root = std::path::Path::new("/nonexistent/content");
+            let prepared = BattleController::prepare_online(root, launch, None, &settings, textures, |_, _| {});
+            if sits_out {
+                let admission = prepared.unwrap_or_else(|refused| panic!("{refusing}: {refused}"));
+                assert!(admission.sit_out().is_ok(), "{refusing}: sat out, with no scene");
+            } else {
+                let refused = prepared.err().unwrap_or_default();
+                assert!(refused.contains("does not know") || refused.contains("two games"), "{refusing}: {refused}");
+            }
+            assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 0, "{refusing}: the second address is not asked");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn mission_screen_deployment_keeps_auto_spawn_off() {
+        let mut receiver = crate::online::receiver::Receiver::new(serde_json::Value::Null);
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.team = 1;
+        let mut sender = crate::online::input::Sender::default();
+        sender.auto_spawn = false;
+        super::dispatch_online_spawn(&mut sender, &receiver, true, 1, 5, 3);
+        assert!(!sender.auto_spawn, "mission screen deployments must keep automatic spawn off");
+        let mut classic = crate::online::input::Sender::default();
+        classic.auto_spawn = false;
+        super::dispatch_online_spawn(&mut classic, &receiver, false, 1, 5, 3);
+        assert!(classic.auto_spawn, "released spawn screen keeps its existing auto_spawn transition");
+    }
+}
+
+fn dispatch_online_spawn(
+    sender: &mut crate::online::input::Sender,
+    receiver: &crate::online::receiver::Receiver,
+    mission_screen: bool,
+    team: u8,
+    class_reg_id: usize,
+    post_reg_id: usize,
+) {
+    // A mission's screens own every deployment; flipping automatic spawning
+    // on once a soldier has deployed would let a dead press bypass them.
+    if !mission_screen {
+        sender.auto_spawn = true;
+    }
+    sender.spawned = false;
+    if receiver.own.team != 0 && receiver.own.team != team {
+        sender.request_team(receiver, team);
+    }
+    // SpawnModel.commit names the selected authored class and
+    // post. Index zero is a real first class, not an instruction
+    // to discard its post and ask the server to pick another.
+    sender.request_spawn(receiver, team, class_reg_id, post_reg_id);
+}
+
+#[cfg(test)]
+#[path = "../../../bfe-server/tests/common/mod.rs"]
+mod invented;
+
+#[cfg(test)]
+mod offered_content_tests {
+    use bfe_family::GameFamily;
+
+    // A 2005 join's offered digest and its prediction come from one reading of
+    // the prepared files: a class file replaced after the digest was computed
+    // is not what the battle's content, and so the predictor, is made from.
+    // The invented classes carry energy 50; the replacement says 83.
+    #[test]
+    fn the_offer_and_the_prediction_read_one_generation_of_the_files() {
+        let dir = std::env::temp_dir().join(format!("bfe-client-offered-{}", std::process::id()));
+        let root = dir.join("content");
+        let folder = GameFamily::Swbf2.content_dir(&root);
+        super::invented::invented_battle(&folder);
+        let token = "f".repeat(32);
+        let reply = format!(r#"{{"id":"{}","protocol":0,"profile":"","simulation":"","content":"","query":"?map=swbf2/yard&mode=duel&era=cw&match={token}"}}"#,
+            "ab".repeat(32));
+        let server = crate::online::info::Server::parse(reply.as_bytes()).unwrap();
+        let textures = crate::scene::TextureOptions { compressed: false, max_size: 4096, capabilities: 0 };
+        let energies = |content: &bfe_content_native::BattleContent| {
+            let replay = crate::online::replay::Replay::new(content).unwrap();
+            replay.swbf2_classes.iter().flatten().map(|tuning| tuning.energy_capacity).collect::<Vec<_>>()
+        };
+        let offer = || {
+            let mut selection = server.selection().unwrap();
+            crate::online::info::join_hello(&root, &server, &mut selection, "Pilot", bfe_test_gate::OPEN).unwrap();
+            selection
+        };
+        let digests = bfe_content_native::fingerprint::family_digests();
+        let mut selection = offer();
+        assert_eq!(bfe_content_native::fingerprint::family_digests(), digests + 1, "one digest per offer");
+        let offered = selection.join.as_ref().and_then(|join| join.content.clone()).expect("a client with the map offers its content");
+        // One class file replaced whole, as a preparation would, between the
+        // offer and the scene.
+        let units = folder.join("sides/rep/units.json");
+        let replaced = std::fs::read_to_string(&units).unwrap().replace(r#"["EnergyBar","50"]"#, r#"["EnergyBar","83"]"#);
+        std::fs::write(dir.join("units.json"), replaced).unwrap();
+        std::fs::rename(dir.join("units.json"), &units).unwrap();
+        let played = super::online_content_swbf2(&root, &server, &mut selection, textures).unwrap();
+        assert!(selection.pinned.is_none(), "the pinned files are released once read");
+        let energy = energies(&played);
+        assert!(!energy.is_empty() && energy.iter().all(|&e| e == 50.), "{energy:?}");
+        // The folder now holds another generation: a fresh offer names another
+        // digest, and its content another energy.
+        let mut fresh = offer();
+        assert_ne!(fresh.join.as_ref().and_then(|join| join.content.clone()), Some(offered));
+        let energy = energies(&super::online_content_swbf2(&root, &server, &mut fresh, textures).unwrap());
+        assert!(energy.iter().all(|&e| e == 83.), "{energy:?}");
+        println!("offered generation: energy 50 after the replacement; fresh offer: energy 83");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+fn swbf2_mission_side(era: &str, team: Option<&str>) -> Result<&'static str, String> {
+    let (team1, team2) = if era == "cw" {
+        ("rep", "cis")
+    } else {
+        ("all", "imp")
+    };
+    match team {
+        Some("2") => Ok(team2),
+        Some("1") | None => Ok(team1),
+        Some(_) => Err("invalid mission team".into()),
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use bfe_family::GameFamily;
+
+    fn square(path: &std::path::Path, low: f64, high: f64) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let points = [[low, 0., low], [low, 0., high], [high, 0., high], [high, 0., low]];
+        let nav = serde_json::json!({"boundary": {"references": [{"path": 0}]}, "paths": [{"points": points}]});
+        std::fs::write(path, nav.to_string()).unwrap();
+    }
+
+    // A client holding both games reads the leaving-battlefield boundary of the
+    // battle's own game for a map the games share an id for.
+    #[test]
+    fn a_battle_reads_its_own_games_boundary_for_a_shared_map_id() {
+        let dir = std::env::temp_dir().join(format!("bfe-boundary-{}", std::process::id()));
+        square(&dir.join("maps/shared/ai-nav.json"), 0., 100.);
+        square(&dir.join("swbf2/.content/maps/shared/ai-nav.json"), 1000., 1100.);
+        let feed = |family, map| super::super::leaving::LeavingFeed::load(&super::super::instant::content_root(&dir, family), map);
+        let warning = |family| {
+            let mut feed = feed(family, "shared");
+            (1..=3).map(|tick| feed.alpha(f64::from(tick), Some([50., 0., 50.]))).fold(0., f64::max)
+        };
+        // The point is inside the 2004 square and outside the 2005 one.
+        assert_eq!(warning(GameFamily::Swbf1), 0.);
+        assert!(warning(GameFamily::Swbf2) > 0.);
+        // A 2005 map without a boundary file has no outside, whatever the 2004 map holds.
+        let mut feed = feed(GameFamily::Swbf2, "other");
+        assert_eq!((1..=3).map(|tick| feed.alpha(f64::from(tick), Some([5000., 0., 5000.]))).fold(0., f64::max), 0.);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn swbf2_instant_action_side_matches_selected_era() {
+        assert_eq!(super::swbf2_mission_side("cw", None).unwrap(), "rep");
+        assert_eq!(super::swbf2_mission_side("cw", Some("1")).unwrap(), "rep");
+        assert_eq!(super::swbf2_mission_side("cw", Some("2")).unwrap(), "cis");
+        assert_eq!(super::swbf2_mission_side("gcw", None).unwrap(), "all");
+        assert_eq!(super::swbf2_mission_side("gcw", Some("1")).unwrap(), "all");
+        assert_eq!(super::swbf2_mission_side("gcw", Some("2")).unwrap(), "imp");
+        assert!(super::swbf2_mission_side("cw", Some("3")).is_err());
     }
 }

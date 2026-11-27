@@ -1,0 +1,55 @@
+1	bcdef
+1	
+1	
+1	abcdef
+1	abcdef
+1	
+1	abcdef
+1	cd
+1	abcd
+1	abc
+0	
+0	
+1	102
+1	nil
+2	3 3
+2	1 1
+1	nil
+2	5 5
+1	abab
+1	
+1	
+1	AB
+2	false bad argument #1 to `?' (invalid value)
+2	false bad argument #1 to `?' (invalid value)
+2	-a-b-c- 4
+2	-a-bc 2
+2	abc 0
+2	abc 0
+1	12
+1	0
+2	false bad argument #1 to `?' (interval is empty)
+2	false bad argument #2 to `?' (interval is empty)
+1	35
+1	511
+2	false bad argument #2 to `tonumber' (base out of range)
+2	false bad argument #2 to `tonumber' (base out of range)
+1	4294967296
+1	4294967296
+2	false plain
+1	true
+1	true
+2	false bad argument #1 to `getfenv' (level must be non-negative)
+1	a,b,c
+1	
+1	a,x,b,c,d
+1	x
+1	a,b,c,d
+1	2
+1	-2147483648 -2
+1	-2147483648
+1	100000 0
+1	4294967295
+1	0 0
+1	Hi
+1	   42|-7   |00003

@@ -8,11 +8,15 @@ default-run = "bfe-client"
 description = "Window, input and audio device host for the native renderer"
 
 [dependencies]
+arrayvec = "0.7"
+bfe-wide = { path = "../bfe-wide" }
+smallvec = "1"
 slint.workspace = true
 bfe-ui = { path = "../bfe-ui" }
 i-slint-core.workspace = true
 bfe-render = { path = "../bfe-render" }
 bfe-battle-ui = { path = "../bfe-battle-ui" }
+bfe-family = { path = "../bfe-family" }
 bfe-interface = { path = "../bfe-interface" }
 audio = { path = "../audio" }
 glow = "0.18"
@@ -39,6 +43,7 @@ three = { path = "../three" }
 jsrt = { path = "../jsrt" }
 
 bfe-environment = { path = "../bfe-environment" }
+bfe-storage = { path = "../bfe-storage" }
 
 bfe-transport = { path = "../bfe-transport" }
 bfe-online = { path = "../bfe-online" }
@@ -50,6 +55,12 @@ bfe-desktop = { path = "../bfe-desktop" }
 
 # Native clipboard text only; image support is unnecessary for single-line fields.
 arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+
+[dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }
+# The rotation tests run a server, which hosts 2005 battles under the test-only open gate.
+bfe-server = { path = "../bfe-server" }
+bfe-test-gate = { path = "../bfe-test-gate" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Reuse the Xlib connection behind winit's X11 window; other backends do not load it.

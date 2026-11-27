@@ -7,6 +7,7 @@ mod input;
 #[allow(dead_code)]
 mod layout;
 mod ogg;
+pub use ogg::verified_ogg_page;
 mod resample;
 mod wav;
 

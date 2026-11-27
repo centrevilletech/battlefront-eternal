@@ -91,6 +91,10 @@ pub trait UnitsWorld {
     /// remove(): `if (character.unit === this) character.unit = null` for
     /// the Character he played (the battle's).
     fn let_go_of_character(&mut self, id: u32, unit: &mut Unit);
+    /// Per-map world bounds for 2005 (`GameFamily::Swbf2`) battles. Always
+    /// `None` for 2004 (`GameFamily::Swbf1`), which runs the legacy fixed box.
+    fn carried_in_space(&self, _slot: u32, _life: f64) -> bool { false }
+    fn map_world_bounds(&self) -> Option<super::damage::MapWorldBounds> { None }
     /// remove()'s onRemoved: the factory takes the body back into its
     /// class's pool (UnitFactory.release).
     fn release(&mut self, id: u32, unit: &Unit);

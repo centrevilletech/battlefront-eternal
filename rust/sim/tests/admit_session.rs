@@ -2,19 +2,20 @@
 //! Authored test objects retain aliases, so identical-looking definitions can
 //! prove that source binding uses identity rather than a name or list index.
 use bfe_content::{battle::{Battle, FetchLog, SideFiles}, files::MemFiles, mission::{Policy, Query}, Value as ContentValue};
+use bfe_family::GameFamily;
 use bfe_sim::{gen::*, store::Strings, world::{admit::{rows::{Calls, Cx}, session::*, Options}, owner::World}};
 use serde_json::{json, Value};
 use std::rc::Rc;
 
 fn value(text: &str) -> ContentValue { bfe_content::json::parse(text).unwrap() }
 fn empty() -> ContentValue { value("{}") }
-fn options() -> Options { Options { map: "test".into(), side: "a".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() } }
+fn options() -> Options { Options { map: "test".into(), side: "a".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default(), ..Default::default() } }
 fn side(name: &str, units: &str) -> SideFiles {
     SideFiles { name: name.into(), dir: format!("/sides/{name}"), units_file: empty(), units: value(units), items: empty(),
         weapons: empty(), fire_points: empty(), weapon_buf: Rc::from([]), weapon_index_buf: Rc::from([]), fx: None }
 }
 fn battle() -> Battle {
-    Battle { map: "test".into(), query_text: String::new(), query: Query::parse(""), map_data: empty(), anim_meta: empty(),
+    Battle { family: bfe_content::GameFamily::Swbf1, map: "test".into(), query_text: String::new(), query: Query::parse(""), map_data: empty(), anim_meta: empty(),
         common: empty(), effects: empty(), world: value(r##"{"mission":{"sides":["a","b"]},"commandPosts":[{"name":"home"},{}]}"##),
         policy: Policy { screen: false, side: "a".into(), class_name: "a_soldier".into(), team: 1.0, post: None },
         side: "a".into(), unit: "a_soldier".into(), soldier_def: empty(), anim_buf: Rc::from([]), coll_buf: Rc::from([]),
@@ -23,7 +24,7 @@ fn battle() -> Battle {
         props_coll_poly_buf: None, props_anim_buf: None, vehicle_dir: String::new(), vehicle_def: None, vehicle_bufs: None,
         sides: vec![side("a", r#"{"a_soldier":{"weapons":[{"class":"rifle"},{"class":"rifle"} ]}}"#),
             side("b", r#"{"b_soldier":{"weapons":[{"class":"pistol"}]}}"#), side("unfielded", r#"{"hidden":{"weapons":[{"class":"hidden"}]}}"#)],
-        bodies: Vec::new(), walkers: Vec::new(), nav: None, ai_mission: None, class_data: Vec::new(), nav_bin: None, fetched: FetchLog::default() }
+        bodies: Vec::new(), walkers: Vec::new(), nav: None, ai_mission: None, class_data: Vec::new(), nav_bin: None, fetched: FetchLog::default(), swbf2: None }
 }
 
 #[test]
@@ -66,7 +67,7 @@ fn source_definitions_keep_owner_order_and_object_identity() {
 
 #[test]
 fn welcome_text_matches_property_order_and_escaping() {
-    let registry = Registry { classes: vec!["quote\"\\\n".into()], weapons: Vec::new(), posts: Vec::new(), combat_paths: vec!["[\"sides\",\"a\"]".into()] };
+    let registry = Registry { classes: vec!["quote\"\\\n".into()], weapons: Vec::new(), posts: Vec::new(), combat_paths: vec!["[\"sides\",\"a\"]".into()], family: Default::default() };
     let player = LocalPlayer { unit_id: 7, generation: 2.0, team: 1.0, class_name: "quote\"\\\n".into(), team_select: true, ..Default::default() };
     let packets = Session::welcome(&registry, &player).unwrap();
     assert_eq!(packets[1], r#"{"type":"welcome","epoch":1,"snapshotMode":"snapshot-delta-v1","unitId":7,"playerId":7,"generation":2,"team":1,"className":"quote\"\\\n","spectator":false,"teamSelect":true,"tick":0}"#);
@@ -89,7 +90,7 @@ fn mailbox_player_and_publication_are_owned_by_the_supplied_world() {
         let player = create_player(&mut world, &mut cx, &PlayerSetup { mailbox, reliable_fire: true, separate_actions: true,
             ordinal: 1.0, team: 1.0, team_select: true, ..Default::default() }, &mut calls).unwrap();
         let local = LocalPlayer { mailbox, player, unit_id: 7, generation: 1.0, team: 1.0, class_name: "a_soldier".into(), team_select: true, ..Default::default() };
-        let session = create_host(&mut world, &mut cx, &local, &input, &DefinitionValues::default(), 0.0).unwrap();
+        let session = create_host(&mut world, &mut cx, &local, &input, &DefinitionValues::default(), 0.0, GameFamily::Swbf1).unwrap();
         assert_eq!(session.handles.mailbox, (15 << 26) | 1); assert_eq!(session.handles.player, (16 << 26) | 1);
         assert_eq!(session.handles.host, (2 << 26) | 1); assert_eq!(session.handles.publication, (12 << 26) | 1);
         assert_eq!(session.handles.edges, (5 << 26) | 1); assert_eq!(session.handles.client, 1);
@@ -98,6 +99,49 @@ fn mailbox_player_and_publication_are_owned_by_the_supplied_world() {
         assert!(names.iter().position(|n| *n == "wire_store_source_configure").unwrap() < names.iter().position(|n| *n == "wire_publish_bind").unwrap());
         assert_eq!(session.player_id, 7.0); assert_eq!(session.registry["contentEpoch"], json!(1));
         if let Some(previous) = &previous { assert_eq!(previous, &session); } previous = Some(session);
+    }
+}
+
+#[test]
+fn authority_and_display_admit_the_same_map_bounds() {
+    use bfe_sim::wire::{bounds::for_battle, PositionBounds};
+    use bfe_sim::world::admit::AdmitError;
+
+    let valid = r#"{"wireBounds":{"min":[-8000,-50,0],"max":[4000,200,500]}}"#;
+    for (family, query, metadata, failure) in [
+        (GameFamily::Swbf1, "?map=test&family=swbf2", valid, None),
+        (GameFamily::Swbf2, "?map=test&family=swbf1", valid, None),
+        (GameFamily::Swbf2, "?map=test&family=swbf22", "{}", Some("map is missing wireBounds")),
+        (GameFamily::Swbf2, "?map=test", r#"{"wireBounds":{}}"#, Some("invalid map wireBounds")),
+    ] {
+        let mut battle = battle();
+        battle.query_text = query.into();
+        battle.query = Query::parse(query);
+        battle.map_data = value(metadata);
+        let content = bfe_content::content::Content::build(battle).unwrap();
+        let defs = bfe_content::defs::Defs::build(&content).unwrap();
+        let files = MemFiles::default();
+        let options = options();
+        let mut cx = Cx::new(&content, &defs, &files, &options, Strings::new());
+        let mut world = World::new();
+        let mut calls = Calls::new();
+        let mailbox = create_mailbox(&mut world, &mut cx, &mut calls).unwrap();
+        let player = create_player(&mut world, &mut cx, &PlayerSetup {
+            mailbox, ordinal: 1., team: 1., ..Default::default()
+        }, &mut calls).unwrap();
+        let local = LocalPlayer { mailbox, player, unit_id: 7, generation: 1., team: 1.,
+            class_name: "a_soldier".into(), ..Default::default() };
+        let input = RegistryInput::build(&content.battle).unwrap();
+        let authority = create_host(&mut world, &mut cx, &local, &input, &DefinitionValues::default(), 0., family);
+        let display = for_battle(family, &content.battle.map_data);
+        if let Some(message) = failure {
+            assert_eq!(display, Err(message));
+            assert!(matches!(authority, Err(AdmitError::Content {message: why, ..}) if why == message));
+        } else {
+            let admitted = authority.unwrap().wire_bounds;
+            assert_eq!(display, Ok(admitted));
+            assert_eq!(admitted == PositionBounds::LEGACY, family == GameFamily::Swbf1);
+        }
     }
 }
 
@@ -137,7 +181,7 @@ fn shared_definition_tables_retain_the_earlier_owners_exact_objects() {
 fn registry_and_welcome_match_external_packet_reference() {
     let Ok(reference) = std::env::var("BFE_SESSION_REFERENCE") else { return };
     let root = std::env::var("BFE_CONTENT_DIR").expect("packet reference needs content");
-    let files = bfe_content::files::DirFiles::new(root); let loader = bfe_content::battle::Loader::new(&files);
+    let files = bfe_content::files::DirFiles::new(root, bfe_family::GameFamily::Swbf1); let loader = bfe_content::battle::Loader::new(&files);
     let reference = std::fs::read_to_string(reference).unwrap(); let mut count = 0;
     for line in reference.lines().filter(|line| !line.is_empty()) {
         let row: Value = serde_json::from_str(line).unwrap();
@@ -189,7 +233,7 @@ macro_rules! session_host_oracle {
             use serde_json::Value;
             use std::rc::Rc;
             let Ok(path) = std::env::var("BFE_SESSION_HOST_REFERENCE") else { return };
-            let files = DirFiles::new(std::env::var("BFE_CONTENT_DIR").expect("host reference needs content"));
+            let files = DirFiles::new(std::env::var("BFE_CONTENT_DIR").expect("host reference needs content"), bfe_family::GameFamily::Swbf1);
             let loader = Loader::new(&files);
             let data = std::fs::read_to_string(path).unwrap(); let mut battles = 0; let mut count = 0;
             let (mut player_rows, mut missing_direct) = (0, 0);
@@ -216,7 +260,7 @@ macro_rules! session_host_oracle {
                 }
                 crate::players::module::players_init_in(&mut world);
                 let options = crate::world::admit::Options { map: row["map"].as_str().unwrap().into(), side: content.battle.side.clone(),
-                    enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() };
+                    enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default(), ..Default::default() };
                 let mut cx = Cx::new(&content, &defs, &files, &options, world.sim.strings.clone());
                 let mut prior = Calls::new(); let mailbox = create_mailbox(&mut world, &mut cx, &mut prior).unwrap();
                 let p = &row["player"]; let c = &p["character"];
@@ -300,7 +344,7 @@ macro_rules! session_host_oracle {
                 let values = DefinitionValues { weapons: d["weapons"].as_array().unwrap().iter().map(|name| match name.as_str() {
                     Some(name) => CV::Object(Rc::new(Object::from_written(vec![(Rc::from("class"), CV::str(name))]))), None => CV::Null,
                 }).collect(), items: resolve(&d["items"]), remotes: resolve(&d["remotes"]), ordnance: resolve(&d["ordnance"]) };
-                let session = create_host(&mut world, &mut cx, &local, &input, &values, 1000.0).unwrap();
+                let session = create_host(&mut world, &mut cx, &local, &input, &values, 1000.0, bfe_family::GameFamily::Swbf1).unwrap();
                 if let Some(packets) = row["packets"].as_array() {
                     assert_eq!(packets.len(), 2, "{label} welcome event count");
                     for (packet, expected) in session.packets.iter().zip(packets) {

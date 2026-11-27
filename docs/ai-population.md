@@ -122,12 +122,21 @@ difficulty.cycle(), los_budget(), vehicle_bucket()   // 15/6/2 (Easy, Medium), 3
 difficulty.danger_delay(random)     // seconds after first contact, by the enemy skill
 ```
 
-- Tiers: Easy 1, Medium 2, Hard 3 (any other value initializes as 4/14).
-  Skills [player, enemy]: Easy 6/4, Medium 4/14, Hard 4/17, clamped 1..20.
-- Curves: through skill 1, 14, 20 with anchors A 0.8/1.9/20, D 0.8/1.9/2.4,
-  B 3/1.6/1, S 2/1/0; `lo + f32(t * f32(hi - lo))` with `t` = `(k-1)/13`
-  or `(k-14)/6`, every operation rounded to float32. Bit-identical to the
-  original game for all 20 skills.
+- Tiers: Easy 1, Medium 2, Hard 3.
+  - 2004 battles (any other tier initializes as 4/14): base skills `[player, enemy]`
+    are Easy 6/4, Medium 4/14, Hard 4/17, clamped 1..20.
+  - 2005 battles (any other tier initializes as 11/14): base skills `[player, enemy]`
+    are Easy 6/4, Medium 11/14, Hard 11/17, clamped 1..20.
+- Curves:
+  - 2004 battles: piecewise linear through skill 1, 14, 20 with anchors A
+    0.8/1.9/20, D 0.8/1.9/2.4, B 3/1.6/1, S 2/1/0; `lo + f32(t * f32(hi - lo))`
+    with `t = (k - 1) / 13` or `(k - 14) / 6`, every operation rounded to
+    float32. Bit-identical to the 2004 game for all 20 skills.
+  - 2005 battles: over `t = (clamp(k, 1, 20) - 1) / 19` in float32, cubic
+    acceleration `A = 0.8 + t^3 * (14.0 - 0.8)`, linear damping
+    `D = 0.8 + t * (2.4 - 0.8)`, linear spread scale
+    `B = 3.0 + t * (1.0 - 3.0)`, and linear sniper scale
+    `S = 2.0 + t * (0.0 - 2.0)`.
 - Setters: `SetPlayerTeamDifficulty(n)` / `SetEnemyTeamDifficulty(n)`
   replace; the `Easy/Medium/Hard` forms add only when the local profile's tier
   matches (`profileTier`, even in a network game). Every setter clamps and

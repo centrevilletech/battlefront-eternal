@@ -190,3 +190,107 @@ pub fn encode(op: u32, input: &mut super::Words, bytes: &mut [u8]) -> Result<usi
     // can synchronously borrow it without constructing a scalar result array.
     bytes[..w.at].copy_from_slice(&w.bytes[..w.at]);
     Ok(w.at) }
+
+// The 2005 game's input writer: the released writer's validation and layout
+// with the 2005 battle's action table (`actions` wire action IDs, from its
+// input revision) and, when `records` is not empty, the 2005 extension records
+// section (`swbf2_records`) after the acknowledgement, flagged by bit 1 of the
+// acknowledgement byte. The released writer above stays the 2004 game's.
+pub fn encode_swbf2(op: u32, input: &mut super::Words, bytes: &mut [u8], actions: usize, records: &[u8]) -> Result<usize> {
+    let mut w = Fields::new(if op == crate::network_layout::net_op::ACK { 10 } else { 1100 });
+    if op == crate::network_layout::net_op::ACK { w.u32(crate::network_layout::net_protocol::ACK_MAGIC as f64)?;
+        w.u16(input.number()?)?;
+        w.u32(input.number()?)?; } else { let epoch = input.number()?;
+        let generation = input.number()?;
+        let nv = input.uint(8)?;
+        let nc = input.uint(8)?;
+        let ne = input.uint(32)?;
+        let ack = input.uint(1)? != 0;
+        let ack_epoch = input.number()?;
+        let ack_tick = input.number()?;
+        if ack && (!ack_epoch.is_finite() || ack_epoch.fract() != 0. || ack_epoch < 0. || ack_epoch > 65535.
+                || !ack_tick.is_finite()
+                || ack_tick.fract() != 0.
+                || ack_tick < 0.
+                || ack_tick > 4294967295.)
+        { return Err("invalid snapshot ack"); }
+        w.u32(crate::network_layout::net_protocol::INPUT_MAGIC as f64)?;
+        w.u32(epoch)?;
+        w.u32(generation)?;
+        for n in [nv, nc, ne, ack as usize | usize::from(!records.is_empty()) << 1] { w.u8(n as f64)?; }
+        // At most eight distinct contexts serve the counted command prefix.
+        // Commands reference these rows by index, never by another entity id.
+        let mut views: [WiView; 8] = std::array::from_fn(|_| WiView::default());
+        let mut indices=[0usize;8];let mut unique=0;
+        for idx_out in indices.iter_mut().take(nv) {
+            let value=WiView::take(input.span(WiView::WORDS)?,&[]);
+            let index=(0..unique).find(|&i|context_equal(&views[i],&value));
+            *idx_out=if let Some(index)=index{index}else{
+                view(&mut w,&value)?;views[unique]=value;unique+=1;unique-1
+            };
+        }
+        w.bytes[12]=unique as u8;
+        // A command's context index is checked after its scalar fields, as
+        // the former encode-then-decode validation did. Error precedence is
+        // observable to input admission and the frozen malformed fixtures.
+        let mut command_views = [0.; 8];
+        // Repeated held codes set one bit, yet every code is still validated.
+        // The registry-validity suffix prevents a spare bitmap bit from
+        // silently creating an input name the receiving side cannot resolve.
+        let mut used = [false; 128];
+        for vi in &mut command_views[..nc] { if input.uint(1)? == 0 { return Err("mixed input life"); }
+            w.u32(input.number()?)?;
+            w.u32(input.number()?)?;
+            *vi = input.number()?;
+            let context_at=w.at;w.u8(*vi)?;
+            if *vi>=0. && *vi<nv as f64{w.bytes[context_at]=indices[*vi as usize]as u8;}
+            let count = input.uint(128)?;
+            let mut bits = [0u8; 16];
+            for _ in 0..count { let code = input.number()?;
+                if !code.is_finite() || code.fract() != 0. || code < 0. || code >= 128. {
+                    return Err("unknown input code"); }
+                let i = code as usize;
+                bits[i >> 3] |= 1 << (i & 7);
+                used[i] = true; }
+            for b in bits { w.u8(b as f64)?; }
+            w.f64(input.number()?)?;
+            w.f64(input.number()?)?; }
+        let mut edges: [WiEdge; 32] = std::array::from_fn(|_| WiEdge::default());
+        // Fire edges include the sampled view and aim, while discrete edges
+        // carry only their action code. Neither path invokes gameplay hooks.
+        for e in &mut edges[..ne] { *e = WiEdge::take(input.span(WiEdge::WORDS)?, &[]);
+            if !e.life_matches { return Err("mixed edge life"); }
+            w.u32(e.id)?;
+            w.u32(e.tick)?;
+            if e.kind < 0. { return Err("unknown input edge"); }
+            w.u8(e.kind)?;
+            match jsrt::to_uint32(e.kind) { 0 => { if e.action < 0. { return Err("unknown input action"); }
+                    w.u8(e.action)?; }
+                1 => { if !(e.button == 0. || e.button == 1.) || !(e.pressed == 0. || e.pressed == 1.) {
+                        return Err("invalid fire edge"); }
+                    w.u8((jsrt::to_uint32(e.button) | jsrt::to_uint32(e.pressed) << 1) as f64)?;
+                    w.f64(e.view_tick)?;
+                    w.f64(e.aim_yaw)?;
+                    w.f64(e.aim_pitch)?; }
+                2 => { if !e.team_range_valid { return Err("invalid team"); }
+                    w.u8(e.team)?; }
+                3 => { w.u16(e.class_id)?;
+                    w.u16(e.post_id)?; }
+                _ => {} } }
+        if ack { w.u16(ack_epoch)?;
+            w.u32(ack_tick)?; }
+        // The 2005 extension records section, already framed by its writer.
+        if !records.is_empty() { w.reserve(records.len())?; w.bytes[w.at..w.at + records.len()].copy_from_slice(records); w.at += records.len(); }
+        for v in &views[..unique] { validate_view(v)?; }
+        for vi in &command_views[..nc] { if jsrt::to_uint32(*vi) as usize >= nv { return Err("invalid view reference");
+            } }
+        for &is_used in &used { let valid = input.uint(1)? != 0;
+            if is_used && !valid { return Err("unknown held input"); } }
+        for e in &edges[..ne] { if e.id == 0. || e.kind > 5. { return Err("invalid edge"); }
+            if e.kind == 0. && e.action >= actions as f64 { return Err("unknown action"); }
+            if e.kind == 1. && (e.view_tick < 0. || e.view_tick > 4294967295.) { return Err("invalid fire aim"); } } }
+    input.finish()?;
+    // Publication is one packed span after all validations succeed. Callers
+    // can synchronously borrow it without constructing a scalar result array.
+    bytes[..w.at].copy_from_slice(&w.bytes[..w.at]);
+    Ok(w.at) }

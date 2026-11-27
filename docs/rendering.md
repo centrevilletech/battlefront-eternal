@@ -144,6 +144,15 @@ glow** checkbox controls it, and beam/flare/halo all follow capture fade and
 flicker. The halo adds one sprite draw per visible post and cannot shine through
 opaque walls. It uses a shared procedural texture rather than a new asset.
 
+A 2005 battle draws the same holograms (beam, halo, symbol and light, the same
+code) from the 2005 data: the post class's hologram class gives the look and the
+owner colours, the post model's `hp_hologram` mount places it, and the symbol is
+the post class's `HoloImageGeometry` model for the slot of the owning team's
+mission name. Hero Assault's teams (`hero`, `villain`) have no symbol slot in the
+post class, so its posts show the beam, halo and light alone; Space Assault's
+(`rep`, `cis`) show the class-change symbol. The 2005 data has no flare texture,
+so no flare is drawn.
+
 Held weapons register as shadow casters when their meshes are created,
 before luminous muzzle flashes are attached. They receive world shadows too.
 The world weapon follows the hand bones and continues casting when hidden in
@@ -162,6 +171,87 @@ droplets where solid map triangles meet the water plane. Shore discovery is
 cached in nearby tiles and bounded to two new tiles per frame, with at most
 192 patches on High or 384 on Ultra. Low disables these draws. The effects
 follow water motion and are hidden during its reflection pass.
+
+## 2005 content rendering (developer viewer only)
+
+2005 world rendering is currently reachable only through the developer scenery
+viewer (`BFE_BENCH="world=..."`); no live 2005 battle path exists yet. A full
+2005 battle still lacks live world and side admission, simulation-driven
+world-animation stepping, playable units, weapons, battle effects, HUD wiring,
+and visual calibration against the retail 2005 client.
+
+Worlds prepared from 2005 content draw through declared extended entries in the
+same closed program catalog, warmed ahead of drawing so no shaders compile
+mid-frame. 2004 worlds stay on their original catalog keys, pass schedule, and
+clip planes. Both games share raised per-frame instance limits (`1024` records,
+`2048` draw rows, `512` blended items, with a `256`-skin shadow caster pool) so
+busy battles no longer leave buildings, items, projectiles, and debris undrawn;
+if a scene still exceeds a limit, excess draws are counted in the renderer
+overflow state and surfaced in the developer stats overlay (`showStats`) and
+stderr log rather than dropped silently.
+The 2004 velocity pass keeps its 256-record input, history, upload rows and
+frame packet. It samples scene records first and places first-person masks in the
+remaining slots. A 2005 scene reserves the larger banks during admission and
+can draw 512 velocity records with 16 reserved for first-person masks. Records
+sharing a skin pose refer to the same previous bone range.
+
+- **Lighting and shadows**: Extended world and actor variants read the
+  `BfeLight2` uniform block (binding 2) for a second global directional light
+  (bounce or rim fill) and up to four localized regions covering both regional
+  directional lights and interior shadow/ambient boxes or spheres. Static point
+  lights illuminate nearby surfaces, four-cascade shadow maps cast world and
+  prop shadows from the primary sun or from the active interior shadow-casting
+  regional directional light. One camera selects the shadow source for the whole
+  view. When the sun weight falls below 0.25, shadow-casting regions with a
+  weight above 0.5 take precedence in authored order. The cascade admits static
+  triangles and placed models whose bounds overlap that volume with a four-metre
+  margin. Exterior surfaces visible through the doorway share this selection.
+  Glowing surfaces (the material's glow flag) draw unlit at their colour times
+  `1 + a + a * a`, as the 2005 game does: an opaque one takes `a` from its
+  texture's alpha (a glow mask), a cut-out or blended one glows at `a = 1`.
+- **Bloom**: a 2005 map blooms only when its world declares a bloom (`Effect("HDR")`,
+  kept in the mission effect pack as `hdr`): Space Mygeeto does, Mos Eisley does not.
+  The player's `bloomSwbf2` setting (LIGHT BLOOM) is the 2005 game's Light Bloom
+  option: on such a map it runs the game's steps in place of the 2004 bloom. It is
+  on in a new settings folder, as the 2005 game starts on every PC that can run
+  it, and no quality preset changes it; the 2004 bloom and glow setting does not
+  reach a 2005 battle. A settings file records it only once the player changes it. The scene is drawn in
+  half-float colour so a glowing surface keeps its light above white; the bloom
+  target (the map's `DownSizeFactor` of the scene) takes the texels of the
+  half-lit frame whose luminance-weighted excess over `GlowThreshold` is above 0.05,
+  then `NumBloomPasses` passes go back and forth between two such targets, each
+  four diagonal taps `i + 0.5` texels away weighted `0.25 + (MaxTotalWeight - 1) * i
+  / NumBloomPasses`, and the result is added to the finished frame times
+  `GlowFactor`. A 2005 map without one draws no bloom; the 2004 bloom is a 2004 look.
+- **Placed prop materials and animation**: Rigid placed props support
+  derivative cotangent-frame bump mapping, specular highlights modulated by
+  diffuse alpha gloss when present, emissive glow, UV scrolling, and two-pass
+  back-then-front double-sided alpha blending. Rigid and skinned Battlefront II
+  placements use the authored vertex light at unit scale. As on world geometry,
+  point lights contribute at the vertices of normally lit parts before the
+  diffuse light is clamped. Baked diffuse light survives skinning and receives
+  no additional directional light or shadow. Vertex tint multiplies the
+  diffuse colour, including emissive colour. Specular and coverage keep their
+  material inputs. `WorldAnimations` evaluates
+  authored `worldAnimations` clips, default-on groups, and rigid hierarchies
+  without per-frame heap allocations, and exposes a fixed 60 Hz
+  simulation-tick clock (`sim_time(tick, alpha)`) with interpolation so future
+  simulation collision and rendered poses agree at every tick. In the developer
+  viewer it steps from the viewer's `time=` parameter; it stays out of the
+  presentation clock on live battle paths until driven by simulation ticks.
+- **Ground LOD and space scale**: Ground worlds keep their authored near/far
+  LOD meshes, low-resolution far terrain, and three-layer painted terrain
+  blending across the authored dissolve band. Space worlds split rendering into
+  a far band (`25..8000 m`) and a near band (`0.3..600 m`) with a `[480, 580] m`
+  dissolve so kilometer-scale fleets and close hangar interiors both preserve
+  depth precision. Transparent far world surfaces and actors draw in a single
+  back-to-front order. Each two-sided surface draws its back and front together
+  using the fade range of its source. Space skies render layered opaque, blended, and alpha-tested
+  sky domes over `effects/sky-stars`, a procedurally generated provisional
+  starfield shader (the prepared sky data contains no authored star-field table
+  yet; retail star-field fidelity is not settled). Interior sectors cull
+  through authored portals. Authored sectors overlap, so the walk starts from
+  every sector that holds the eye, as the 2005 game's does.
 
 ## Verification
 

@@ -22,6 +22,20 @@ use crate::store::{Nullable, StrId};
 use super::capture::{Capture, Token};
 use super::journal::{Event, Journal, Life, Presentation, Presented, SQUAD_LABELS};
 
+/// Whether `attacker`'s hit on `target`, drained at `drained`, was a 2005
+/// soldier's critical one: the soldiers' contact of the step it came from says
+/// so. A drain carries the tick before that step (its records' clock), the
+/// contact the step's own. A 2004 battle keeps no contacts, so none of its
+/// hits is.
+fn critical_contact(context: &Context, drained: f64, target: Life, attacker: Life) -> bool {
+    use crate::units::infantry::contact::{LifeId, Outcome};
+    let same = |life: LifeId, of: Life| life.slot == of.id && f64::from(life.generation) == of.generation;
+    context.owned(|world| world.infantry_contacts().is_some_and(|contacts| contacts.since(0).any(|c| {
+        c.critical && c.outcome == Outcome::Hit && f64::from(c.tick) == drained + 1.0 && same(c.target, target)
+            && c.source.is_some_and(|source| same(source, attacker))
+    }))).unwrap_or(false)
+}
+
 /// One tick's drain: the world's clock for the records, the observers'
 /// handles, and the units' rows (`store.unit`) for the facts the client read
 /// from its unit objects.
@@ -979,6 +993,7 @@ impl Drain<'_> {
                     attacker_team: e.attacker_team,
                 });
                 if let Some(capture) = self.capture {
+                    let critical = attacker.is_some_and(|attacker| critical_contact(context, self.tick, target, attacker));
                     capture.feedback(
                         context,
                         self.tick,
@@ -989,6 +1004,7 @@ impl Drain<'_> {
                         e.team,
                         e.attacker_team,
                         source,
+                        critical,
                     )?;
                 }
             }
@@ -1062,6 +1078,7 @@ impl Drain<'_> {
                         e.team,
                         e.attacker_team,
                         None,
+                        false,
                     )?;
                 }
             }
@@ -1165,6 +1182,7 @@ impl Drain<'_> {
                                 e.team,
                                 e.attacker_team,
                                 None,
+                                false,
                             )?;
                         }
                     }
@@ -1356,6 +1374,7 @@ impl Drain<'_> {
                         e.team,
                         attacker_team,
                         None,
+                        false,
                     )?;
                 }
             }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bfe-ui", "bfe-video", "bfe-transport", "bfe-online", "bfe-shell", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-client", "bfe-content-native", "bfe-battle-ui", "sim", "sim-gen", "content", "v8math", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server"]
+members = ["bfe-family", "bfe-test-alloc", "bfe-wide", "bfe-script", "bfe-storage", "bfe-ui", "bfe-video", "bfe-transport", "bfe-online", "bfe-shell", "bfe-render", "bfe-presentation", "bfe-pose", "bfe-client", "bfe-content-native", "bfe-battle-ui", "sim", "sim-gen", "content", "v8math", "jsrt", "three", "audio", "audio-decode", "basis-transcode", "bfe-environment", "audio-control", "bfe-desktop", "xtask", "bfe-interface", "bfe-server", "bfe-test-gate"]
 
 [workspace.dependencies]
 # Slint is used under its GPL-3.0-only option. Keep compiler and runtime in

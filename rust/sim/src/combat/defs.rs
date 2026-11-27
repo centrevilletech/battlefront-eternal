@@ -241,9 +241,10 @@ pub enum K {
     Strike,
     LockOnRange,
     ZoomFirstPerson,
+    TriggerAll,
 }
 
-const KEYS: [&str; 56] = [
+const KEYS: [&str; 57] = [
     "class",
     "base",
     "channel",
@@ -300,6 +301,7 @@ const KEYS: [&str; 56] = [
     "strike",
     "LockOnRange",
     "ZoomFirstPerson",
+    "TriggerAll",
 ];
 
 /// PlayerCombat.arc's immutable emitter fields. Resolve names and numeric
@@ -316,9 +318,29 @@ pub struct ArcDef {
     pub threshold: f64,
     pub jump: f64,
     pub drop: f64,
+    pub no_chaining: bool,
+    pub affect_friends: bool,
+    pub affect_enemies: bool,
+    pub smolder_damage_rate: f64,
+    pub smolder_timer: f64,
+    pub smolder_effect: Option<Rc<str>>,
+    pub aimer_effect: Option<Rc<str>>,
 }
 impl ArcDef {
     fn read(def: &Js) -> Self {
+        let flag = |key: &str, default: bool| {
+            let v = def.get(key);
+            if v.is_nullish() {
+                default
+            } else {
+                let n = v.num();
+                n != 0.0 && !n.is_nan()
+            }
+        };
+        let opt_str = |key: &str| match def.get(key) {
+            Js::Str(s) if !s.is_empty() => Some(s.clone()),
+            _ => None,
+        };
         Self {
             length: def.get("ConeLength").nn(10.0),
             sine: v8math::sin(((def.get("ConeAngle").nn(60.0) / 2.0) * std::f64::consts::PI) / 180.0),
@@ -333,6 +355,13 @@ impl ArcDef {
             threshold: def.get("DamageThreshold").nn(0.0),
             jump: def.get("MaxJumpDistance").nn(10.0),
             drop: def.get("DamageDropPerTarget").nn(0.0),
+            no_chaining: flag("NoChaining", false),
+            affect_friends: flag("AffectFriends", true),
+            affect_enemies: flag("AffectEnemies", true),
+            smolder_damage_rate: jsrt::js_max(def.get("SmolderDamageRate").nn(0.0), 0.0),
+            smolder_timer: jsrt::js_max(def.get("SmolderEffectTimer").nn(0.0), 0.0),
+            smolder_effect: opt_str("SmolderEffect"),
+            aimer_effect: opt_str("PlayEffectOnOwnerAimer"),
         }
     }
 }
@@ -372,7 +401,7 @@ impl MeleeSwings {
 
 /// A weapon class at one level: its object and prepared fields combat reads.
 #[derive(Clone, Debug, PartialEq)]
-pub enum WeaponBase { Other, Shield, Launcher, Grenade, Dispenser, Remote, Melee, Repair }
+pub enum WeaponBase { Other, Shield, Launcher, Grenade, Dispenser, Detonator, Remote, Melee, Repair }
 impl WeaponBase {
     fn read(value:&Js) -> Self {
         match value.str() {
@@ -382,7 +411,14 @@ impl WeaponBase {
             Some("repair")=>Self::Repair,_=>Self::Other,
         }
     }
-    pub fn thrown(&self) -> bool {matches!(self,Self::Grenade|Self::Dispenser|Self::Remote)}
+    fn read_for_family(family: bfe_family::GameFamily, value: &Js) -> Self {
+        if family == bfe_family::GameFamily::Swbf2 && value.str() == Some("detonator") {
+            Self::Detonator
+        } else {
+            Self::read(value)
+        }
+    }
+    pub fn thrown(&self) -> bool {matches!(self,Self::Grenade|Self::Dispenser|Self::Detonator|Self::Remote)}
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -444,7 +480,11 @@ fn numbers(value: &Js) -> Vec<f64> {
 
 impl Level {
     pub fn new(obj: Rc<JsObj>) -> Level {
-        let kind=WeaponBase::read(obj.get("base"));
+        Self::new_for_family(bfe_family::GameFamily::Swbf1, obj)
+    }
+
+    pub fn new_for_family(family: bfe_family::GameFamily, obj: Rc<JsObj>) -> Level {
+        let kind = WeaponBase::read_for_family(family, obj.get("base"));
         let bubble = if matches!(kind, WeaponBase::Shield) { Bubble::read(&obj) } else { None };
         let vals = KEYS.iter().map(|k| obj.get(k).clone()).collect();
         let ordnance = obj.get("ordnance");
@@ -532,13 +572,17 @@ pub struct WeaponClass {
 impl WeaponClass {
     /// `[def, ...(def.charges || []).map((level) => ({ ...def, ...level }))]`.
     pub fn new(def: Rc<JsObj>) -> WeaponClass {
-        let mut levels = vec![Level::new(def.clone())];
+        Self::new_for_family(bfe_family::GameFamily::Swbf1, def)
+    }
+
+    pub fn new_for_family(family: bfe_family::GameFamily, def: Rc<JsObj>) -> WeaponClass {
+        let mut levels = vec![Level::new_for_family(family, def.clone())];
         let charges = def.get("charges");
         if charges.truthy() {
             if let Js::Arr(list) = charges {
                 for level in list.iter() {
                     let over = level.obj().map(|o| (**o).clone()).unwrap_or_default();
-                    levels.push(Level::new(Rc::new(def.spread(&over))));
+                    levels.push(Level::new_for_family(family, Rc::new(def.spread(&over))));
                 }
             }
         }

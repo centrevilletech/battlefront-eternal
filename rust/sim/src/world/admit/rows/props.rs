@@ -200,6 +200,13 @@ pub fn explosion_id(cx: &mut super::Cx<'_>, def: Option<&Value>) -> Result<(Opti
 /// (the four bases), in instance order, skipping a model that is missing;
 /// the position in this list is the building's compact index (`l<index>`).
 pub fn live_sources(battle: &bfe_content::battle::Battle) -> Vec<usize> {
+    if battle.family == bfe_content::GameFamily::Swbf2 {
+        return crate::space::objects::swbf2_live_prop_sources(battle);
+    }
+    legacy_live_sources(battle)
+}
+
+fn legacy_live_sources(battle: &bfe_content::battle::Battle) -> Vec<usize> {
     let Some(data) = battle.props.as_ref() else { return Vec::new(); };
     let Some(instances) = data.get("instances").and_then(Value::as_array) else { return Vec::new(); };
     instances.iter().enumerate().filter(|(_, desc)| {

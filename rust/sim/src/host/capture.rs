@@ -25,6 +25,10 @@ pub const GENERATION: f64 = 1.0;
 
 /// `decodeCombat(record)` for a bolt or terminal record (schema 1 or 2):
 /// the fact's view from the codec's JSON.
+/// The byte of a feedback record's flags (`u16` little-endian, after its five
+/// identities, position and two teams).
+pub const FEEDBACK_FLAGS: usize = 52;
+
 pub fn decode_view(tick: f64, schema: f64, payload: &[u8]) -> Result<View, String> {
     let facts = bfe_presentation::ordnance::codec::record_facts(schema, tick, payload)
         .map_err(|e| e.to_string())?;
@@ -57,6 +61,7 @@ const PRESENTATION_ERRORS: [&str; 15] = [
 ];
 
 /// A value of the presentation event, as `eventValue` tokenizes it.
+#[derive(Clone, Copy)]
 pub enum Token<'a> {
     Null,
     /// An entry whose value is undefined (`Object.entries` keeps it).
@@ -64,6 +69,7 @@ pub enum Token<'a> {
     Number(f64),
     Boolean(bool),
     Text(&'a str),
+    Interned(StrId),
     Vector(Option<[f64; 3]>),
 }
 
@@ -155,6 +161,7 @@ impl Capture {
                 Token::Number(n) => words.extend([1.0, *n]),
                 Token::Boolean(b) => words.extend([2.0, f64::from(u8::from(*b))]),
                 Token::Text(s) => words.extend([3.0, f64::from(intern(context, s)?.0)]),
+                Token::Interned(id) => words.extend([3.0, f64::from(id.0)]),
                 Token::Vector(None) => words.push(0.0),
                 Token::Vector(Some(v)) => {
                     words.extend([4.0, 3.0]);
@@ -385,6 +392,7 @@ impl Capture {
         team: f64,
         attacker_team: f64,
         source: Option<[f64; 3]>,
+        critical: bool,
     ) -> Result<bool, String> {
         let id = self.allocate(context)?;
         let encode = WbEncode {
@@ -402,8 +410,15 @@ impl Capture {
             source: source.map_or_else(Vec::new, |s| s.to_vec()),
             ..WbEncode::default()
         };
-        let payload = self.encode(context, &encode)?;
+        let mut payload = self.encode(context, &encode)?;
         let view = decode_view(tick, schema, &payload)?;
+        // A 2005 soldier's critical hit: bit 1 of the record's flags (bit 0 says
+        // it has a source), which only a 2005 client reads.
+        if critical {
+            if let Some(flags) = payload.get_mut(FEEDBACK_FLAGS) {
+                *flags |= 2;
+            }
+        }
         self.emit_record(context, tick, id, schema, payload, &view)
     }
 

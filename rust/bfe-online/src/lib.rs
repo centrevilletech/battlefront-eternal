@@ -12,8 +12,11 @@
 // - `direct`: Direct Connect IPv4/IPv6 address and port validation.
 // - `browser`: Pure server browser model, filtering, sorting, selection,
 //   compatibility checking, battle query sanitization, and GAME INFO facts.
+// - `declared`: what a listing row or a `/info` reply names as its battle's
+//   game, read beside the released readers.
 
 pub mod browser;
+pub mod declared;
 pub mod direct;
 pub mod identity;
 pub mod lan;
@@ -24,7 +27,7 @@ pub mod rendezvous;
 pub use browser::{
     battle_params, battle_summary_params, clean_sponsor, compatible, country_of, describe_server,
     era_label, error_text, flag_of, map_name, mode_label, ping_quality, uptime_text, BattleSummary,
-    BrowserKey, BrowserState, EndpointAddr, EraOption, FilterUpdate, Filters, GameInfo,
+    BrowserKey, BrowserState, EndpointAddr, EraOption, FamilyReading, FilterUpdate, Filters, GameInfo,
     MapCatalogEntry, PingFilter, PingQuality, RawSponsor, RefreshKind, RotationItem, ServerBrowser,
     ServerBrowserService, ServerContract, ServerEntry, SortColumn, SortSpec, Source, SponsorInfo,
     REFRESH_EVERY_MS, RETRY_EVERY_MS,

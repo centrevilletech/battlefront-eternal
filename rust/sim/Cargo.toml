@@ -14,11 +14,19 @@ name = "bfe_sim"
 sim-gen = { path = "../sim-gen" }
 
 [dependencies]
+sha2 = "0.10"
+bfe-family = { path = "../bfe-family" }
 bfe-presentation = { path = "../bfe-presentation" }
+bfe-script = { path = "../bfe-script" }
+bfe-wide = { path = "../bfe-wide" }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 bfe-pose = { path = "../bfe-pose" }
 audio-control = { path = "../audio-control" }
 content = { path = "../content" }
+flate2 = "1"
 v8math = { path = "../v8math" }
 three = { path = "../three" }
 jsrt = { path = "../jsrt" }
+
+[dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }

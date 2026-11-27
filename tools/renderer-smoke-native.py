@@ -5,10 +5,10 @@ This script exercises the native Rust renderer, shader catalog, content loader,
 and window host on Linux without prepared retail game files:
 
 1. Cross-checks the shader manifest catalog (`rust/bfe-render/shaders/*/manifest.json`)
-   across all 6 families (`world`: 536, `actors`: 310, `effects`: 149,
-   `interface`: 15, `post-hud`: 12, `utility`: 24; total 1,046).
+   across all 6 families (`world`: 674, `actors`: 554, `effects`: 152,
+   `interface`: 15, `post-hud`: 14, `utility`: 24; total 1,433).
 2. Runs `render-smoke` under software GL (`LIBGL_ALWAYS_SOFTWARE=1`) to compile
-   and link all 1,046 shader variants through `bfe-render`'s own program builder
+   and link all 1,433 shader variants through `bfe-render`'s own program builder
    and draw one representative scene for each family with RGBA8 framebuffer
    readback verification, written to a contact sheet PNG.
 
@@ -39,18 +39,18 @@ import zlib
 # Expected shader family order, variant counts, and sub-family breakdown shared
 # with `tools/renderer-smoke-manifests.mjs`.
 EXPECTED_FAMILY_ORDER = ("world", "actors", "effects", "interface", "post-hud", "utility")
-EXPECTED_TOTAL_VARIANTS = 1046
+EXPECTED_TOTAL_VARIANTS = 1433
 EXPECTED_FAMILY_COUNTS = {
-    "world": 536,
-    "actors": 310,
-    "effects": 149,
+    "world": 674,
+    "actors": 554,
+    "effects": 152,
     "interface": 15,
-    "post-hud": 12,
+    "post-hud": 14,
     "utility": 24,
 }
 EXPECTED_SUB_FAMILIES = {
-    "world": {"canopies": 2, "foliage": 4, "static": 474, "terrain": 56},
-    "actors": {"depth": 6, "rigid": 144, "skinned": 160},
+    "world": {"canopies": 2, "foliage": 4, "static": 602, "terrain": 66},
+    "actors": {"depth": 6, "rigid": 266, "skinned": 282},
     "effects": {
         "arc": 2,
         "basic": 8,
@@ -69,7 +69,7 @@ EXPECTED_SUB_FAMILIES = {
         "rain": 6,
         "shield": 4,
         "shock": 2,
-        "sky": 14,
+        "sky": 17,
         "sniper": 4,
         "snow": 2,
         "spray": 2,
@@ -102,6 +102,7 @@ EXPECTED_SUB_FAMILIES = {
         "composite": 1,
         "copy": 1,
         "fxaa": 2,
+        "hdr": 2,
         "hud": 1,
         "motion": 1,
         "resolve": 1,
@@ -671,7 +672,7 @@ def run_render_smoke(
     stream_lines: list[str],
     records: list[dict],
 ) -> None:
-    """Run `render-smoke` to compile/link all 1,046 variants and draw all 6 families."""
+    """Run `render-smoke` to compile/link all 1,433 variants and draw all 6 families."""
     t0 = time.monotonic()
     shader_manifests = load_shader_manifests(repo_root)
 
