@@ -1,0 +1,7 @@
+strong	2
+weak keys	0
+after NUL	1
+weak both	nil	kept	5	nil
+mode removed	1
+number mode	2
+new metatable	0

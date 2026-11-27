@@ -1,0 +1,10 @@
+counter	15	18	18
+loop_close	10	20	30	40
+nested_upval	321
+varargs1	a	4	10
+varargs2	b	0	0
+varargs3	c	3	30
+multi	10	20	30	nil
+setlisto	5	1,2,10,20,30
+trimmed	2	10,99
+tailcall	2001000

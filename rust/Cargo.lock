@@ -574,6 +574,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-script"
+version = "0.1.0"
+dependencies = [
+ "bfe-test-alloc",
+ "bfe-wide",
+ "flate2",
+ "serde",
+ "serde_json",
+ "v8math",
+]
+
+[[package]]
 name = "bfe-server"
 version = "0.1.0"
 dependencies = [

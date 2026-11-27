@@ -1,0 +1,45 @@
+-- Generated differential program 078 (generate.py, seed 503).
+-- errors
+do
+  print(pcall(error, 'plain'))
+  print(pcall(error, 42))
+  print(pcall(error))
+  local function lvl1() error('one', 1) end local function lvl2() error('two', 2) end
+  print(pcall(lvl1)) print(pcall(lvl2))
+  print(pcall(function() local t = nil return t.x end))
+  print(pcall(function() return undefined_global_fn() end))
+  print(pcall(function() local t = {} return t.a.b end))
+  print(pcall(function() return 1 < 'x' end))
+  print(pcall(function() return {} .. 'x' end))
+  print(pcall(function() return -{} end))
+  print(pcall(function() local s = 'x' return s + 1 end))
+  print(pcall(function() local t = setmetatable({}, {__index = function(t, k) error('deep ' .. k) end}) return t.key end))
+  print(xpcall(function() error('boom') end, function(m) return 'handled: ' .. m end))
+  print(pcall(error, setmetatable({}, {__tostring = function() return 'obj' end})) == false)
+  print(pcall(assert, false, 'assert msg'))
+  print(pcall(assert, nil))
+  print(pcall(assert, 1, 2))
+end
+-- coerce
+do
+  print("7" * "6")
+  print(3 .. "x")
+  print("10" + 5)
+  print(" 3e2 " * 1)
+  print(2^24 + 1)
+  print("  12  " + 0)
+  print(-1/0 .. "")
+  print(1e15 .. "")
+  print("0x1p4", tonumber("0x1p4"))
+  print("  0x10  ", tonumber("  0x10  "))
+  print("-7.5", tonumber("-7.5"))
+  print("1e400", tonumber("1e400"))
+  print("5.", tonumber("5."))
+  print("12", tonumber("12"))
+  print("0x1F", tonumber("0x1F"))
+  print(29, tonumber("i63", 29))
+  print(4, tonumber("30 1", 4))
+  print(13, tonumber("4b50a", 13))
+  print(23, tonumber("8", 23))
+  print(tonumber('-ff', 16), tonumber('7fffffff', 16), tonumber('zz', 36))
+end

@@ -1,0 +1,7 @@
+truth	F	F	T	T	T	T
+and_or	b	b	a	a	3	42
+while_repeat	15	4
+fornum	1,2,3,4,5,10,7,4,0,0.5,1,1,2,3
+ipairs	1=x;2=y;3=z
+tforprep	140
+custom_iter	1:1,2:4,3:9,4:16
