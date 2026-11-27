@@ -67,6 +67,47 @@ impl UnitLight {
         Self { regions, lumi }
     }
 
+    /// 2005 unit lighting: falls back to `shadow ...` entries in `world["regions"]`
+    /// when `lightRegions` is empty.
+    pub fn new_swbf2(world: &Value, lumi: Option<Vec<u8>>) -> Self {
+        let mut light = Self::new(world, lumi);
+        if light.regions.is_empty() {
+            if let Some(raw_regions) = world.get("regions").and_then(Value::as_array) {
+                for region in raw_regions {
+                    let Some(name) = region.get("name").and_then(Value::as_str) else {
+                        continue;
+                    };
+                    let mut parts = name.split_ascii_whitespace();
+                    if !parts.next().is_some_and(|h| h.eq_ignore_ascii_case("shadow")) {
+                        continue;
+                    }
+                    let mut directional = None;
+                    let mut ambient = None;
+                    for token in parts {
+                        if let Some((k, v)) = token.split_once('=') {
+                            if k.eq_ignore_ascii_case("directional") {
+                                directional = v.parse::<f64>().ok();
+                            } else if k.eq_ignore_ascii_case("ambient") {
+                                ambient = v.parse::<f64>().ok();
+                            }
+                        }
+                    }
+                    if directional.is_some() || ambient.is_some() {
+                        let kind = region.get("type").and_then(Value::as_str).unwrap_or("");
+                        light.regions.push(Region {
+                            built: build_region(region),
+                            sphere: kind == "sphere",
+                            cylinder: kind == "cylinder",
+                            directional,
+                            ambient,
+                        });
+                    }
+                }
+            }
+        }
+        light
+    }
+
     fn weight(region: &Region, p: &Vector3) -> f64 {
         let mut local = *p;
         local.apply_matrix4(&region.built.inverse);
@@ -170,5 +211,20 @@ mod tests {
         let outside = light.at([100., 0., 0.]);
         assert_eq!(outside[..3], [1., 0., 0.]);
         assert_eq!(UnitLight::default().at([0.; 3]), [1., 0., 0., 1.]);
+    }
+
+    #[test]
+    fn swbf2_shadow_region_in_regions_table_darkens_directional_inside() {
+        let world = bfe_content::json::parse(
+            r#"{"regions":[{"type":"sphere","name":"shadow directional=0.4","size":[10,0,0]}]}"#,
+        )
+        .unwrap();
+        // Released 2004 constructor ignores `regions` when `lightRegions` is absent.
+        let classic = UnitLight::new(&world, None);
+        assert_eq!(classic.at([0., 0., 0.])[0], 1.);
+        // 2005 constructor scales directional light inside the sphere only.
+        let light = UnitLight::new_swbf2(&world, None);
+        assert!((light.at([0., 0., 0.])[0] - 0.4).abs() < 1e-6);
+        assert_eq!(light.at([25., 0., 0.])[0], 1.);
     }
 }

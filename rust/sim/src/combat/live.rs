@@ -61,9 +61,13 @@ pub(crate) fn arc_hit_in(w: &mut crate::world::owner::World, victim: ArcVictim, 
 /// SeatsWorld.kill supplies an untyped, non-directional infinite hit after
 /// vacating the lease. Reuse PlayerCombat.damage and its immediate death hooks.
 pub(crate) fn damage_in(w: &mut crate::world::owner::World, reference: Ref<Unit>, amount: f64, attacker: Attacker, services: f3::WorldServices<'_>) {
+    burn_damage_in(w, reference, amount, attacker, Some(services));
+}
+
+pub(crate) fn burn_damage_in(w: &mut crate::world::owner::World, reference: Ref<Unit>, amount: f64, attacker: Attacker, services: Option<f3::WorldServices<'_>>) {
     let defs = super::module::defs_in(&mut w.combat);
     let (mut unit, mut combat) = super::module::take_in(w, reference);
-    let mut world = super::module::JsWorld::with_services_in(w, reference, &unit, &combat, Some(services));
+    let mut world = super::module::JsWorld::with_services_in(w, reference, &unit, &combat, services);
     super::combat::damage_with(&mut combat, &mut unit, &defs, amount, amount, None, attacker,
         &super::world::DamageInfo::default(), &mut world);
     world.finish();
@@ -113,6 +117,15 @@ pub(crate) fn blast_in(w: &mut crate::world::owner::World, definition: crate::st
     world.notice.emit(&mut world.w.sim.events);
 }
 
+/// One blast against one unit, for a 2005 space battle's rounds: what it
+/// reaches of a soldier, and what shields him, are the rules above.
+pub(crate) fn blast_unit_in(w: &mut crate::world::owner::World, reference: Ref<Unit>, packet: &super::impacts::BlastPacket, position: [f64; 3], owner: OrdnanceOwner, services: crate::units::f3::WorldServices<'_>) {
+    use super::impacts::BlastWorld;
+    let (_, _, attacker) = owner_facts_in(&w.sim, &mut w.units, owner);
+    Blast { w, definition: crate::store::DefId(0), owner, notice: Default::default(), recon: Some(services) }
+        .blast_unit(reference, packet, &v(position), attacker);
+}
+
 /// refOf for a committed source, including frozen launch lives.
 pub(crate) fn owner_reference_in(store: &crate::gen::Store, owner: OrdnanceOwner) -> Option<crate::gen::F3LifeRef> {
     match owner {
@@ -142,26 +155,8 @@ struct Blast<'w, 'a> {
     notice: crate::gen::F3BlastNotice,
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
-impl super::impacts::BlastWorld for Blast<'_, '_> {
-    fn registry_len(&self) -> usize {
-        // Read the live length again after each recursive hurt. A foreign
-        // Character hook must not freeze the next visitation index.
-        self.w.sim.store.units.list.len()
-    }
-    fn registry_unit(&self, index: usize) -> Option<Ref<Unit>> {
-        let crate::gen::Member::Unit(r) = self.w.sim.store.units.list[index] else {
-            return None;
-        };
-        let unit = self.w.sim.store.unit.get(r).expect("blast registry Unit");
-        // Game.onExplode includes lingering corpses, which can still be
-        // pushed, but skips inactive and already pooled bodies.
-        if unit.removed || !(unit.alive || unit.dead) {
-            return None;
-        }
-        if unit.seat.is_some() && !crate::units::live_pose::blastable_in(self.w, r.slot) { return None; }
-        Some(r)
-    }
-    fn blast_unit(
+impl Blast<'_, '_> {
+    fn apply_blast(
         &mut self,
         reference: Ref<Unit>,
         packet: &super::impacts::BlastPacket,
@@ -197,6 +192,41 @@ impl super::impacts::BlastWorld for Blast<'_, '_> {
         if touched {
             f3::changed_in(self.w, reference);
         }
+    }
+}
+impl super::impacts::BlastWorld for Blast<'_, '_> {
+    fn registry_len(&self) -> usize {
+        // Read the live length again after each recursive hurt. A foreign
+        // Character hook must not freeze the next visitation index.
+        self.w.sim.store.units.list.len()
+    }
+    fn registry_unit(&self, index: usize) -> Option<Ref<Unit>> {
+        let crate::gen::Member::Unit(r) = self.w.sim.store.units.list[index] else {
+            return None;
+        };
+        let unit = self.w.sim.store.unit.get(r).expect("blast registry Unit");
+        // Game.onExplode includes lingering corpses, which can still be
+        // pushed, but skips inactive and already pooled bodies.
+        if unit.removed || !(unit.alive || unit.dead) {
+            return None;
+        }
+        if unit.seat.is_some() && !crate::units::live_pose::blastable_in(self.w, r.slot) { return None; }
+        Some(r)
+    }
+    fn blast_unit(
+        &mut self,
+        reference: Ref<Unit>,
+        packet: &super::impacts::BlastPacket,
+        at: &Vector3,
+        owner: Attacker,
+    ) {
+        let observation = self.w.units.infantry.as_ref().and_then(|_| {
+            crate::units::infantry::contact::Impact::blast(
+                self.w, reference, self.owner, self.definition.0, [at.x, at.y, at.z])
+        });
+        let previous = observation.and_then(|impact| impact.enter(self.w));
+        self.apply_blast(reference, packet, at, owner);
+        if let Some(impact) = observation { impact.finish(self.w, previous); }
     }
     fn explosion_event(&mut self, _: &super::impacts::BlastPacket, _: &Vector3, _: Attacker) {
         // Game.onExplode emits this journal record after every soldier but
@@ -273,6 +303,8 @@ pub(crate) fn hit_body_packet_in(w: &mut crate::world::owner::World, body: Ref<c
     owner: OrdnanceOwner, direction: Option<Vector3>, mut services: f3::WorldServices<'_>) {
     crate::units::f3_props::struck_in(w, body, packet, owner, direction, services.reborrow());
     crate::units::f3_hulls::struck_in(w, body, packet, owner, services.reborrow());
+    // 2005 space battles only: a craft's body.
+    if w.space.is_some() { crate::space::struck_in(w, body, packet, owner); }
 }
 
 /// OrdnanceWorld.hitUnit resolves a beam's current Damage override separately
@@ -292,6 +324,7 @@ pub(crate) fn hit_unit_in(w: &mut crate::world::owner::World,
             let b = w.sim.store.beam.get(r).expect("live beam");
             (b.def, b.damage)
         }
+        DefArg::Scaled(def, damage) => (def, Some(damage)),
     };
     let mut packet = f3::hit_policy_in(&w.units, definition);
     if let Some(damage) = damage {

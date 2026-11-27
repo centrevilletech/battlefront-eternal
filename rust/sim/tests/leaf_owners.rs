@@ -148,3 +148,51 @@ fn push_wall_scratch_reuses_reserved_probes_and_lends_repeated_caches_sequential
     without_allocations(|| { for _ in 0..10 { owner.push_walls_ray(world); } });
     assert_eq!(unsafe { *owner.io_ptr().add(1) }, 10.);
 }
+
+#[test]
+fn rejected_infantry_steps_allocate_no_slot_or_heap_storage() {
+    use bfe_family::GameFamily;
+    use bfe_sim::{gen::{MoveInput, Soldier}, movement::{soldier::swbf2::*, ProfileError},
+        units::soldier::tick_soldier_in};
+
+    let controls = ControlSpeed { forward: 1.0, strafe: 0.8, turn: 1.0 };
+    let class = Tuning { stand: controls, crouch: controls, sprint: controls, jump: controls,
+        jet: controls, jetpack: None, roll: controls, tumble: controls, sprint_accelerate_time: 0.2,
+        energy_capacity: 48., energy_floor: -3., energy_restore: 4., energy_restore_idle: 5.,
+        energy_drain_sprint: 7., energy_min_sprint: 6., energy_cost_jump: 2., energy_cost_jump_sprint: None,
+        energy_cost_roll: 3., jump_height: 2., jump_forward_speed_factor: 2., jump_strafe_speed_factor: 1.,
+        roll_speed_factor: 1., roll_frames: 11, recover_from_tumble: false,
+        getup_front_seconds: DEFAULT_GETUP_FRONT_SECONDS, getup_back_seconds: DEFAULT_GETUP_BACK_SECONDS };
+    let mut collision = CollisionOwner::new();
+    let world = floor(&mut collision, 0.) as usize;
+    let mut owner = MovementOwner::new();
+    owner.select_family(GameFamily::Swbf2).unwrap();
+    let mut life = State::new(&class);
+    let mut body = Soldier { mover: -1., grounded: true, normal: [0., 1., 0.], ..Default::default() };
+    for (dt, turn, speed, height, error) in [
+        (-1., 0., 0., 1., ProfileError::InvalidDelta),
+        (f64::NAN, 0., 0., 1., ProfileError::InvalidDelta),
+        (0.01, f64::NAN, 0., 1., ProfileError::InvalidState),
+        (0.01, 0., 0., f64::MAX, ProfileError::InvalidTuning),
+        (0.01, 0., f64::MAX, 1., ProfileError::InvalidState),
+    ] {
+        let tuning = Tuning { jump_height: height, ..class };
+        body.velocity = [0., 1., speed];
+        let input = MoveInput { jump: true, turn, ..Default::default() };
+        let step = Step { actions: Actions::default(), tuning: &tuning, state: &mut life, override_: None };
+        without_allocations(|| {
+            assert_eq!(tick_soldier_in(&mut owner, &mut collision.state, &mut body, &input, dt,
+                world, -1, Some(step)), Err(error));
+        });
+        assert_eq!(body.mover, -1.);
+        assert_eq!(body.position, [0.; 3]);
+        assert_eq!(life.energy, class.energy_capacity);
+    }
+    owner.select_family(GameFamily::Swbf1).unwrap();
+    owner.select_family(GameFamily::Swbf2).unwrap();
+    body.velocity = [0.; 3];
+    let step = Step { actions: Actions::default(), tuning: &class, state: &mut life, override_: None };
+    assert!(tick_soldier_in(&mut owner, &mut collision.state, &mut body, &MoveInput::default(), 0.01,
+        world, -1, Some(step)).is_ok());
+    assert_eq!(body.mover, 0.);
+}

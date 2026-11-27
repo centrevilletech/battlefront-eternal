@@ -61,6 +61,15 @@ pub fn f4_battle_command_in(w: &mut Root) -> u32 {
 }
 /// Direct owner services do not need external command handles. The combat
 /// service resolved these captured Character refs before pooling can resume.
+pub(crate) fn hull_killed(w: &mut Root, vehicle: Ref<Vehicle>, killer: Option<Ref<Character>>) {
+    if let Some(events) = &mut w.battle.rule_events {
+        use super::rules::events::{Event, ObjectHandle};
+        let life = w.sim.store.vehicle.get(vehicle).expect("destroyed hull").target_generation;
+        events.push(Event::ObjectKilled { object: ObjectHandle::Vehicle { vehicle, life }, killer });
+    }
+    achievement_in(w, killer, F4CommandOp::VehicleDestroyed);
+}
+
 pub(crate) fn achievement_in(w: &mut Root, character: Option<Ref<Character>>, op: F4CommandOp) {
     state(&mut w.battle).core.achievement(&mut w.sim.store, character, op);
 }
@@ -81,6 +90,7 @@ pub(crate) fn resolve_character_in(battle: &mut BattleOwner, store:&Store,handle
 pub(crate) fn mark_character_in(battle: &mut BattleOwner, r:Ref<Character>){state(battle).core.mark(r);}
 pub(crate) fn credit(w: &mut Root, victim:Option<Ref<Character>>,killer:Option<Ref<Character>>,relation:f64){state(&mut w.battle).core.credit(&mut w.sim.store,victim,killer,relation);}
 pub(crate) fn configure_tail(battle: &mut BattleOwner, classic:bool,local:Option<Ref<Unit>>){state(battle).classic=Some(classic);state(battle).local=local;}
+pub(crate) fn local_unit(battle: &BattleOwner) -> Option<Ref<Unit>> { battle.core.as_ref()?.local }
 pub(crate) fn owns_lifecycle_in(battle: &mut BattleOwner)->bool{active_in(battle) && state(battle).classic.is_some()}
 pub(crate) fn died_in(w: &mut Root, unit:Ref<Unit>,killer:Option<Ref<Character>>,relation:f64,services:crate::units::f3::WorldServices<'_>)->Option<Ref<Controller>>{
     let classic=state(&mut w.battle).classic.expect("prepared battle lifecycle");let local=state(&mut w.battle).local;
@@ -153,6 +163,9 @@ pub(crate) fn recycle(battle: &mut BattleOwner, s:&mut Store,r:Ref<Character>){s
 
 // Readiness may reenter while the tail lends its prepared world to a hook.
 // Keep this small immutable naming table available without borrowing it.
+pub(super) fn mission_hero_name(battle: &BattleOwner, class: crate::store::StrId) -> Option<crate::store::StrId> {
+    battle.core.as_ref()?.hero_names.iter().find(|(key, _)| *key == class)?.1
+}
 pub(crate) fn prepare_hero(battle: &mut BattleOwner, class:crate::store::StrId,name:Option<crate::store::StrId>){if let Some(row)=state(battle).hero_names.iter_mut().find(|(key,_)|*key==class){row.1=name;}else{state(battle).hero_names.push((class,name));}}
 /// AI and network readiness cross once as a qualified scalar choice. The
 /// native queue decides whether this Character is awaiting a human choice.

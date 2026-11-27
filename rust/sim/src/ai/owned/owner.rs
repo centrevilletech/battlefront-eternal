@@ -9,12 +9,17 @@ use crate::{ai::{combat::{binding::CombatAi,enhanced::EnhancedCombat,weapons_ai:
     nav::Nav,phase::RandomState},combat::defs::WeaponClass,gen::{AiColdSettings,AiPhaseCounters},store::{DefId,Strings}};
 
 #[derive(Default)]
-pub struct Owner {process:Process,battle:Option<Box<Battle>>}
+pub struct Owner {
+    process:Process,
+    battle:Option<Box<Battle>>,
+    pub(super) ground_probe: Option<Box<super::walk::GroundProbe>>,
+}
 impl Owner {
     /// The boundary exchange of the admitted battle, for a host writing its banks by name.
     pub(crate) fn exchange_mut(&mut self)->Option<&mut super::exchange::Exchange> { self.battle.as_deref_mut().map(|b|&mut b.exchange) }
 }
 pub struct Battle {
+    pub(super) scopes_for_map: &'static super::scopes::Entries,
     pub state:State,
     pub runtime:Runtime,
     pub combat:CombatAi,
@@ -35,11 +40,40 @@ pub struct Battle {
     registry:usize,characters:usize,support_keys:usize,hulls:usize,scopes:usize,
 }
 impl Owner {
-    pub const fn new() -> Self { Self { process: Process::new(), battle: None } }
+    pub(crate) fn has_ground_probe(&self) -> bool { self.ground_probe.is_some() }
+    pub(crate) fn has_probe_work(&self, kind: crate::ai::nav::swbf2::ProbeKind) -> bool {
+        self.ground_probe.as_ref().is_some_and(|p| p.has_work(kind))
+    }
+    pub(crate) fn begin_probe_tick(&mut self, tick: u32) {
+        if let Some(probe) = &mut self.ground_probe {
+            probe.begin_tick(tick);
+        }
+    }
+    pub(crate) fn begin_nav_tick(&mut self, tick: u32) {
+        if let Some(swbf2) = self
+            .battle
+            .as_deref_mut()
+            .and_then(|b| b.state.navigation.nav.swbf2.as_mut())
+        {
+            swbf2.begin_tick(tick);
+            if let Some(probe) = &mut self.ground_probe {
+                probe.begin_tick(tick);
+            }
+        }
+    }
+    pub const fn new() -> Self { Self { process: Process::new(), battle: None, ground_probe: None } }
 
     /// createClassicAI/createEnhancedAI starts after the previous battle's
     /// last callback. Process caches move across that boundary exactly once.
     pub fn begin(&mut self,nav:Nav,input:&AiColdSettings,strings:&mut Strings,teams:TeamTable)->&mut Battle {
+        self.begin_with_family(nav, input, strings, teams, false)
+    }
+
+    pub(crate) fn begin_swbf2(&mut self,nav:Nav,input:&AiColdSettings,strings:&mut Strings,teams:TeamTable)->&mut Battle {
+        self.begin_with_family(nav, input, strings, teams, true)
+    }
+
+    fn begin_with_family(&mut self,nav:Nav,input:&AiColdSettings,strings:&mut Strings,teams:TeamTable,swbf2:bool)->&mut Battle {
         assert!(self.battle.is_none(),"finish the current native AI battle before loading another");
         let capacity=&input.capacity;
         assert!(capacity.scopes>0,"native AI needs a reserved service scope");
@@ -53,7 +87,7 @@ impl Owner {
         let controls=mission_controls(&calls);
         let mut difficulty=if input.enhanced {Difficulty::enhanced(input.tier,input.player_team,input.network)}else{
             Difficulty::classic(DifficultyOptions {tier:input.tier,profile_tier:input.profile_tier,player_team:input.player_team,
-                second_player_team:input.second_player_team,network:input.network,override_:input.skill_override,skills:(input.player_skill,input.enemy_skill)})
+                second_player_team:input.second_player_team,network:input.network,override_:input.skill_override,skills:(input.player_skill,input.enemy_skill),swbf2})
         };
         difficulty.apply(&calls);
         let b=&input.capabilities;
@@ -85,6 +119,7 @@ impl Owner {
         // retained battle at one cold address rather than moving its large
         // inline state through each empty module shell on every loan.
         self.battle=Some(Box::new(Battle {
+            scopes_for_map: &super::scopes::Entries::CLASSIC,
             voices,item_owners,facts:Default::default(),stream_a:input.stream_a,stream_b:input.stream_b,
             exchange:super::exchange::Exchange::new(c.cameras,4096),navigation_posts:Vec::new(),initial_naming:None,initial_character:[0.;crate::gen::AiCharacterBirth::WORDS],initial_prop:[0.;crate::gen::F4Handle::WORDS],
             state,runtime:Runtime::new(core,random),combat,settings,
@@ -97,12 +132,14 @@ impl Owner {
     /// Process caches stay in place for the next battle's cold admission.
     pub(crate) fn take_battle(&mut self)->Option<Box<Battle>> {self.battle.take()}
     pub(crate) fn return_battle(&mut self,battle:Box<Battle>) {self.battle=Some(battle);}
+    pub(crate) fn battle_on_loan(&self) -> bool { self.battle.is_none() && self.process.active }
     pub fn battle(&self)->Option<&Battle> {self.battle.as_deref()}
     pub fn battle_mut(&mut self)->Option<&mut Battle> {self.battle.as_deref_mut()}
     /// Call only after the last active frame has returned. Dropping local
     /// agents first releases their shared weapon and vehicle references.
     pub fn finish(&mut self) {
         let Some(battle)=self.battle.take() else{return};
+        self.ground_probe = None;
         let Battle {combat,vehicles,..}=*battle;
         self.process.end(combat.shared,vehicles.authority.finish());
     }
@@ -174,6 +211,7 @@ impl Battle {
         self.counters.step_dt=dt;self.counters.time=self.facts.time;
     }
 
+    pub(crate) fn character_capacity(&self) -> usize { self.characters }
     pub fn ready(&self)->bool {self.ready}
 }
 
@@ -221,47 +259,79 @@ impl Battle {
     }
 }
 
+// The services type specializes helper commands, inputs and item ownership for
+// the whole scope, including nested callbacks on the same Core.
+macro_rules! with_map_services {
+    ($battle:ident, $swbf2:expr, |$context:ident| $body:block) => {{
+        let context = super::host::Context { time: $battle.facts.time,
+            follow_far: $battle.runtime.core.follow_radii().1, stream_a: $battle.stream_a,
+            vehicles: $battle.vehicles.clone(), voice: &$battle.voices, items: &$battle.item_owners };
+        if $swbf2 {
+            let $context = super::host::Context { items: super::publication::Swbf2Items(context.items),
+                time: context.time, follow_far: context.follow_far, stream_a: context.stream_a,
+                vehicles: context.vehicles, voice: context.voice };
+            $body
+        } else {
+            let $context = context;
+            $body
+        }
+    }};
+}
+
 impl Battle {
     /// One native scope spans the enclosing unit, seat or battle operation.
     /// Every recursive callback receives this same Core, memory and generators.
-    pub fn with_native_callbacks<R>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
-        run:impl FnOnce(&mut crate::world::owner::World,crate::units::f3::WorldServices<'_>)->R)->R {
+    pub(super) fn scoped_callbacks<const SWBF2: bool>(&mut self, w: &mut crate::world::owner::World,
+        recon: &mut crate::recon::Authority, queries: &mut crate::battle::live::Queries,
+        run: &mut super::scopes::Callback<'_>) {
         assert!(self.ready,"prepare native AI before its lifecycle callbacks");
-        let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
-            stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
+        with_map_services!(self, SWBF2, |context| {
         let mut scope=super::callbacks::Scope {core:&mut self.runtime.core,state:&mut self.state,
             random:&mut self.runtime.random,combat:&mut self.combat,settings:&self.settings,facts:&self.facts,factory:&context};
         run(w,crate::units::f3::WorldServices {ai:Some(&mut scope),recon,queries})
+        })
     }
     /// createAI attaches the completed initial roster in insertion order,
     /// after spawning.begin and service binding. Early spawn hooks must not
     /// consume those draws while the initial roster is still being built.
-    pub fn attach_initial(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
+    pub(super) fn scoped_attach<const SWBF2: bool>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
         assert!(self.ready,"activate native AI before attaching its roster");
         use super::callbacks::Factory;
-        let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
-            stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
+        with_map_services!(self, SWBF2, |context| {
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
         super::live::with_rows(w,&mut self.state,|rows| {
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             for index in 0..self.runtime.core.character_count {self.runtime.attach(&mut world,index);}
         });
 
+        })
     }
-    pub fn native_phase(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn scoped_phase<const SWBF2: bool, const GOALS: bool>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,
         facts:&super::world::Facts,input:&crate::gen::AiPhaseFacts,cameras:&[crate::gen::AiPhaseCamera],journal:&crate::gen::AiJournalInput)->Result<(),super::events::Invalid> {
         assert!(self.ready,"prepare native AI before its phase");
-        self.state.import_journal(journal)?;self.state.phase_facts(input,cameras);
+        self.state.import_journal(journal)?;
+        if SWBF2 {
+            self.state.navigation.nav.swbf2.as_mut().unwrap().begin_tick(input.tick as u32);
+            if let Some(probe) = &mut w.ai.ground_probe { probe.begin_tick(input.tick as u32); }
+        }
+        self.state.phase_facts(input,cameras);
         self.facts=super::world::Facts {time:facts.time,paused:facts.paused,network_views:input.network_views,lod_disabled:input.lod_disabled,network_secondary:facts.network_secondary};
-        use super::callbacks::Factory;
-        let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
-            stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
-        let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
+        with_map_services!(self, SWBF2, |context| {
+        let mut services=super::host::Scope::<_,_,GOALS> {context:&context,recon,queries};let mut random=self.runtime.random.share();
         super::live::with_rows(w,&mut self.state,|rows| {
+            if SWBF2 {
+                let state = &mut *rows.state;
+                state.navigation.resume_walks(rows.w, &state.nav_classes, &mut random, &mut services);
+            }
             let mut world=super::world::World {rows,random:&mut random,combat:&mut self.combat,services:&mut services,settings:&self.settings,facts:&self.facts};
             self.runtime.phase(&mut world,input.dt);
+            if world.rows.state.navigation.nav.swbf2.is_some() && self.runtime.core.options.bind.combat && !self.facts.paused {
+                world.step_human_aim_miss(input.dt);
+            }
         });
 
+        });
         self.phase_counters(input.dt);
         self.counters.input_words=self.counters.input_words.wrapping_add((crate::gen::AiPhaseHeader::WORDS+cameras.len()*crate::gen::AiPhaseCamera::WORDS
             +journal.records.len()*crate::gen::AiJournalEvent::WORDS) as u32);
@@ -274,11 +344,10 @@ impl Battle {
 impl Battle {
     /// Danger warnings stay after battle and targeting, rather than joining
     /// the earlier decide/execute boundary or the projectile flight callback.
-    pub fn native_dangers(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
+    pub(super) fn scoped_dangers<const SWBF2: bool>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries) {
         if !self.runtime.core.options.bind.combat {return;}
         use super::callbacks::Factory;
-        let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
-            stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
+        with_map_services!(self, SWBF2, |context| {
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
         super::live::with_rows(w,&mut self.state,|rows| {
             let viewpoint=crate::units::f3::viewpoint_in(&rows.w.units);
@@ -286,6 +355,7 @@ impl Battle {
             world.grenade_dangers(&mut self.runtime.core,||Some(viewpoint));
         });
 
+        });
         self.record_danger_phase();
     }
     pub fn record_danger_phase(&mut self) {
@@ -299,12 +369,11 @@ impl Battle {
 impl Battle {
     /// playerCommand observes the current Character and sends one ordered
     /// command through the same squad, voice and shared-generator services.
-    pub fn native_command(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,input:&crate::gen::AiPlayerCommand)->bool {
+    pub(super) fn scoped_command<const SWBF2: bool>(&mut self,w:&mut crate::world::owner::World,recon:&mut crate::recon::Authority,queries:&mut crate::battle::live::Queries,input:&crate::gen::AiPlayerCommand)->bool {
         use super::callbacks::Factory;
         if crate::battle::f4_core::resolve_character_in(&mut w.battle,&w.sim.store,&input.character).is_none() {return false;}
         self.facts.time=input.time;
-        let context=super::host::Context {time:self.facts.time,follow_far:self.runtime.core.follow_radii().1,
-            stream_a:self.stream_a,vehicles:self.vehicles.clone(),voice:&self.voices,items:&self.item_owners};
+        with_map_services!(self, SWBF2, |context| {
         let mut services=context.services(recon,queries);let mut random=self.runtime.random.share();
         let result=super::live::with_rows(w,&mut self.state,|rows| {
             let Some(reference)=rows.characters.resolve(row_context!(rows),&input.character) else{return false};
@@ -313,5 +382,6 @@ impl Battle {
             self.runtime.core.player_command(&mut world,character,input.kind);true
         });
         result
+        })
     }
 }

@@ -96,7 +96,7 @@ impl MovementOwner {
         self.entry(id)?;
         self.native_copies.entries[id as usize] = None;
         let ms = self.movers.as_mut().unwrap();
-        ms.list[id as usize] = Mover::new(0);
+        ms.list[id as usize] = Mover::for_family(0, self.family);
         ms.caches[id as usize] = std::array::from_fn(|_| crate::collision::spheres::GatherCache::new(0.75));
         Ok(())
     }
@@ -114,6 +114,7 @@ impl MovementOwner {
         s: &mut State,
     ) -> Result<MovementResult> {
         self.validate_flags(id, s, &flags)?;
+        movement::check_family(self.mover(id).family(), false).map_err(MovementError::Profile)?;
         self.native_load(id, io)?;
         self.native_advance(id, movement::input(&io), io[movement::DT], flags, s)
     }
@@ -127,8 +128,6 @@ impl MovementOwner {
     ) -> Result<MovementResult> {
         self.validate_flags(id, s, &flags)?;
         let entry = self.native_copies.entries[id as usize].as_mut().unwrap();
-        self.flags[..flags.len()].copy_from_slice(&flags);
-        entry.flags = flags;
         let ms = self.movers.as_mut().unwrap();
         let mover = &mut ms.list[id as usize];
         let world = mover.world;
@@ -136,12 +135,14 @@ impl MovementOwner {
         let mut scene = Scene {
             s,
             world,
-            flags: &self.flags[..entry.flags.len()],
+            flags: &flags,
             gathered: &mut ms.gathered,
             caches: &mut ms.caches[id as usize],
             ground_cache,
         };
-        movement::advance_in(mover, &input, dt, &mut scene);
+        movement::advance_profiled(mover, &input, dt, &mut scene, None).map_err(MovementError::Profile)?;
+        self.flags[..flags.len()].copy_from_slice(&flags);
+        entry.flags = flags;
         movement::store(mover, &mut entry.io);
         self.io = entry.io;
         self.native_snapshot(id)

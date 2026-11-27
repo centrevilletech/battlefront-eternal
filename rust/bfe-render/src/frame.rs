@@ -99,7 +99,7 @@ fn channels(kind: usize) -> &'static [Channel] {
         K::FAR=>&[Input,Far,FarVertices],
         K::SCENE=>&[Input,Bones,Shadow,World,Far,FarVertices,Foliage,Canopies,Water,WaterInstances],
         K::TRANSPARENT=>&[Input,Shadow,Fx,FxData,FxMatrices,Water,WaterInstances,Transparent],
-        K::SHADOW=>&[Caster,StaticShadow], K::VIEW=>&[Input,Bones,View,Fx,FxData,FxMatrices],
+        K::SHADOW=>&[StaticShadow,Caster], K::VIEW=>&[Input,Bones,View,Fx,FxData,FxMatrices],
         K::MOTION=>&[Motion,MotionBones,MotionPrevious,MotionExtras,MotionValues],
         K::SCREEN=>&[Input,Screen,ScreenState],
         K::HUD=>&[Hud,HudPosition,HudUv,HudMaskUv,HudTint,Interface],
@@ -197,23 +197,38 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
         let mut size=0;
         for &channel in channels(kind) {
             let current=self.frame_source(channel).len();
-            let capacity=if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT { current.max(4<<20) } else if matches!(channel,Channel::Interface) {0}else {current};
+            let capacity=if matches!(channel,Channel::Caster) {
+                self.shadow.packet_size(role >= R::SHADOW_DYNAMIC0)
+            } else if matches!(channel,Channel::FxData) && kind==K::TRANSPARENT {
+                current.max(4<<20)
+            } else if matches!(channel,Channel::Interface) {
+                0
+            } else if matches!(channel,Channel::Input) && !(kind==K::SCENE || kind==K::VIEW || role==R::FAR) {
+                // Only scene, first-person view, and far-band packets carry instance records;
+                // other roles copy only the frame uniform block (FRAME_FLOATS * 8 bytes).
+                (crate::shader::FRAME_FLOATS * 8).min(current)
+            } else {
+                current
+            };
             packet.spans.push(Span{channel,offset:size,capacity,used:0});size+=capacity;
             if matches!(channel,Channel::FxData) { packet.fx_ranges.reserve(crate::effects::MAX_DRAWS + crate::effects::MAX_OWNERS); }
         }
         packet.data=vec![0;size];self.frames.packets.push(packet);
         self.frames.packets.len()>=R::COUNT
     }
-    // ShadowPass.admitNative expands its command store at cold static-source
-    // admission. Retain that content-sized capacity for every cascade packet;
-    // no publication resizes storage while camera inputs are being collected.
+    // The caster span is last so changing settings never strands an older
+    // command bank between spans. Static views reserve only their own records.
     pub fn frame_shadow_reserve(&mut self) {
-        let needed=self.shadow.input.len()*8;
         for role in R::SHADOW_STATIC0..=R::SHADOW_DYNAMIC3 {
-            let Some(packet)=self.frames.packets.get_mut(role) else {continue};
-            let Some(span)=packet.spans.iter_mut().find(|s|matches!(s.channel,Channel::Caster)) else {continue};
-            if span.capacity>=needed {continue;}
-            span.offset=packet.data.len();span.capacity=needed;packet.data.resize(span.offset+needed,0);
+            let needed = self.shadow.packet_size(role >= R::SHADOW_DYNAMIC0);
+            let Some(packet) = self.frames.packets.get_mut(role) else { continue };
+            let Some(span) = packet.spans.last_mut() else { continue };
+            debug_assert!(matches!(span.channel, Channel::Caster));
+            if span.capacity >= needed { continue; }
+            let mut data = vec![0; span.offset + needed];
+            data[..packet.data.len()].copy_from_slice(&packet.data);
+            packet.data = data;
+            span.capacity = needed;
         }
     }
     // Generated browser/native bindings share these bounded lifecycle entries.
@@ -225,6 +240,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     // Reset validity/counts rather than clearing megabytes of retained payload.
     pub fn frame_begin(&mut self) {
         self.frames.collecting=true;self.frames.clipped=false;self.frames.ui_role=R::COUNT;self.frames.line_counts=[0;3];
+        self.instances.overflow.begin_frame();
         for packet in &mut self.frames.packets {if let Some(uploads)=&mut packet.uploads {uploads.count=0;uploads.used=0;uploads.clipped=false;}}
         for role in 0..R::COUNT {self.frames.meta[role*M::LEN+M::PRESENT]=0.;self.frames.meta[role*M::LEN+M::BOUND]=0.;}
         self.frames.stats.fill(0.);
@@ -234,8 +250,17 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
     pub fn frame_publish(&mut self,role:usize) -> bool {
         if role>=self.frames.packets.len(){self.frames.clipped=true;return false;}
         let at=role*M::LEN;
-        self.frames.meta[at+M::RECORDS]=(self.frames.meta[at+M::RECORDS] as usize).min(crate::instances::MAX_RECORDS) as f64;
-        self.frames.meta[at+M::BONES]=(self.frames.meta[at+M::BONES] as usize).min(crate::instances::MAX_BONES) as f64;
+        let carries_instances = matches!(role_kind(role), K::SCENE | K::VIEW) || role == R::FAR;
+        let requested_records = self.frames.meta[at+M::RECORDS] as usize;
+        if carries_instances && requested_records > crate::instances::MAX_RECORDS {
+            self.instances.overflow.note_record_drop(requested_records - crate::instances::MAX_RECORDS);
+        }
+        self.frames.meta[at+M::RECORDS]=requested_records.min(crate::instances::MAX_RECORDS) as f64;
+        let requested_bones = self.frames.meta[at+M::BONES] as usize;
+        if carries_instances && requested_bones > crate::instances::MAX_BONES {
+            self.instances.overflow.note_bone_drop(requested_bones - crate::instances::MAX_BONES);
+        }
+        self.frames.meta[at+M::BONES]=requested_bones.min(crate::instances::MAX_BONES) as f64;
         let records=self.frames.meta[at+M::RECORDS] as usize;let bones=self.frames.meta[at+M::BONES] as usize;
         // Only UI views have two permitted producers. All other shapes follow
         // their semantic role, regardless of a malformed imported kind value.
@@ -276,13 +301,13 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
             // Record/bone/FX counts describe live prefixes. Other fixed-size
             // shader inputs keep their original scalar layout, byte for byte.
             let wanted=match span.channel {
-                Channel::Input=>(crate::shader::FRAME_FLOATS+if packet.kind==K::SCENE || packet.kind==K::VIEW {records*crate::instances::REC_STRIDE}else{0})*8,
+                Channel::Input=>(crate::shader::FRAME_FLOATS+if packet.kind==K::SCENE || packet.kind==K::VIEW || role==R::FAR {records*crate::instances::REC_STRIDE}else{0})*8,
                 Channel::Bones=>bones*16*4,
                 Channel::FxData=>(self.frames.meta[at+M::FX_WORDS] as usize).saturating_mul(4),
                 Channel::Caster=>(crate::shadow::S_FIRST+(self.shadow.input[crate::shadow::S_DRAWS] as usize).min((self.shadow.input.len()-crate::shadow::S_FIRST)/crate::shadow::DRAW)*crate::shadow::DRAW)*8,
                 Channel::View=>(1+(self.view.input[0] as usize).min(crate::view::MAX_DRAWS)*crate::view::DRAW)*8,
                 Channel::Transparent=>(1+(self.transparent.objects[0] as usize).min(crate::transparent::MAX_OBJECTS)*crate::transparent::OBJ_STRIDE)*8,
-                Channel::Motion=>(crate::motion::IN_RECORDS+records.min(crate::motion::MAX_RECORDS)*crate::motion::REC_STRIDE)*8,
+                Channel::Motion=>(crate::motion::IN_RECORDS+records.min(self.motion.record_capacity())*crate::motion::REC_STRIDE)*8,
                 Channel::MotionBones=>(self.motion.input[crate::motion::IN_BONES] as usize).min(crate::motion::MAX_BONES)*16*4,
                 Channel::MotionPrevious=>(self.motion.input[crate::motion::IN_PREVIOUS_BONES] as usize).min(crate::motion::MAX_BONES)*16*4,
                 Channel::MotionExtras=>(1+(self.motion.extras_input[0] as usize).min(crate::motion::MAX_EXTRAS)*crate::motion::EXTRA)*8,
@@ -403,7 +428,7 @@ impl<C: HasContext,Md: MultiDraw> Renderer<C,Md> {
                     || role==R::MIRROR1_FAR && self.frames.plan.facts[crate::frame_plan::layout::facts::MIRROR_SKY+1]!=0.;
                 self.far.input[crate::far::FAR_KEEP]=keep as u8 as f64;
                 if (R::PROBE0..=R::PROBE23).contains(&role){self.far_probe_frame((role-R::PROBE0)%6)?}
-                else if role==R::FAR {self.far_frame()?}else{self.far_mirror_frame()?}
+                else if role==R::FAR {self.far_frame(records)?}else{self.far_mirror_frame()?}
             },
             K::SCENE=>if role==R::NEAR{self.frame(records)?}else{self.mirror_frame(records)?},
             K::TRANSPARENT=>if role==R::TRANSPARENT{self.transparent_frame(0,0)?}else{self.mirror_transparent_frame(0,0)?},

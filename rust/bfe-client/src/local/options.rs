@@ -27,10 +27,15 @@ impl Options {
     // The Context uses the same validated values; this host only translates
     // their enum representation at the cold admission boundary.
     pub fn world(&self) -> Result<bfe_sim::world::admit::Options, String> {
-        use bfe_content_native::setup::{Ai, BattleOptions};
-        let options = BattleOptions::from_args(&self.battle)?;
-        Ok(bfe_sim::world::admit::Options { map: options.map, side: options.side,
-            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit, name: self.name.as_deref().map(session_name), bots: self.bots })
+        Self::world_from(bfe_content_native::setup::BattleOptions::from_args(&self.battle)?, self.name.as_deref(), self.bots)
+    }
+
+    pub(crate) fn world_from(
+        options: bfe_content_native::setup::BattleOptions, name: Option<&str>, bots: bfe_sim::world::admit::Bots,
+    ) -> Result<bfe_sim::world::admit::Options, String> {
+        use bfe_content_native::setup::Ai;
+        Ok(bfe_sim::world::admit::Options { practice_target: None, family: options.family, map: options.map, side: options.side, mode: options.mode,
+            enhanced: options.ai == Ai::Enhanced, seed: options.seed, heroes: options.heroes, unit: options.unit, name: name.map(session_name), bots })
     }
     // session_window::Options::read selects its mode before making a window.
     // Keep the existing online/archive parser authoritative for other modes;
@@ -46,7 +51,9 @@ impl Options {
         while at < args.len() {
             let name = &args[at];
             match name.as_str() {
-                "--side" | "--seed" | "--ai" | "--unit" => {
+                // `--family` and `--mode` name a game and mode; BattleOptions refuses
+                // arguments that name different games, in any order.
+                "--side" | "--seed" | "--ai" | "--unit" | "--family" | "--mode" => {
                     // Validate mission values in BattleOptions, after this
                     // parser has separated them from device/content choices.
                     let value = args.get(at + 1).filter(|s| !s.starts_with('-')).ok_or_else(|| format!("missing value for {name}"))?;

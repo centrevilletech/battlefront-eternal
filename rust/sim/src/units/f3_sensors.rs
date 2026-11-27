@@ -299,9 +299,10 @@ pub(crate) fn arc_targets_in(world_ctx: &mut crate::world::owner::World, owner: 
         let unit = world_ctx.sim.store.unit.get(reference).expect("arc registry Unit");
         if unit.dead || unit.removed || unit.seat.is_some() && !super::live_pose::exposed_in(&world_ctx.fleet,&world_ctx.sim.store, reference.slot, unit) { continue; }
         if crate::combat::impacts::team_damage(team,human,unit.team,unit.human,f3::friendly_fire_in(&world_ctx.units)) <= 0.0 { continue; }
+        let relation = f3::relation_in(&world_ctx.units, team, unit.team);
         let origin = unit.position();
         let (center,radius) = unit_sphere_in(world_ctx, reference);
-        out.push(ArcTarget {origin,center:Some(v3(center)),radius:Some(radius)});
+        out.push(ArcTarget {origin,center:Some(v3(center)),radius:Some(radius),relation});
         targets.push(ArcVictim::Unit(reference));
     }
     // A mine need not have landed to attract lightning. The acquisition
@@ -309,7 +310,8 @@ pub(crate) fn arc_targets_in(world_ctx: &mut crate::world::owner::World, owner: 
     for &reference in &world_ctx.sim.store.items.items {
         let item = world_ctx.sim.store.item.get(reference).expect("arc item");
         if !item.mine || item.gone == Some(true) { continue; }
-        out.push(ArcTarget {origin:v3(item.position),center:None,radius:None});
+        let relation = f3::relation_in(&world_ctx.units, team, item.team);
+        out.push(ArcTarget {origin:v3(item.position),center:None,radius:None,relation});
         targets.push(ArcVictim::Item(reference));
     }
     // Game.arcTargets appends every live droid after mines, without a team
@@ -322,7 +324,8 @@ pub(crate) fn arc_targets_in(world_ctx: &mut crate::world::owner::World, owner: 
             // object. It must never resolve to the replacement generation.
             let Some(d) = world_ctx.sim.store.recon_droid.get(reference) else { continue };
             if d.dead { continue; }
-            out.push(ArcTarget {origin:v3(d.position),center:None,radius:None});
+            let relation = f3::relation_in(&world_ctx.units, team, d.team);
+            out.push(ArcTarget {origin:v3(d.position),center:None,radius:None,relation});
             targets.push(ArcVictim::Recon(reference));
         }
     }
@@ -494,6 +497,17 @@ impl targeting::MeleeTargets for MeleeWorld<'_, '_> {
 }
 
 pub(crate) fn melee_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>, origin: [f64; 3], aim: [f64; 3], source: [f64; 3], recon: Option<crate::units::f3::WorldServices<'_>>) {
+    // A pending legacy hit can outlive its trigger. The 2005 soldier's posed
+    // attack window already owns contact, blocking and damage for this life.
+    if world_ctx.units.infantry.is_some()
+        && world_ctx.sim.store.unit.get(owner).is_some_and(|unit| matches!(unit.soldier, crate::gen::UnitBody::Soldier(_)))
+    {
+        return;
+    }
+    released_melee_in(world_ctx, owner, origin, aim, source, recon);
+}
+
+fn released_melee_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Unit>, origin: [f64; 3], aim: [f64; 3], source: [f64; 3], recon: Option<crate::units::f3::WorldServices<'_>>) {
     let mut scratch = f3::take_melee_in(&mut world_ctx.units, owner);
     targeting::melee(
         &mut MeleeWorld { w: world_ctx, owner,recon },
@@ -504,6 +518,37 @@ pub(crate) fn melee_in(world_ctx: &mut crate::world::owner::World, owner: Ref<Un
         &v3(source),
     );
     f3::put_melee_in(&mut world_ctx.units, owner, scratch);
+}
+
+#[cfg(test)]
+mod melee_authority {
+    use super::*;
+
+    #[test]
+    fn a_pending_legacy_blade_hit_cannot_damage_a_second_time() {
+        let mut world = crate::battle::script::tests::combat_arena();
+        let soldier = |team| world.sim.store.unit.iter()
+            .find(|(_, u)| u.alive && !u.dead && !u.removed && u.team == team)
+            .map(|(r, _)| r).unwrap();
+        let attacker = soldier(1.);
+        let target = soldier(2.);
+        let victim = world.sim.store.unit.get(target).unwrap();
+        let health = victim.combat.health;
+        let p = victim.position();
+        let origin = [p.x, p.y + 0.8, p.z - 0.6];
+        let aim = [0., 0., 1.];
+
+        for human in [false, true] {
+            world.sim.store.unit.get_mut(attacker).unwrap().human = human;
+            melee_in(&mut world, attacker, origin, aim, origin, None);
+            assert_eq!(world.sim.store.unit.get(target).unwrap().combat.health, health);
+        }
+
+        // The same ray must actually strike this body on the released path.
+        world.units.infantry.take();
+        melee_in(&mut world, attacker, origin, aim, origin, None);
+        assert!(world.sim.store.unit.get(target).unwrap().combat.health < health);
+    }
 }
 
 /// OrdnanceWorld.raycastUnits: the same native registry handles ordinary and
@@ -597,6 +642,94 @@ pub(crate) fn ordnance_raycast_in(world_ctx: &mut crate::world::owner::World,
         None
     };
     bubble.or(body)
+}
+
+/// Piercing unit raycast for Battlefront II `PassThrough` beams: writes every
+/// distinct soldier struck along `(origin, direction)` within `far`, ordered
+/// nearest to farthest, into the caller's retained `out` buffer.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn ordnance_raycast_piercing_in(
+    world_ctx: &mut crate::world::owner::World,
+    origin: [f64; 3],
+    direction: [f64; 3],
+    far: f64,
+    owner: crate::gen::OrdnanceOwner,
+    history: Option<f64>,
+    ignore: Option<Ref<crate::gen::Body>>,
+    out: &mut Vec<crate::ordnance::world::UnitHit>,
+) {
+    use crate::gen::{HitPart, OrdnanceOwner};
+    use crate::store::Nullable;
+    out.clear();
+    if far <= 0.0 {
+        return;
+    }
+    let exclude = match owner {
+        OrdnanceOwner::Unit(r) => Some(Member::Unit(r)),
+        OrdnanceOwner::OwnerSnapshot(r) => crate::combat::owners::resolve(&world_ctx.sim.store, r).map(Member::Unit),
+        _ => None,
+    };
+    let accept = |fleet: &crate::vehicles::module::Fleet, store: &crate::gen::Store, unit: &Unit| {
+        if let Some((body, _)) = super::live_pose::mount_row(fleet, store, unit) {
+            if ignore.is_some() && body == ignore {
+                return false;
+            }
+        }
+        true
+    };
+    let part = |head: bool| Nullable::Value(if head { HitPart::Head } else { HitPart::Body });
+    let o = v3(origin);
+    let d = v3(direction);
+    let limit = world_ctx.sim.store.units.list.len();
+    for _ in 0..limit {
+        let next = if let Some(tick) = history {
+            f3::with_history_in(world_ctx, |world_ctx, history| {
+                history.raycast_with(tick, &o, &d, far, exclude, true, &mut Sensors { w: world_ctx }, &mut |sensors, member| {
+                    let Member::Unit(r) = member else { return false };
+                    if out.iter().any(|h| h.unit == r) {
+                        return false;
+                    }
+                    sensors.w.sim.store.unit.get(r).is_some_and(|unit| accept(&sensors.w.fleet, &sensors.w.sim.store, unit))
+                })
+            })
+            .map(|hit| {
+                let Member::Unit(unit) = hit.key else { unreachable!() };
+                crate::ordnance::world::UnitHit {
+                    unit,
+                    distance: hit.distance,
+                    point: a3(hit.point),
+                    normal: a3(hit.normal),
+                    part: part(hit.part == crate::gen::ShapePart::Head),
+                }
+            })
+        } else {
+            super::module::with_registry_in(world_ctx, |world, registry, slab| {
+                registry.raycast_with(
+                    slab,
+                    &o,
+                    &d,
+                    far,
+                    exclude.map_or(registry::Exclude::Nobody, registry::Exclude::One),
+                    &mut |member, unit, world: &mut super::module::ModuleWorld<'_, '_>| {
+                        let Member::Unit(r) = member else { return false };
+                        !out.iter().any(|h| h.unit == r) && accept(&world.w.fleet, &world.w.sim.store, unit)
+                    },
+                    true,
+                    world,
+                    |world| world,
+                )
+            })
+            .map(|hit| crate::ordnance::world::UnitHit {
+                unit: world_ctx.sim.store.unit.at(hit.unit).unwrap().0,
+                distance: hit.distance,
+                point: a3(hit.point),
+                normal: a3(hit.normal),
+                part: part(hit.part == crate::units::shapes::ShapePart::Head),
+            })
+        };
+        let Some(hit) = next else { break };
+        out.push(hit);
+    }
 }
 
 /// A droideka's shield bubble as rounds meet it now: up, with charge left,

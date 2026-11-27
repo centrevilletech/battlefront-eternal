@@ -1,17 +1,175 @@
-//! The battle's rules: who fights for each team (its
-//! Characters), their reinforcements, the bleed of reinforcements from
-//! holding fewer posts, how a team loses, and each Character's scores.
-//! Teams 1 and 2 are the armies; 3 to 7 the locals, who neither bleed nor
-//! count down.
+//! Admission selects the battle's rules. Characters and their statistics
+//! stay in the canonical battle store.
 //!
 //! The state is the store's (rust/sim/schema/battle.json): the `battle`
 //! singleton and its Characters, by reference.
+
+//! A native host supplies the factory before admitting an event-driven mode.
+//! Replay invokes the factory with the recorded parameters.
+//!
+//! ```
+//! use bfe_family::GameFamily;
+//! use bfe_sim::battle::rules::{ModeParameters, events::*};
+//! use bfe_sim::world::owner::World;
+//!
+//! struct ScoreLimit;
+//!
+//! impl EventRules for ScoreLimit {
+//!     fn tick(&mut self, _: f64, batch: &EventQueue, actions: &mut dyn RuleActions) {
+//!         for event in batch.events() {
+//!             if let Event::TeamPointsChanged { team, points } = event {
+//!                 if actions.score_limit().is_some_and(|limit| *points >= limit) {
+//!                     actions.finish(Outcome::Winner(*team)).expect("admitted scoring team");
+//!                     break;
+//!                 }
+//!             }
+//!         }
+//!     }
+//! }
+//!
+//! let mut world = World::new();
+//! world.register_rule_factory(|family, mode, _params| match (family, mode) {
+//!     (GameFamily::Swbf2, "example") => Ok(Box::new(ScoreLimit)),
+//!     _ => Err(RuleError::NotAvailable),
+//! });
+//! let parameters = ModeParameters { command_limit: 8, score_limit: Some(4), ..Default::default() };
+//! world.request_battle_rules(GameFamily::Swbf2, "example", parameters)?;
+//! # Ok::<(), RuleError>(())
+//! ```
 
 use super::posts;
 use super::stats::{self, Seen};
 use super::world::BattleWorld;
 use crate::gen::{Battle, BattleStats, Character, KillRing, Store, TeamDesc};
 use crate::store::{IntObj, Nullable, Ref, Strings, TypedArray};
+use bfe_family::GameFamily;
+
+pub mod awards;
+pub(crate) mod hero_health;
+mod conquest;
+pub mod events;
+pub mod objects;
+
+pub use conquest::{living, score, update, update_locals, update_team};
+use events::{EventDriven, EventQueue, EventRules, MissionObjects, RuleError, RuleResult};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ModeParameters {
+    pub command_limit: u32,
+    pub timer_limit: u32,
+    pub score_limit: Option<u32>,
+    pub time_limit: Option<f64>,
+}
+
+#[derive(Clone)]
+pub(crate) struct Selection {
+    pub family: GameFamily,
+    pub mode: String,
+    pub parameters: ModeParameters,
+}
+
+pub(crate) type Factory = dyn Fn(GameFamily, &str, &ModeParameters) -> RuleResult<Box<dyn EventRules>>;
+
+impl crate::world::owner::World {
+    /// Whether the battle runs a scripted mission, installed or about to be.
+    pub(crate) fn has_mission(&self) -> bool {
+        self.battle.prepared_mission.is_some() || self.mission_state().is_some()
+    }
+
+    pub(crate) fn can_admit_mission(&self) -> bool {
+        self.battle.tail.is_none() && self.battle.core.is_none() && self.battle.rule_request.is_none() && !self.tick.running
+    }
+
+    /// Allocate mission goal handles from this world, including during script load.
+    pub fn goal_handles(&mut self) -> crate::ai::goals::GoalHandles {
+        self.battle.goal_handles.get_or_insert_with(Default::default).clone()
+    }
+
+    pub(crate) fn prepare_script_rules(&mut self, mode: &str, parameters: ModeParameters, rules: super::script::ScriptRules) -> RuleResult<()> {
+        if self.battle.rule_request.is_some() || self.battle.prepared_mission.is_some()
+            || !self.goal_handles().same_world(&rules.host().goal_handles) {
+            return Err(RuleError::InvalidValue);
+        }
+        let mode_rules = EventDriven::new(rules, parameters.command_limit as usize, parameters.timer_limit as usize);
+        self.battle.prepared_mission = Some(Box::new(RuleSet::EventDriven(mode_rules)));
+        self.battle.rule_request = Some(Selection { family: GameFamily::Swbf2, mode: mode.to_string(), parameters });
+        Ok(())
+    }
+
+    /// Supply a fresh battle-local handler for a supported family and mode.
+    /// A replay supplies its recorded parameters to this same factory.
+    pub fn register_rule_factory(&mut self, factory: impl Fn(GameFamily, &str, &ModeParameters) -> RuleResult<Box<dyn EventRules>> + 'static) {
+        self.battle.rule_factory = Some(Box::new(factory));
+    }
+
+    /// Supply the world allocator to a native goal writer before its factory runs.
+    pub fn register_goal_rule_factory(&mut self, factory: impl Fn(GameFamily, &str, &ModeParameters, crate::ai::goals::GoalHandles) -> RuleResult<Box<dyn EventRules>> + 'static) {
+        let handles = self.goal_handles();
+        self.register_rule_factory(move |family, mode, params| factory(family, mode, params, handles.clone()));
+    }
+
+    /// Cold host entry. The player availability gate does not request event modes.
+    pub fn request_battle_rules(&mut self, family: GameFamily, mode: &str, parameters: ModeParameters) -> RuleResult<()> {
+        if self.battle.tail.is_some() || mode.is_empty() || parameters.time_limit.is_some_and(|t| !t.is_finite() || t < 0.0) {
+            return Err(RuleError::InvalidValue);
+        }
+        match (family, mode) {
+            (GameFamily::Swbf1, "conquest") => self.battle.rule_request = None,
+            (GameFamily::Swbf2, _) if self.battle.rule_factory.is_some() => {
+                self.battle.rule_request = Some(Selection { family, mode: mode.to_owned(), parameters });
+            }
+            _ => return Err(RuleError::NotAvailable),
+        }
+        Ok(())
+    }
+}
+
+/// The native death path still runs while the tail and handler are on loan.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum DeathTickets { Conquest, Handler }
+
+
+pub enum RuleSet {
+    Conquest,
+    EventDriven(EventDriven),
+}
+
+impl RuleSet {
+    pub(crate) fn mission_waves(&mut self) -> Option<&mut super::spawning::mission::Waves> {
+        match self { Self::EventDriven(mode) => mode.waves.as_mut(), Self::Conquest => None }
+    }
+
+    pub(super) fn select(family: GameFamily, mode: &str, parameters: ModeParameters,
+        factory: Option<&Factory>, objects: MissionObjects) -> RuleResult<Self> {
+        match (family, mode) {
+            (GameFamily::Swbf1, "conquest") => Ok(Self::Conquest),
+            (GameFamily::Swbf2, _) => {
+                let handler = factory.ok_or(RuleError::NotAvailable)?(family, mode, &parameters)?;
+                let rules = EventDriven::from_handler(handler, parameters.command_limit as usize, parameters.timer_limit as usize);
+                Ok(Self::EventDriven(rules.with_mission(objects, parameters.score_limit)))
+            }
+            _ => Err(RuleError::NotAvailable),
+        }
+    }
+
+    pub(super) fn tick<W: RulesWorld + ?Sized>(
+        &mut self,
+        s: &mut Store,
+        dt: f64,
+        strings: &dyn stats::ContextText<W>,
+        stats_active: impl Fn(Ref<Character>, &Character) -> bool,
+        world: &mut W,
+    ) {
+        match self {
+            Self::Conquest => conquest::update(s, dt, strings, stats_active, world),
+            Self::EventDriven(mode) => {
+                if !mode.prepared || world.rule_events().is_none() { return; }
+                let active = advance_lifecycle(s, dt, strings, stats_active, world);
+                mode.tick(s, dt, active, world);
+            }
+        }
+    }
+}
 
 /// GAME_OVER_DELAY: s from a team's last reinforcement to the game-over flag.
 pub const GAME_OVER_DELAY: f64 = 2.0;
@@ -24,6 +182,9 @@ pub const NO_POST: f64 = 20.0;
 /// use BattleWorld below; the live module can also call these rules while
 /// the command posts and bodies still belong to JavaScript.
 pub trait RulesWorld {
+    fn ai_goal_pass(&mut self, _: &mut Store, _: &mut crate::ai::goals::GoalController, _: &dyn crate::ai::goals::GoalTable, _: f64) {}
+    fn ai_soldier_inputs(&mut self, _: &mut Store, _: &mut crate::ai::goals::SoldierInputs, _: f64) {}
+
     fn stats_active(&mut self, _s: &Store, _r: Ref<Character>, _c: &Character, active: bool) -> bool { active }
 
     /// Owned worlds move prepared storage into a lazy record at this slot.
@@ -35,6 +196,17 @@ pub trait RulesWorld {
     fn living(&mut self, s: &Store, team: f64) -> Option<f64>;
     fn owned_values(&mut self, s: &mut Store, team: f64) -> Vec<Option<f64>>;
     fn battle_over(&mut self, s: &mut Store, loser: f64);
+    /// Exposes the native object service for queries and property writes.
+    /// Building health uses the same qualified property interface.
+    ///
+    /// ```compile_fail,E0599
+    /// # use bfe_sim::{battle::rules::RulesWorld, gen::{F4Handle, Store}};
+    /// fn destroy(world: &mut dyn RulesWorld, store: &mut Store, building: &F4Handle) {
+    ///     world.set_rule_building_health(store, building, 0.0);
+    /// }
+    /// ```
+    fn rule_objects(&mut self) -> Option<&mut dyn objects::ObjectServices> { None }
+    fn rule_events(&mut self) -> Option<&mut EventQueue> { None }
     /// Native owners can sum their placed/mobile posts directly. The legacy
     /// foreign host still supplies its value list while its callers migrate.
     fn owned_summary(&mut self, s: &mut Store, team: f64) -> (usize, f64) {
@@ -165,25 +337,14 @@ pub fn post_destroyed(s: &mut Store, destroyer: Option<Ref<Character>>, relation
     }
 }
 
-/// The living soldiers of a team, heroes excepted: the spawn manager's
-/// count, else the Characters' own.
-pub fn living<W: RulesWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f64 {
-    if let Some(n) = world.living(s, team) {
-        return n;
-    }
-    let mut n = 0.0;
-    for &r in &s.battle.characters {
-        let c = s.character.get(r).expect("a Character of the battle");
-        if c.team == team && c.hero != Some(true) && c.unit.is_some_and(|u| world.unit_alive(s, u)) {
-            n += 1.0;
-        }
-    }
-    n
-}
-
-/// update(dt). `stats_active(him)`: whether his tallies run
-/// this tick (battle.statsActive).
-pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stats::ContextText<W>, stats_active: impl Fn(Ref<Character>, &Character) -> bool, world: &mut W) {
+/// Shared tallies and end sequence, advanced before a mode can declare a winner.
+fn advance_lifecycle<W: RulesWorld + ?Sized>(
+    s: &mut Store,
+    dt: f64,
+    strings: &dyn stats::ContextText<W>,
+    stats_active: impl Fn(Ref<Character>, &Character) -> bool,
+    world: &mut W,
+) -> bool {
     if !s.battle.game_over {
         s.battle.stats.time += dt;
         for i in 0..s.battle.characters.len() {
@@ -208,98 +369,15 @@ pub fn update<W: RulesWorld + ?Sized>(s: &mut Store, dt: f64, strings: &dyn stat
         if b.over_time >= GAME_OVER_DELAY + END_SEQUENCE {
             b.finished = true;
         }
-        return;
+        return false;
     }
-    if s.command_posts.posts.is_empty() {
-        return;
-    }
-    for i in 0..s.battle.team_ids.len() {
-        let team = s.battle.team_ids[i];
-        update_team(s, team, dt, world);
-    }
-    // What the HUD shows: the main team counting down with no posts.
-    let mut stranded = None;
-    for team in [s.battle.own, s.battle.foe] {
-        let score = score(s, team, world);
-        if score == 0.0 || score.is_nan() {
-            stranded = Some(team);
-            break;
-        }
-    }
+    true
+}
+
+fn begin_end<W: RulesWorld + ?Sized>(s: &mut Store, loser: f64, world: &mut W) {
     let b = &mut s.battle;
-    b.victory_clock = match stranded {
-        // `stranded ? this.noPost[stranded] : null` (no team is 0).
-        Some(t) if t != 0.0 && !t.is_nan() => match b.no_post.at(t) {
-            Some(v) => Nullable::Value(v),
-            None => Nullable::Undefined,
-        },
-        _ => Nullable::Null,
-    };
-    b.countdown = b.victory_clock;
-    b.losing = stranded == Some(b.own);
-    let loser = [b.foe, b.own].into_iter().find(|t| b.reinforcements.at(*t).unwrap_or(1.0) <= 0.0);
-    if let Some(loser) = loser.filter(|t| *t != 0.0 && !t.is_nan()) {
-        b.over = true;
-        b.loser = Some(loser);
-        b.countdown = Nullable::Null;
-        world.battle_over(s, loser);
-    }
-}
-
-/// score(team): the ValueBleed of each post it holds (its
-/// command vehicles' too), plus 1 per neutral post.
-pub fn score<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) -> f64 {
-    let (_, owned) = world.owned_summary(s, team);
-    owned + world.owned_summary(s, 0.0).0 as f64
-}
-
-/// updateTeam(team, dt).
-pub fn update_team<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, dt: f64, world: &mut W) {
-    if team > 2.0 {
-        update_locals(s, team, world);
-        return;
-    }
-    let owned = world.owned_summary(s, team).0;
-    let score = score(s, team, world);
-    let b = &mut s.battle;
-    let rate = b.bleed_rules.get(team).filter(|r| !r.is_empty())
-        .map(|rules| rules.iter().find(|r| score <= r[0]).map(|r| r[1]).unwrap_or(0.0));
-    if let Some(rate) = rate {
-        b.bleed.set(team, rate);
-        // `(this.bleedClock[team] || 0) + this.bleed[team] * dt`
-        let clock = b.bleed_clock.at(team).filter(|c| *c != 0.0 && !c.is_nan()).unwrap_or(0.0);
-        b.bleed_clock.set(team, clock + rate * dt);
-        if b.bleed_clock.at(team).unwrap() >= 4.0 {
-            *b.bleed_clock.get_mut(team).unwrap() -= 4.0;
-            if b.reinforcements.at(team).is_some_and(|r| r > 0.0) {
-                *b.reinforcements.get_mut(team).unwrap() -= 1.0;
-            }
-        }
-    }
-    if score != 0.0 && !score.is_nan() {
-        if owned > 0 {
-            b.no_post.set(team, NO_POST);
-        }
-    } else {
-        let left = b.no_post.at(team).unwrap_or(f64::NAN) - dt;
-        b.no_post.set(team, left);
-        if left <= 0.0 {
-            b.reinforcements.set(team, 0.0);
-            b.start.set(team, 0.0);
-        }
-    }
-}
-
-/// updateLocals(team): a local team friendly with exactly
-/// one army follows it out of the battle.
-pub fn update_locals<W: RulesWorld + ?Sized>(s: &mut Store, team: f64, world: &mut W) {
-    let mut ally = 0.0;
-    for army in [1.0, 2.0] {
-        if world.relation(team, army) > 0.0 {
-            ally = if ally != 0.0 { -1.0 } else { army };
-        }
-    }
-    if ally > 0.0 && s.battle.teams.get(ally).is_some() && s.battle.reinforcements.at(ally).unwrap_or(0.0) <= living(s, ally, world) {
-        s.battle.reinforcements.set(team, 0.0);
-    }
+    b.over = true;
+    b.loser = Some(loser);
+    b.countdown = Nullable::Null;
+    world.battle_over(s, loser);
 }

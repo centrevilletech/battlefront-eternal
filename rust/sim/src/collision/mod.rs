@@ -949,6 +949,7 @@ impl CollisionOwner {
     /// This names an already-admitted query body, never a simulation lease.
     pub fn enable_body(&mut self,kernel:u32,enabled:bool){if let Some(flag)=self.gathers.places.get_mut(kernel as usize){*flag=enabled as u8;}}
     pub fn body_flags(&self,world:u32,out:&mut[f64]){if let Some(world)=self.state.worlds.get(world as usize){for(to,kernel)in out.iter_mut().zip(&world.order){*to=self.gathers.places.get(*kernel as usize).copied().unwrap_or(0)as f64;}}}
+    pub fn body_flags_u8(&self,world:u32,out:&mut[u8]){if let Some(world)=self.state.worlds.get(world as usize){for(to,kernel)in out.iter_mut().zip(&world.order){*to=self.gathers.places.get(*kernel as usize).copied().unwrap_or(0);}}}
     /// Borrow a complete nearest hit for native item and sound phases. The
     /// generated batch ray path below shares these exact geometric kernels.
     pub fn ray_hit(&mut self,id:u32,ray:Ray,far:f64,ignore:i32)->Option<(i32,Hit)>{
@@ -957,6 +958,20 @@ impl CollisionOwner {
         for c in 0..n{self.enabled[c]=self.gathers.places[self.candidates[c]as usize];}
         let(code,hit)=world_cast_ray_in(&mut self.state,id as usize,&ray,far,v8math::hypot(ray.dx,ray.dz),&self.candidates[..n],&self.enabled[..n]);
         (code!=MISS).then_some((code,hit))
+    }
+    /// Nearest hit along `ray`, skipping every body slot in `ignore`.
+    pub fn ray_hit_ignoring(&mut self, id: u32, ray: Ray, far: f64, ignore: &[u32]) -> Option<(i32, Hit)> {
+        if id as usize >= self.state.worlds.len() { return None; }
+        let first = ignore.first().map_or(-1, |&b| b as i64);
+        let n = broad::world_candidates_near_into(&mut self.state, id as usize, &ray, far, first, false, false, &mut self.candidates).min(MAX_BODIES);
+        let order = &self.state.worlds[id as usize].order;
+        for c in 0..n {
+            let place = self.candidates[c] as usize;
+            let slot = order[place];
+            self.enabled[c] = if ignore.contains(&slot) { 0 } else { self.gathers.places[place] };
+        }
+        let (code, hit) = world_cast_ray_in(&mut self.state, id as usize, &ray, far, v8math::hypot(ray.dx, ray.dz), &self.candidates[..n], &self.enabled[..n]);
+        (code != MISS).then_some((code, hit))
     }
     /// Native phases lend their existing ray bank to the same collision loop.
     /// Query scratch and enabled flags remain in this owner; no result vector

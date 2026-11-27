@@ -159,6 +159,9 @@ impl Units {
                 jet_jump: Js::Num(s.jet.jump),
                 jet_min_border: Js::Num(s.jet.min_border),
                 fuel: Js::Num(s.fuel),
+                jet_hover: s.jet.hover,
+                jet_cost: s.jet.cost,
+                jet_initial: s.jet.initial,
                 max_speed: Js::Num(s.max_speed),
             },
             UnitBody::Droideka(d) => SoldierView {

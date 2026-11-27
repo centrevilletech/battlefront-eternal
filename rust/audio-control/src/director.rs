@@ -13,20 +13,91 @@ impl Track {
     pub fn new(sound: usize, min_play: f64, min_idle: f64, priority: f64, fade_in: f64, fade_out: f64) -> Self { Self { sound, min_play, min_idle, priority, fade_in, fade_out, state: false, played: 0.0, idle: min_idle, voice: SILENT, wanted: false } }
     fn rank(&self) -> f64 { if self.idle >= self.min_idle { self.priority + 0.0001 } else { 0.0 } }
     fn ended(&mut self) { self.state = false; self.voice = SILENT; self.idle = 0.0; }
+    pub(crate) fn voice(&self) -> u64 { self.voice }
     pub fn playing(&self) -> bool { self.state }
 }
 #[derive(Clone, Copy)]
 pub struct Slot { pub track: usize, pub threshold: f64 }
+#[derive(Clone, Copy)]
+pub struct LowReinforcementsRule {
+    pub watched_team: usize,
+    pub listener_team: usize,
+    pub threshold: f64,
+    pub sound: usize,
+    pub is_fraction: bool,
+    pub fired: bool,
+}
 pub struct Director {
     pub tracks: Vec<Track>, pub slots: [[Option<Slot>; 3]; 3], pub victory: [usize; 3], pub defeat: [usize; 3],
     pub bounds: [usize; 3], pub bleed: [[usize; 3]; 3], pub stage: usize, over: Option<f64>, bleeding: [bool; 3], timers: [f64; 3],
+    pub low_reinforcements: Vec<LowReinforcementsRule>, initial_tickets: [f64; 3],
     pub regions: Vec<[f64; r::STRIDE]>, pub region_voices: Vec<u64>, pub static_emitters: Vec<[f64; r::STRIDE]>, pub static_voices: Vec<u64>,
 }
 impl Default for Director {
-    fn default() -> Self { Self { tracks: Vec::new(), slots: [[None; 3]; 3], victory: [NONE; 3], defeat: [NONE; 3], bounds: [NONE; 3], bleed: [[NONE; 3]; 3], stage: 0, over: None, bleeding: [false; 3], timers: [0.0; 3], regions: Vec::new(), region_voices: Vec::new(), static_emitters: Vec::new(), static_voices: Vec::new() } }
+    fn default() -> Self { Self { tracks: Vec::new(), slots: [[None; 3]; 3], victory: [NONE; 3], defeat: [NONE; 3], bounds: [NONE; 3], bleed: [[NONE; 3]; 3], stage: 0, over: None, bleeding: [false; 3], timers: [0.0; 3], low_reinforcements: Vec::new(), initial_tickets: [0.0; 3], regions: Vec::new(), region_voices: Vec::new(), static_emitters: Vec::new(), static_voices: Vec::new() } }
+}
+impl Director {
+    pub(crate) fn advance_swbf2_tracks(&mut self, dt: f64, wanted: &[usize]) {
+        for (id, t) in self.tracks.iter_mut().enumerate() {
+            if t.state { t.played += dt; } else { t.idle += dt; }
+            t.wanted = wanted.contains(&id);
+        }
+    }
+    pub(crate) fn track_rank(&self, id: usize) -> f64 { self.tracks[id].rank() }
+    pub(crate) fn track_can_stop(&self, id: usize) -> bool { let t = &self.tracks[id]; t.state && t.played >= t.min_play }
+    pub(crate) fn track_ready(&self, id: usize) -> bool { let t = &self.tracks[id]; t.idle >= t.min_idle }
+    pub(crate) fn mark_track_started(&mut self, id: usize, voice: u64) {
+        let t = &mut self.tracks[id]; t.state = true; t.played = 0.0; t.voice = voice;
+    }
+    pub(crate) fn take_track_voice(&mut self, id: usize) -> Option<(u64, f64)> {
+        let t = &mut self.tracks[id];
+        if !t.state { return None; }
+        let res = (t.voice, t.fade_out); t.ended(); Some(res)
+    }
 }
 impl Phase {
+    /// Records the battle's true starting reinforcement counts so fraction-based
+    /// music and low-reinforcements VO thresholds do not drift on mid-battle join.
+    pub fn set_starting_tickets(&mut self, team1: f64, team2: f64) {
+        if team1.is_finite() && team1 > 0.0 {
+            self.director.initial_tickets[1] = team1;
+        }
+        if team2.is_finite() && team2 > 0.0 {
+            self.director.initial_tickets[2] = team2;
+        }
+        if let Some(swbf2) = self.swbf2_mut() {
+            if team1.is_finite() && team1 > 0.0 {
+                swbf2.director.initial_tickets[1] = team1;
+            }
+            if team2.is_finite() && team2 > 0.0 {
+                swbf2.director.initial_tickets[2] = team2;
+            }
+        }
+    }
     pub fn line(&mut self, sound: usize) { if sound != NONE { self.streams.queue(&mut self.engine, Options::new(sound, VOICE)); } }
+    pub fn add_low_reinforcements_vo(
+        &mut self,
+        watched_team: usize,
+        threshold: f64,
+        sound: usize,
+        is_fraction: bool,
+        listener_team: usize,
+    ) {
+        if (1..=2).contains(&watched_team)
+            && (1..=2).contains(&listener_team)
+            && sound != NONE
+            && threshold.is_finite()
+        {
+            self.director.low_reinforcements.push(LowReinforcementsRule {
+                watched_team,
+                listener_team,
+                threshold,
+                sound,
+                is_fraction,
+                fired: false,
+            });
+        }
+    }
     fn track_start(&mut self, id: usize) {
         if id == NONE { return; } let t = &mut self.director.tracks[id]; t.state = true; t.played = 0.0;
         let mut options = Options::new(t.sound, MUSIC); options.fade = t.fade_in; t.voice = self.streams.play(&mut self.engine, options);
@@ -75,6 +146,31 @@ impl Phase {
             let now = self.frame[if team == 1 { f::BLEED1 } else { f::BLEED2 }] > 0.0; let was = self.director.bleeding[team]; self.director.bleeding[team] = now; if !now { continue; }
             if !was { self.director.timers[team] = 0.0; if team != own && self.director.bleeding[own] { continue; } self.line(self.director.bleed[own][team]); }
             else { self.director.timers[team] += dt; if self.director.timers[team] > 30.0 { self.director.timers[team] = 0.0; if team == own { self.line(self.director.bleed[own][team]); } } }
+        }
+        if !self.director.low_reinforcements.is_empty() {
+            for team in 1..=2 {
+                let current = self.frame[if team == 1 { f::TICKETS1 } else { f::TICKETS2 }];
+                if self.director.initial_tickets[team] <= 0.0 && current > 0.0 {
+                    self.director.initial_tickets[team] = current;
+                }
+            }
+            for i in 0..self.director.low_reinforcements.len() {
+                let rule = self.director.low_reinforcements[i];
+                if rule.fired || rule.listener_team != own {
+                    continue;
+                }
+                let current = self.frame[if rule.watched_team == 1 { f::TICKETS1 } else { f::TICKETS2 }];
+                let start = self.director.initial_tickets[rule.watched_team];
+                let triggered = if rule.is_fraction {
+                    start > 0.0 && current > 0.0 && (current / start) <= rule.threshold
+                } else {
+                    current > 0.0 && current <= rule.threshold
+                };
+                if triggered {
+                    self.director.low_reinforcements[i].fired = true;
+                    self.line(rule.sound);
+                }
+            }
         }
     }
     /// ports VoiceOver.post and GameAudio.EVENTS.post. Sound and VO use the

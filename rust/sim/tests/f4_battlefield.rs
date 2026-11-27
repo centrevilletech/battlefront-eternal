@@ -63,3 +63,15 @@ fn inside_hull_uses_its_position_and_no_boundary_has_no_countdown() {
     Battlefield::default().update(11.0, &mut s, &mut w);
     assert_eq!(s.character.get(c).unwrap().out_of_bounds, -1.0); assert!(w.events.is_empty());
 }
+#[test]
+fn a_2005_battle_gives_six_and_a_half_seconds_where_2004_gives_ten() {
+    let (mut s, c, _) = setup(); let f = field();
+    let mut w = World::default();
+    f.update_swbf2(6.5, &mut s, &mut w);
+    assert_eq!(s.character.get(c).unwrap().out_of_bounds, 0.0); assert!(w.events.is_empty());
+    f.update_swbf2(1.0 / 60.0, &mut s, &mut w); assert_eq!(w.events, ["unit"]);
+    // The released rule keeps its ten seconds.
+    let (mut s, c, _) = setup(); let mut w = World::default();
+    f.update(6.6, &mut s, &mut w);
+    assert!(s.character.get(c).unwrap().out_of_bounds > 3.0); assert!(w.events.is_empty());
+}

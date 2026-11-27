@@ -110,7 +110,7 @@ impl<G: HasContext, M: MultiDraw> Core<G, M> {
             let mut members = vec![false; count as usize];
             for block in 0..gl.get_program_parameter_i32(program, glow::ACTIVE_UNIFORM_BLOCKS) as u32 {
                 let name = gl.get_active_uniform_block_name(program, block);
-                if !matches!(s.kind, Kind::World | Kind::Skinned | Kind::Rigid | Kind::Effect | Kind::Motion) || !matches!(name.as_str(), "BfeFrame" | "BfeShadow") {
+                if !matches!(s.kind, Kind::World | Kind::Skinned | Kind::Rigid | Kind::Effect | Kind::Motion) || !matches!(name.as_str(), "BfeFrame" | "BfeShadow" | "BfeLight2") {
                     return Err(format!("{key}: undeclared uniform block {name}"));
                 }
                 let count = gl.get_active_uniform_block_parameter_i32(program, block, glow::UNIFORM_BLOCK_ACTIVE_UNIFORMS);
@@ -263,6 +263,28 @@ mod tests {
             }
             if s.key.starts_with("post-hud/") { assert!(s.uniforms.len() <= crate::post::MAX_UNIFORMS); }
         }
-        assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 12);
+        assert_eq!(catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("post-hud/")).count(), 14);
+    }
+    #[test]
+    fn shadowed_world_programs_declare_cascade_maps_as_shadow_sampler_arrays() {
+        let shadow_sampler = uniform_type(glow::SAMPLER_2D_SHADOW);
+        let mut checked = 0usize;
+        for s in catalog::PROGRAMS.iter().filter(|s| s.key.starts_with("world/")) {
+            let Some(&(_, ty)) = s.uniforms.iter().find(|(n, _)| *n == "cascadeMaps") else {
+                continue;
+            };
+            assert_eq!(ty, shadow_sampler, "{}: cascadeMaps must be a shadow sampler", s.key);
+            let declared_size = s.uniform_sizes.iter().find(|(n, _)| *n == "cascadeMaps").map(|(_, sz)| *sz);
+            let prefix_cascades = s.fragment_prefix.lines().find_map(|line| {
+                line.strip_prefix("#define NUM_DIR_LIGHT_SHADOWS ")?.trim().parse::<u32>().ok()
+            });
+            if let Some(cascades) = prefix_cascades.filter(|&n| n > 0) {
+                assert_eq!(declared_size, Some(cascades), "{}: cascadeMaps array size must match NUM_DIR_LIGHT_SHADOWS", s.key);
+            } else {
+                assert!(declared_size.is_some_and(|n| (2..=4).contains(&n)), "{}: cascadeMaps must declare an array size", s.key);
+            }
+            checked += 1;
+        }
+        assert!(checked >= 400, "checked {checked} shadowed world programs");
     }
 }

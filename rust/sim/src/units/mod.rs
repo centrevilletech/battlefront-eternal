@@ -6,6 +6,7 @@
 
 pub mod body;
 pub mod class;
+pub mod infantry;
 pub mod construction;
 pub mod damage;
 pub mod droideka;

@@ -1,6 +1,8 @@
 //! effects.js::EffectResources and presentation/content.js::effectContent.
 //! Resolve names, shared definitions and child groups once. Runtime particles
 //! consume numeric handles and never walk the authored JSON library.
+pub(crate) mod swbf2;
+
 use bfe_content::{Object, Value};
 use serde_json::Value as Json;
 use std::rc::Rc;

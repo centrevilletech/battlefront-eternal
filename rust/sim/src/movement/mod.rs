@@ -5,13 +5,17 @@
 //! copies of the collision world, and copies the state back out, the same to
 //! the last bit as the JavaScript tick (soldier.rs says how).
 
+#[cfg(test)]
+mod golden;
 pub(crate) mod native;
 pub mod scene;
 pub mod soldier;
 
 use crate::collision::spheres::{GatherCache, Gathered};
 use crate::collision::MAX_BODIES;
+use bfe_family::GameFamily;
 use scene::{GroundCache, Scene};
+use soldier::swbf2;
 use soldier::{Air, Input, Mover, Posture, Trig, PART_CACHES, V3};
 
 // The exchange slots (mirrors them).
@@ -65,6 +69,9 @@ struct Movers {
 /// receives collision explicitly. The retained banks preserve cache stamps
 /// and lastGround between the same sequential movement operations.
 pub struct MovementOwner {
+    family: GameFamily,
+    /// A 2005 battle's class tuning and its soldiers' per-life state.
+    pub swbf2: Swbf2Lives,
     movers: Option<Movers>,
     native_copies: native::Copies,
     io: [f64; IO_LEN],
@@ -72,13 +79,125 @@ pub struct MovementOwner {
     flags: [u8; MAX_BODIES],
 }
 impl MovementOwner {
-    pub const fn new() -> Self { Self { movers: None,
+    pub const fn new() -> Self { Self { family: GameFamily::Swbf1, swbf2: Swbf2Lives::new(), movers: None,
         native_copies: native::Copies::new(), io: [0.; IO_LEN], flags: [0; MAX_BODIES] } }
+    /// Select the battle's profile before constructing any of its movers.
+    pub fn select_family(&mut self, family: GameFamily) -> Result<(), &'static str> {
+        if self.family != family && self.movers.as_ref().is_some_and(|m| !m.list.is_empty()) {
+            return Err("changing the battle family with retained soldier movers requires a fresh world");
+        }
+        if self.family != family {
+            // Reserve the shared query scratch at battle admission. Individual
+            // infantry slots are retained only after a successful movement step.
+            self.movers = (family == GameFamily::Swbf2).then(Movers::default);
+            self.family = family;
+        }
+        Ok(())
+    }
+    /// The battle's game, as admission selected it.
+    pub fn family(&self) -> GameFamily { self.family }
+    pub(crate) fn check_step(&self, has_step: bool) -> Result<(), ProfileError> {
+        check_family(self.family, has_step)
+    }
     // Pools initialize only when a mover is constructed.
     pub fn io_mut(&mut self) -> &mut [f64; IO_LEN] { &mut self.io }
     pub fn flags_mut(&mut self) -> &mut [u8; MAX_BODIES] { &mut self.flags }
 }
 impl Default for MovementOwner { fn default() -> Self { Self::new() } }
+
+/// The 2005 movement profile's inputs that outlive a tick: each class's
+/// tuning, resolved once from the matched content, and each soldier life's
+/// energy, sprint and roll, by unit slot. A 2004 battle leaves both empty.
+pub struct Swbf2Lives {
+    classes: Vec<(crate::store::StrId, swbf2::Tuning)>,
+    lives: Vec<Option<Swbf2Life>>,
+    /// Whether each slot's last completed movement tick lets his firearms
+    /// fire; a slot that never stepped a 2005 tick is unrestricted.
+    refusals: Vec<bool>,
+}
+#[derive(Clone, Copy)]
+struct Swbf2Life { generation: f64, class: crate::store::StrId, tuning: usize, state: swbf2::State }
+
+impl Swbf2Lives {
+    pub const fn new() -> Self { Self { classes: Vec::new(), lives: Vec::new(), refusals: Vec::new() } }
+    /// A class's tuning, checked once here rather than on every tick.
+    pub fn set_class(&mut self, class: crate::store::StrId, tuning: swbf2::Tuning) -> Result<(), ProfileError> {
+        tuning.validate()?;
+        match self.classes.iter_mut().find(|(c, _)| *c == class) {
+            Some(entry) => entry.1 = tuning,
+            None => self.classes.push((class, tuning)),
+        }
+        Ok(())
+    }
+    /// Forgets every class's numbers, before admission registers the ones
+    /// its content gives.
+    pub fn clear_classes(&mut self) {
+        self.classes.clear();
+    }
+    pub fn tuning(&self, class: crate::store::StrId) -> Option<swbf2::Tuning> {
+        self.classes.iter().find(|(c, _)| *c == class).map(|(_, t)| *t)
+    }
+    /// Every class with numbers, in the order they were first registered.
+    pub fn classes(&self) -> &[(crate::store::StrId, swbf2::Tuning)] { &self.classes }
+    /// Reserve one life per unit slot before the battle's first tick.
+    pub fn reserve(&mut self, slots: usize) {
+        self.lives.reserve(slots.saturating_sub(self.lives.len()));
+        self.refusals.reserve(slots.saturating_sub(self.refusals.len()));
+    }
+    /// Records whether the slot's completed movement tick lets it fire.
+    pub fn set_fire(&mut self, slot: u32, can_fire: bool) {
+        let slot = slot as usize;
+        if self.refusals.len() <= slot { self.refusals.resize(slot + 1, false); }
+        self.refusals[slot] = !can_fire;
+    }
+    /// Whether the slot's firearms may fire in the tick its body just moved.
+    pub fn fire_permitted(&self, slot: u32) -> bool { !self.refusals.get(slot as usize).copied().unwrap_or(false) }
+    /// The life's tuning and state: the stored state of this life, or the
+    /// fresh state a new life starts with (full energy, no sprint or roll).
+    /// None when the class has no 2005 tuning.
+    pub fn state(&self, slot: u32, generation: f64, class: crate::store::StrId) -> Option<(swbf2::Tuning, swbf2::State)> {
+        // A stored life knows its class's entry; only a new life looks it up.
+        let stored = self.lives.get(slot as usize).copied().flatten()
+            .filter(|life| life.generation == generation && life.class == class);
+        if let Some(life) = stored { return Some((self.classes[life.tuning].1, life.state)); }
+        let tuning = self.tuning(class)?;
+        Some((tuning, swbf2::State::new(&tuning)))
+    }
+    pub fn store(&mut self, slot: u32, generation: f64, class: crate::store::StrId, state: swbf2::State) {
+        let slot = slot as usize;
+        if self.lives.len() <= slot { self.lives.resize(slot + 1, None); }
+        let tuning = match self.lives[slot] {
+            Some(life) if life.class == class => life.tuning,
+            _ => match self.classes.iter().position(|(c, _)| *c == class) { Some(at) => at, None => return },
+        };
+        self.lives[slot] = Some(Swbf2Life { generation, class, tuning, state });
+    }
+}
+impl Default for Swbf2Lives { fn default() -> Self { Self::new() } }
+
+/// The recorded admission call that registers one 2005 class's numbers:
+/// the class's interned name (the call's one string), then its numbers'
+/// words (swbf2::words). False, changing nothing, for an id that does not
+/// name that string in this world or words no writer makes.
+/// A game's number in a recorded admission: its release year.
+pub fn family_code(family: GameFamily) -> f64 {
+    match family { GameFamily::Swbf1 => 2004.0, GameFamily::Swbf2 => 2005.0 }
+}
+/// The recorded admission's game, by its number, selected before any
+/// class's numbers are registered.
+pub(crate) fn movement_family_in(w: &mut crate::world::owner::World, args: &[f64]) -> bool {
+    let &[code] = args else { return false };
+    let Some(family) = GameFamily::ALL.into_iter().find(|&f| family_code(f) == code) else { return false };
+    w.movement.select_family(family).is_ok()
+}
+pub(crate) fn movement_swbf2_class_in(w: &mut crate::world::owner::World, args: &[f64], strings: &[Vec<u16>]) -> bool {
+    let (Some((&id, words)), [name]) = (args.split_first(), strings) else { return false };
+    if !(id.fract() == 0.0 && id >= 0.0 && id < w.sim.strings.list.len() as f64) { return false; }
+    let class = crate::store::StrId(id as u32);
+    if w.sim.strings.units(class) != name.as_slice() { return false; }
+    let Some(tuning) = swbf2::words::take(words) else { return false };
+    w.movement.swbf2.set_class(class, tuning).is_ok()
+}
 fn v3(v: &[f64; IO_LEN], at: usize) -> V3 {
     V3::new(v[at], v[at + 1], v[at + 2])
 }
@@ -150,10 +269,48 @@ pub(crate) fn input(v: &[f64; IO_LEN]) -> Input {
     }
 }
 
-/// Soldier.tick using an explicit mover and collision scene. Yaw sines and
-/// cosines match Math.sin/Math.cos before and after the turn, including the
-/// jump, jetpack kick, body spheres and hovering pitch.
-pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scene) {
+/// A step can only run with the state and class data of its battle family.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProfileError {
+    MissingStep,
+    UnexpectedStep,
+    InvalidDelta,
+    InvalidTuning,
+    InvalidState,
+}
+
+impl ProfileError {
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::MissingStep => "Battlefront II movement requires class tuning, actions and per-life state",
+            Self::UnexpectedStep => "Battlefront movement received a Battlefront II step",
+            Self::InvalidDelta => "Battlefront II movement requires a finite nonnegative timestep",
+            Self::InvalidTuning => "invalid Battlefront II movement class tuning",
+            Self::InvalidState => "invalid Battlefront II movement checkpoint",
+        }
+    }
+}
+
+impl std::fmt::Display for ProfileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(self.message()) }
+}
+impl std::error::Error for ProfileError {}
+
+fn check_family(family: GameFamily, has_step: bool) -> Result<(), ProfileError> {
+    match (family, has_step) {
+        (GameFamily::Swbf2, false) => Err(ProfileError::MissingStep),
+        (GameFamily::Swbf1, true) => Err(ProfileError::UnexpectedStep),
+        _ => Ok(()),
+    }
+}
+
+/// Returns the movement permission for firearm use during this tick.
+/// A missing or mismatched profile input leaves the mover untouched.
+pub fn advance_profiled(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scene, swbf2: Option<swbf2::Step<'_>>) -> Result<bool, ProfileError> {
+    check_family(m.family(), swbf2.is_some())?;
+    if let Some(step) = swbf2 {
+        return m.advance_swbf2(input, dt, scene, step);
+    }
     let yaw = m.aim_yaw;
     let mut trig = Trig { sin0: v8math::sin(yaw), cos0: v8math::cos(yaw), sin_pitch: 0.0, cos_pitch: 0.0, sin1: 0.0, cos1: 0.0 };
     // jetTick's lift and climb read its pitch (a hovering jet's only).
@@ -162,14 +319,9 @@ pub(crate) fn advance_in(m: &mut Mover, input: &Input, dt: f64, scene: &mut Scen
         trig.cos_pitch = v8math::cos(m.aim_pitch);
     }
     let rest = m.begin(input, dt, &trig);
-    if m.aim_yaw.to_bits() != yaw.to_bits() {
-        trig.sin1 = v8math::sin(m.aim_yaw);
-        trig.cos1 = v8math::cos(m.aim_yaw);
-    } else {
-        trig.sin1 = trig.sin0;
-        trig.cos1 = trig.cos0;
-    }
+    trig.after_turn(yaw, m.aim_yaw);
     m.finish(rest, input, dt, &trig, scene);
+    Ok(true)
 }
 
 /// The class assignments shared by legacy and owned construction.
@@ -198,21 +350,56 @@ impl MovementOwner {
         class.copy_from_slice(&self.io[CLASS..CLASS + 21]);
         self.new_mover(world as usize, |m| set_class(m, &class))
     }
-    pub fn advance(&mut self, collision: &mut crate::collision::State, id: u32, input: &Input, dt: f64) {
+    pub fn advance(&mut self, collision: &mut crate::collision::State, id: u32, input: &Input, dt: f64) -> Result<bool, ProfileError> {
+        self.advance_profiled(collision, id, input, dt, None)
+    }
+    /// Steps a retained mover with the per-life state for its battle family.
+    pub fn advance_profiled(&mut self, collision: &mut crate::collision::State, id: u32, input: &Input, dt: f64, swbf2: Option<swbf2::Step<'_>>) -> Result<bool, ProfileError> {
         let ms = self.movers.as_mut().expect("initialized movement owner");
         let m = &mut ms.list[id as usize];
         let world = m.world;
         let count = collision.worlds[world].order.len().min(MAX_BODIES);
         let mut scene = Scene { s: collision, world, flags: &self.flags[..count], gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
-        advance_in(m, input, dt, &mut scene);
+        advance_profiled(m, input, dt, &mut scene, swbf2)
+    }
+    /// Borrow the retained soldier and its collision scratch for a coupled combat step.
+    pub(crate) fn with_soldier_scene<T>(&mut self, collision: &mut crate::collision::State,
+        id: u32, run: impl FnOnce(&mut Mover, &mut Scene<'_>) -> T) -> T {
+        let ms = self.movers.as_mut().expect("initialized movement owner");
+        let mover = &mut ms.list[id as usize];
+        let world = mover.world;
+        let count = collision.worlds[world].order.len().min(MAX_BODIES);
+        let mut scene = Scene { s: collision, world, flags: &self.flags[..count],
+            gathered: &mut ms.gathered, caches: &mut ms.caches[id as usize], ground_cache: &mut ms.ground };
+        run(mover, &mut scene)
+    }
+    /// Simulate a new infantry body before assigning it a retained slot.
+    pub(crate) fn advance_initial_swbf2(&mut self, collision: &mut crate::collision::State,
+        mut mover: Mover, input: &Input, dt: f64, step: swbf2::Step<'_>) -> Result<(u32, bool), ProfileError> {
+        let ms = self.movers.get_or_insert_with(Movers::default);
+        let world = mover.world;
+        let count = collision.worlds[world].order.len().min(MAX_BODIES);
+        let mut caches = std::array::from_fn(|_| GatherCache::new(0.75));
+        let mut scene = Scene { s: collision, world, flags: &self.flags[..count], gathered: &mut ms.gathered,
+            caches: &mut caches, ground_cache: &mut ms.ground };
+        let can_fire = advance_profiled(&mut mover, input, dt, &mut scene, Some(step))?;
+        let id = ms.list.len() as u32;
+        ms.list.push(mover);
+        ms.caches.push(caches);
+        Ok((id, can_fire))
     }
     pub fn new_mover(&mut self, world: usize, class: impl FnOnce(&mut Mover)) -> u32 {
         let ms = self.movers.get_or_insert_with(Movers::default);
-        let mut m = Mover::new(world);
+        let mut m = Mover::for_family(world, self.family);
         class(&mut m);
         ms.list.push(m);
         ms.caches.push(std::array::from_fn(|_| GatherCache::new(0.75)));
         (ms.list.len() - 1) as u32
+    }
+    /// The triangles around the last body part that met the world.
+    pub(crate) fn gathered_triangles(&self) -> usize {
+        let Some(ms) = &self.movers else { return 0 };
+        ms.gathered.list().iter().map(|p| p.tris.len()).sum()
     }
     pub fn mover(&mut self, id: u32) -> &mut Mover { &mut self.movers.as_mut().expect("initialized movement owner").list[id as usize] }
     pub fn reserve_mover(&mut self, id: u32, polygons: usize, triangles: usize, candidates: usize) {
@@ -225,11 +412,14 @@ impl MovementOwner {
     pub fn prepare_world_gathers(&mut self, collision: &crate::collision::State, world: usize) {
         self.movers.get_or_insert_with(Movers::default).gathered.prepare_dense(collision, world, 16);
     }
+    /// Legacy exchange status: 0 success, 2 unknown state, 3 missing profile data.
     pub fn tick(&mut self, collision: &mut crate::collision::State, id: u32) -> u32 {
         let ms = self.movers.as_mut().expect("initialized movement owner");
-        if !load(&mut ms.list[id as usize], &self.io) { return 2; }
+        let mover = &mut ms.list[id as usize];
+        if check_family(mover.family(), false).is_err() { return 3; }
+        if !load(mover, &self.io) { return 2; }
         let input = input(&self.io);
-        self.advance(collision, id, &input, self.io[DT]);
+        if self.advance(collision, id, &input, self.io[DT]).is_err() { return 3; }
         store(&self.movers.as_ref().expect("initialized movement owner").list[id as usize], &mut self.io);
         0
     }

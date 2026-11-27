@@ -9,6 +9,8 @@
 //! the generic driver controller.js's Fsm is (`update`, `flush`,
 //! `terminate`), transliterated in [`CombatAgent::update`].
 
+pub(crate) mod saber;
+
 use std::collections::HashMap;
 use three::Vector3;
 
@@ -25,6 +27,11 @@ use crate::combat::defs::Js;
 
 /// `DONE`.
 pub const DONE: f64 = 100.0;
+/// The 2005 pattern of a jet at the target (the game's fourteenth; the released patterns keep
+/// their numbers, so it takes a free one).
+pub const TARGET_JET: f64 = 20.0;
+const TARGET_JET_MIN_DISTANCE: f64 = 20.0;
+const TARGET_JET_LIFT: f64 = 0.707_106_77;
 
 /// `COS_ALIGN`.
 fn cos_align() -> f64 {
@@ -70,6 +77,12 @@ pub fn role_of(class: Option<&super::world::ClassView>) -> f64 {
 
 /// `dispatch(controller, unit, target, switchAllowed, world)`.
 pub fn dispatch<W:World+?Sized>(w:&mut W,cx:&mut CombatAi,controller:Option<Obj>,unit:Obj,target:Obj,switch_allowed:bool)->Engagement {
+    let mut choice = released_dispatch(w, cx, controller, unit, target, switch_allowed);
+    w.foot_engagement(unit, &mut choice);
+    choice
+}
+
+fn released_dispatch<W:World+?Sized>(w:&mut W,cx:&mut CombatAi,controller:Option<Obj>,unit:Obj,target:Obj,switch_allowed:bool)->Engagement {
     dispatch_shared(w,&mut cx.shared,controller,unit,target,switch_allowed)
 }
 /// Native nested policy callbacks borrow only the shared policy authorities.
@@ -112,18 +125,19 @@ fn select_only<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Op
 /// `footPolicy`.
 #[allow(clippy::too_many_arguments)]
 fn foot_policy<W: World + ?Sized>(w: &mut W, shared: &mut Shared, controller: Option<Obj>, unit: Obj, target: Obj, role: f64, switch_allowed: bool, out: &mut Engagement) {
-    if w.unit_scalars(unit).hero && w.unit_scalars(target).hero {
+    let swbf2 = w.uses_swbf2();
+    if !swbf2 && w.unit_scalars(unit).hero && w.unit_scalars(target).hero {
         return;
     }
     select_only(w, shared, controller, unit, target, switch_allowed, out);
-    if w.unit_scalars(target).hero || !out.aux {
+    if (!swbf2 && w.unit_scalars(target).hero) || !out.aux {
         return;
     }
     if role == 0.0 && out.action == 1.0 {
         out.pattern = if out.in_band { 2.0 } else { 0.0 };
         return;
     }
-    if role == 2.0 && out.action == 4.0 {
+    if (if swbf2 { role != 0.0 } else { role == 2.0 }) && out.action == 4.0 {
         out.probability = 0.0;
         out.pattern = 6.0;
         return;
@@ -342,6 +356,9 @@ pub struct Patterns {
     pub lateral_at: f64,
     pub lateral_facing: bool,
     pub last_path: f64,
+    pub melee_leap_at: f64,
+    /// When a 2005 saber chase last issued a routed walk to its target.
+    pub melee_route_at: f64,
     pub retreat_at: f64,
     pub cover_hint: Option<HintView>,
     pub jetting: bool,
@@ -375,6 +392,8 @@ impl Default for Patterns {
             lateral_at: 0.0,
             lateral_facing: false,
             last_path: -100.0,
+            melee_leap_at: -1.0,
+            melee_route_at: -100.0,
             retreat_at: -1.0,
             cover_hint: None,
             jetting: false,
@@ -1192,6 +1211,10 @@ impl CombatAgent {
         } else if s == 6.0 {
             self.patterns.path_active = false;
             self.patterns.last_path = -100.0;
+            self.patterns.melee_route_at = -100.0;
+            if w.uses_swbf2() {
+                self.patterns.melee_leap_at = f(t + draw_range(w, 0.0, 3.0));
+            }
         } else if s == 8.0 {
             self.helper_stop(w);
             self.patterns.retreat_at = -1.0;
@@ -1210,6 +1233,8 @@ impl CombatAgent {
             let at = self.tracker.point;
             self.helper_goto(w, &at, None);
             self.patterns.searched = false;
+        } else if s == TARGET_JET {
+            self.target_jet_enter(w);
         } else if s >= 7.0 {
             self.sync_out(w, |w, agent| w.enter_pattern(agent, s));
         }
@@ -1236,6 +1261,11 @@ impl CombatAgent {
                 let h = self.patterns.jet_hint;
                 w.jet_hints_exit(self.controller, h);
             }
+        } else if s == TARGET_JET {
+            // Leaving the pattern raises the controller's end-jet request, whatever the body is
+            // doing: a jet still burning ends into a fall on the controller's next update.
+            w.end_jet(self.controller);
+            w.steer_jet(self.controller, None);
         } else if s >= 13.0 {
             self.sync_out(w, |w, agent| w.exit_pattern(agent, s));
         }
@@ -1265,6 +1295,8 @@ impl CombatAgent {
             self.hint_jet_tick(w, dt)
         } else if s == 12.0 {
             self.lost_target(w)
+        } else if s == TARGET_JET {
+            self.target_jet_tick(w)
         } else {
             self.sync_out(w, |w, agent| w.tick_pattern(agent, s, dt));
         }
@@ -1369,6 +1401,85 @@ impl CombatAgent {
         true
     }
 
+    /// The 2005 game's jet at the target, which every attack pattern checks before its own
+    /// move: a soldier whose jetpack hovers, with JetJump, 20 m or more from its target,
+    /// whose fuel lasts the flight at its top speed and whose straight line to the target
+    /// crosses no barrier.
+    pub(crate) fn try_target_jet<W: World + ?Sized>(&mut self, w: &mut W, from: f64) -> bool {
+        if !w.uses_swbf2() {
+            return false;
+        }
+        let Some(unit) = w.ctl(self.controller).unit else { return false };
+        let Some(target) = self.tracker.target(w) else { return false };
+        let u = w.unit(unit);
+        let Some(s) = u.soldier.as_ref().filter(|s| u.kind == 0.0 && s.jet_hover) else { return false };
+        let jump = if s.jet_jump.is_nullish() { 0.0 } else { s.jet_jump.num() };
+        let fuel = if s.fuel.is_nullish() { 0.0 } else { s.fuel.num() };
+        let speed = if s.max_speed.is_nullish() { 0.0 } else { s.max_speed.num() };
+        let (cost, initial) = (s.jet_cost, s.jet_initial);
+        if !(jump > 0.0) || !(speed > 0.0) || !(cost > 0.0) {
+            return false;
+        }
+        let p = w.unit_scalars(unit).position;
+        let tp = w.unit_scalars(target).position;
+        let distance = v8math::sqrt(f(f(f(f(tp.x - p.x) * f(tp.x - p.x)) + f(f(tp.y - p.y) * f(tp.y - p.y))) + f(f(tp.z - p.z) * f(tp.z - p.z))));
+        if distance < TARGET_JET_MIN_DISTANCE || f(distance / speed) > f(f(fuel - initial) / cost) {
+            return false;
+        }
+        if w.nav_segment_blocked(&p, &tp, unit).unwrap_or(false) {
+            return false;
+        }
+        self.patterns.prior = from;
+        self.patterns.pending = TARGET_JET;
+        true
+    }
+
+    /// The jet's take-off: along the direction to the target lifted by one unit, scaled by
+    /// 0.7071, and a follow of the target.
+    fn target_jet_enter<W: World + ?Sized>(&mut self, w: &mut W) {
+        let (Some(unit), Some(target)) = (w.ctl(self.controller).unit, self.tracker.target(w)) else { return };
+        let p = w.unit_scalars(unit).position;
+        let tp = w.unit_scalars(target).position;
+        let dir = normalize_d3dx(f(tp.x - p.x), f(tp.y - p.y), f(tp.z - p.z));
+        let launch = Vector3 { x: f(dir.x * TARGET_JET_LIFT), y: f(f(dir.y + 1.0) * TARGET_JET_LIFT), z: f(dir.z * TARGET_JET_LIFT) };
+        // The follow first: a new walk order drops a jet requested before it.
+        if w.has_helper(self.obj) {
+            if w.helper_has_follow(self.obj) {
+                w.helper_follow(self.obj, target);
+            } else {
+                w.helper_goto(self.obj, &tp, Some(GotoMode::Direct));
+            }
+        }
+        w.request_jet(self.controller, &launch);
+        w.steer_jet(self.controller, Some(&tp));
+    }
+
+    /// The jet in flight: while the target is 3 m or more away and fuel is left, look at a
+    /// point 10 m above the target beyond 10 m, stand upright inside 10 m; then back to the
+    /// pattern it came from.
+    fn target_jet_tick<W: World + ?Sized>(&mut self, w: &mut W) {
+        let (Some(unit), Some(target)) = (w.ctl(self.controller).unit, self.tracker.target(w)) else {
+            self.restore();
+            return;
+        };
+        let p = w.unit_scalars(unit).position;
+        let tp = w.unit_scalars(target).position;
+        let d2 = f(f(f(p.x - tp.x) * f(p.x - tp.x)) + f(f(p.z - tp.z) * f(p.z - tp.z)));
+        let fuel = w.unit(unit).soldier.as_ref().map_or(0.0, |s| if s.fuel.is_nullish() { 0.0 } else { s.fuel.num() });
+        if !(d2 >= 9.0) || !(fuel > 0.0) {
+            self.restore();
+            return;
+        }
+        // The follow keeps the stick on the target while the body jets.
+        w.steer_jet(self.controller, Some(&tp));
+        if d2 > 100.0 {
+            let above = Vector3 { x: tp.x, y: f(tp.y + 10.0), z: tp.z };
+            w.ctl_mut(self.controller).look_at(&above);
+        } else {
+            w.set_stance(self.controller, 0.0);
+        }
+    }
+
     /// `tryDirectJet(from)`.
     fn try_direct_jet<W: World + ?Sized>(&mut self, w: &mut W, from: f64) -> bool {
         if !self.jet_ready(w) {
@@ -1398,7 +1509,7 @@ impl CombatAgent {
 
     /// `standing()`: pattern 2.
     fn standing<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
-        if self.try_cover(w, cx, 2.0) || self.try_hint_jet(w, 2.0) || self.try_direct_jet(w, 2.0) {
+        if self.try_cover(w, cx, 2.0) || self.try_hint_jet(w, 2.0) || self.try_direct_jet(w, 2.0) || self.try_target_jet(w, 2.0) {
             return;
         }
         let unit = w.ctl(self.controller).unit.expect("a standing agent's unit");
@@ -1413,7 +1524,7 @@ impl CombatAgent {
 
     /// `pauseAndMove()`: pattern 3.
     fn pause_and_move<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
-        if self.try_cover(w, cx, 3.0) || self.try_hint_jet(w, 3.0) || self.try_direct_jet(w, 3.0) || self.try_lost_target(w, 3.0) {
+        if self.try_cover(w, cx, 3.0) || self.try_hint_jet(w, 3.0) || self.try_direct_jet(w, 3.0) || self.try_target_jet(w, 3.0) || self.try_lost_target(w, 3.0) {
             return;
         }
         let t = now(w);
@@ -1460,7 +1571,7 @@ impl CombatAgent {
 
     /// `bandFlank()`: pattern 4.
     fn band_flank<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
-        if self.try_cover(w, cx, 4.0) || self.try_hint_jet(w, 4.0) || self.try_direct_jet(w, 4.0) || self.try_lost_target(w, 4.0) {
+        if self.try_cover(w, cx, 4.0) || self.try_hint_jet(w, 4.0) || self.try_direct_jet(w, 4.0) || self.try_target_jet(w, 4.0) || self.try_lost_target(w, 4.0) {
             return;
         }
         let t = now(w);
@@ -1575,7 +1686,7 @@ impl CombatAgent {
 
     /// `lateral()`: pattern 5.
     fn lateral<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
-        if self.try_cover(w, cx, 5.0) || self.try_hint_jet(w, 5.0) || self.try_direct_jet(w, 5.0) || self.try_lost_target(w, 5.0) {
+        if self.try_cover(w, cx, 5.0) || self.try_hint_jet(w, 5.0) || self.try_direct_jet(w, 5.0) || self.try_target_jet(w, 5.0) || self.try_lost_target(w, 5.0) {
             return;
         }
         let t = now(w);
@@ -1614,7 +1725,7 @@ impl CombatAgent {
     /// `melee()`: pattern 6.
     fn melee<W: World + ?Sized>(&mut self, w: &mut W, cx: &mut CombatAi) {
         let _ = cx;
-        if self.try_lost_target(w, 6.0) || self.try_direct_jet(w, 6.0) || self.try_hint_jet(w, 6.0) {
+        if self.try_lost_target(w, 6.0) || self.try_direct_jet(w, 6.0) || self.try_hint_jet(w, 6.0) || self.try_target_jet(w, 6.0) {
             return;
         }
         let t = now(w);

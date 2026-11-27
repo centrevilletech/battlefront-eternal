@@ -110,6 +110,22 @@ fn feedback_decodes_identities_teams_and_optional_source() {
     assert!(decode(&record(1, 118)[..77], 100.).is_none());
 }
 
+// A 2005 battle's record may say its hit was critical (bit 1), read beside the
+// released fields; a 2004 battle's record is read by the released decoder
+// alone, which refuses the bit as before.
+#[test]
+fn a_2005_feedback_record_says_whether_its_hit_was_critical() {
+    use bfe_family::GameFamily::{Swbf1, Swbf2};
+    let (plain, critical) = (decode(&record(1, 118), 100.).unwrap(), decode_for(&record(3, 118), 100., Swbf2).unwrap());
+    assert_eq!(critical.0.source, plain.source);
+    assert_eq!((critical.0.target, critical.0.attacker, critical.1), (plain.target, plain.attacker, true));
+    assert_eq!(decode_for(&record(2, 118), 100., Swbf2).map(|(event, critical)| (event.source, critical)), Some((None, true)));
+    assert_eq!(decode_for(&record(1, 118), 100., Swbf2).map(|(_, critical)| critical), Some(false));
+    assert!(decode_for(&record(3, 118), 100., Swbf1).is_none() && decode_for(&record(2, 118), 100., Swbf1).is_none());
+    assert_eq!(decode_for(&record(1, 118), 100., Swbf1).map(|(event, critical)| (event.source, critical)), Some((plain.source, false)));
+    assert!(decode_for(&record(4, 118), 100., Swbf2).is_none() && decode_for(&record(3, 117), 100., Swbf2).is_none());
+}
+
 #[test]
 fn damage_direction_matches_the_browser_convention() {
     // Facing yaw 0, a source straight ahead (+z) is 0 and one at -x is to

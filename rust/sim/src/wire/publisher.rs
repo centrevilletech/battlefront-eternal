@@ -1,7 +1,7 @@
 //! One snapshot-host publication: capture, eligibility, baseline choice,
 //! cosmetic delivery and own packets run before the transport sees any spans.
 use crate::{gen::*, store::block::Block};
-use super::{codec::{self, Result, Writer}, host::Host, own_ring, delivery, Runtime};
+use super::{codec::{self, Result, Writer}, host::Host, own_ring, delivery, PositionBounds, Runtime};
 
 // SnapshotHost admits at most this many protocol peers. Ordinary arenas
 // cover the measured 32-client battle envelope; larger admissions and paused
@@ -98,13 +98,24 @@ pub struct Publisher {
 }
 impl Default for Publisher {
     fn default() -> Self {
+        Self::with_bounds(PositionBounds::LEGACY)
+    }
+}
+impl Publisher {
+    /// A publisher for a battle's position box.
+    pub fn with_bounds(bounds: PositionBounds) -> Self { Self::for_battle(bounds, super::bounds::Capacity::LEGACY) }
+    /// A publisher for a battle's capacity: a battle whose snapshots may take
+    /// more than the released 32 parts also reserves its four shared groups
+    /// at that limit, beyond the released arena.
+    pub fn for_battle(bounds: PositionBounds, capacity: super::bounds::Capacity) -> Self {
+        let arena = ARENA + if capacity.parts > 32 { 4 * capacity.parts * codec::MAX_DATAGRAM } else { 0 };
         let mut block = Block::default(); block.words.reserve(OUTPUT_WORDS + WirePublicationOutput::WORDS + 5); block.heap.reserve(OUTPUT_WORDS);
         Self { output: WirePublicationOutput { own: Vec::with_capacity(512), acks: Vec::with_capacity(CLIENTS), edges: Vec::with_capacity(CLIENTS),
                 created: Vec::with_capacity(128), retired: Vec::with_capacity(4096), records: Vec::with_capacity(64), reliable: Vec::with_capacity(CLIENTS), faults: Vec::with_capacity(CLIENTS + 1), ..Default::default() },
-            block, bytes: Vec::with_capacity(ARENA), groups: std::array::from_fn(|_| Group::default()), group_count: 0, group_order: Vec::with_capacity(4),
+            block, bytes: Vec::with_capacity(arena), groups: std::array::from_fn(|_| Group::default()), group_count: 0, group_order: Vec::with_capacity(4),
             recipients: Vec::with_capacity(CLIENTS), candidates: Vec::with_capacity(CLIENTS * 8), chosen: Vec::with_capacity(3), costs: [1024.; CLIENTS],
             edge_spare: (0..32).map(|_| WirePublishedEdges { received: Vec::with_capacity(32), results: Vec::with_capacity(32), ..Default::default() }).collect(),
-            reliable_spare: (0..32).map(|_| WirePublishedReliable { records: Vec::with_capacity(64), ..Default::default() }).collect(), events: Default::default(), last_encodes: 0, own_facts: Vec::with_capacity(CLIENTS) }
+            reliable_spare: (0..32).map(|_| WirePublishedReliable { records: Vec::with_capacity(64), ..Default::default() }).collect(), events: super::journal::Events::with_bounds(bounds), last_encodes: 0, own_facts: Vec::with_capacity(CLIENTS) }
     }
 }
 fn append(arena: &mut Vec<u8>, bytes: &[u8]) -> Result<WireSpan> {

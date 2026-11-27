@@ -190,6 +190,48 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         None
     }
 
+    /// trigger_all_prepared: remotely trigger every live mine deployed under a
+    /// detonator's owned key (`TriggerAll = 1`), firing `ExplosionTrigger`,
+    /// reusing the caller's retained `work` scratch buffer.
+    pub fn trigger_all_prepared(&mut self, key: crate::store::StrId, work: &mut Vec<Ref<Item>>) -> usize {
+        work.clear();
+        {
+            let store = self.s();
+            if let Some(list) = store.items.owned.get(key) {
+                for &r in list {
+                    if store.item.get(r).is_some_and(|i| i.mine && i.gone != Some(true)) {
+                        work.push(r);
+                    }
+                }
+            }
+        }
+        let mut count = 0;
+        for &r in work.iter() {
+            let Some((def, position, owner)) = self
+                .s()
+                .item
+                .get(r)
+                .filter(|i| i.gone != Some(true))
+                .map(|i| (i.def, i.position, i.owner))
+            else {
+                continue;
+            };
+            self.remove_item(r);
+            count += 1;
+            let trigger = self.item_def(def).explosion_trigger.clone();
+            if trigger.is_object() {
+                self.w.explode(&trigger, position, owner);
+            } else {
+                let death = self.item_def(def).explosion_death.clone();
+                if death.is_object() {
+                    self.w.explode(&death, position, owner);
+                }
+            }
+        }
+        work.clear();
+        count
+    }
+
     /// destroy: gone without a blast (a mine pops).
     pub fn destroy(&mut self, r: Ref<Item>) {
         if self.item(r).gone == Some(true) {
@@ -703,6 +745,7 @@ mod tests {
         creature: bool,
         // The one thing a mine watches.
         target: Option<Watch>,
+        explosions: Vec<(Field, Vec3)>,
     }
 
     /// What the stand-in's mine watches, measured as F3 measures it.
@@ -784,7 +827,9 @@ mod tests {
         fn bounce(&mut self, _def: DefId, _position: Vec3, _speed: f64) { unimplemented!() }
         fn blocked(&mut self, _position: Vec3, _target: Vec3) -> bool { unimplemented!() }
         fn drop_roll(&mut self) -> f64 { unimplemented!() }
-        fn explode(&mut self, _def: &Field, _position: Vec3, _owner: ItemOwner) { unimplemented!() }
+        fn explode(&mut self, def: &Field, position: Vec3, _owner: ItemOwner) {
+            self.explosions.push((def.clone(), position));
+        }
         fn watch(&mut self, _index: usize, _team: f64) -> Watched {
             match self.target.as_ref().expect("a watched target") {
                 Watch::Hull { relation, sphere, springs, velocity } => {
@@ -832,7 +877,7 @@ mod tests {
         landmine.trigger_radius = num(1.0);
         landmine.explosion_trigger = num(1.0);
         let defs = Defs { item: vec![item("mine", Field::Undefined), item("mine", num(5.0)), item("powerupitem", num(30.0)), landmine], ..Default::default() };
-        Stand { store, strings: Strings::default(), defs, soldier, deck, creature: false, target: None }
+        Stand { store, strings: Strings::default(), defs, soldier, deck, creature: false, target: None, explosions: Vec::new() }
     }
 
     /// An item of `def` thrown by `owner` from `from` at `velocity`, flown
@@ -1037,6 +1082,31 @@ mod tests {
         for _ in 0..60 { Cx::new(&mut w).items_update(1.0 / 60.0, 0); }
         let fell = at(&w, mine);
         assert!(fell.landed && fell.carrier.is_none() && fell.position[1] < 0.1, "{:?}", fell.position);
+    }
+
+    #[test]
+    fn detonator_trigger_all_sets_off_live_mines_with_trigger_explosion() {
+        let mut w = stand(false, false);
+        w.defs.item[0].explosion_death = Field::Explosion(DefId(4));
+        w.defs.item[0].explosion_trigger = Field::Explosion(DefId(9));
+        let key = w.strings.intern_str("detpack:character:1:1");
+        let mut cx = Cx::new(&mut w);
+        let (mut work, mut spare) = (Vec::new(), Vec::new());
+        let first = cx
+            .dispense_prepared(key, &mut work, &mut spare, 2.0, MINE, [2.0, 1.0, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0)
+            .unwrap();
+        let second = cx
+            .dispense_prepared(key, &mut work, &mut spare, 2.0, MINE, [4.0, 1.0, 0.0], [0.0; 3], 0.0, ItemOwner::Null, 1.0)
+            .unwrap();
+        assert_eq!(cx.trigger_all_prepared(key, &mut work), 2);
+        assert_eq!(cx.s().item.get(first).unwrap().gone, Some(true));
+        assert_eq!(cx.s().item.get(second).unwrap().gone, Some(true));
+        // Second call finds no live mines left.
+        assert_eq!(cx.trigger_all_prepared(key, &mut work), 0);
+        drop(cx);
+        assert_eq!(w.explosions.len(), 2);
+        assert_eq!(w.explosions[0], (Field::Explosion(DefId(9)), [2.0, 1.0, 0.0]));
+        assert_eq!(w.explosions[1], (Field::Explosion(DefId(9)), [4.0, 1.0, 0.0]));
     }
 
     #[test]

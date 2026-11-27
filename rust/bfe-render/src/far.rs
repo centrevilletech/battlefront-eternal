@@ -83,6 +83,9 @@ pub const F_BLEND: u32 = 512;
 // Transparent double-sided world materials draw backs before fronts, as
 // WebGLRenderer does when forceSinglePass is false.
 pub const F_DOUBLE_PASS: u32 = 1024;
+// Double-sided 2005 far transparent surfaces draw back faces (`side = 1`, culling front)
+// before front faces (`side = 0`, culling back), matching TransparentPass.
+pub const F_DOUBLE_BACK_FRONT: u32 = 2048;
 
 // GL uniform types.
 const FLOAT: u32 = 0x1406;
@@ -510,6 +513,60 @@ impl<C: HasContext> FarPass<C> {
         self.draw_items(core);
     }
 
+    // Split far phase for worlds with far instanced actors (2005 space battles):
+    // draws sky and opaque static far items first, leaving transparent static far
+    // items (`F_TRANSPARENT`) to draw after opaque far instances.
+    pub fn draw_opaque_only<M: MultiDraw>(&mut self, core: &mut Core<C, M>, frame: usize) -> bool {
+        if self.input[FAR_DRAW] == 0.0 {
+            return false;
+        }
+        core.upload_frame(frame);
+        self.counted = PASS_FAR;
+        self.draw_filtered_items(core, false)
+    }
+
+    // Both lists use projected sphere depth. Equal keys retain registration
+    // order within each source, with the world preceding instances at a tie.
+    pub(crate) fn draw_blended_with_instances<M: MultiDraw>(
+        &mut self, core: &mut Core<C, M>, instances: &mut crate::instances::InstancePass<C>,
+        camera: &crate::core::Camera, has_world: bool,
+    ) {
+        let projection: Mat4 = core.input[..16].try_into().unwrap();
+        let screen = math::mul(&projection, &camera.view);
+        instances.order_far_blends(&screen);
+        let mut actor = 0;
+        let mut world = if has_world {
+            self.list.partition_point(|&(i, _)| self.items[i].flags & F_TRANSPARENT == 0)
+        } else { self.list.len() };
+        let eye = [core.input[32], core.input[33], core.input[34]];
+        let start = (core.input[crate::shader::FRAME_OFFSETS[18]] - 1.).max(0.);
+        let mut world_bound = false;
+        loop {
+            let next_actor = instances.far_blend(actor);
+            if let Some(&(i, z)) = self.list.get(world) {
+                let item = &self.items[i];
+                let key = [item.order[0], item.order[1], z, item.order[3]];
+                if next_actor.is_none_or(|(_, other)| crate::transparent::compare(&key, &other) != Ordering::Greater) {
+                    if !world_bound {
+                        core.bind_frame(crate::core::VIEW_FAR);
+                        core.state.front_face(&core.gl, &mut core.stats, glow::CCW);
+                        self.vao = None;
+                        world_bound = true;
+                    }
+                    self.uniform_owners[item.program] = usize::MAX;
+                    self.draw_item(core, i, &projection, &camera.view, &eye, &camera.frustum, start * start);
+                    world += 1;
+                    continue;
+                }
+            }
+            let Some((i, _)) = next_actor else { break };
+            if world_bound { core.bind_frame(crate::core::VIEW_ACTORS); world_bound = false; }
+            instances.draw_blended(core, i);
+            actor += 1;
+        }
+        if !world_bound { core.bind_frame(crate::core::VIEW_FAR); }
+    }
+
     // The near phase's part (renderer.rs frame, a mirror's too): the items
     // the client marked from the near scene (the Enhanced ocean's surface,
     // drawn there in three's place: far.js drawNear), with the phase's frame
@@ -572,6 +629,10 @@ impl<C: HasContext> FarPass<C> {
     // target cleared as three clears it (unless three's autoClear is off),
     // then the items in three's order.
     fn draw_items<M: MultiDraw>(&mut self, core: &mut Core<C, M>) {
+        self.draw_filtered_items(core, true);
+    }
+
+    fn draw_filtered_items<M: MultiDraw>(&mut self, core: &mut Core<C, M>, include_transparent: bool) -> bool {
         // Another pass may have used these same linked programs since the
         // last far draw (including a mirror or a probe face).
         self.uniform_owners.fill(usize::MAX);
@@ -621,6 +682,7 @@ impl<C: HasContext> FarPass<C> {
         }
         // This frame's items: shown, in view, with their depths.
         self.list.clear();
+        let mut has_transparent = false;
         for (i, item) in self.items.iter().enumerate() {
             if input[item.slot] == 0.0 {
                 continue;
@@ -632,6 +694,9 @@ impl<C: HasContext> FarPass<C> {
             }
             // three's z: the sphere's centre through the view and projection.
             let z = math::sphere_to_world(&screen, &center, 0.0).0[2];
+            if item.flags & F_TRANSPARENT != 0 {
+                has_transparent = true;
+            }
             self.list.push((i, z));
         }
         let items = &self.items;
@@ -642,9 +707,13 @@ impl<C: HasContext> FarPass<C> {
         self.vao = None;
         let list = std::mem::take(&mut self.list);
         for &(i, _) in &list {
+            if !include_transparent && self.items[i].flags & F_TRANSPARENT != 0 {
+                continue;
+            }
             self.draw_item(core, i, &projection, &view, &eye, &camera.frustum, limit);
         }
         self.list = list;
+        has_transparent
     }
 
     // Retains the ported JS/GL call-site signature without an extra wrapper struct.
@@ -838,8 +907,9 @@ impl<C: HasContext> FarPass<C> {
             self.vao = Some(geo.vao);
             stats.gl_calls += 1;
         }
-        let double = f & F_DOUBLE_PASS != 0;
-        let sides = [if double { 3 } else { f & 3 }, 0];
+        let back_front = f & F_DOUBLE_BACK_FRONT != 0;
+        let double = back_front || (f & F_DOUBLE_PASS != 0);
+        let sides = [if back_front { 1 } else if double { 3 } else { f & 3 }, 0];
         let submitted=if ranges>1 {match &item.draw {Draw::Cells(c)=>c.counts[..ranges].iter().map(|v|*v as u64).sum(),Draw::Terrain(t)=>t.counts[..ranges].iter().map(|v|*v as u64).sum(),_=>count.max(0) as u64}} else {count.max(0) as u64};
         for &side in &sides[..if double { 2 } else { 1 }] {
             state.cull(gl, stats, side);

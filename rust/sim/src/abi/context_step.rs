@@ -11,6 +11,7 @@ mod publish;
 pub use publish::{bank, Fault, Publication};
 #[path = "context_admit.rs"]
 mod admit;
+pub(crate) use admit::admit_error;
 #[path = "context_observe.rs"]
 mod observe;
 pub use observe::{ExplosionField, ExplosionOwner, OwnedExplosion, PropTargetFacts, WeaponLevelFacts};

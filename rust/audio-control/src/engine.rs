@@ -165,9 +165,10 @@ impl Target {
 pub struct Ask {
     pub sound: usize, pub emitter: usize, pub position: Option<Point>, pub category: usize,
     pub looping: Option<bool>, pub gain: f64, pub pitch: f64, pub curve: Option<Curve>,
+    pub protected: bool,
 }
 impl Ask {
-    pub fn new(sound: usize, category: usize) -> Self { Self { sound, category, emitter: NONE, position: None, looping: None, gain: 1.0, pitch: 1.0, curve: None } }
+    pub fn new(sound: usize, category: usize) -> Self { Self { sound, category, emitter: NONE, position: None, looping: None, gain: 1.0, pitch: 1.0, curve: None, protected: false } }
 }
 
 #[derive(Clone, Copy)]
@@ -179,6 +180,7 @@ pub struct Voice {
     pub elapsed: f64, pub begun: bool, pub glide: Option<f64>, pub done: bool,
     pub real: bool, pub slot: usize, pub distance: f64, pub span: f64, pub local: Point,
     pub radial: f64, pub last: Option<f64>, pub audible: f64, pub score: f64,
+    pub protected: bool,
     pub occlusion_rays: [f64; 3], pub occlusion_aim: i32, pub occluded_target: f64, pub occluded: Option<f64>,
     pub level_target: Target, pub rate_target: Target, pub position_target: [Target; 3],
     pub pan_target: Target, pub send_target: Target, pub cutoff: f64, pub sent: [f32; 5],
@@ -192,7 +194,7 @@ impl Default for Voice {
             curve: Curve { roll_in: 0.0, min: 0.0, mute: 1.0, max: 1.0, roll: 0.0 },
             gain: 1.0, pitch: 1.0, gain_scale: 1.0, pitch_scale: 1.0, elapsed: 0.0, begun: false,
             glide: None, done: true, real: false, slot: NONE, distance: 0.0, span: 0.0, local: [0.0, 0.0, -1.0],
-            radial: 0.0, last: None, audible: 0.0, score: 0.0,
+            radial: 0.0, last: None, audible: 0.0, score: 0.0, protected: false,
             occlusion_rays: [0.0; 3], occlusion_aim: -1, occluded_target: 0.0, occluded: None,
             level_target: Target::default(), rate_target: Target::default(), position_target: [Target::default(); 3],
             pan_target: Target::default(), send_target: Target::default(), cutoff: 20000.0, sent: [f32::NAN; 5], fresh: true }
@@ -206,6 +208,8 @@ pub struct Engine {
     pub enhanced: bool, pub running: bool, pub volumes: [f64; 8], pub max_voices: usize, pub virtual_voices: usize,
     pub stats: [u64; 6], pub commands: Vec<f64>, pub placements: Vec<f64>,
     pub now: f64, pub wall_now: f64, pub sample_rate: f64, pub light: bool, pub hrtf: bool, pub binaural: bool, pub lfe: bool,
+    pub doppler_factor: f64,
+    pub swbf2_voice_scoring: bool,
     order: [usize; CAPACITY], order_len: usize, serial: u64,
     slots: [usize; 64], free_slots: usize, releases: [(usize, f64); 64], release_len: usize,
 }
@@ -216,6 +220,55 @@ impl Engine {
     pub fn next_serial(&mut self) -> u64 { self.serial += 1; self.serial }
     pub fn order_len(&self) -> usize { self.order_len }
     pub fn order_at(&self, at: usize) -> usize { self.order[at] }
+    pub fn has_virtual_room(&self) -> bool {
+        let mut active = 0usize;
+        for i in 0..self.order_len {
+            if !self.voices[self.order[i]].done {
+                active += 1;
+                if active >= self.virtual_voices {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+    pub fn swbf2_estimate_score(&self, ask: Ask, followed: Option<Point>) -> f64 {
+        let Some(sound) = self.sounds.get(ask.sound) else { return 0.0; };
+        if sound.kind != 1 { return 0.0; }
+        let curve = ask.curve.unwrap_or(sound.curve);
+        let at = ask.position.or(followed);
+        let dist_gain = if sound.mode3d {
+            at.map_or(1.0, |p| {
+                let d = length(sub(p, self.listener.ear));
+                let mut g = curve.gain(d);
+                if !self.enhanced {
+                    g *= curve.openal(d);
+                }
+                g
+            })
+        } else {
+            1.0
+        };
+        let audible = (sound.gain * self.bus_gain(sound.bus)).min(1.0) * ask.gain * dist_gain;
+        if audible > 0.000001 {
+            (1.0 - sound.bias) * audible + sound.bias * sound.priority
+        } else {
+            0.0
+        }
+    }
+    pub fn swbf2_lowest_unprotected_score(&self) -> Option<f64> {
+        let mut pool = 0usize;
+        let mut lowest: Option<f64> = None;
+        for i in 0..self.order_len {
+            let v = &self.voices[self.order[i]];
+            if v.done { continue; }
+            pool += 1;
+            if !v.protected {
+                lowest = Some(match lowest { Some(cur) => cur.min(v.score), None => v.score });
+            }
+        }
+        if pool < self.virtual_voices { None } else { Some(lowest.unwrap_or(f64::INFINITY)) }
+    }
     pub fn new(seed: u32) -> Self {
         Self { channels: 2, sounds: Vec::new(), samples: Vec::new(), buses: Vec::new(), voices: vec![Voice::default(); CAPACITY],
             enhanced_samples: Vec::new(),
@@ -223,6 +276,8 @@ impl Engine {
             volumes: [1.0; 8], max_voices: 32, virtual_voices: 64, stats: [0; 6],
             commands: Vec::with_capacity(65536), placements: Vec::with_capacity(8192),
             now: 0.0, wall_now: 0.0, sample_rate: 48000.0, light: false, hrtf: false, binaural: false, lfe: false,
+            doppler_factor: 1.0,
+            swbf2_voice_scoring: false,
             order: [0; CAPACITY], order_len: 0, serial: 0,
             slots: std::array::from_fn(|i| 63 - i), free_slots: 64, releases: [(NONE, 0.0); 64], release_len: 0 }
     }
@@ -246,16 +301,54 @@ impl Engine {
         let at = ask.position.or(followed);
         if !looping && sound.mode3d && at.is_some_and(|p| curve.gain(length(sub(p, self.listener.ear))) <= 0.0) { self.stats[5] += 1; return SILENT; }
         let bias = sound.bias; let priority = sound.priority; let bus = sound.bus;
-        let mut pool = 0; let mut lowest = NONE;
+        let mode3d_sound = sound.mode3d; let sound_gain = sound.gain;
+        let protected = self.swbf2_voice_scoring && ask.protected;
+        let initial_score = if self.swbf2_voice_scoring {
+            let dist_gain = if mode3d_sound {
+                at.map_or(1.0, |p| {
+                    let d = length(sub(p, self.listener.ear));
+                    let mut g = curve.gain(d);
+                    if !self.enhanced {
+                        g *= curve.openal(d);
+                    }
+                    g
+                })
+            } else {
+                1.0
+            };
+            let audible = (sound_gain * self.bus_gain(bus)).min(1.0) * ask.gain * dist_gain;
+            if audible > 0.000001 {
+                (1.0 - bias) * audible + bias * priority
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        let mut pool = 0; let mut lowest = NONE; let mut lowest_protected = NONE;
         for i in 0..self.order_len {
             let id = self.order[i]; let v = &self.voices[id]; if v.done { continue; }
             pool += 1;
-            if lowest == NONE || v.score < self.voices[lowest].score { lowest = id; }
+            if self.swbf2_voice_scoring && v.protected {
+                if lowest_protected == NONE || v.score < self.voices[lowest_protected].score { lowest_protected = id; }
+            } else if lowest == NONE || v.score < self.voices[lowest].score {
+                lowest = id;
+            }
         }
         if pool >= self.virtual_voices {
-            let estimate = (1.0 - bias) * self.bus_gain(bus) + bias * priority;
-            if lowest == NONE || estimate <= self.voices[lowest].score { self.stats[4] += 1; return SILENT; }
-            self.stop_index(lowest, 0.03, self.now); self.stats[3] += 1;
+            if protected {
+                let victim = if lowest != NONE { lowest } else { lowest_protected };
+                if victim == NONE { self.stats[4] += 1; return SILENT; }
+                self.stop_index(victim, 0.03, self.now); self.stats[3] += 1;
+            } else {
+                let estimate = if self.swbf2_voice_scoring {
+                    initial_score
+                } else {
+                    (1.0 - bias) * self.bus_gain(bus) + bias * priority
+                };
+                if lowest == NONE || estimate <= self.voices[lowest].score { self.stats[4] += 1; return SILENT; }
+                self.stop_index(lowest, 0.03, self.now); self.stats[3] += 1;
+            }
         }
         self.compact();
         let Some(id) = self.voices.iter().position(|v| v.done && v.slot == NONE) else { return SILENT; };
@@ -267,7 +360,7 @@ impl Engine {
         self.serial += 1;
         let mut voice = Voice { serial: self.serial, sound: ask.sound, sample: sample_id, sample_info: sample, category: ask.category, bus,
             emitter: ask.emitter, position: ask.position, mode3d: sound.mode3d && at.is_some(), looping,
-            curve, gain, pitch, elapsed, done: !sample.available, ..Voice::default() };
+            curve, gain, pitch, elapsed, score: initial_score, protected, done: !sample.available, ..Voice::default() };
         for target in &mut voice.position_target { target.hold(0.0); }
         voice.pan_target.hold(0.0); voice.send_target.hold(0.0);
         self.voices[id] = voice;
@@ -330,7 +423,20 @@ impl Engine {
         for k in 0..self.order_len {
             let id = self.order[k]; if self.voices[id].done { continue; }
             let mut at = count;
-            while at > 0 && self.voices[id].score > self.voices[ranked[at - 1]].score { ranked[at] = ranked[at - 1]; at -= 1; }
+            while at > 0 {
+                let prev = ranked[at - 1];
+                let better = if self.swbf2_voice_scoring {
+                    match (self.voices[id].protected, self.voices[prev].protected) {
+                        (true, false) => true,
+                        (false, true) => false,
+                        _ => self.voices[id].score > self.voices[prev].score,
+                    }
+                } else {
+                    self.voices[id].score > self.voices[prev].score
+                };
+                if !better { break; }
+                ranked[at] = prev; at -= 1;
+            }
             ranked[at] = id; count += 1;
         }
         self.stats[0] = ranked[..count].iter().take(self.max_voices).filter(|&&id| self.voices[id].score > 0.0).count() as u64;
@@ -346,7 +452,18 @@ impl Engine {
     pub fn rate(&mut self, id: usize) -> f64 {
         let v = &mut self.voices[id]; let sound = &self.sounds[v.sound]; let sample = v.sample_info;
         let mut rate = v.pitch * v.pitch_scale;
-        if sound.doppler && v.mode3d && v.radial.abs() < 172.0 { rate *= 1.0 + v.radial / 344.0; }
+        if sound.doppler && v.mode3d {
+            if self.doppler_factor == 1.0 {
+                if v.radial.abs() < 172.0 {
+                    rate *= 1.0 + v.radial / 344.0;
+                }
+            } else {
+                let scaled = v.radial * self.doppler_factor;
+                if scaled.abs() < 172.0 {
+                    rate *= 1.0 + scaled / 344.0;
+                }
+            }
+        }
         let hz = sample.rate * sample.scale; rate = (rate * hz).clamp(100.0, 200000.0) / hz;
         if !self.enhanced { let glide = v.glide.get_or_insert(rate); *glide += (rate - *glide) * (1.0 - (255.0_f64 / 256.0).powi(2)); rate = *glide; }
         rate *= sample.scale; if rate.is_finite() && rate > 0.0 { rate } else { 1.0 }
@@ -354,6 +471,24 @@ impl Engine {
     fn stop_index(&mut self, id: usize, fade: f64, now: f64) {
         if id == NONE || self.voices[id].done { return; }
         self.release(id, fade, now); self.voices[id].real = false; self.voices[id].done = true;
+    }
+    fn reclaim_oldest_release(&mut self) -> bool {
+        if self.release_len == 0 {
+            return false;
+        }
+        let mut oldest = 0;
+        for i in 1..self.release_len {
+            if self.releases[i].1 < self.releases[oldest].1 {
+                oldest = i;
+            }
+        }
+        let (old_slot, _) = self.releases[oldest];
+        self.release_len -= 1;
+        self.releases[oldest] = self.releases[self.release_len];
+        self.commands.extend_from_slice(&[render::STOP as f64, old_slot as f64]);
+        self.slots[self.free_slots] = old_slot;
+        self.free_slots += 1;
+        true
     }
     fn release(&mut self, id: usize, fade: f64, now: f64) {
         let v = &mut self.voices[id]; if v.slot == NONE { return; }
@@ -365,6 +500,9 @@ impl Engine {
             }
             self.commands.extend_from_slice(&[render::STOP_AT as f64, slot as f64, now + (fade + 0.01)]);
         } else { self.commands.extend_from_slice(&[render::RELEASE as f64, slot as f64, fade.max(0.001) / 3.0, fade + 0.01, now]); }
+        if self.release_len == self.releases.len() && self.swbf2_voice_scoring {
+            self.reclaim_oldest_release();
+        }
         if self.release_len < self.releases.len() { self.releases[self.release_len] = (slot, self.wall_now + ((fade + 0.1) * 1000.0) / 1000.0); self.release_len += 1; }
     }
     /// ports Voice.setReal and start. The render slot and the virtual voice
@@ -377,7 +515,7 @@ impl Engine {
         // Release tails still own their slots when a slow or suspended device
         // has not reached their deadlines. Keep this voice virtual until a
         // later frame reclaims a slot; audio pressure must not stop the game.
-        if self.free_slots == 0 {
+        if self.free_slots == 0 && !(self.swbf2_voice_scoring && self.reclaim_oldest_release()) {
             return;
         }
         self.free_slots -= 1; let slot = self.slots[self.free_slots];

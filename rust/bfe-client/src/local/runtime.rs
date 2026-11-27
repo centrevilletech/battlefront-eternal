@@ -56,6 +56,15 @@ pub struct Input<'a> {
 // develop independently. Production must use Context; observers in tests
 // check host ordering and errors, never replace a gameplay solver.
 pub trait Engine {
+    fn mission_view(&mut self, _tick: u32, _dest: &mut Option<Box<super::mission_view::Observation>>) {}
+    fn mission_score(&self) -> Option<bfe_sim::battle::script::MissionScore> { None }
+    fn infantry_input(&mut self, _sequence: f64, _input: bfe_sim::units::infantry::Controls) -> Result<(), String> { Ok(()) }
+    fn pilot_input(&mut self, _sequence: f64, _input: bfe_sim::space::local::PilotControls) -> Result<(), String> { Ok(()) }
+    fn space_sample(&mut self, _frame: &mut super::space::Frame) -> Result<(), String> { Ok(()) }
+    fn infantry_contacts(&self, _dest: &mut Option<Box<bfe_sim::units::infantry::contact::Contacts>>) {}
+    fn infantry_powers(&self, _dest: &mut Option<Box<bfe_sim::combat::powers::PowerFrame>>) {}
+    fn hero_audio(&self, _dest: &mut Option<Box<bfe_sim::units::infantry::hero_audio::HeroAudioSnapshot>>) {}
+    fn infantry_sample(&self) -> Option<bfe_sim::units::infantry::Sample> { None }
     fn initialize(&mut self, setup: WorldTickSetup) -> Result<(), String>;
     fn input(&mut self, input: Input<'_>) -> Result<(), String>;
     fn human_command(
@@ -73,6 +82,7 @@ pub trait Engine {
     fn friendly_fire(&mut self, _on: bool) -> Result<(), String> {
         Ok(())
     }
+    fn door_frame(&self, _out: &mut Vec<bfe_sim::space::SpaceDoorSnapshot>) -> Result<(), String> { Ok(()) }
     fn publish(&mut self, facts: &[f64]) -> Result<Publication<'_>, String>;
     fn acknowledge(
         &mut self,
@@ -159,7 +169,8 @@ impl<E: Engine> Runtime<E> {
             engine.close();
             return Err(error);
         }
-        let mut receiver = Receiver::new(admission.registry);
+        let mut receiver = Receiver::with_bounds(admission.registry, admission.wire_bounds);
+        receiver.control_family = admission.family;
         receiver.registry = true;
         receiver.welcomed = true;
         receiver.own.id = admission.player_id;
@@ -243,6 +254,7 @@ impl<E: Engine> Runtime<E> {
         }
         let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
         published.deliver(self.client, receiver, self.now_ms)?;
+        self.engine.infantry_powers(&mut receiver.powers);
         let ack = Publication::acknowledgement(receiver);
         self.engine.acknowledge(
             ack,
@@ -264,6 +276,10 @@ impl<E: Engine> Runtime<E> {
         let published =
             Publication::from_welcome(output, welcome_bytes, &mut block).map_err(String::from)?;
         published.copy_into(&mut slot.block, &mut slot.bytes);
+        self.engine.space_sample(&mut slot.space)?;
+        self.engine.door_frame(&mut slot.doors)?;
+        slot.mission_score = self.engine.mission_score();
+        self.engine.mission_view(0, &mut slot.mission_view);
         slot.tick = 0.0;
         slot.client = self.client;
         if let Some(fault) = published.fault(self.client)? {
@@ -345,6 +361,7 @@ impl<E: Engine> Runtime<E> {
         self.faults.note(published.fault(self.client)?)?;
         let receiver = self.receiver.as_mut().ok_or("no display receiver")?;
         published.deliver(self.client, receiver, self.now_ms)?;
+        self.engine.infantry_powers(&mut receiver.powers);
         let ack = Publication::acknowledgement(receiver);
         // Snapshot ACKs retire baselines; edge ACKs independently retire the
         // world's reliable outcomes. Omitting the latter fills a long local
@@ -359,13 +376,30 @@ impl<E: Engine> Runtime<E> {
         Ok(())
     }
 
+    pub fn infantry_input(&mut self, sequence: f64, input: bfe_sim::units::infantry::Controls) -> Result<(), String> {
+        self.engine.infantry_input(sequence, input)
+    }
+
+    /// The command of this sequence's pilot controls (a battle without a Space battlefield drops them).
+    pub fn pilot_input(&mut self, sequence: f64, input: bfe_sim::space::local::PilotControls) -> Result<(), String> {
+        self.engine.pilot_input(sequence, input)
+    }
+
     fn publish_into_slot(&mut self, slot: &mut PublicationSlot) -> Result<(), String> {
+        self.engine.space_sample(&mut slot.space)?;
+        slot.mission_score = self.engine.mission_score();
+        self.engine.mission_view(self.tick() as u32, &mut slot.mission_view);
+        slot.infantry = self.engine.infantry_sample();
+        self.engine.infantry_contacts(&mut slot.contacts);
+        self.engine.infantry_powers(&mut slot.powers);
+        self.engine.hero_audio(&mut slot.hero_audio);
         let current_tick = self.tick();
         let client_id = self.client;
         let now_ms = self.now_ms;
         self.facts[WireWorldFacts::TICK] = current_tick;
         self.facts[WireWorldFacts::AT] = now_ms;
         self.facts[WireWorldFacts::UNIX_MS] = self.unix_ms + now_ms.floor();
+        self.engine.door_frame(&mut slot.doors)?;
         let published = self.engine.publish(&self.facts)?;
         published.copy_into(&mut slot.block, &mut slot.bytes);
         slot.tick = current_tick;
@@ -408,7 +442,7 @@ impl<E: Engine> Runtime<E> {
             generation: receiver.own.generation,
             view_tick: Some(bfe_client::online::clock::rendered_tick(receiver.clock.shown, receiver.latest)),
             fire_aim: None,
-            flight_mode: receiver.in_aircraft(),
+            flight_mode: receiver.uses_flight_controls(),
         })?;
         let output = self.engine.step(input)?;
         if let Err(error) = self.clock.complete(&output) {

@@ -43,6 +43,12 @@ impl Soldier {
     /// look(dx, dy, sensitivity, invert): mouse look in raw
     /// counts, the rate a tick may take capped.
     pub fn look(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool) {
+        self.look_scaled(dx, dy, sensitivity, invert, self.mode_turn());
+    }
+
+    /// `look` with an explicit yaw turn multiplier (2005 class `ControlSpeed`
+    /// turn column and active combo `TurnFactor`).
+    pub fn look_scaled(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool, turn_scale: f64) {
         if self.lock > 0.0 {
             return;
         }
@@ -50,7 +56,7 @@ impl Soldier {
         let x = clamp(self.look_x + dx * sensitivity, -cap, cap);
         let y = clamp(self.look_y + (if invert { dy } else { -dy }) * sensitivity, -cap, cap);
         let rate = self.max_turn / LOOK_SCALE;
-        self.aim_yaw -= (x - self.look_x) * rate * self.mode_turn();
+        self.aim_yaw -= (x - self.look_x) * rate * turn_scale;
         self.aim_pitch += (y - self.look_y) * rate;
         self.look_x = x;
         self.look_y = y;
@@ -61,11 +67,16 @@ impl Soldier {
     /// lookRaw(dx, dy, sensitivity, invert): pointer counts
     /// as displacement, uncapped.
     pub fn look_raw(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool) {
+        self.look_raw_scaled(dx, dy, sensitivity, invert, self.mode_turn());
+    }
+
+    /// `look_raw` with an explicit yaw turn multiplier.
+    pub fn look_raw_scaled(&mut self, dx: f64, dy: f64, sensitivity: f64, invert: bool, turn_scale: f64) {
         if self.lock > 0.0 {
             return;
         }
         let rate = self.max_turn / LOOK_SCALE;
-        self.aim_yaw -= dx * sensitivity * rate * self.mode_turn();
+        self.aim_yaw -= dx * sensitivity * rate * turn_scale;
         let [low, high] = self.pitch_range();
         self.aim_pitch = clamp(self.aim_pitch + (if invert { dy } else { -dy }) * sensitivity * rate, low, high);
     }

@@ -32,6 +32,11 @@ pub(crate) fn prepared_count_in(units: &super::owner::Units)->usize { units.fact
 /// The same count before attachF3 made the factory: no cookie handed out yet.
 pub(crate) fn cookies_so_far_in(units: &super::owner::Units)->usize { units.factory.as_ref().map_or(0, |f| f.resources.len()) }
 
+/// Upper slot bound for bodies the factory can admit during this battle.
+pub(super) fn reserved_slots(units: &super::owner::Units) -> usize {
+    units.factory.as_ref().map_or(0, |factory| factory.limit)
+}
+
 /// Future mixed ids include current hull/prop ids and all admitted bodies.
 /// Reserve arrays now; preparing an inactive body does not consume an id.
 

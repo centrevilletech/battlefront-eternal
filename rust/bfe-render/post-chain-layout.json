@@ -88,6 +88,26 @@
     [
       "world",
       16
+    ],
+    [
+      "hdr",
+      1
+    ],
+    [
+      "hdrThreshold",
+      1
+    ],
+    [
+      "hdrFactor",
+      1
+    ],
+    [
+      "hdrPasses",
+      1
+    ],
+    [
+      "hdrWeight",
+      1
     ]
   ],
   "state": [
@@ -198,7 +218,9 @@
     "spatial": "post-hud/spatial",
     "motion": "post-hud/motion",
     "resolve": "post-hud/resolve",
-    "sharpen": "post-hud/sharpen"
+    "sharpen": "post-hud/sharpen",
+    "hdrExtract": "post-hud/hdr-extract",
+    "hdrBlur": "post-hud/hdr-blur"
   },
   "modes": {
     "off": 0,

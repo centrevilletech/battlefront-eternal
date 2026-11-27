@@ -11,6 +11,7 @@ use crate::combat::weapons::{Arsenal, ShotKind};
 use crate::gen::{ClientMode, ClientActorKind, Air, ClientAction as Action, ClientCommand, ClientCrowd, ClientFrame,
     ClientLook, ClientResult, ClientShot, ClientMuzzles, ClientMount, ClientHeld, Droideka, Kick, MoveInput, Posture, Soldier, UnitBody, LastGun};
 use crate::movement::soldier::V3;
+use crate::movement::soldier::swbf2::{body as swbf2_body, Actions as Swbf2Actions, State as Swbf2State, Step as Swbf2Step, Tuning as Swbf2Tuning};
 use crate::prediction::{actors, corrections, weapons};
 use three::clamp;
 
@@ -19,6 +20,8 @@ mod recon;
 mod commands;
 mod hull_state;
 mod hull_correction;
+#[cfg(test)]
+mod swbf2_tests;
 
 const INVALID: &str = "invalid prediction session frame";
 // PredictionWindow.begin retains a continuation when its authority is too old
@@ -43,6 +46,8 @@ pub const TURN_RIGHT: u32 = 1 << ClientHeld::TurnRight as u8;
 pub const TURN_LEFT: u32 = 1 << ClientHeld::TurnLeft as u8;
 pub const PRIMARY: u32 = 1 << ClientHeld::Primary as u8;
 pub const SECONDARY: u32 = 1 << ClientHeld::Secondary as u8;
+/// A 2005 soldier's held sprint (no 2004 command sets it).
+pub const SPRINT: u32 = 1 << ClientHeld::Sprint as u8;
 
 // CommandControls.take/axis consumed world-key groups in replayTicks. Separate
 // bits preserve cancellation; consuming an action never clears a held key.
@@ -98,18 +103,48 @@ pub struct ClientPrediction {
     crowd: Vec<f64>,
     notices: Vec<f64>,
     before: Vec<f64>,
+    /// A 2005 soldier's class tuning and the replay's copy of his energy,
+    /// sprint and roll; restored from the soldier body 0x82 with the rest of the body.
+    swbf2: Option<(Swbf2Tuning, Swbf2State)>,
 }
 
 impl ClientPrediction {
     /// InfantryPrediction / DroidekaPrediction constructors resolved class
     /// clips once per body. Load them here, never while pending ticks replay.
     pub fn configure_actor(&mut self, input: &[f64]) -> Result<(), &'static str> {
+        self.configure_actor_for_family(input, self.actor.family())
+    }
+
+    pub fn configure_actor_for_family(&mut self, input: &[f64], family: bfe_family::GameFamily) -> Result<(), &'static str> {
         commands::reserve(&mut self.command_rows);
         self.kind = match input.first() { Some(n) if *n == f64::from(SOLDIER) => SOLDIER, Some(n) if *n == f64::from(DROIDEKA) => DROIDEKA, _ => return Err(INVALID) };
-        self.actor.configure(input)?;
+        self.actor.configure_for_family(input, family)?;
         self.configured = true; self.life = None;
         if let Some(h) = &mut self.hull { h.reset(); }
+        self.swbf2 = None;
+        self.arsenal.soldier_abilities = false;
         Ok(())
+    }
+    /// A 2005 soldier's class tuning, after `configure_actor_for_family`.
+    /// Its corrections then carry the soldier body 0x82 and its replay steps the 2005 profile.
+    pub fn configure_swbf2(&mut self, tuning: Swbf2Tuning) -> Result<(), &'static str> {
+        if self.kind != SOLDIER || self.actor.family() != bfe_family::GameFamily::Swbf2 { return Err(INVALID); }
+        tuning.validate().map_err(|e| e.message())?;
+        self.swbf2 = Some((tuning, Swbf2State::new(&tuning)));
+        self.arsenal.soldier_abilities = true;
+        self.life = None;
+        Ok(())
+    }
+    /// The replay's current 2005 movement state (energy for the HUD).
+    pub fn swbf2_state(&self) -> Option<&Swbf2State> { self.swbf2.as_ref().map(|(_, state)| state) }
+    /// The yaw multiplier the next look of the replayed 2005 soldier gets: his class's row for the state
+    /// he is in (a thrown, tumbling or sliding one turns at the tumble row, the stand-up is a lock), the
+    /// rule the authority applies. The replay carries no melee combo, so no combo factor. None for a
+    /// 2004 soldier, a droideka, or before any correction.
+    pub fn swbf2_look_scale(&self) -> Option<f64> {
+        let (tuning, state) = self.swbf2.as_ref()?;
+        let UnitBody::Soldier(s) = &self.actor.unit.soldier else { return None };
+        Some(look_scale(tuning, state, s))
     }
     // WeaponPrediction.begin resolved the arsenal's definitions before ticks.
     // Loading the same IDs here lets the proven weapon kernel keep its class
@@ -158,6 +193,11 @@ impl ClientPrediction {
     pub fn prepare_actor_collision(&mut self,state:&State,world:u32){self.actor.reserve_collision(state,world as usize);}
     /// predictionVehicle construction for native hosts and synthetic fixtures.
     /// The caller transfers a private owner, never an authoritative pool row.
+    /// The installed hull's flight environment, replaced when the match's
+    /// authority names its ceiling.
+    pub fn set_hull_environment(&mut self, environment: crate::flight::Environment) {
+        if let Some(hull) = &mut self.hull { hull.set_environment(environment); }
+    }
     pub fn install_hull(&mut self, owner: hulls::Session) {
         commands::reserve(&mut self.command_rows);
         self.hull = Some(owner); self.life = None; self.configured = true;
@@ -178,6 +218,11 @@ impl ClientPrediction {
     pub fn predict_session(&mut self, words: &[f64], collision: &mut State) -> Result<(), &'static str> {
         if !self.configured || words.len() < ClientFrame::WORDS { return Err(INVALID); }
         let frame = ClientFrame::take(words, &[]);
+        // A 2005 soldier steps with his class's tuning or not at all.
+        if frame.mode == ClientMode::Actor && !frame.dead && self.kind == SOLDIER
+            && self.actor.family() == bfe_family::GameFamily::Swbf2 && self.swbf2.is_none() {
+            return Err(crate::movement::ProfileError::MissingStep.message());
+        }
         if frame.merge_commands {
             let mut rows=std::mem::take(&mut self.command_rows);
             let merged=commands::assemble(words,&frame,&mut rows);
@@ -188,6 +233,13 @@ impl ClientPrediction {
         self.predict_frame(&frame,words,rows,collision)
     }
     fn predict_frame(&mut self,frame:&ClientFrame,words:&[f64],commands:&[f64],collision:&mut State)->Result<(),&'static str>{
+        if self.swbf2.is_none() {
+            self.released_predict_frame(frame, words, commands, collision)
+        } else {
+            self.swbf2_predict_frame(frame, words, commands, collision)
+        }
+    }
+    fn released_predict_frame(&mut self,frame:&ClientFrame,words:&[f64],commands:&[f64],collision:&mut State)->Result<(),&'static str>{
         if frame.mode == ClientMode::Recon {
             // Recon restores its full checkpoint every frame. Invalidating the
             // other continuations here avoids a separate host reset crossing.
@@ -367,14 +419,14 @@ impl ClientPrediction {
             };
             self.actor.step(collision, frame.world as usize, frame.ignored as i64, &self.flags,
                 1.0 / 60.0, (0.0, V3::ZERO, false), frame.movement, frame.shield,
-                frame.underwater, action(actions, Action::FireSecondary), airborne, dive, lock)?;
+                frame.underwater, action(actions, Action::FireSecondary), airborne, dive, lock, None)?;
             // separatePredictedSoldier ran after movement and before weapons.
             // Only this private body moves; remote actors are frozen facts for
             // the client frame, regardless of how many pending ticks replay.
             separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
             if !action(actions, Action::FirePrimary) { counts[0] = 0; }
             if !action(actions, Action::FireSecondary) { counts[1] = 0; }
-            self.step_weapons(&frame, actions, forward, right, counts, ids)?;
+            self.released_step_weapons(frame, actions, forward, right, counts, ids)?;
             // WeaponPrediction.step delivered notices after timer/ammo state
             // advanced. Capture their pose here; presentation may later reject
             // a cosmetic, but cannot change this session's simulated arsenal.
@@ -458,6 +510,228 @@ impl ClientPrediction {
         result.shots_count = (self.notices.len() / (ClientShot::WORDS + result.actor_words as usize)) as u32;
         // Copying into one retained vector makes the returned block stable
         // until the next frame. JS need not cross once per effect or weapon.
+        self.output.extend_from_slice(&self.notices);
+        let kick = &self.actor.combat.kick; result.kick = [kick.rate, kick.hold, kick.offset];
+        result.put(&mut self.output, &mut Vec::new());
+        Ok(())
+    }
+    fn swbf2_predict_frame(&mut self,frame:&ClientFrame,words:&[f64],commands:&[f64],collision:&mut State)->Result<(),&'static str>{
+        if frame.mode == ClientMode::Recon {
+            self.life=None;if let Some(h)=&mut self.hull{h.reset();}
+            return self.recon.as_mut().ok_or(INVALID)?.predict(frame, words, commands, collision, &mut self.output);
+        }
+        if !frame.authority_tick.is_finite() || frame.authority_tick.fract() != 0.0
+            || !frame.ignored.is_finite() || frame.ignored < -1.0 || frame.ignored.fract() != 0.0 { return Err(INVALID); }
+        if frame.mode == ClientMode::Mounted { self.life = None; return self.predict_mounted(frame, words, commands, None, None); }
+        if frame.mode == ClientMode::Hull {
+            self.life = None;
+            self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
+            let mut result = ClientResult::default();
+            let hull = self.hull.as_mut().ok_or(INVALID)?;
+            hull.predict(frame, words, commands, collision, &mut result, &mut self.output)?;
+            let lock = hull.flight_lock();
+            return self.predict_mounted(frame, words, commands, Some(result), lock);
+        }
+        let crowd = span(words, frame.crowd_at, frame.crowd_count, ClientCrowd::WORDS)?;
+        let flags = span(words, frame.flags_at, frame.flags_count, 1)?;
+        if collision.worlds.get(frame.world as usize).map(|w| w.order.len()) != Some(flags.len()) { return Err(INVALID); }
+        for row in commands.chunks_exact(ClientCommand::WORDS) {
+            let c = ClientCommand::take(row, &[]);
+            if !c.tick.is_finite() || c.tick.fract() != 0.0 { return Err(INVALID); }
+            span(words, c.look_at, c.look_count, ClientLook::WORDS)?;
+        }
+        self.flags.clear();
+        for &flag in flags { if flag != 0.0 && flag != 1.0 { return Err(INVALID); } self.flags.push(flag as u8); }
+        let life = [frame.epoch, frame.identity, frame.generation, frame.source];
+        let same_life = self.life == Some(life);
+        let continued = same_life && (frame.authority_tick == self.authority_tick || frame.authority_tick < self.tick - LIMIT);
+        if frame.dead { self.life = None; self.output.clear(); return Ok(()); }
+        if !continued || self.crowd.len() != crowd.len() { self.crowd.clear(); self.crowd.extend_from_slice(crowd); }
+        if !continued {
+            let row = span(words, frame.actor_at, frame.actor_words, 1)?;
+            self.actor.unit.soldier = match self.kind {
+                SOLDIER if row.len() == Soldier::WORDS => UnitBody::Soldier(Soldier::take(row, &[])),
+                DROIDEKA if row.len() == Droideka::WORDS => UnitBody::Droideka(Droideka::take(row, &[])),
+                _ => return Err(INVALID),
+            };
+            self.correction.clear();
+            for &word in span(words, frame.correction_at, frame.correction_bytes.div_ceil(4), 1)? {
+                if !word.is_finite() || word < 0.0 || word > u32::MAX as f64 || word.fract() != 0.0 { return Err(INVALID); }
+                for byte in (word as u32).to_le_bytes() {
+                    if self.correction.len() < frame.correction_bytes as usize { self.correction.push(byte); }
+                }
+            }
+            let swbf2 = self.swbf2.as_mut().expect("swbf2 prediction state");
+            restore_swbf2(&mut self.actor.unit.soldier, &self.correction, swbf2)?;
+            self.actor.combat.kick = Kick { rate: frame.kick[0], hold: frame.kick[1], offset: frame.kick[2] };
+            self.arsenal.input.clear();
+            self.arsenal.input.extend_from_slice(span(words, frame.weapons_at, frame.weapons_words, 1)?);
+            self.arsenal.run(WEAPON_RESTORE)?;
+            self.tick = frame.authority_tick; self.held = frame.held;
+            self.sequence = 0.0;
+        }
+        if !same_life { self.presented = frame.authority_tick; }
+        self.presented = self.presented.max(frame.authority_tick).max(frame.presented_through);
+        self.life = Some(life); self.authority_tick = frame.authority_tick;
+        let mut cosmetic_slots = frame.cosmetic_slots;
+        let from = self.tick;
+        let after = if continued { self.sequence } else { -1.0 };
+        let mut last = from;
+        let mut mine = false;
+        let mut checkpoint_held = self.held;
+        for row in commands.chunks_exact(ClientCommand::WORDS) {
+            let c = ClientCommand::take(row, &[]);
+            if c.sequence <= after { continue; }
+            self.sequence = c.sequence;
+            checkpoint_held = c.held;
+            if c.generation == frame.generation { mine = true; last = last.max(c.tick); }
+        }
+        if mine && last == from { last = from + 1.0; }
+        let mut index = 0;
+        let mut mouse_scale = frame.mouse_scale;
+        let mut invert = frame.invert;
+        self.notices.clear(); self.before.clear();
+        let mut result = ClientResult { tick: from, continued, sequence: self.sequence, held: self.held, ..ClientResult::default() };
+        let mut tick = from + 1.0;
+        while mine && tick <= last {
+            let start = index;
+            let mut actions = 0;
+            let mut counts = [0u32; 2];
+            let mut ids = [0.0; 2];
+            let mut press_sequences = [0.0; 2];
+            let mut tick_sequence = 0.0;
+            while index < commands.len() / ClientCommand::WORDS {
+                let at = index * ClientCommand::WORDS;
+                let c = ClientCommand::take(&commands[at..], &[]);
+                if c.sequence <= after { index += 1; continue; }
+                if c.tick > tick { break; }
+                index += 1;
+                if c.generation != frame.generation { continue; }
+                actions |= c.actions;
+                for (channel, (n, id)) in [(c.primary_count, c.primary_id), (c.secondary_count, c.secondary_id)].into_iter().enumerate() {
+                    counts[channel] = counts[channel].saturating_add(n); if n != 0 { ids[channel] = id; press_sequences[channel] = c.sequence; }
+                }
+                if c.tick == tick && tick_sequence == 0.0 { tick_sequence = c.sequence; }
+                if c.sent { self.held = c.held; mouse_scale = if c.has_mouse_scale {c.mouse_scale}else{mouse_scale}; invert = c.invert.unwrap_or(invert); }
+            }
+            if tick == last {
+                append_actor(&mut self.before, &self.actor.unit.soldier);
+                let actor_words = if self.kind == SOLDIER { Soldier::WORDS } else { Droideka::WORDS };
+                result.before_shot = (self.notices.len() / (ClientShot::WORDS + actor_words)) as u32;
+            }
+            let yaw_before = self.actor.unit.aim_yaw();
+            let zoom = self.zoom();
+            // The authority turns a 2005 soldier's look by the class's row for the state he is in as the
+            // tick begins (`look_turn_scale`); the state is the one replayed so far.
+            let turn_scale = self.swbf2_look_scale();
+            for row in commands[start * ClientCommand::WORDS..index * ClientCommand::WORDS].chunks_exact(ClientCommand::WORDS) {
+                let c = ClientCommand::take(row, &[]);
+                if c.sequence <= after || c.generation != frame.generation || !c.sent { continue; }
+                for row in span(words, c.look_at, c.look_count, ClientLook::WORDS)?.chunks_exact(ClientLook::WORDS) {
+                    let look = ClientLook::take(row, &[]);
+                    let x = clamp(look.x, -10000.0, 10000.0) / zoom;
+                    let y = clamp(look.y, -10000.0, 10000.0) / zoom;
+                    let scale = v8math::min(mouse_scale, 2.0);
+                    match &mut self.actor.unit.soldier {
+                        UnitBody::Soldier(s) => match turn_scale {
+                            Some(turn) => s.look_raw_scaled(x, y, scale, invert, turn),
+                            None => s.look_raw(x, y, scale, invert),
+                        },
+                        UnitBody::Droideka(d) => d.look(x, y, scale, invert),
+                    }
+                }
+            }
+            let look_yaw = self.actor.unit.aim_yaw() - yaw_before;
+            let forward = axis(self.held, FORWARD, BACKWARD);
+            let right = axis(self.held, RIGHT, LEFT);
+            self.actor.unit.input = MoveInput { forward, right, turn: axis(self.held, TURN_RIGHT, TURN_LEFT),
+                jump: action(actions, Action::Jump), crouch: action(actions, Action::Crouch),
+                prone: false, r#use: action(actions, Action::Use), ..MoveInput::default() };
+            let (airborne, dive, lock) = match &self.actor.unit.soldier {
+                UnitBody::Soldier(s) => (s.air.is_some_and(|a| a != Air::Jet), s.dive != 0.0, s.lock),
+                UnitBody::Droideka(_) => (false, false, 0.0),
+            };
+            // A 2005 soldier: the held sprint and this tick's roll press, as
+            // the authority read them from the same commands.
+            let (tuning, state) = self.swbf2.as_mut().expect("swbf2 prediction state");
+            let swbf2 = Some(Swbf2Step {
+                // The predicted soldier is the player's own: a player's turn rows, never a bot's.
+                actions: Swbf2Actions { sprint: self.held & SPRINT != 0, roll: action(actions, Action::Roll), ai: false },
+                tuning, state, override_: None });
+            let can_fire = self.actor.step(collision, frame.world as usize, frame.ignored as i64, &self.flags,
+                1.0 / 60.0, (0.0, V3::ZERO, false), frame.movement, frame.shield,
+                frame.underwater, action(actions, Action::FireSecondary), airborne, dive, lock, swbf2)?;
+            // A 2005 soldier's completed movement tick decides whether his
+            // firearms may fire in it, as on the authority.
+            let fire_refused = !can_fire;
+            separate(&mut self.actor.unit.soldier, frame.identity, &mut self.crowd);
+            if !action(actions, Action::FirePrimary) { counts[0] = 0; }
+            if !action(actions, Action::FireSecondary) { counts[1] = 0; }
+            self.swbf2_step_weapons(frame, actions, forward, right, counts, ids, fire_refused)?;
+            if tick > self.presented {
+                for shot in &self.arsenal.shots {
+                    let w = &self.arsenal.weapons[shot.weapon as usize];
+                    let channel = w.channel(&self.arsenal.defs) as usize;
+                    if channel > 1 || counts[channel] > 1 { continue; }
+                    let pressed = counts[channel] == 1 && action(actions, if channel == 0 { Action::FirePrimary } else { Action::FireSecondary });
+                    let mut notice = ClientShot { tick, weapon: shot.weapon, level: w.level, button: channel as u32,
+                        sequence: if pressed { press_sequences[channel] } else { tick_sequence },
+                        press: if pressed { ids[channel] } else { 0.0 }, held: !pressed, ..ClientShot::default() };
+                    match shot.kind {
+                        ShotKind::Round { yaw, pitch, charge, target_id, target_generation, .. } => {
+                            notice.yaw = yaw; notice.pitch = pitch; notice.charge = charge;
+                            notice.target = target_id; notice.target_generation = target_generation;
+                        }
+                        ShotKind::Repair => notice.kind = 1,
+                        ShotKind::MeleeStart { swing } => { notice.kind = 2; notice.swing = swing; }
+                        ShotKind::MeleeHit => notice.kind = 3,
+                        ShotKind::MeleeEnd => notice.kind = 4,
+                    }
+                    if cosmetic_slots > 0 && w.level(self.arsenal.defs.class(w.def)).cosmetic_round {
+                        cosmetic_slots -= 1;
+                        if let UnitBody::Droideka(d) = &mut self.actor.unit.soldier {
+                            let guns = self.barrels.len() as f64;
+                            if guns != 0.0 {
+                                let index = d.gun % guns;
+                                let barrels = self.barrels[index as usize].max(1) as f64;
+                                let selected = LastGun { index, barrel: (d.gun / guns).floor() % barrels };
+                                d.gun = (d.gun + 1.0) % (guns * 2.0);
+                                d.last_gun = Some(selected.clone()); notice.visual_gun = Some(selected);
+                            }
+                        }
+                    }
+                    notice.actor_at = ClientShot::WORDS as u32;
+                    append_record(&mut self.notices, ClientShot::WORDS, &notice, ClientShot::put);
+                    append_actor(&mut self.notices, &self.actor.unit.soldier);
+                }
+            }
+            self.presented = self.presented.max(tick);
+            match &mut self.actor.unit.soldier {
+                UnitBody::Soldier(s) => { let [lo, hi] = s.pitch_range(); s.aim_pitch = clamp(s.aim_pitch, lo, hi); }
+                UnitBody::Droideka(d) => { let [lo, hi] = d.pitch_range(); d.aim_pitch = clamp(d.aim_pitch, lo, hi); }
+            }
+            if !continued && tick == frame.check_tick { result.check_found = true; result.check_position = { let p = self.actor.unit.position(); [p.x, p.y, p.z] }; }
+            if tick == last { result.look_yaw = look_yaw; }
+            self.tick = tick; result.ticks += 1; tick += 1.0;
+        }
+        self.output.clear(); self.output.resize(ClientResult::WORDS, 0.0);
+        self.held = checkpoint_held;
+        result.tick = self.tick; result.held = self.held;
+        result.actor_at = append_actor(&mut self.output, &self.actor.unit.soldier);
+        result.actor_words = match self.kind { SOLDIER => Soldier::WORDS, _ => Droideka::WORDS } as u32;
+        result.before_at = self.output.len() as u32; self.output.extend_from_slice(&self.before);
+        let (_, state) = self.swbf2.as_ref().expect("swbf2 prediction state");
+        capture_swbf2(&self.actor.unit.soldier, &mut self.correction, state)?;
+        result.correction_at = self.output.len() as u32; result.correction_bytes = self.correction.len() as u32;
+        for bytes in self.correction.chunks(4) {
+            let mut packed = [0u8; 4]; packed[..bytes.len()].copy_from_slice(bytes);
+            self.output.push(u32::from_le_bytes(packed) as f64);
+        }
+        result.weapons_at = self.output.len() as u32;
+        self.output.extend_from_slice(&self.arsenal.output);
+        result.weapons_words = self.arsenal.output.len() as u32;
+        result.shots_at = self.output.len() as u32;
+        result.shots_count = (self.notices.len() / (ClientShot::WORDS + result.actor_words as usize)) as u32;
         self.output.extend_from_slice(&self.notices);
         let kick = &self.actor.combat.kick; result.kick = [kick.rate, kick.hold, kick.offset];
         result.put(&mut self.output, &mut Vec::new());
@@ -547,17 +821,35 @@ impl ClientPrediction {
     // WeaponPrediction.step supplied Arsenal.update with this exact context:
     // posture and pre-tick eligibility, then one seed for each unique press.
     // The proven arsenal kernel also owns kick decay and selection/zoom edges.
-    fn step_weapons(&mut self, f: &ClientFrame, actions: u32, forward: f64, right: f64, counts: [u32; 2], ids: [f64; 2]) -> Result<(), &'static str> {
+    fn released_step_weapons(&mut self, f: &ClientFrame, actions: u32, forward: f64, right: f64, counts: [u32; 2], ids: [f64; 2]) -> Result<(), &'static str> {
         let (posture, air, dive, lock, rolled) = match &self.actor.unit.soldier {
             UnitBody::Soldier(s) => (s.posture as u8 as f64, s.air.map_or(-1.0, |a| if a == Air::Jet { 3.0 } else { 0.0 }), s.dive != 0.0, s.lock, false),
             UnitBody::Droideka(d) => (if d.rolled() { -1.0 } else { 0.0 }, -1.0, false, 0.0, d.rolled()),
         };
-        let primary = action(actions, Action::FirePrimary); let secondary = action(actions, Action::FireSecondary);
         let b = |x| f64::from(x);
         self.arsenal.input.clear();
-        self.arsenal.input.extend([f.identity, f.generation, b(primary), b(self.held & PRIMARY != 0), b(secondary), b(self.held & SECONDARY != 0),
+        self.arsenal.input.extend([f.identity, f.generation, b(action(actions, Action::FirePrimary)), b(self.held & PRIMARY != 0),
+            b(action(actions, Action::FireSecondary)), b(self.held & SECONDARY != 0),
             b(action(actions, Action::Reload)), b(action(actions, Action::NextPrimary)), b(action(actions, Action::PreviousPrimary)),
             b(action(actions, Action::NextSecondary)), b(action(actions, Action::Zoom)), forward, right, posture, air, b(dive), lock, b(rolled), b(f.underwater),
+            b(counts[0] == 1 && ids[0] != 0.0), ids[0], b(counts[1] == 1 && ids[1] != 0.0), ids[1]]);
+        self.arsenal.run(WEAPON_STEP)
+    }
+    fn swbf2_step_weapons(&mut self, f: &ClientFrame, actions: u32, forward: f64, right: f64, counts: [u32; 2], ids: [f64; 2],
+        fire_refused: bool) -> Result<(), &'static str> {
+        let (posture, air, dive, lock, rolled) = match &self.actor.unit.soldier {
+            UnitBody::Soldier(s) => (s.posture as u8 as f64, s.air.map_or(-1.0, |a| if a == Air::Jet { 3.0 } else { 0.0 }), s.dive != 0.0, s.lock, false),
+            UnitBody::Droideka(d) => (if d.rolled() { -1.0 } else { 0.0 }, -1.0, false, 0.0, d.rolled()),
+        };
+        // A 2005 soldier who may not fire has his triggers let go, as his
+        // authority lets them go.
+        let free = !fire_refused;
+        let primary = free && action(actions, Action::FirePrimary); let secondary = free && action(actions, Action::FireSecondary);
+        let b = |x| f64::from(x);
+        self.arsenal.input.clear();
+        self.arsenal.input.extend([f.identity, f.generation, b(primary), b(free && self.held & PRIMARY != 0), b(secondary), b(free && self.held & SECONDARY != 0),
+            b(action(actions, Action::Reload)), b(action(actions, Action::NextPrimary)), b(action(actions, Action::PreviousPrimary)),
+            b(action(actions, Action::NextSecondary)), b(action(actions, Action::Zoom)), forward, right, posture, air, b(dive), lock, b(rolled || fire_refused), b(f.underwater),
             b(counts[0] == 1 && ids[0] != 0.0), ids[0], b(counts[1] == 1 && ids[1] != 0.0), ids[1]]);
         self.arsenal.run(WEAPON_STEP)
     }
@@ -598,10 +890,31 @@ fn separate(body: &mut UnitBody, identity: f64, crowd: &mut [f64]) {
     }
 }
 
+/// The authority's turn multiplier of a 2005 soldier's look at the start of a tick (`look_turn_scale`).
+pub(crate) fn look_scale(tuning: &Swbf2Tuning, state: &Swbf2State, soldier: &Soldier) -> f64 {
+    crate::units::infantry::look_turn_scale(
+        tuning.turn_scales(), soldier.posture, soldier.air,
+        state.sprint_time.is_some(), state.roll.is_some(), state.is_tumble_look(), 1.0)
+}
+
 // restoreCompactSoldier / restoreDroidekaState decode the existing wire
 // formats. Reset only local history and solver scratch; never import another
 // page's smoothing displacement or enable/disable a shared collision body.
-fn restore(body: &mut UnitBody, bytes: &[u8]) -> Result<(), &'static str> {
+/// A 2005 soldier's body: its revision, the compact body and his life's
+/// movement state, read together and installed only when all are valid.
+pub(crate) fn restore_swbf2(body: &mut UnitBody, bytes: &[u8], swbf2: &mut (Swbf2Tuning, Swbf2State)) -> Result<(), &'static str> {
+    let UnitBody::Soldier(_) = body else { return Err(INVALID) };
+    let bytes = swbf2_body::revision_body(bytes)?;
+    let (compact, suffix) = bytes.split_at_checked(swbf2_body::compact_len(bytes).ok_or(INVALID)?).ok_or(INVALID)?;
+    let c = corrections::decode_compact_soldier_fixed(Some(compact), &[true; 6])?;
+    // His power lock, after the movement state, is the HUD's, not the replay's.
+    let (suffix, _lock) = swbf2_body::split_lock(suffix)?;
+    let state = swbf2_body::read_suffix(suffix, &swbf2.0, swbf2_body::Body::of(&c))?;
+    restore(body, compact)?;
+    swbf2.1 = state;
+    Ok(())
+}
+pub(crate) fn restore(body: &mut UnitBody, bytes: &[u8]) -> Result<(), &'static str> {
     match body {
         UnitBody::Soldier(s) => {
             let c = corrections::decode_compact_soldier_fixed(Some(bytes), &[true; 6])?;
@@ -633,7 +946,14 @@ fn number(out: &mut Vec<u8>, x: f64) -> Result<(), &'static str> {
 // The continuation checkpoint is also the authority wire format. Optional
 // fields retain the JS capture functions' exact presence rules; generating a
 // different compact representation here would invalidate reconnect/rollback.
-fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
+/// A 2005 soldier's body: its revision, the compact body, then his life's movement state.
+pub(crate) fn capture_swbf2(body: &UnitBody, out: &mut Vec<u8>, state: &Swbf2State) -> Result<(), &'static str> {
+    let UnitBody::Soldier(_) = body else { return Err(INVALID) };
+    capture(body, out)?;
+    out.splice(0..0, swbf2_body::REVISION.to_le_bytes());
+    swbf2_body::write_suffix(state, out)
+}
+pub(crate) fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
     out.clear();
     match body {
         UnitBody::Soldier(s) => {
@@ -666,3 +986,41 @@ fn capture(body: &UnitBody, out: &mut Vec<u8>) -> Result<(), &'static str> {
 // operations load immutable facts; client_predict_session is the sole hot
 // crossing and returns all poses, weapon state and notices in one allocation.
 
+
+#[cfg(test)]
+mod family_tests {
+    use super::*;
+    use crate::collision::CollisionOwner;
+    use bfe_family::GameFamily;
+
+    #[test]
+    fn missing_profile_leaves_prediction_continuation_untouched() {
+        let mut session = ClientPrediction::default();
+        session.configure_actor_for_family(&[0.], GameFamily::Swbf2).unwrap();
+        session.life = Some([1., 2., 3., 4.]);
+        session.tick = 11.;
+        session.authority_tick = 10.;
+        session.held = LEFT;
+        session.sequence = 5.;
+        session.presented = 8.;
+        session.output = vec![13.];
+        let mut collision = CollisionOwner::new();
+        let frame = ClientFrame {
+            world: collision.world_new(0, -1, -1), ignored: -1., authority_tick: 10.,
+            epoch: 1., identity: 2., generation: 3., source: 4., presented_through: 12.,
+            commands_at: ClientFrame::WORDS as u32, commands_count: 1, ..Default::default()
+        };
+        let command = ClientCommand { generation: 3., sequence: 6., tick: 12., held: RIGHT, ..Default::default() };
+        let mut words = vec![0.; ClientFrame::WORDS + ClientCommand::WORDS];
+        frame.put(&mut words, &mut Vec::new());
+        command.put(&mut words[ClientFrame::WORDS..], &mut Vec::new());
+        for _ in 0..2 {
+            assert_eq!(session.predict_session(&words, &mut collision.state),
+                Err(crate::movement::ProfileError::MissingStep.message()));
+            assert_eq!((session.tick, session.authority_tick, session.held, session.sequence,
+                session.presented), (11., 10., LEFT, 5., 8.));
+            assert_eq!(session.life, Some([1., 2., 3., 4.]));
+            assert_eq!(session.output, [13.]);
+        }
+    }
+}

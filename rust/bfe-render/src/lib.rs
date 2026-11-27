@@ -71,3 +71,6 @@ pub mod native_casters;
 pub mod native_motion;
 
 pub mod profile;
+
+/// Authored single-player HUD geometry and value transforms for Battlefront II.
+pub mod hud_model2;

@@ -46,6 +46,49 @@ pub enum Flight {
     Keys(FlightInput),
 }
 
+/// A 2005 soldier's own inputs, as his controls last wrote them: the sprint
+/// and block holds, and the roll press of this tick. A 2004 battle never
+/// sets them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Swbf2Intent {
+    pub sprint: bool,
+    /// Whether block is held, from its durable press and release edges.
+    pub block: bool,
+    /// This tick's block press and release: a short tap carries both.
+    pub block_pressed: bool,
+    pub block_released: bool,
+    pub roll: bool,
+    /// The combo buttons held this tick and the ones pressed on it (a rising
+    /// held level or an action press), as `combo::ComboButton` bits.
+    pub melee_held: u8,
+    pub melee_pressed: u8,
+    /// The secondary fire button held, and pressed on this tick.
+    pub offhand_held: bool,
+    pub offhand_pressed: bool,
+    /// His setting: block lasts as long as its control is held, instead of a
+    /// press starting and ending it.
+    pub hold_to_block: bool,
+    /// The power lock key pressed on this tick: it takes a lock on the enemy
+    /// nearest his aim, or lets a held one go.
+    pub lock_pressed: bool,
+}
+
+impl Swbf2Intent {
+    /// Adds a network soldier's inputs to the controls his soldier step takes.
+    /// The presses and the roll are one tick's: reading them spends them.
+    pub fn take_into(&mut self, controls: &mut crate::units::infantry::Controls) {
+        controls.sprint |= self.sprint;
+        controls.block |= self.block;
+        controls.hold_to_block |= self.hold_to_block;
+        controls.melee_held |= self.melee_held;
+        controls.roll |= std::mem::take(&mut self.roll);
+        controls.block_pressed |= std::mem::take(&mut self.block_pressed);
+        controls.lock_pressed |= std::mem::take(&mut self.lock_pressed);
+        controls.melee_pressed |= std::mem::take(&mut self.melee_pressed);
+        controls.offhand_pressed |= std::mem::take(&mut self.offhand_pressed);
+    }
+}
+
 /// What the JavaScript kept on a body's Unit object between ticks.
 #[derive(Clone, Debug, Default)]
 pub struct UnitShadow {
@@ -55,6 +98,9 @@ pub struct UnitShadow {
     /// body's published one; `fresh` until the unit phase's row reads it.
     pub intent: Option<Intent>,
     pub fresh: bool,
+    pub swbf2: Swbf2Intent,
+    /// The life `swbf2` belongs to: a new life starts with block released.
+    pub swbf2_life: f64,
 }
 
 /// The string ids the controls are read with: the world's key tables
@@ -81,6 +127,32 @@ pub struct Names {
     /// rollRight, boost, trick, immelmann, rollLock, takeoff, targetLock.
     pub flight: [(StrId, [Option<StrId>; 2]); 10],
     pub empty: StrId,
+    /// The 2005 game's on-foot inputs, interned only for a 2005 battle so a
+    /// 2004 battle's string table is exactly the released one.
+    pub swbf2: Option<Swbf2Names>,
+}
+
+/// The 2005 game's on-foot inputs: the held codes that stand for a soldier's
+/// sprint, crouch and reload controls and his hold-to-block setting, whatever
+/// keys he bound (`docs/network-two-games.md`, "Input actions and bindings"),
+/// the roll press, block's durable press and release and the power lock press.
+#[derive(Clone, Copy, Debug)]
+pub struct Swbf2Names {
+    pub sprint: StrId,
+    pub crouch: StrId,
+    pub reload: StrId,
+    pub hold_to_block: StrId,
+    pub block_press: StrId,
+    pub block_release: StrId,
+    pub roll: StrId,
+    pub target_lock: StrId,
+}
+impl Swbf2Names {
+    pub fn new(strings: &mut Strings) -> Self {
+        let mut s = |text: &str| strings.intern_str(text);
+        Self { sprint: s("ShiftLeft"), crouch: s("KeyC"), reload: s("KeyR"), hold_to_block: s("KeyB"),
+            block_press: s("blockPress"), block_release: s("blockRelease"), roll: s("roll"), target_lock: s("targetLock") }
+    }
 }
 
 impl Names {
@@ -117,6 +189,7 @@ impl Names {
                 (s("targetLock"), [Some(s("KeyQ")), Some(s("Mouse3"))]),
             ],
             empty: s(""),
+            swbf2: None,
         }
     }
     /// A flight binding's codes by flightInput's name.

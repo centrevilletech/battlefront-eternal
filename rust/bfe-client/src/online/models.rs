@@ -73,7 +73,67 @@ impl Model {
                 attachment: None,
                 model: name.into(),
                 source: array(&b["part"])?,
+                colours: None,
                 geometry_key: format!("{name}/{}", b["part"]),
+                matrix: Matrix4::default().elements,
+                positions: array(&b["positions"])?,
+                normals: array(&b["normals"])?,
+                uv: array(&b["uv"])?,
+                index: array(&b["indices"])?,
+                joints: array(&b["joints"])?,
+                weights: array(&b["weights"])?,
+                bones: vec![0.; 16],
+                bind_inverse: Matrix4::default().elements,
+                center: array(&b["center"])?,
+                radius: r,
+            });
+        }
+        let bounds = placed.parts.iter().map(|p| bounds(&p.positions)).collect();
+        let admitted = crate::static_scene::props(bridge, content, textures, placed, cascades, false)?;
+        Ok(Some(Self { rows: admitted.records, radius, bounds }))
+    }
+    /// The given parts of a 2005 craft rig as one rigid model, in the space
+    /// they were written in (the bone each hangs from): `key` names its
+    /// batches. Built once when a battle loads; never cached by name.
+    pub fn from_parts(
+        content: &BattleContent,
+        bridge: &mut Bridge,
+        textures: &[u32],
+        key: &str,
+        parts: &[&bfe_content::models::Part],
+        cascades: usize,
+    ) -> Result<Option<Self>, String> {
+        if parts.is_empty() {
+            return Ok(None);
+        }
+        let records: Vec<_> = parts
+            .iter()
+            .map(|p| {
+                let mut r = authored_json(&p.record);
+                // The rig places each part itself; the batch sees one rigid model.
+                r["bone"] = Value::Null;
+                r["data"] = json!(p.data);
+                r["index"] = json!(p.index);
+                r
+            })
+            .collect();
+        let bytes = bfe_pose::rig::construction::batches(
+            &serde_json::to_vec(&super::hulls::integers(json!({"rig":{"bones":[]},"parts":records,"separate":[]})))
+                .map_err(|e| e.to_string())?,
+        )?;
+        let batches: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        let mut placed = Placements { parts: vec![], deferred: 0 };
+        let mut radius: f64 = 0.;
+        for b in batches.as_array().ok_or("invalid craft rig batches")? {
+            let r: f64 = array(&b["radius"])?;
+            radius = radius.max(r);
+            placed.parts.push(Part {
+                instance: 0,
+                attachment: None,
+                model: key.into(),
+                source: array(&b["part"])?,
+                colours: None,
+                geometry_key: format!("{key}/{}", b["part"]),
                 matrix: Matrix4::default().elements,
                 positions: array(&b["positions"])?,
                 normals: array(&b["normals"])?,
@@ -113,7 +173,12 @@ impl Model {
         inverse.invert();
         let identity = Matrix4::default().elements;
         for template in &self.rows {
-            if records == draw::MAX_RECORDS || bones == draw::MAX_BONES {
+            if records == draw::MAX_RECORDS {
+                bridge.r.instances.overflow.note_record_drop(1);
+                continue;
+            }
+            if bones == draw::MAX_BONES {
+                bridge.r.instances.overflow.note_bone_drop(1);
                 continue;
             }
             let mut row = *template;
@@ -172,6 +237,7 @@ impl Model {
             attachment: None,
             model: model.into(),
             source,
+            colours: None,
             geometry_key: mesh.name.clone(),
             matrix: Matrix4::default().elements,
             positions: attribute("position")?,

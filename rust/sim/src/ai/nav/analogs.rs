@@ -59,6 +59,12 @@ pub struct Intent {
 /// request; `executor_hold` is (has executor, its hold), the two things
 /// options.executor is read for.
 pub fn analogs(unit: &NavUnit, request: Option<&MovementRequest>, aim: Option<Vec3>, dt: f64, facing: bool, executor: Option<bool>) -> Intent {
+    analogs_with_turn(unit, request, aim, dt, facing, executor, 1.0)
+}
+
+/// `analogs` for a body whose turn rate is `turn_scale` times its MaxTurnSpeed: the turn analog is
+/// the one that reaches the aim at that rate (a 2005 bot soldier turns at four times it).
+pub fn analogs_with_turn(unit: &NavUnit, request: Option<&MovementRequest>, aim: Option<Vec3>, dt: f64, facing: bool, executor: Option<bool>, turn_scale: f64) -> Intent {
     let coef = coefficients(unit);
     let p = unit.position;
     let yaw = unit.soldier.as_ref().and_then(|s| s.aim_yaw).unwrap_or(0.0);
@@ -117,7 +123,7 @@ pub fn analogs(unit: &NavUnit, request: Option<&MovementRequest>, aim: Option<Ve
     } else {
         aim.unwrap_or_else(|| along_path(unit, request))
     };
-    turn_toward(unit, point, dt, &coef, facing, &mut out);
+    turn_toward(unit, point, dt, &coef, facing, turn_scale, &mut out);
     out
 }
 
@@ -138,7 +144,7 @@ pub fn along_path(unit: &NavUnit, request: Option<&MovementRequest>) -> Vec3 {
 }
 
 /// The Soldier branch of the aim conversion.
-fn turn_toward(unit: &NavUnit, point: Vec3, dt: f64, coef: &Coefficients, facing: bool, out: &mut Intent) {
+fn turn_toward(unit: &NavUnit, point: Vec3, dt: f64, coef: &Coefficients, facing: bool, turn_scale: f64, out: &mut Intent) {
     let s = unit.soldier.as_ref();
     let yaw = s.and_then(|s| s.aim_yaw).unwrap_or(0.0);
     let pitch = s.and_then(|s| s.aim_pitch).unwrap_or(0.0);
@@ -154,7 +160,7 @@ fn turn_toward(unit: &NavUnit, point: Vec3, dt: f64, coef: &Coefficients, facing
         nz /= hl;
         turn = -(fz * nx - fx * nz);
     }
-    let yaw_step = dt * coef.yaw;
+    let yaw_step = dt * coef.yaw * turn_scale;
     if yaw_step > 0.0 {
         turn /= yaw_step;
     }

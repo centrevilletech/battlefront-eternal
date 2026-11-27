@@ -1,0 +1,879 @@
+{
+  "c00_control": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-b7de21c3ae2aba657cba3348ccdb987562cd68fd203b76b46a021698cad0becf",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c01_odd_flags_bump_empty": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "2842258c80abd716"
+    },
+    "fingerprint": "bfe-content-sha256-61fc788851d66aa4c8c61c300a4a8ccb059b60230452ce4775f9002077ea8cbf",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bdc070bc4522b1a9",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "22b1b102977d7d2e",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 1,
+      "h": "ebcd88196fac6add",
+      "parts": 2
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "cbf29ce484222325",
+      "n": 0
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "f83a6058f22fa75c",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 33
+    }
+  },
+  "c02_mat2005_ignored": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-665c0149d5c56674204e9f6dad45c0bdee17f9cc5924d39f5db498e9583acb41",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "441d3a3801035ae3",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "52acb21cb7b01a06",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c03_rig2005_keys_ignored": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-346e8195884ba752c1fb7a58e4de8b006e9fd7e5a311f372ce1909153ced8df9",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "553b3598935a10ab",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c04_map2005_keys_ignored": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-14ea8875f7442395d9c4222d6c059c60214cb0f5eaff8082376563bce12b6b1c",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c05_flat_parts_array": {
+    "fingerprint": "bfe-content-sha256-ea491b12d45c1c7d1c166b560036f78ce4b72f774c14d065e9bfc8e294ab9e40",
+    "load": "ERR:model synth_crate: parts is not an array",
+    "sim": "ERR:Content: model synth_crate: parts is not an array"
+  },
+  "c06_missing_optional_fields": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "c70afdf54d6ee7f4"
+    },
+    "fingerprint": "bfe-content-sha256-fca35f66f38ed758c81f6197e6b09e951cb0995584ace84df3efc39b04b6fc07",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "3157315c5d8f7e42",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "345d40470c63d2b2",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "ab7a8466c9a49ba8",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "640895e478973e7e",
+      "n": 1
+    },
+    "sim": "ERR:Units: building has no settings",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c07_empty_looks": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "49a7203614333e28"
+    },
+    "fingerprint": "bfe-content-sha256-a32b99ae0ef1dba752e779fd8d72c0cc96730c7c8706003fca90276bf0cc7920",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "a4b33abb3db949a4",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 3,
+      "h": "c7c2bf3b330983e6",
+      "parts": 0
+    },
+    "placed_live": {
+      "deferred": 2,
+      "h": "e6bd86443df8ce07",
+      "parts": 0
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c08_full_only_clips": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "081f2450ee947b17",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-dc036b7d93a8f615fdbfc9146035f3cde78836217dee96656014b95067cb3178",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "fd915decf93a3da3",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c09_older_no_nav_no_anims": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-dfcb259cf2d7c6e168fc7fac8a4a74cac167f73eb043e554aec54b70081b81df",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": {
+      "h": "a5d5b2f1715e7708",
+      "living": [
+        0,
+        1,
+        0
+      ],
+      "step_err": "bank F2_INPUT: bank:F2_INPUT refused its arguments",
+      "ticks": 0
+    },
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c10_case_changed_model": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "31865c7ae557e940"
+    },
+    "fingerprint": "bfe-content-sha256-da0bfef787303260bd45f67fb460b1168fe60d7ce95c60745ef71f503613ec0e",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "2666dc6d3e04d3c2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 2,
+      "h": "5c988ac2ae57a167",
+      "parts": 1
+    },
+    "placed_live": {
+      "deferred": 1,
+      "h": "8533d1cb87167a8c",
+      "parts": 1
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "cbf29ce484222325",
+      "n": 0
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c11_lowercase_dummyroot": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-b7de21c3ae2aba657cba3348ccdb987562cd68fd203b76b46a021698cad0becf",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Player: soldier animator has no DummyRoot bone",
+    "units": {
+      "h": "6095878e3b6a72b9",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c12_2005_files_beside_2004": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "f84de296e755c415"
+    },
+    "fingerprint": "bfe-content-sha256-b7de21c3ae2aba657cba3348ccdb987562cd68fd203b76b46a021698cad0becf",
+    "load": "OK",
+    "looks": {
+      "errors": 0,
+      "h": "bef45a3efa1145a2",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": {
+      "deferred": 0,
+      "h": "f54e20124c483672",
+      "parts": 3
+    },
+    "placed_live": {
+      "deferred": 0,
+      "h": "9def80c022d86908",
+      "parts": 2
+    },
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  },
+  "c13_string_matrix_and_team": {
+    "actors": {
+      "h": "3413874df1efd561",
+      "n": 2,
+      "skins": 0
+    },
+    "bvh": "ef2883bf734b5515",
+    "clips": {
+      "bodies": 2,
+      "h": "d1a84ed889a94eeb",
+      "props": 0
+    },
+    "collision": {
+      "h": "60aa140400387f07",
+      "tris": 2
+    },
+    "defs": {
+      "classes": 2,
+      "h": "a8aa3f9e300e0931"
+    },
+    "fingerprint": "bfe-content-sha256-bdff5f5a922d94956d9bf9b5dd23c1d9c8b72cf95a9e4a3f05e685c3a950688e",
+    "load": "OK",
+    "looks": {
+      "errors": 5,
+      "h": "f3c24c15a8da4628",
+      "instances": 3
+    },
+    "models": {
+      "bumps": 0,
+      "h": "1edfa44147c41fa9",
+      "n": 4
+    },
+    "placed_admit": "ERR:invalid prop placement: invalid type: string \"1\", expected f64",
+    "placed_live": "ERR:invalid prop placement: invalid type: string \"1\", expected f64",
+    "placed_turrets": {
+      "deferred": 0,
+      "h": "a8c7f832281a39c5",
+      "parts": 0
+    },
+    "prop_bodies": {
+      "h": "2a80c6a5039aea80",
+      "n": 1
+    },
+    "sim": "ERR:Ai: ai_world_begin refused its row",
+    "units": {
+      "h": "e3b7c0075610a339",
+      "n": 2
+    },
+    "world": {
+      "h": "c19db4473ca28142",
+      "n": 2
+    },
+    "world0": {
+      "blend": "Some(Opaque)",
+      "cut": false,
+      "ds": false,
+      "flags": 0
+    }
+  }
+}

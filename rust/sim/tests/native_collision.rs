@@ -20,8 +20,10 @@ fn map(y: f32) -> MapCollision {
         positions: positions.into(),
         indices: indices.clone().into(),
         polygons: vec![17, 18].into(),
+        masks: Vec::new().into(),
         terrain_positions: ground.into(),
         terrain_indices: indices.into(),
+        has_terrain: true,
         kill_y: -110.0,
     }
 }

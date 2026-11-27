@@ -66,6 +66,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+mod common;
+use common::minimal_content_dir;
+
 /// Creates a unique temporary directory under `std::env::temp_dir()` for isolated test state
 /// (`identity.json`, `config.json`, `operator.sqlite`, `operator-token`, `master-ban-key`).
 /// Creates an isolated temporary directory under `std::env::temp_dir()` for a single test case,
@@ -82,167 +85,6 @@ fn temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
-/// Synthesizes a minimal but complete prepared game content tree (`maps/nab2/map.json`,
-/// `common/anims.json`, `sides/rep/units.json`, `sides/cis/units.json`) so tests can run
-/// `bfe_content_native::fingerprint::hash` and `build_entity_registry_descriptor` without
-/// requiring an external multi-gigabyte SWBF1 asset directory.
-/// Builds a minimal valid BfE content directory (`version.json`, map manifest, mode descriptors,
-/// and heightmap/asset stubs) matching the layout checked by `check_content` (`config.rs`, porting
-/// `checkContent`) and loaded by `NativeWorldHost`
-/// (`world_worker.rs`, porting `packages/bfe-server/src/world-worker.js`).
-fn minimal_content_dir(dir: &Path) -> PathBuf {
-    let root = dir.join("content");
-    let map_dir = root.join("maps").join("nab2");
-    let common_dir = root.join("common");
-    let rep_actors_dir = root.join("sides").join("rep").join("actors");
-    let cis_actors_dir = root.join("sides").join("cis").join("actors");
-    fs::create_dir_all(&map_dir).unwrap();
-    fs::create_dir_all(&common_dir).unwrap();
-    fs::create_dir_all(&rep_actors_dir).unwrap();
-    fs::create_dir_all(&cis_actors_dir).unwrap();
-
-    fs::write(root.join("maps.json"), br#"[{"id":"nab2"}]"#).unwrap();
-
-    // Minimal `nab2_cw` conquest mission definition with two teams (`rep` and `cis`) and two command posts.
-    let map_json = json!({
-        "name": "nab2",
-        "missions": {
-            "nab2_cw": {
-                "mission": {
-                    "name": "nab2_cw",
-                    "era": "cw",
-                    "sides": ["rep", "cis"],
-                    "teams": {
-                        "1": {
-                            "name": "rep",
-                            "units": 16,
-                            "reinforcements": 100,
-                            "classes": [
-                                ["rep_inf_trooper", 4, 16]
-                            ]
-                        },
-                        "2": {
-                            "name": "cis",
-                            "units": 16,
-                            "reinforcements": 100,
-                            "classes": [
-                                ["cis_inf_battledroid", 4, 16]
-                            ]
-                        }
-                    },
-                    "posts": [
-                        {
-                            "name": "cp1",
-                            "team": 1,
-                            "position": [0.0, 0.0, 0.0]
-                        },
-                        {
-                            "name": "cp2",
-                            "team": 2,
-                            "position": [20.0, 0.0, 0.0]
-                        }
-                    ]
-                },
-                "spawnScreen": {},
-                "vehicles": null
-            }
-        }
-    });
-    fs::write(
-        map_dir.join("map.json"),
-        serde_json::to_vec(&map_json).unwrap(),
-    )
-    .unwrap();
-
-    for bin_name in [
-        "collision.bin",
-        "collision_index.bin",
-        "collision_poly.bin",
-        "terrain_collision.bin",
-        "terrain_collision_index.bin",
-    ] {
-        fs::write(map_dir.join(bin_name), b"").unwrap();
-    }
-
-    let anims_json = json!({
-        "fps": 30,
-        "bones": ["DummyRoot"],
-        "clips": {}
-    });
-    fs::write(
-        common_dir.join("anims.json"),
-        serde_json::to_vec(&anims_json).unwrap(),
-    )
-    .unwrap();
-    fs::write(common_dir.join("anims.bin"), b"").unwrap();
-    fs::write(common_dir.join("common.json"), b"{}").unwrap();
-    fs::write(common_dir.join("effects.json"), b"{}").unwrap();
-    fs::write(common_dir.join("fxmodels.bin"), b"").unwrap();
-    fs::write(common_dir.join("fxmodels_index.bin"), b"").unwrap();
-
-    let actor_json = json!({
-        "bones": [
-            {
-                "name": "DummyRoot",
-                "parent": -1,
-                "local": [
-                    1.0, 0.0, 0.0, 0.0,
-                    0.0, 1.0, 0.0, 0.0,
-                    0.0, 0.0, 1.0, 0.0,
-                    0.0, 0.0, 0.0, 1.0
-                ]
-            }
-        ],
-        "parts": [],
-        "attach": "DummyRoot"
-    });
-    let actor_bytes = serde_json::to_vec(&actor_json).unwrap();
-
-    for (side_name, class_name, actors_dir) in [
-        ("rep", "rep_inf_trooper", &rep_actors_dir),
-        ("cis", "cis_inf_battledroid", &cis_actors_dir),
-    ] {
-        let side_dir = root.join("sides").join(side_name);
-        let units_json = json!({
-            "units": {
-                class_name: {
-                    "base": "soldier",
-                    "model": "trooper",
-                    "properties": {
-                        "MaxHealth": "300.0",
-                        "MaxSpeed": "6.5",
-                        "MaxStrafeSpeed": "4.5"
-                    },
-                    "weapons": []
-                }
-            },
-            "items": {}
-        });
-        fs::write(
-            side_dir.join("units.json"),
-            serde_json::to_vec(&units_json).unwrap(),
-        )
-        .unwrap();
-        let weapons_json = json!({
-            "weapons": {},
-            "ordnance": {},
-            "models": {},
-            "firePoints": {}
-        });
-        fs::write(
-            side_dir.join("weapons.json"),
-            serde_json::to_vec(&weapons_json).unwrap(),
-        )
-        .unwrap();
-        fs::write(side_dir.join("weapons.bin"), b"").unwrap();
-        fs::write(side_dir.join("weapons_index.bin"), b"").unwrap();
-        fs::write(actors_dir.join("trooper.json"), &actor_bytes).unwrap();
-        fs::write(actors_dir.join("trooper.bin"), b"").unwrap();
-        fs::write(actors_dir.join("trooper_index.bin"), b"").unwrap();
-    }
-
-    root
-}
 
 /// Verifies `NetworkContract::current()` and `validate_network_contract` against the frozen
 /// constants in `bfe_transport::layout::network_contract`.
@@ -973,7 +815,7 @@ fn build_multi_client_publication(
         }],
         world: Vec::new(),
     };
-    let shared_parts = encode_entities(&snapshot, None, 2.0).expect("encode BNS1 entity snapshot");
+    let shared_parts = encode_entities(&snapshot, None, 2.0, bfe_sim::wire::PositionBounds::LEGACY.width()).expect("encode BNS1 entity snapshot");
     let shared_offset = bytes.len();
     bytes.extend_from_slice(&shared_parts[0]);
     let shared_len = bytes.len() - shared_offset;
@@ -1145,6 +987,7 @@ fn local_dedicated_server_full_join_entity_registry_welcome_and_publication_repl
         &content_root.to_string_lossy(),
         &["swbf1/nab2:rep:conquest".to_string()],
         "classic",
+        bfe_family::Gate::BUILT,
     )
     .expect("check minimal content");
     let (_, desc) = build_entity_registry_descriptor(&checked.root, "nab2", &checked.first_query, 1)
@@ -1381,6 +1224,68 @@ fn a_battle_change_keeps_the_game_port_open() {
     assert_eq!(second.port, port);
     let answer = info(&["GET /info HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"]).expect("next battle answers");
     assert!(answer.starts_with("HTTP/1.1 200"), "{answer}");
+    drop(second);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A rotation's next battle starts on the handed-over port while the battle before's
+/// announcement of it is still pending (the service clears it only once the online
+/// registration names the new battle too). A player who joins in that gap joins the
+/// battle that is running: his first messages are its registry and its welcome, never
+/// the announcement of the very battle he is joining, while its information page still
+/// names it as the next battle, as before.
+#[test]
+fn a_player_joining_the_announced_battle_before_its_announcement_clears_is_welcomed() {
+    let dir = temp_dir("announced-join");
+    let content_root = minimal_content_dir(&dir);
+    let cfg = ServerConfig {
+        data: content_root.to_string_lossy().into_owned(),
+        rotation: vec!["swbf1/nab2:rep:conquest".to_string()],
+        game_port: Some(0),
+        discovery: false,
+        ..Default::default()
+    };
+    let srv_id = ServerIdentity::load(&dir).expect("server identity");
+    let token = "0123456789abcdef0123456789abcdef";
+    let first = LocalDedicatedServer::start(&cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {})
+        .expect("start the battle before");
+    let next = with_match_param(&bfe_server::config::with_friendly_fire(
+        &bfe_server::config::query_for_rotation("swbf1/nab2:rep:conquest", &cfg.ai).unwrap(), cfg.friendly_fire), token);
+    first.match_rotate(&next, 0);
+    let second = LocalDedicatedServer::start_with_match_token(
+        &cfg, &srv_id, |_peer| false, |_m, _id, _n, _k, _d, _p| {}, Some(token), Some(first.hand_over()),
+    )
+    .expect("start the announced battle");
+    assert!(second.udp.lock().unwrap().pending_match.is_some(), "the announcement is still pending");
+    // Its information page still names it as the next battle until the announcement clears.
+    let asked = Instant::now();
+    while second.info().get("next").is_none() && asked.elapsed() < Duration::from_secs(3) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(second.info()["next"]["query"], next.as_str(), "{}", second.info());
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), second.port).to_string();
+    let hello = serde_json::to_vec(&json!({
+        "name": "Joiner",
+        "protocol": layout_contract::PROTOCOL,
+        "profile": layout_contract::PROFILE,
+        "simulation": layout_contract::SIMULATION,
+        "content": second.fingerprint,
+    }))
+    .unwrap();
+    let mut client = Endpoint::connect(&address, Identity::generate().unwrap(), srv_id.inner.id, &hello).expect("connect");
+    let kind = |text: bool, bytes: &[u8]| -> Option<String> {
+        text.then(|| serde_json::from_slice::<Value>(bytes).ok()).flatten().and_then(|v| v["type"].as_str().map(str::to_owned))
+    };
+    let mut kinds: Vec<String> = Vec::new();
+    client.establish(Duration::from_secs(3), &mut |_, text, bytes, _| kinds.extend(kind(text, bytes))).expect("establish");
+    let started = Instant::now();
+    while kinds.len() < 2 && started.elapsed() < Duration::from_secs(5) {
+        let _ = client.pump(&mut |_, text, bytes, _| kinds.extend(kind(text, bytes)));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(kinds.get(..2), Some(&["entity-registry".to_string(), "welcome".to_string()][..]), "{kinds:?}");
+    assert!(!kinds.iter().any(|kind| kind == "match"), "{kinds:?}");
+    drop(client);
     drop(second);
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3799,11 +3704,22 @@ struct StartupService {
 
 impl StartupService {
     fn spawn(directory: PathBuf) -> Self {
+        Self::spawn_with(directory, &[])
+    }
+
+    fn spawn_with(directory: PathBuf, environment: &[(&str, Option<&str>)]) -> Self {
         let socket = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let port = socket.local_addr().unwrap().port();
         drop(socket);
         let log = fs::File::create(directory.join("service.log")).unwrap();
-        let child = std::process::Command::new(env!("CARGO_BIN_EXE_bfeserver"))
+        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_bfeserver"));
+        for (name, value) in environment {
+            match value {
+                Some(value) => command.env(name, value),
+                None => command.env_remove(name),
+            };
+        }
+        let child = command
             .arg("--serve")
             .env("BFE_STATE_DIR", &directory)
             .env("PORT", port.to_string())
@@ -3886,6 +3802,29 @@ impl Drop for StartupService {
 fn operator_status_answers_without_configured_content() {
     let mut service = StartupService::spawn(temp_dir("startup-empty"));
     service.wait_status("setup");
+}
+
+// The developer switch is compiled into no ordinary build, so the service
+// refuses a 2005 rotation with the variable set as it does without it.
+#[test]
+fn the_service_refuses_a_2005_battle_whatever_its_environment() {
+    for switch in [None, Some("1")] {
+        let dir = temp_dir("startup-2005");
+        ServerConfig {
+            data: dir.to_string_lossy().into_owned(),
+            rotation: vec!["swbf2/tat2:gcw:eli".into()],
+            discovery: false,
+            master: String::new(),
+            ..Default::default()
+        }
+        .save_to_dir(&dir)
+        .unwrap();
+        let mut service = StartupService::spawn_with(dir, &[("BFE_DEV_SWBF2_ONLINE", switch)]);
+        service.wait_status("fault");
+        let log = fs::read_to_string(service.directory.join("service.log")).unwrap();
+        let why = "not hosting a match: Battlefront II (2005) is not available in this build";
+        assert!(log.contains(why) && !log.contains("hosted under"), "{switch:?}: {log}");
+    }
 }
 
 #[cfg(unix)]
@@ -4297,5 +4236,65 @@ fn a_player_joins_through_the_servers_relay_allocation() {
     }
     assert!(turn.released, "the allocation was released with a zero lifetime");
     assert_eq!(server.udp.lock().unwrap().relay_count(), 0);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// The game family branch's five stale listings, in this tree, with the 2005
+/// game unavailable as in every build: each listing names a 2005 rotation
+/// while the server runs a 2004 battle. A listing only hints: the browser
+/// keeps it playable, the fresh `/info` reply decides the 2004 battle through
+/// the client's selection, and the released join authenticates, starts and
+/// receives state.
+#[test]
+fn five_stale_listings_play_the_2004_battle_the_server_names() {
+    use bfe_family::GameFamily;
+    use bfe_online::browser::{compatible, ServerContract, ServerEntry};
+    use bfe_online::declared::Statements;
+    let Ok(content) = std::env::var("BFE_CONTENT_DIR") else { return };
+    let dir = temp_dir("stale-listings");
+    let cfg = ServerConfig { data: content.clone(), rotation: vec!["swbf1/tat2:all:conquest".to_string()], game_port: Some(0),
+        discovery: false, ..Default::default() };
+    let srv_id = ServerIdentity::load(&dir).unwrap();
+    let server = LocalDedicatedServer::start(&cfg, &srv_id, |_| false, |_, _, _, _, _, _| {}).unwrap();
+    let address = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port);
+    let mut played = Vec::new();
+    for slug in ["swbf2/tat2::eli", "swbf2/tat2", "SWBF2/tat2:gcw:eli", " swbf2 /tat2:rep", "swbf2/tat2:gcw:eli"] {
+        let row: ServerEntry = serde_json::from_value(json!({"id": srv_id.id, "rotation": [slug], "protocol": layout_contract::PROTOCOL,
+            "simulation": layout_contract::SIMULATION})).unwrap();
+        assert!(compatible(&row, &ServerContract::current()), "{slug}: the listing only hints");
+        let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        stream.write_all(b"GET /info HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n").unwrap();
+        let mut answer = Vec::new();
+        stream.read_to_end(&mut answer).unwrap();
+        let body = &answer[answer.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4..];
+        let info: Value = serde_json::from_slice(body).unwrap();
+        let query = info["query"].as_str().unwrap();
+        assert_eq!(Statements::read(body).game(query, None).unwrap().0, GameFamily::Swbf1, "{slug}");
+        let fingerprint = bfe_content_native::fingerprint::hash(&bfe_content::files::DirFiles::new(&content, bfe_family::GameFamily::Swbf1), query).unwrap();
+        let hello = serde_json::to_vec(&json!({"name": "Tester", "protocol": layout_contract::PROTOCOL, "profile": layout_contract::PROFILE,
+            "simulation": layout_contract::SIMULATION, "content": fingerprint})).unwrap();
+        let mut client = Endpoint::connect(&address.to_string(), Identity::generate().unwrap(), srv_id.inner.id, &hello).unwrap();
+        let (mut welcomed, mut started, mut state) = (false, false, 0usize);
+        let take = |text: bool, bytes: &[u8], welcomed: &mut bool, state: &mut usize| {
+            if text { *welcomed |= serde_json::from_slice::<Value>(bytes).is_ok_and(|v| v["type"] == "welcome"); } else { *state += 1; }
+        };
+        client.establish(Duration::from_secs(3), &mut |_, text, bytes, _| take(text, bytes, &mut welcomed, &mut state)).unwrap();
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(4) && state < 4 {
+            client.pump(&mut |_, text, bytes, _| take(text, bytes, &mut welcomed, &mut state)).unwrap();
+            if welcomed && !started {
+                started = true;
+                let call = serde_json::to_vec(&json!({"type": "call", "id": 1, "method": "start", "args": {"name": "Tester"}})).unwrap();
+                client.send(Lane::Events, true, &call).unwrap();
+                client.flush().unwrap();
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started && state >= 4, "{slug}: welcomed {welcomed}, {state} state datagrams");
+        played.push((slug, state));
+    }
+    println!("stale listings played: {played:?}");
+    drop(server);
     let _ = fs::remove_dir_all(&dir);
 }

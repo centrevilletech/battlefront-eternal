@@ -112,7 +112,7 @@ pub fn textures(content: &BattleContent) -> Vec<String> {
 // library whose definitions hold a Shield, by name.
 fn looks(content: &BattleContent) -> Vec<(String, Value)> {
     let battle = &content.content.battle;
-    let mut libraries = vec![battle.props.as_ref().and_then(|v| v.get("effects")), battle.effects.get("effects")];
+    let mut libraries = vec![battle.props.as_ref().and_then(|v| v.get("effects")), content.visual_effects().get("effects")];
     for side in battle.sides.iter().skip(1) {
         libraries.push(side.fx.as_ref().and_then(|v| v.get("effects")));
     }

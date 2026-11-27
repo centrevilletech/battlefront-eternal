@@ -202,23 +202,10 @@ fn pad_point_capacity_covers_sparse_future_variants() {
     assert_eq!(battle::point_capacity(2048, [Some(&pad)]).unwrap(), 2048);
 }
 
-// The content loader accepts empty binary assets here because these tests
-// marshal definitions only; none installs collision geometry or posed rigs.
-fn context_fixture() -> (bfe_content::files::MemFiles, bfe_sim::world::admit::Options) {
-    let mut files = bfe_content::files::MemFiles::default();
-    for (path, bytes) in [
-        ("maps/synthetic/map.json", r#"{"mission":{"sides":["rep"],"teams":{"1":{"name":"rep","classes":[["rep_inf_a",1]]},"2":{"name":"cis","classes":[]}}}}"#),
-        ("common/anims.json", r#"{"clips":{}}"#), ("common/common.json", "{}"), ("common/effects.json", "{}"),
-        ("sides/rep/units.json", r#"{"units":{"rep_inf_a":{"base":"soldier","model":"body"}}}"#),
-        ("sides/rep/weapons.json", "{}"), ("sides/rep/actors/body.json", r#"{"bones":[],"parts":[]}"#),
-    ] { files.insert(path, bytes.as_bytes().to_vec()); }
-    for path in ["sides/rep/actors/body.bin", "sides/rep/actors/body_index.bin", "common/anims.bin", "maps/synthetic/collision.bin",
-        "maps/synthetic/collision_index.bin", "maps/synthetic/collision_poly.bin", "maps/synthetic/terrain_collision.bin",
-        "maps/synthetic/terrain_collision_index.bin", "sides/rep/weapons.bin", "sides/rep/weapons_index.bin", "common/fxmodels.bin", "common/fxmodels_index.bin"] {
-        files.insert(path, vec![]);
-    }
-    (files, bfe_sim::world::admit::Options { map: "synthetic".into(), side: "rep".into(), enhanced: false, seed: 1, heroes: false, unit: None, name: None, bots: Default::default() })
-}
+use bfe_sim::world::admit::Options;
+#[path = "support/admit_context.rs"]
+mod admit_context;
+use admit_context::context_fixture;
 
 #[test]
 fn context_builders_share_existing_string_ids_and_team_call_scalars() {

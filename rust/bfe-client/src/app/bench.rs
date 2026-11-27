@@ -7,6 +7,8 @@
 //! (with the weapons the client predicts for him) and every soldier,
 //! droideka, vehicle and turret it knows, in the columns of `UNIT_COLUMNS`. The battle itself is the ordinary one: the world
 //! thread, its publications and the spawn screen are untouched.
+mod characters;
+mod fixed;
 use super::{
     battle::{BattleAuthority, BattleController},
     shell::ShellTransition,
@@ -64,6 +66,12 @@ pub fn seed() -> Option<u32> {
     value("seed")?.parse().ok()
 }
 
+pub(super) fn mission_ai_units_per_team() -> Result<Option<u32>, String> {
+    value("aiUnitsPerTeam")
+        .map(|s| s.parse().map_err(|_| "invalid mission AI units per team".to_string()))
+        .transpose()
+}
+
 /// A fixed drawn view for map comparisons; simulation and player input stay live.
 /// `view=FILE` in BFE_BENCH reads the reference camera's numeric matrices.
 pub(super) fn apply_view(view: &mut crate::scene::View) -> bool {
@@ -89,6 +97,60 @@ pub(crate) fn apply_camera(camera: &mut crate::scene::MapCamera) {
     }
 }
 
+/// Draw a fixed view of the prepared map through the battle renderer, without
+/// starting a world thread, publishing units, or opening the spawn screen.
+pub(super) fn capture_world(
+    opts: &super::cli::StandaloneOptions,
+    load: impl FnMut() -> glow::Context,
+) -> Result<bool, String> {
+    if let Some(map)=value("fixed_battle"){return fixed::capture(opts,&map,load);}
+    if let Some(path)=value("characters"){return characters::capture(opts,&path,load);}
+    let Some(map) = value("world") else { return Ok(false) };
+    let root = opts.content_dir.as_ref().ok_or("world capture needs --content-dir")?;
+    let out = opts.shots_dir.as_ref().ok_or("world capture needs --shots-dir")?;
+    let layer = value("layer");
+    let (mut scene, camera) = crate::scene::Scene::capture(root, &map, layer.as_deref(), opts.size, load)?;
+    let mut view = *camera.snapshot();
+    if !apply_view(&mut view) {
+        return Err("world capture needs a valid view file".into());
+    }
+    if scene.is_swbf2() {
+        scene.apply_authored_planes(&mut view);
+    }
+    if let Some(t) = value("time").and_then(|s| s.parse::<f64>().ok()).filter(|v| v.is_finite()) {
+        let at = bfe_render::shader::FRAME_OFFSETS[bfe_render::shader::FRAME_MEMBERS.iter()
+            .position(|(name, _)| *name == "time").unwrap()];
+        view.values[at] = t;
+    }
+    scene.draw(&view)?;
+    scene.canvas.show();
+    let pixels = scene.pixels()?;
+    std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
+    super::script::write_png(&out.join("world.png"), opts.size[0] as u32, opts.size[1] as u32, &pixels)?;
+    let single_draws = scene.draws;
+    eprintln!("bench world capture: {map}, {} segments, {single_draws} draws", scene.admitted);
+    if let Some(frames) = value("bench_frames").and_then(|s| s.parse::<usize>().ok()).filter(|&n| n > 0) {
+        use glow::HasContext;
+        for _ in 0..8 {
+            scene.draw(&view)?;
+        }
+        unsafe { scene.bridge.r.core.gl.finish(); }
+        let mut times = Vec::with_capacity(frames);
+        for _ in 0..frames {
+            let t0 = std::time::Instant::now();
+            scene.draw(&view)?;
+            unsafe { scene.bridge.r.core.gl.finish(); }
+            times.push(t0.elapsed().as_secs_f64() * 1000.);
+        }
+        times.sort_by(f64::total_cmp);
+        let mean = times.iter().sum::<f64>() / times.len() as f64;
+        let p50 = times[times.len() / 2];
+        let p95 = times[((times.len() as f64 * 0.95) as usize).min(times.len() - 1)];
+        eprintln!("bench world timing: {map} frames={frames} mean={mean:.2}ms p50={p50:.2}ms p95={p95:.2}ms draws={single_draws}");
+    }
+    Ok(true)
+}
+
 /// `drawn=PATH`: what each drawn frame showed, one JSON line per frame, to
 /// count how often the picture really changes. `t` is milliseconds since the
 /// first line, `tick` the newest simulation tick heard, `own` the player's
@@ -105,6 +167,7 @@ struct Drawn {
     mouse: [f64; 2],
     tick: f64,
     own: f64,
+    own_gen: f64,
 }
 static DRAWN: std::sync::OnceLock<Option<std::sync::Mutex<Drawn>>> = std::sync::OnceLock::new();
 
@@ -112,7 +175,14 @@ fn drawn_log() -> Option<std::sync::MutexGuard<'static, Drawn>> {
     DRAWN
         .get_or_init(|| {
             let file = File::create(value("drawn")?).ok()?;
-            Some(std::sync::Mutex::new(Drawn { out: BufWriter::new(file), started: std::time::Instant::now(), mouse: [0.; 2], tick: 0., own: 0. }))
+            Some(std::sync::Mutex::new(Drawn {
+                out: BufWriter::new(file),
+                started: std::time::Instant::now(),
+                mouse: [0.; 2],
+                tick: 0.,
+                own: 0.,
+                own_gen: 0.,
+            }))
         })
         .as_ref()?
         .lock()
@@ -138,11 +208,12 @@ fn record_digest(bridge: &crate::render_bridge::Bridge, record: usize) -> u64 {
 
 /// What the frame about to be drawn began with: the mouse counts received so far, the newest tick
 /// heard and the player's unit, in an Instant Action battle or an online one.
-pub(super) fn drawn_note(mouse: [f64; 2], tick: f64, own: f64) {
+pub(super) fn drawn_note(mouse: [f64; 2], tick: f64, own: f64, own_gen: f64) {
     if let Some(mut log) = drawn_log() {
         log.mouse = mouse;
         log.tick = tick;
         log.own = own;
+        log.own_gen = own_gen;
     }
 }
 
@@ -154,7 +225,13 @@ pub(crate) fn drawn_arms(bridge: &crate::render_bridge::Bridge, records: usize) 
 }
 
 /// One line for the frame being drawn: `first..records` are the instance records of everything that can move.
-pub(crate) fn drawn(bridge: &crate::render_bridge::Bridge, view: &[f64], first: usize, records: usize) {
+pub(crate) fn drawn(
+    bridge: &crate::render_bridge::Bridge,
+    view: &[f64],
+    first: usize,
+    records: usize,
+    characters: Option<&crate::characters::Characters>,
+) {
     use bfe_render::{effects as fx, hud_model::layout::HudFrame as h, instances as draw};
     let Some(mut log) = drawn_log() else { return };
     let log = &mut *log;
@@ -198,6 +275,42 @@ pub(crate) fn drawn(bridge: &crate::render_bridge::Bridge, view: &[f64], first: 
         r#"],"fx":"{particles:x}","hud":[{},{},{},{},{},{},{},"{quads:x}"]"#,
         x[h::RETICLE_X], x[h::RETICLE_Y], x[h::MARKER_X], x[h::MARKER_Y], x[h::PLAYER_X], x[h::PLAYER_Z], x[h::PLAYER_YAW]
     );
+    if let Some(clip) = characters.and_then(|c| c.own_clip((log.own as u32, log.own_gen as u32))) {
+        let _ = write!(
+            log.out,
+            r#","anim2":{{"clip":"{}","action":"{}","crc":"{:08x}","t":{:.5},"dur":{:.4},"rate":{:.3},"blend":{:.3},"blendP":{:.4},"shown":{:.4}}}"#,
+            clip.name, clip.action, clip.crc, clip.time, clip.duration, clip.rate, clip.blend, clip.blend_progress, clip.shown
+        );
+    }
+    if let Some(wp) = characters.and_then(|c| c.own_weapon_pose((log.own as u32, log.own_gen as u32))) {
+        let head = wp.head_y.filter(|y| y.is_finite()).map_or_else(|| "null".into(), |y| format!("{y:.4}"));
+        let _ = write!(
+            log.out,
+            r#","weaponBone":{{"pos":[{:.4},{:.4},{:.4}],"dir":[{:.5},{:.5},{:.5}],"headY":{head},"yaw":{:.5},"pitch":{:.5}}}"#,
+            wp.position[0], wp.position[1], wp.position[2],
+            wp.forward[0], wp.forward[1], wp.forward[2],
+            wp.yaw, wp.pitch,
+        );
+    }
+    if let Some(ab) = characters.and_then(|c| c.own_aim_bones((log.own as u32, log.own_gen as u32))) {
+        let _ = write_aim_bones(&mut log.out, &ab);
+    }
+}
+
+fn write_aim_bones<W: Write>(out: &mut W, bones: &crate::characters::AimBones) -> std::io::Result<()> {
+    out.write_all(br#","aimBones":["#)?;
+    for (idx, quat) in bones.quats.iter().enumerate() {
+        if idx != 0 {
+            out.write_all(b",")?;
+        }
+        match quat {
+            Some([x, y, z, w]) if x.is_finite() && y.is_finite() && z.is_finite() && w.is_finite() => {
+                write!(out, "[{x:.5},{y:.5},{z:.5},{w:.5}]")?;
+            }
+            _ => out.write_all(b"null")?,
+        }
+    }
+    out.write_all(b"]")
 }
 
 pub struct Bench {
@@ -286,7 +399,12 @@ impl Bench {
         let era = self.era.clone().or_else(|| {
             self.side.as_deref().map(|side| if matches!(side, "all" | "imp") { "gcw" } else { "cw" }.to_string())
         });
-        match BattleRequest::single(self.map.as_str(), era) {
+        let request = if bfe_family::swbf2::is_entry(&self.map) {
+            super::script::script_request(&self.map)
+        } else {
+            BattleRequest::single(self.map.as_str(), era)
+        };
+        match request {
             Ok(request) => Some(ShellTransition::StartInstantAction(request)),
             Err(error) => {
                 eprintln!("bench: {error}");
@@ -427,15 +545,23 @@ impl Bench {
         // reference's page reports); `auth` is the world's last word on it.
         let [ax, ay, az] = own.position;
         let [avx, avy, avz] = own.velocity;
-        let (position, velocity, posture, air) = replay.displayed.as_ref().map_or(
-            (own.position, own.velocity, own.posture, own.air),
-            |body| (body.position, body.velocity, body.posture as usize, body.air.map_or(0, |air| air as u8 + 1)),
+        let (position, velocity, posture, air, fuel) = replay.displayed.as_ref().map_or(
+            (own.position, own.velocity, own.posture, own.air, own.fuel),
+            |body| (body.position, body.velocity, body.posture as usize, body.air.map_or(0, |air| air as u8 + 1), body.fuel),
         );
+        let shown_tick = if receiver.infantry_view.is_some() {
+            receiver.clock.shown
+        } else if replay.displayed.is_some() {
+            replay.shown_tick()
+        } else {
+            own.tick
+        };
+        let hud_fuel = battle.scene.bridge.hud_model.input[bfe_render::hud_model::layout::HudFrame::SECOND_FILL];
         let [x, y, z] = position;
         let [vx, vy, vz] = velocity;
         write!(
             out,
-            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"spawnScreen":{},"captured":{captured},"selected":{:?},"auth":{{"tick":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}]}},"weapons":["#,
+            r#"{{"t":{:.4},"wall":{wall:.1},"tick":{tick},"player":{{"id":{},"team":{},"alive":{},"health":{:.1},"pos":[{x:.3},{y:.3},{z:.3}],"vel":[{vx:.3},{vy:.3},{vz:.3}],"yaw":{:.4},"pitch":{:.4},"posture":"{}","air":{},"fuel":{fuel:.4},"shownTick":{shown_tick:.2},"hudFuel":{hud_fuel:.4},"spawnScreen":{},"captured":{captured},"selected":{:?},"auth":{{"tick":{},"air":{},"pos":[{ax:.3},{ay:.3},{az:.3}],"vel":[{avx:.3},{avy:.3},{avz:.3}],"fuel":{:.4}}},"weapons":["#,
             tick / 60.,
             own.id,
             own.team,
@@ -448,6 +574,8 @@ impl Bench {
             battle.spawn_ctrl.is_open(),
             replay.selected(),
             own.tick,
+            own.air,
+            own.fuel,
         )?;
         // The player's own weapons as the client predicts them: definition, rounds in the
         // magazine, magazines in reserve, heat, and seconds of reload left.
@@ -487,6 +615,42 @@ impl Bench {
             write!(out, r#","reticle":[{:.5},{:.5},{}]"#, x[h::RETICLE_X], x[h::RETICLE_Y], x[h::RETICLE])?;
             // What the reticle is on: 1 friend, 2 enemy, 3 locals, 4 nothing; then the scope texture.
             write!(out, r#","aimed":[{},{},{}]"#, x[h::TARGET_RELATION], x[h::SECOND_RELATION], x[h::SCOPE])?;
+        }
+        if let Some((frame, alpha)) = receiver.space.as_ref().and_then(|s| s.sample(receiver.clock.shown)) {
+            if let Some(hull) = crate::local::flight_view::mounted(frame) {
+                let matrix = hull.previous.matrix(&hull.current, alpha);
+                let gear = hull.previous.gear + alpha * (hull.current.gear - hull.previous.gear);
+                write!(out, r#","spaceFlight":{}"#, serde_json::json!({
+                    "id": hull.id, "generation": hull.generation, "tick": frame.tick, "alpha": alpha,
+                    "position": &matrix.elements[12..15], "gear": gear, "fighters": frame.hulls.len(),
+                }))?;
+            }
+        }
+        if let Some(sample) = receiver.infantry {
+            let drawn = battle.scene.characters.as_ref().map(|characters| characters.drawn).unwrap_or_default();
+            write!(out, r#","infantry":{{"energy":{:.3},"sprint":{},"roll":{},"combo":{},"bodies":{},"blades":{},"trail":{}}}"#,
+                sample.energy, sample.sprint, sample.roll.map_or(0, |r| r.direction as u8),
+                sample.combo.map_or(-1, i32::from), drawn.bodies, drawn.blades, drawn.trail_triangles)?;
+            if let Some(clip) = battle.scene.characters.as_ref().and_then(|c| c.own_clip((own.id as u32, own.generation as u32))) {
+                write!(
+                    out,
+                    r#","anim2":{{"clip":"{}","action":"{}","crc":"{:08x}","t":{:.5},"dur":{:.4},"rate":{:.3},"blend":{:.3},"blendP":{:.4},"shown":{:.4}}}"#,
+                    clip.name, clip.action, clip.crc, clip.time, clip.duration, clip.rate, clip.blend, clip.blend_progress, clip.shown
+                )?;
+            }
+            if let Some(wp) = battle.scene.characters.as_ref().and_then(|c| c.own_weapon_pose((own.id as u32, own.generation as u32))) {
+                let head = wp.head_y.filter(|y| y.is_finite()).map_or_else(|| "null".into(), |y| format!("{y:.4}"));
+                write!(
+                    out,
+                    r#","weaponBone":{{"pos":[{:.4},{:.4},{:.4}],"dir":[{:.5},{:.5},{:.5}],"headY":{head},"yaw":{:.5},"pitch":{:.5}}}"#,
+                    wp.position[0], wp.position[1], wp.position[2],
+                    wp.forward[0], wp.forward[1], wp.forward[2],
+                    wp.yaw, wp.pitch,
+                )?;
+            }
+            if let Some(ab) = battle.scene.characters.as_ref().and_then(|c| c.own_aim_bones((own.id as u32, own.generation as u32))) {
+                write_aim_bones(out, &ab)?;
+            }
         }
         if let Some(hull) = &replay.fleet.state {
             write!(out, r#","hull":{}"#, serde_json::json!({
@@ -636,6 +800,13 @@ impl Bench {
         // The battle's rules as the client last heard them: tickets and bleed per team, the end, the posts,
         // post sound events played, and (while the spawn screen is open) the posts it offers.
         if let Some(scene) = battle.scene.online.as_ref() {
+            if let Some(score) = receiver.mission_score {
+                write!(out, r#","missionScore":{}"#, serde_json::json!({
+                    "scriptTick": score.script_tick, "teams": score.teams, "target": score.target,
+                    "outcome": score.outcome.map(|o| format!("{o:?}")), "faulted": score.faulted,
+                    "over": score.over, "gameOver": score.game_over, "finished": score.finished,
+                }))?;
+            }
             let hud = &scene.hud;
             let offered: Option<Vec<_>> = battle.spawn_ctrl.is_open().then(|| battle.spawn_port.posts(own.team).iter()
                 .map(|post| serde_json::json!([post.name, post.owner, post.eligible])).collect());

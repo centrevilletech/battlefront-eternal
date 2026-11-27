@@ -14,15 +14,21 @@
 //!                    | (/info answers)                         |
 //!                    v                                         |
 //!        [AppState::BattleLoading] ----------------------------> [AppState::Battle]
+//!                    |    ^
+//!                    v    | (the server runs its next battle)
+//!        [AppState::SitOut] (a 2005 battle this client does not play)
 //! ```
 pub mod battle;
 pub(crate) mod bench;
 pub mod cli;
+mod control_strings;
+mod control_capture;
 mod display_libraries;
 mod loading;
 mod folder_dialog;
 mod gpu_probe;
 mod first_run;
+pub(crate) mod instant;
 mod platform_smoke;
 mod slint_battle;
 mod slint_ia;
@@ -97,7 +103,7 @@ use std::{
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{DeviceEvent, DeviceId, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent},
+    event::{DeviceEvent, DeviceId, ElementState, Ime, MouseButton, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, KeyCode, ModifiersState, NamedKey, PhysicalKey},
     window::{CursorGrabMode, Fullscreen, Window, WindowId},
@@ -148,6 +154,40 @@ impl BattleLoadTarget {
     }
 }
 
+impl AppState {
+    fn hides_mission_cursor(&self) -> bool {
+        use bfe_family::GameFamily::Swbf2;
+        match self {
+            Self::BattleLoading { target, .. } => match target {
+                BattleLoadTarget::InstantAction { request, playlist_index } =>
+                    request.battle_at(*playlist_index).family == Swbf2,
+                BattleLoadTarget::Online { launch } => launch.family == Swbf2,
+            },
+            Self::Battle(battle) => battle.authority.family() == Swbf2 && battle.wants_pointer_lock(),
+            _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod mission_cursor_tests {
+    use super::*;
+
+    #[test]
+    fn loading_uses_the_selected_game_and_shell_restores_the_pointer() {
+        for (map, hidden) in [("swbf2/valley", true), ("swbf1/valley", false)] {
+            let target = BattleLoadTarget::InstantAction {
+                request: BattleRequest::single(map, None::<&str>).unwrap(),
+                playlist_index: 0,
+            };
+            assert_eq!(AppState::BattleLoading {
+                target, frames_drawn: 0, work: Default::default(),
+            }.hides_mission_cursor(), hidden);
+        }
+        assert!(!AppState::Shell.hides_mission_cursor());
+    }
+}
+
 /// Top-level standalone game state machine.
 pub enum AppState {
     /// Startup content discovery and background preparation loader screen.
@@ -175,6 +215,13 @@ pub enum AppState {
     },
     /// Active 3D battle with `bfe-battle-ui` overlays (`Spawn`, `HUD`, `Scoreboard`, `Pause`).
     Battle(Box<BattleController>),
+    /// A 2005 battle this client sits out: the loading screen says why, the
+    /// map-free connection stays up, and the next battle loads on its own.
+    SitOut {
+        session: Box<crate::online::sitout::SitOut>,
+        /// The launch that carries on to the next battle.
+        launch: MultiplayerLaunch,
+    },
 }
 
 /// Main entry point for `bfe-client`.
@@ -334,6 +381,8 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         opts,
         settings,
         host_controller,
+        sound_session: None,
+        sound_content: None,
         audio_status,
         audio_router,
         headless_audio,
@@ -356,6 +405,7 @@ pub fn run_standalone_game(opts: StandaloneOptions, with_audio: bool) -> Result<
         focused: true,
         hidden: false,
         pointer_locked: false,
+        mission_cursor_hidden: false,
         pointer_icon: winit::window::CursorIcon::Default,
         cursor_physical: [0.0; 2],
         cursor_seen: false,
@@ -436,6 +486,8 @@ struct StandaloneWindowApp {
     settings: AppSettingsStore,
     /// Thread-safe handle to `bfe_desktop::host::HostController` for local server hosting.
     host_controller: Arc<Mutex<HostController>>,
+    sound_session: Option<bfe_desktop::prepare::PrepareSession>,
+    sound_content: Option<PathBuf>,
     /// Atomic audio callback health status.
     audio_status: Arc<AudioStatus>,
     /// Shared audio router switching cleanly between `ShellAudioMixer` and battle `Stream`.
@@ -478,6 +530,7 @@ struct StandaloneWindowApp {
     hidden: bool,
     /// Whether the cursor is currently locked and hidden for 3D combat mouselook.
     pointer_locked: bool,
+    mission_cursor_hidden: bool,
     pointer_icon: winit::window::CursorIcon,
     /// Whether borderless fullscreen mode is currently active (`F11`).
     fullscreen: bool,
@@ -644,6 +697,19 @@ impl StandaloneWindowApp {
     /// with the active state: locked during 3D combat when no battle UI overlay is open,
     /// and unlocked whenever the shell, spawn screen, scoreboard, or pause menu is active.
     fn sync_pointer_lock(&mut self) {
+        self.sync_released_pointer_lock();
+        let hidden = self.focused && self.state.hides_mission_cursor();
+        if let Some(window) = &self.window {
+            if hidden && (!self.mission_cursor_hidden || !self.pointer_locked) {
+                window.set_cursor_visible(false);
+            } else if !hidden && self.mission_cursor_hidden {
+                window.set_cursor_visible(!self.pointer_locked);
+            }
+        }
+        self.mission_cursor_hidden = hidden;
+    }
+
+    fn sync_released_pointer_lock(&mut self) {
         let Some(window) = &self.window else {
             return;
         };
@@ -734,6 +800,7 @@ impl StandaloneWindowApp {
         if let Some(install) = install {
             let copy = bfe_desktop::discover::GameInstall {
                 dir: install.dir,
+                family: install.family,
                 source: "chosen".into(),
                 how: "the folder you chose".into(),
                 chosen: true,
@@ -741,7 +808,9 @@ impl StandaloneWindowApp {
             self.state = AppState::StartupLoader(StartupContentState::FirstRun(Box::new(
                 first_run::Setup::confirm(vec![copy], &self.settings),
             )));
-        } else if folder.join("common/common.json").is_file() {
+        } else if !bfe_content::layout::is_swbf2_marked_dir(&folder)
+            && folder.join("common/common.json").is_file()
+        {
             self.settings.desktop.chosen_content_dir = Some(folder.to_string_lossy().into_owned());
             self.settings.desktop.preparing_content_dir = None;
             let _ = self.settings.save_desktop();
@@ -874,6 +943,11 @@ impl StandaloneWindowApp {
                 map_id: Some(target.map_id().to_string()),
                 ..RawPresenceInput::default()
             },
+            // Sitting a battle out is waiting in the server's lobby.
+            AppState::SitOut { .. } => RawPresenceInput {
+                phase: Some("lobby".to_string()),
+                ..RawPresenceInput::default()
+            },
             AppState::Battle(battle) => match &battle.authority {
                 BattleAuthority::InstantAction { map_id, era, .. } => RawPresenceInput {
                     phase: Some("match".to_string()),
@@ -922,6 +996,7 @@ impl StandaloneWindowApp {
             .as_ref()
             .and_then(|s| s.content_dir.clone())
             .unwrap_or_else(|| self.settings.paths.content_root.clone());
+        self.close_departing_battle_options();
         self.state = AppState::Shell;
         self.restore_shell_audio(&content_dir);
         if let Some(shell) = &mut self.shell {
@@ -935,9 +1010,31 @@ impl StandaloneWindowApp {
         }
         release_freed_memory();
     }
+    /// Leaves a battle sat out for the server list, with the reason when the
+    /// session ended on its own.
+    fn leave_sit_out(&mut self, reason: Option<String>) {
+        let content_dir = self
+            .shell
+            .as_ref()
+            .and_then(|s| s.content_dir.clone())
+            .unwrap_or_else(|| self.settings.paths.content_root.clone());
+        self.state = AppState::Shell;
+        self.restore_shell_audio(&content_dir);
+        if let Some(shell) = &mut self.shell {
+            shell.app.push_screen(ScreenId::Multiplayer);
+            if let Some(message) = reason {
+                shell.app.popup = Some(PopupState::Notice { message: format!("DISCONNECTED: {message}") });
+            }
+        }
+        release_freed_memory();
+    }
     fn restore_shell_audio(&self, content_dir: &Path) {
         if let Some(shell) = &self.shell {
-            let mut mixer = ShellAudioMixer::new(&shell.app.data, Some(content_dir));
+            let family_dir = bfe_content::layout::family_dir(
+                content_dir,
+                bfe_family::GameFamily::Swbf1,
+            );
+            let mut mixer = ShellAudioMixer::new(&shell.app.data, Some(&family_dir));
             mixer.set_volumes(
                 shell.app.settings.master_volume,
                 shell.app.settings.music_volume,
@@ -968,6 +1065,7 @@ impl StandaloneWindowApp {
                     .and_then(|s| s.content_dir.clone())
                     .unwrap_or_else(|| self.settings.paths.content_root.clone());
                 if !matches!(self.state, AppState::Shell) {
+                    self.close_departing_battle_options();
                     self.restore_shell_audio(&content_dir);
                     self.state = AppState::Shell;
                 }
@@ -1120,6 +1218,11 @@ impl ApplicationHandler for StandaloneWindowApp {
             let make_gl = || unsafe {
                 glow::Context::from_loader_function_cstr(|name| display.get_proc_address(name))
             };
+            if bench::capture_world(&self.opts, make_gl)? {
+                surface.swap_buffers(&context).map_err(|e| e.to_string())?;
+                event_loop.exit();
+                return Ok(());
+            }
             let gl = make_gl();
             // gl_PointSize is always live in OpenGL ES; desktop GL needs it switched on.
             if !gl.version().is_embedded { unsafe { gl.enable(glow::PROGRAM_POINT_SIZE); } }
@@ -1141,6 +1244,7 @@ impl ApplicationHandler for StandaloneWindowApp {
             mac_menu::install();
             let window = Arc::new(window);
             let context = Rc::new(context);
+            crate::scene::set_particle_loading_context(&context);
             let surface = Rc::new(surface);
             self.slint_ui = Some(slint_ui::SlintHost::new(
                 window.clone(),
@@ -1191,6 +1295,24 @@ impl ApplicationHandler for StandaloneWindowApp {
         _window_id: WindowId,
         event: WindowEvent,
     ) {
+        if let Some(shell) = self.shell.as_mut().filter(|shell| {
+            shell.options_ctrl.capturing_swbf2_binding()
+                && control_capture::visible(&self.state, shell.is_interface_options_active())
+        }) {
+            let captured = if let Some(pointer) = control_capture::pointer(&event) {
+                shell.options_ctrl.capture_swbf2_pointer(pointer)
+            } else if let WindowEvent::KeyboardInput { event, is_synthetic, .. } = &event {
+                let Some(code) = control_capture::key(event.physical_key, event.state, event.repeat, *is_synthetic) else { return };
+                shell.options_ctrl.on_key_down(code, self.modifiers.shift_key());
+                true
+            } else { false };
+            if captured {
+                shell.flush_options_controller(&mut self.settings);
+                self.sync_battle_options();
+                self.sync_pointer_lock();
+                return;
+            }
+        }
         self.sync_slint_setup();
         let consumed = self.slint_ui.as_mut()
             .is_some_and(|ui| ui.event(&event, self.pointer_locked));
@@ -1373,7 +1495,7 @@ impl ApplicationHandler for StandaloneWindowApp {
                             _ => None,
                         };
                         if let Some(b) = code {
-                            battle.handle_mouse_button(b, down, &self.settings);
+                            battle.handle_mouse_button(b, down, &mut self.settings);
                         }
                         self.sync_pointer_lock();
                     }
@@ -1381,16 +1503,18 @@ impl ApplicationHandler for StandaloneWindowApp {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let [x,y] = self.interface_cursor();
-                // Convert line or pixel scroll deltas into scoreboard / spawn scroll offsets.
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => -y as f64 * 100.0,
-                    MouseScrollDelta::PixelDelta(p) => p.y,
-                };
+                let [x, y] = self.interface_cursor();
                 match &mut self.state {
-                    AppState::Battle(battle)=>battle.handle_wheel(dy),
-                    AppState::Shell=>{if let Some(shell)=&mut self.shell{shell.handle_wheel(x,y,dy,&mut self.settings);}},
-                    _=>{},
+                    AppState::Battle(battle) => {
+                        let dy = control_capture::battle_scroll_y(delta, battle.authority.family(), battle.is_overlay_open());
+                        battle.handle_wheel(dy, &mut self.settings);
+                    }
+                    AppState::Shell => {
+                        if let Some(shell) = &mut self.shell {
+                            shell.handle_wheel(x, y, control_capture::menu_scroll_y(delta), &mut self.settings);
+                        }
+                    }
+                    _ => {}
                 }
             }
             WindowEvent::KeyboardInput { event, is_synthetic, .. } => {
@@ -1502,6 +1626,12 @@ impl ApplicationHandler for StandaloneWindowApp {
                         self.sync_battle_options();
                         self.sync_pointer_lock();
                     }
+                    // Escape leaves a battle sat out, back to the server list.
+                    AppState::SitOut { .. } => {
+                        if down && !event.repeat && event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
+                            self.leave_sit_out(None);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1591,6 +1721,19 @@ impl StandaloneWindowApp {
     /// the chance pass (frameBody).
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
+        if let Some(progress) = self.sound_session.as_ref().and_then(|s| s.events.try_iter().last()) {
+            if matches!(progress.status.as_str(), "done" | "failed" | "cancelled") {
+                self.sound_session = None;
+                if let Some(window) = &self.window {
+                    window.set_title("Battlefront Eternal");
+                }
+            } else if let (Some(window), Some(step)) = (&self.window, progress.current_step.as_ref()) {
+                if let Some(active) = progress.steps.iter().find(|entry| &entry.id == step) {
+                    let detail = active.detail.as_deref().unwrap_or(&active.label);
+                    window.set_title(&format!("Battlefront Eternal - {detail}"));
+                }
+            }
+        }
         self.redraw_asked = None;
         let free = self.unpaced || self.loading();
         // Where the loop counts the refreshes itself the swap must not wait
@@ -1670,6 +1813,16 @@ impl StandaloneWindowApp {
         }
     }
 
+    fn close_departing_battle_options(&mut self) {
+        let (AppState::Battle(battle), Some(shell)) = (&mut self.state, &mut self.shell) else { return };
+        if battle.options_open && shell.finish_battle_options(Some(battle.authority.family())) {
+            battle.options_open = false;
+            if let Some(ui) = &mut self.slint_ui {
+                ui.sync_battle_options(shell, false);
+            }
+        }
+    }
+
     fn sync_battle_options_of(
         battle: &mut BattleController,
         shell: &mut Option<Box<ShellHost>>,
@@ -1681,18 +1834,16 @@ impl StandaloneWindowApp {
         };
         if let Some(row) = battle.pause_menu.options_request.take() {
             if let Some(page) = ["game", "video", "audio", "controls"].get(row) {
-                shell.open_battle_options(page, battle.first_person(), settings);
+                shell.open_battle_options(page, battle.authority.family(), battle.first_person(), settings);
                 battle.options_open = true;
             }
         }
         if battle.options_open {
-            if shell.options_ctrl.stack.is_empty() {
-                if let Some(first) = shell.close_battle_options() {
-                    battle.set_first_person(first);
-                }
+            let viewpoint = shell.options_ctrl.context.viewpoint;
+            if shell.finish_battle_options(None) {
                 battle.options_open = false;
-            } else if let Some(first) = shell.options_ctrl.context.viewpoint {
-                // The VIEWPOINT row takes effect at once, as `viewpoint.set` does in the client.
+            }
+            if let Some(first) = viewpoint {
                 battle.set_first_person(first);
             }
         }
@@ -1713,15 +1864,22 @@ impl StandaloneWindowApp {
         };
         match transition {
             ShellTransition::StartInstantAction(request) => {
+                // The loading screen shows the battle the preparation will play
+                // (`BattleRequest::battle_at`); a game this build cannot play is refused
+                // here, before the loading screen reads anything.
+                let planned = request.battle_at(0);
+                if let Err(refused) = instant::check(planned) {
+                    if let Some(shell) = &mut self.shell {
+                        shell.app.popup = Some(PopupState::Notice { message: format!("ADMISSION FAILED: {refused}") });
+                    }
+                    return;
+                }
                 // Configure the planet loading screen and transition to `AppState::BattleLoading`.
                 if let Some(shell) = &mut self.shell {
-                    let map_id = request
-                        .playlist
-                        .as_ref()
-                        .and_then(|p| p.entries.first())
-                        .map(|e| e.map.as_str())
-                        .unwrap_or(request.map.as_str());
-                    shell.prepare_map_loading(map_id, &self.audio_router);
+                    if let Err(message) = shell.prepare_instant_loading(planned, &self.audio_router) {
+                        shell.app.popup = Some(PopupState::Notice { message });
+                        return;
+                    }
                 }
                 self.state = AppState::BattleLoading {
                     target: BattleLoadTarget::InstantAction {
@@ -2147,7 +2305,7 @@ impl StandaloneWindowApp {
                             )?;
                             shell.draw_startup_loader(
                                 0.016,
-                                &StartupContentState::Ready(content_dir),
+                                &StartupContentState::Ready(content_dir.clone()),
                             );
                             if let Some(ui) = &mut self.slint_ui {
                                 ui.sync_shell(shell, false);
@@ -2165,6 +2323,7 @@ impl StandaloneWindowApp {
                             }
                         }
                         self.state = AppState::Shell;
+                        self.sound_content = Some(content_dir);
                     }
                 }
                 AppState::Shell => {
@@ -2207,6 +2366,9 @@ impl StandaloneWindowApp {
                     } else {
                         None
                     };
+                    if let Some(content_dir) = self.sound_content.take() {
+                        self.sound_session = startup::prepared_sound_session(&content_dir, &self.settings);
+                    }
                     if transition.is_none() {
                         if let (Some(gate), Some(shell)) = (&mut self.gate, &mut self.shell) {
                             transition = gate.step_shell(shell, &mut self.settings)?;
@@ -2337,8 +2499,17 @@ impl StandaloneWindowApp {
                     );
                     let mut handover = None;
                     let frame = if let Some(shell) = &mut self.shell {
-                        if let Some(map) = work.map.take() {
-                            shell.retarget_map_loading(&map);
+                        if let Some((family, map)) = work.map.take() {
+                            match family {
+                                bfe_family::GameFamily::Swbf1 => shell.retarget_map_loading(&map),
+                                // A client without the 2005 game's data (one that sits the battle
+                                // out) keeps the loading screen it shows: the sit-out needs none.
+                                bfe_family::GameFamily::Swbf2 => {
+                                    if let Err(error) = shell.prepare_family_loading(family, &map, &self.audio_router) {
+                                        eprintln!("battle loading: no Battlefront II loading screen here ({error}); the current one stays");
+                                    }
+                                }
+                            }
                         }
                         shell.draw_battle_loading(dt);
                         if let Some(ui) = &mut self.slint_ui {
@@ -2346,7 +2517,7 @@ impl StandaloneWindowApp {
                         }
                         handover =
                             work.handover(shell.battle_loading_complete(), &self.audio_router);
-                        if handover.is_some() {
+                        if matches!(handover, Some(loading::Handover::Battle(_))) {
                             eprintln!(
                                 "battle loading: frames={} peakFrameMs={:.3} elapsed={:.3}s",
                                 shell.loading_frames, shell.loading_peak_ms, shell.loading_time
@@ -2382,7 +2553,10 @@ impl StandaloneWindowApp {
                             });
                         }
                         self.state = AppState::Shell;
-                    } else if let Some(battle) = handover {
+                    } else if let Some(loading::Handover::SitOut(session, launch)) = handover {
+                        eprintln!("online join: sitting this battle out; waiting for the next one");
+                        self.state = AppState::SitOut { session, launch };
+                    } else if let Some(loading::Handover::Battle(battle)) = handover {
                         eprintln!(
                             "battle loading: timeline and admission complete; entering battle"
                         );
@@ -2394,6 +2568,56 @@ impl StandaloneWindowApp {
                         let [x, y] = self.interface_cursor();
                         if let AppState::Battle(battle) = &mut self.state {
                             battle.handle_cursor_move(x, y);
+                        }
+                    }
+                }
+                AppState::SitOut { session, launch } => {
+                    // The map-free connection, then the next battle once the server runs it:
+                    // the loading screen stays up and says why this battle is sat out.
+                    let launch = launch.clone();
+                    let step = session.step();
+                    let message = session.message();
+                    let frame = if let Some(shell) = &mut self.shell {
+                        shell.loading_text = message;
+                        shell.draw_battle_loading(dt);
+                        if let Some(ui) = &mut self.slint_ui {
+                            ui.sync_shell(shell, false);
+                        }
+                        Some((shell.canvas.framebuffer, shell.size))
+                    } else {
+                        None
+                    };
+                    if let Some((fb, size)) = frame {
+                        self.blit_framebuffer_to_window(fb, size)?;
+                    }
+                    match step {
+                        Ok(None) => {}
+                        Ok(Some(next)) => {
+                            let mut launch = launch;
+                            match next {
+                                crate::online::sitout::Next::Announced(query) => {
+                                    let query = bfe_content::mission::Query::parse(&query);
+                                    launch.map = query.get("map").into();
+                                    launch.side = query.get("side").into();
+                                }
+                                // The server changed battle: the loading screen follows it once it answers.
+                                crate::online::sitout::Next::Current => launch.map.clear(),
+                            }
+                            eprintln!("online match ready: map={} side={}", launch.map, launch.side);
+                            if let Some(shell) = &mut self.shell {
+                                shell.prepare_map_loading(&launch.map, &self.audio_router);
+                            }
+                            self.state = AppState::BattleLoading {
+                                target: BattleLoadTarget::Online { launch },
+                                frames_drawn: 0,
+                                work: Box::default(),
+                            };
+                        }
+                        Err(error) => {
+                            if self.gate.is_some() {
+                                return Err(format!("Online battle failed during gate: {error}"));
+                            }
+                            self.leave_sit_out(Some(error));
                         }
                     }
                 }
@@ -2493,6 +2717,7 @@ impl StandaloneWindowApp {
                     }
 
                     if let Some(t) = transition {
+                        self.close_departing_battle_options();
                         let content_dir = self
                             .shell
                             .as_ref()
@@ -2503,8 +2728,16 @@ impl StandaloneWindowApp {
                             // an Instant Action playlist; quitting is a separate menu action.
                             BattleTransition::NextPlaylistBattle { request } => {
                                 let playlist_index = request.playlist.as_ref().map_or(0, |p| p.round);
+                                let planned = request.battle_at(playlist_index);
+                                if let Err(refused) = instant::check(planned) {
+                                    self.leave_failed_battle(false, refused.to_string());
+                                    return Ok(());
+                                }
                                 if let Some(shell) = &mut self.shell {
-                                    shell.prepare_map_loading(&request.map, &self.audio_router);
+                                    if let Err(message) = shell.prepare_instant_loading(planned, &self.audio_router) {
+                                        self.leave_failed_battle(false, message);
+                                        return Ok(());
+                                    }
                                 }
                                 self.state = AppState::BattleLoading {
                                     target: BattleLoadTarget::InstantAction {
@@ -2522,14 +2755,16 @@ impl StandaloneWindowApp {
                                 request,
                                 playlist_index,
                             } => {
+                                let planned = request.battle_at(playlist_index);
+                                if let Err(refused) = instant::check(planned) {
+                                    self.leave_failed_battle(false, refused.to_string());
+                                    return Ok(());
+                                }
                                 if let Some(shell) = &mut self.shell {
-                                    let map_id = request
-                                        .playlist
-                                        .as_ref()
-                                        .and_then(|p| p.entries.get(playlist_index))
-                                        .map(|e| e.map.as_str())
-                                        .unwrap_or(request.map.as_str());
-                                    shell.prepare_map_loading(map_id, &self.audio_router);
+                                    if let Err(message) = shell.prepare_instant_loading(planned, &self.audio_router) {
+                                        self.leave_failed_battle(false, message);
+                                        return Ok(());
+                                    }
                                 }
                                 self.state = AppState::BattleLoading {
                                     target: BattleLoadTarget::InstantAction {
@@ -2550,6 +2785,23 @@ impl StandaloneWindowApp {
                                     shell.app.rebuild_cached_rows();
                                 }
                                 self.state = AppState::Shell;
+                            }
+                            // The server's signed answer gave this join the sit-out role:
+                            // the battle is sat out with the battle's own connection.
+                            BattleTransition::SitOutOnline => {
+                                let handed = match &mut self.state {
+                                    AppState::Battle(battle) => battle.hand_over_sit_out(),
+                                    _ => None,
+                                };
+                                let Some((session, launch)) = handed else {
+                                    self.leave_sit_out(Some("the battle could not be sat out".into()));
+                                    return Ok(());
+                                };
+                                eprintln!("online join: this battle uses other game data; sitting it out");
+                                if let Some(shell) = &mut self.shell {
+                                    shell.prepare_map_loading(&launch.map, &self.audio_router);
+                                }
+                                self.state = AppState::SitOut { session: Box::new(session), launch };
                             }
                             BattleTransition::NextOnlineBattle { launch } => {
                                 if let Some(shell) = &mut self.shell {
@@ -2684,8 +2936,12 @@ pub(crate) fn trace_own_aim(receiver: &crate::online::receiver::Receiver, sender
         return;
     }
     eprintln!(
-        "[aim-own] latest={} corrected={} server=({:.4},{:.4}) sender=({:.4},{:.4}) displayed={:?} server_locks={:?} predicted_locks={:?}",
-        receiver.latest, receiver.own.tick, receiver.own.yaw, receiver.own.pitch, sender.yaw, sender.pitch,
+        "[aim-own] latest={} corrected={} ack={} seq={} server=({:.6},{:.6}) sender=({:.6},{:.6}) loose=({:.3},{:.3}) speed_xz={:.2} air={} posture={} tumble={} lock={:.3} displayed={:?} server_locks={:?} predicted_locks={:?}",
+        receiver.latest, receiver.own.tick, receiver.corrected_sequence, sender.command_sequence(),
+        receiver.own.yaw, receiver.own.pitch, sender.yaw, sender.pitch,
+        sender.history.loose.x, sender.history.loose.y,
+        receiver.own.velocity[0].hypot(receiver.own.velocity[2]),
+        receiver.own.air, receiver.own.posture, u8::from(replay.swbf2_state().is_some_and(|s| s.is_tumble_look())), receiver.own.lock,
         replay.displayed.as_ref().map(|b| ((b.aim_yaw * 1e4).round() / 1e4, (b.aim_pitch * 1e4).round() / 1e4)),
         replay.restored_locks(),
         replay.weapons().map(|w| (w.lock_target_id, w.lock_generation, (w.lock_elapsed * 100.).round() / 100.)).collect::<Vec<_>>(),

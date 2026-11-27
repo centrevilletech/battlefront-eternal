@@ -61,7 +61,7 @@ pub fn content_tables(
     options: &Options,
     store_source: u32,
 ) -> Result<(Vec<u32>, HostContent), String> {
-    let files = DirFiles::new(content_dir);
+    let files = DirFiles::new(content_dir, bfe_family::GameFamily::Swbf1);
     content_tables_files(context, &files, options, store_source)
 }
 
@@ -81,6 +81,93 @@ pub fn content_tables_files(
     content_tables_from_registry(context, store_source, &tree, &registry)
 }
 
+/// Family-explicit variant of [`content_tables`]: delegates `GameFamily::Swbf1`
+/// directly to [`content_tables_files`] without altering 2004 behavior.
+pub fn content_tables_for_family(
+    context: &Context,
+    content_dir: &Path,
+    family: bfe_content::GameFamily,
+    options: &Options,
+    mission: Option<&str>,
+    store_source: u32,
+) -> Result<(Vec<u32>, HostContent), String> {
+    let files = DirFiles::from_resolved_root(content_dir, family);
+    content_tables_files_for_family(context, &files, family, options, mission, store_source)
+}
+
+/// Family-explicit variant of [`content_tables_files`]: delegates
+/// `GameFamily::Swbf1` directly to [`content_tables_files`], and loads 2005
+/// battles via `Battle::load_for_family` with an optional mission override.
+pub fn content_tables_files_for_family(
+    context: &Context,
+    files: &dyn Files,
+    family: bfe_content::GameFamily,
+    options: &Options,
+    mission: Option<&str>,
+    store_source: u32,
+) -> Result<(Vec<u32>, HostContent), String> {
+    if family == bfe_content::GameFamily::Swbf1 {
+        if mission.is_some() {
+            return Err("2004 content tables do not accept a mission override".into());
+        }
+        return content_tables_files(context, files, options, store_source);
+    }
+    let loader = Loader::new(files);
+    let mut q = options.query();
+    if let Some(m) = mission {
+        q.push_str("&mission=");
+        q.push_str(m);
+    }
+    let battle = Battle::load_for_family(&loader, family, &options.map, &q)?;
+    let content = Content::build(battle)?;
+    let tree = registry_content(&content);
+    let registry = combat_registry(&tree)?;
+    content_tables_from_registry(context, store_source, &tree, &registry)
+}
+
+/// The indexes of the admitted explosions the host table gives no combat
+/// definition: a blast of one of them cannot be recorded for the wire. The
+/// table is shorter than the admitted list when nothing names the last
+/// explosions, so those count as missing too. An explosion that only an ordnance
+/// definition outside the combat registry names (a round the wire never
+/// records) has no entry by design and is not listed.
+pub fn unmapped_explosions(
+    context: &Context,
+    store_source: u32,
+    table: &[u32],
+) -> Result<Vec<usize>, String> {
+    let admitted = context
+        .world_explosion_defs()
+        .map_err(|e| e.message().to_string())?
+        .len();
+    // Whether something the combat registry knows names the explosion, and
+    // whether only ordnance outside the registry does.
+    let mut recorded = vec![false; admitted];
+    let mut named = vec![false; admitted];
+    for owned in context
+        .explosion_owners()
+        .map_err(|e| e.message().to_string())?
+    {
+        if let Some(mark) = recorded.get_mut(owned.explosion as usize) {
+            *mark = true;
+        }
+    }
+    for field in context
+        .explosion_fields(store_source)
+        .map_err(|e| e.message().to_string())?
+    {
+        let index = field.explosion as usize;
+        if index < admitted {
+            named[index] = true;
+            recorded[index] |= field.definition >= 1.0;
+        }
+    }
+    Ok((0..admitted)
+        .filter(|&index| table.get(index).copied().unwrap_or(0) == 0)
+        .filter(|&index| recorded[index] || !named[index])
+        .collect())
+}
+
 /// The same cold resolution over retained registry objects. A dedicated host
 /// can refresh definitions after joins without reloading map geometry.
 pub fn content_tables_from_registry(
@@ -88,6 +175,19 @@ pub fn content_tables_from_registry(
     store_source: u32,
     tree: &Value,
     registry: &[(String, Value)],
+) -> Result<(Vec<u32>, HostContent), String> {
+    resolve_content_tables(context, store_source, tree, registry, None)
+}
+
+/// Resolve explosion owners in the same compact building order as mission admission.
+pub fn mission_content_tables(
+    context: &Context, store_source: u32, tree: &Value, registry: &[(String, Value)], building_sources: &[usize],
+) -> Result<(Vec<u32>, HostContent), String> {
+    resolve_content_tables(context, store_source, tree, registry, Some(building_sources))
+}
+
+fn resolve_content_tables(
+    context: &Context, store_source: u32, tree: &Value, registry: &[(String, Value)], building_sources: Option<&[usize]>,
 ) -> Result<(Vec<u32>, HostContent), String> {
     // `ids`: the registry's WeakMap from a definition object to its id.
     let ids: HashMap<usize, u32> = registry
@@ -130,6 +230,9 @@ pub fn content_tables_from_registry(
         .and_then(|p| p.get("instances"))
         .and_then(Value::as_array)
         .map(|instances| {
+            if let Some(sources) = building_sources {
+                return sources.iter().map(|&i| &instances[i]).collect();
+            }
             instances
                 .iter()
                 .filter(|desc| {
@@ -186,6 +289,16 @@ pub fn content_tables_from_registry(
                 registry
                     .get((id as usize).wrapping_sub(1))
                     .and_then(|(_, def)| def.get("explosion"))
+            }
+            // A guided rocket's boosted blast is its droid definition's
+            // `explosionCritical`, a separate object from `explosion`.
+            ExplosionOwner::ReconCritical(class) => {
+                let id = context
+                    .wire_remote_id(store_source, class)
+                    .map_err(|e| e.message().to_string())?;
+                registry
+                    .get((id as usize).wrapping_sub(1))
+                    .and_then(|(_, def)| def.get("explosionCritical"))
             }
             ExplosionOwner::Hull { class, last } => {
                 let class = name(class)?;

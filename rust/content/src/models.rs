@@ -173,3 +173,111 @@ pub fn model_pack(records: Option<&Value>, floats: &[f32], indices: &[u32]) -> R
     }
     Ok(models)
 }
+
+fn strict_usize_field(part: &Value, key: &str, label: &str) -> Result<usize, String> {
+    let n = part
+        .get(key)
+        .and_then(Value::as_f64)
+        .ok_or_else(|| format!("{label}: missing or non-numeric {key}"))?;
+    if !n.is_finite() || n < 0.0 || n.fract() != 0.0 || n > (usize::MAX as f64) {
+        return Err(format!("{label}: invalid {key} ({n})"));
+    }
+    Ok(n as usize)
+}
+
+/// Strict 2005 model pack decoder: validates every part's vertex/index byte
+/// offsets, counts, vertex float finiteness, and rebased index bounds against
+/// the backing buffers without altering the released 2004 [`model_pack`].
+pub fn model_pack_swbf2(
+    records: Option<&Value>,
+    floats: &[f32],
+    indices: &[u32],
+    source: &str,
+) -> Result<ModelMap, String> {
+    let mut models = ModelMap::default();
+    let Some(records) = records.filter(|r| !r.is_null()) else {
+        return Ok(models);
+    };
+    let records = records
+        .as_object()
+        .ok_or_else(|| format!("{source}: models table must be a JSON object"))?;
+    for (name, parts) in records.entries() {
+        let list = parts
+            .as_array()
+            .ok_or_else(|| format!("{source}: model '{name}' parts is not an array"))?;
+        let mut out = Vec::with_capacity(list.len());
+        for (part_idx, part) in list.iter().enumerate() {
+            let label = format!("{source}: model '{name}' part[{part_idx}]");
+            if part.as_object().is_none() {
+                return Err(format!("{label}: expected JSON object"));
+            }
+            let vertex_offset = strict_usize_field(part, "vertexOffset", &label)?;
+            let vertex_count = strict_usize_field(part, "vertexCount", &label)?;
+            let index_offset = strict_usize_field(part, "indexOffset", &label)?;
+            let index_count = strict_usize_field(part, "indexCount", &label)?;
+            if !vertex_offset.is_multiple_of(32) {
+                return Err(format!("{label}: vertexOffset {vertex_offset} is not 32-byte aligned"));
+            }
+            if !index_offset.is_multiple_of(4) {
+                return Err(format!("{label}: indexOffset {index_offset} is not 4-byte aligned"));
+            }
+            let float_start = vertex_offset / 4;
+            let float_len = vertex_count
+                .checked_mul(8)
+                .ok_or_else(|| format!("{label}: vertexCount overflow"))?;
+            let float_end = float_start
+                .checked_add(float_len)
+                .ok_or_else(|| format!("{label}: vertex range overflow"))?;
+            if float_end > floats.len() {
+                return Err(format!(
+                    "{label}: vertex range [{float_start}, {float_end}) exceeds buffer ({} floats)",
+                    floats.len()
+                ));
+            }
+            let slice = &floats[float_start..float_end];
+            if let Some(bad) = slice.iter().position(|v| !v.is_finite()) {
+                return Err(format!("{label}: non-finite vertex float at element {bad}"));
+            }
+            let idx_start = index_offset / 4;
+            let idx_end = idx_start
+                .checked_add(index_count)
+                .ok_or_else(|| format!("{label}: index range overflow"))?;
+            if idx_end > indices.len() {
+                return Err(format!(
+                    "{label}: index range [{idx_start}, {idx_end}) exceeds buffer ({} indices)",
+                    indices.len()
+                ));
+            }
+            let vertex_base = u32::try_from(vertex_offset / 32)
+                .map_err(|_| format!("{label}: vertex base overflow"))?;
+            let mut index = Vec::with_capacity(index_count);
+            for &raw in &indices[idx_start..idx_end] {
+                if raw < vertex_base {
+                    return Err(format!(
+                        "{label}: index {raw} precedes part vertex base {vertex_base}"
+                    ));
+                }
+                let local = raw - vertex_base;
+                if (local as usize) >= vertex_count {
+                    return Err(format!(
+                        "{label}: local index {local} exceeds vertexCount {vertex_count}"
+                    ));
+                }
+                index.push(local);
+            }
+            let mut p = Part {
+                data: slice.to_vec(),
+                index,
+                sphere_center: Vector3::default(),
+                sphere_radius: 0.0,
+                record: part.clone(),
+            };
+            let (center, radius) = bounding_sphere(&PartPositions(&p));
+            p.sphere_center = center;
+            p.sphere_radius = radius;
+            out.push(p);
+        }
+        models.set(name, Rc::new(out));
+    }
+    Ok(models)
+}

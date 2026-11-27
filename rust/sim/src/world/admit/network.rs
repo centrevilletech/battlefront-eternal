@@ -9,6 +9,17 @@ use crate::{
 };
 use bfe_content::{content::Content, defs::Defs, files::Files};
 
+/// The flight ceiling a network-admitted world's soldiers were built with.
+pub fn flight_ceiling(world: &World) -> Option<f64> {
+    world.network.as_ref().map(|network| bodies::mission_ceiling(&network.content.battle.world))
+}
+
+/// The most registry ids the battle's bodies may take so far.
+#[cfg(test)]
+pub(crate) fn body_ids(world: &World) -> Option<u32> {
+    world.network.as_ref()?.ids.battle.as_ref()?.construction_limit
+}
+
 pub(crate) struct Network {
     content: Content,
     defs: Defs,
@@ -19,6 +30,78 @@ pub(crate) struct Network {
     bindings: session::PlayerBindings,
     handles: Handles,
     recon_keys: Vec<String>,
+}
+
+fn admit_network_content(w: &mut World, mut content: Content, files: &dyn Files, options: &Options, army_size: Option<f64>) -> Result<Admitted, AdmitError> {
+    let defs = Defs::build(&content).map_err(failure)?;
+    let doors = sequence::doors_of(&content)?;
+    if options.family == bfe_family::GameFamily::Swbf2 {
+        sequence::register_classes(w, &content, &defs)?;
+    }
+    let mut cx = Cx::new(&content, &defs, files, options, w.sim.strings.clone());
+    cx.connection_capacity = 256;
+    // Dedicated world-worker.js supplies armySize 32; LocalServer's
+    // null choice retains the smaller authored offline populations.
+    cx.army_size = army_size;
+    let admitted = sequence::construct(w, &content, &defs, files, &mut cx, &mut Rows::default(), doors)?;
+    if w.space.is_some() {
+        crate::wire::store_source::publish_space(w, admitted.handles.store_source, admitted.wire_bounds);
+    }
+    let state = (cx.ids, cx.definitions, cx.holders, cx.player);
+    // The local admission exercises the shared construction path, but its
+    // Character is released before a network client can claim a slot.
+    let setup = w
+        .input
+        .players
+        .pool
+        .get(admitted.handles.player as usize)
+        .ok_or_else(|| failure("missing local player".into()))?;
+    let character = setup.character.clone();
+    let recon_key = setup.recon_key;
+    retire_recon(w, character.as_ref(), recon_key);
+    crate::players::module::players_drop_in(w, admitted.handles.player);
+    if let Some(character) = character {
+        release(w, character);
+    }
+    crate::wire::host::wire_host_op_in(w, admitted.handles.host as usize, 1, 1, 0., 0.);
+    // Only UnitFactory's infantry catalog survives construction. The
+    // owning collision, fleet and AI services already installed these
+    // world assets; later addPlayer prepares actors, clips and weapons.
+    // Retaining both copies charges every connection for map geometry
+    // that its class stock can never read.
+    content.weapon_packs = Vec::new();
+    content.vehicle_models = None;
+    content.vehicle_extras = None;
+    content.props_models = None;
+    content.vehicle_templates = Vec::new();
+    content.vehicle_blockers = None;
+    content.prop_bodies = Vec::new();
+    content.prop_clips = Vec::new();
+    content.death_regions = Vec::new();
+    content.route_words = None;
+    content.placed_items = Vec::new();
+    // Keep the scalar kill plane, but release the collision loader's
+    // authored triangle arrays after the kernel owns its native banks.
+    let collision = &mut content.collision;
+    collision.positions = std::rc::Rc::from([]);
+    collision.indices = std::rc::Rc::from([]);
+    collision.polygons = std::rc::Rc::from([]);
+    collision.terrain_positions = std::rc::Rc::from([]);
+    collision.terrain_indices = std::rc::Rc::from([]);
+    collision.tri_bounds = Vec::new();
+    collision.grid = None;
+    w.network = Some(Box::new(Network {
+        content,
+        defs,
+        options: options.clone(),
+        ids: state.0,
+        definitions: state.1,
+        holders: state.2,
+        bindings: state.3,
+        handles: admitted.handles,
+        recon_keys: Vec::new(),
+    }));
+    Ok(admitted)
 }
 
 impl Context {
@@ -40,98 +123,80 @@ impl Context {
         })?
     }
 
+    /// Developer-only dedicated authority admission with its own mission and seed.
+    pub fn world_network_admit_mission(&self, files: &dyn Files, options: &Options, selection: &mission::MissionSelection,
+        preferences: mission::MissionPreferences) -> Result<Admitted, Error> {
+        self.world_network_mission_content(files,options,selection,preferences).map(|(admitted,_)|admitted)
+    }
+
+    pub fn world_network_mission_content(&self,files:&dyn Files,options:&Options,selection:&mission::MissionSelection,
+        preferences:mission::MissionPreferences)->Result<(Admitted,mission::MissionResources),Error> {
+        self.owned(|w| {
+            // Without bots no unit count says how many places a side has.
+            let army_size=(!options.bots.fielded).then_some(crate::battle::roster::MAX_TEAM_SIZE);
+            let (admitted,_,resources)=mission::prepare(w,files,options,selection,preferences,true,
+                |w,content,files,opts|admit_network_content(w,content,files,opts,army_size))?;
+            crate::wire::store_source::publish_mission(w,admitted.handles.store_source);
+            Ok((admitted,resources))
+        })?.map_err(crate::abi::context_step::admit_error)
+    }
+
     /// Same construction as world_admit, retaining the cold factory catalog.
     pub fn world_network_admit(
         &self,
         files: &dyn Files,
         options: &Options,
     ) -> Result<Admitted, Error> {
+        // The one family check of a network admission, before any content is read.
+        options.family.require_available().map_err(|e| Error::host(e.to_string()))?;
         self.owned(|w| -> Result<Admitted, AdmitError> {
             let loader = bfe_content::battle::Loader::new(files);
             let battle = bfe_content::battle::Battle::load(&loader, &options.map, &options.query())
                 .map_err(failure)?;
-            let mut content = Content::build(battle).map_err(failure)?;
-            let defs = Defs::build(&content).map_err(failure)?;
-            let mut cx = Cx::new(&content, &defs, files, options, w.sim.strings.clone());
-            cx.connection_capacity = 256;
-            // Dedicated world-worker.js supplies armySize 32; LocalServer's
-            // null choice retains the smaller authored offline populations.
-            cx.army_size = Some(crate::battle::roster::MAX_TEAM_SIZE);
-            let mut rows = Rows {
-                setup: rows::setup(&content.battle),
-                ..Default::default()
-            };
-            let mut admitted = Admitted {
-                setup: rows.setup.clone(),
-                ..Default::default()
-            };
-            sequence::run_stages(
-                w,
-                &content,
-                &mut cx,
-                &mut rows,
-                &mut admitted,
-                &sequence::ORDER,
-            )?;
-            // Both admission entries hand the host the same gameplay, grenade
-            // spin, drop and seat streams before any dedicated tick can draw.
-            sequence::push_page_streams(w, &mut cx)?;
-            admitted.units = spawn::units(w)?;
-            let state = (cx.ids, cx.definitions, cx.holders, cx.player);
-            // The local admission exercises the shared construction path, but its
-            // Character is released before a network client can claim a slot.
-            let setup = w
-                .input
-                .players
-                .pool
-                .get(admitted.handles.player as usize)
-                .ok_or_else(|| failure("missing local player".into()))?;
-            let character = setup.character.clone();
-            let recon_key = setup.recon_key;
-            retire_recon(w, character.as_ref(), recon_key);
-            crate::players::module::players_drop_in(w, admitted.handles.player);
-            if let Some(character) = character {
-                release(w, character);
+            let content = Content::build(battle).map_err(failure)?;
+            admit_network_content(w, content, files, options, Some(crate::battle::roster::MAX_TEAM_SIZE))
+        })?
+        .map_err(|e| Error::host(e.to_string()))
+    }
+
+    /// Family-explicit variant of [`Context::world_network_admit`].
+    ///
+    /// Delegates `GameFamily::Swbf1` directly to [`Context::world_network_admit`]
+    /// so released 2004 behavior stays untouched, and admits 2005 worlds via
+    /// `Battle::load_for_family`.
+    pub fn world_network_admit_for_family(
+        &self,
+        files: &dyn Files,
+        family: bfe_content::GameFamily,
+        options: &Options,
+        mission: Option<&str>,
+    ) -> Result<Admitted, Error> {
+        if family == bfe_content::GameFamily::Swbf1 {
+            if mission.is_some() {
+                return Err(Error::host(
+                    "2004 network admission does not accept a mission override",
+                ));
             }
-            crate::wire::host::wire_host_op_in(w, admitted.handles.host as usize, 1, 1, 0., 0.);
-            // Only UnitFactory's infantry catalog survives construction. The
-            // owning collision, fleet and AI services already installed these
-            // world assets; later addPlayer prepares actors, clips and weapons.
-            // Retaining both copies charges every connection for map geometry
-            // that its class stock can never read.
-            content.weapon_packs = Vec::new();
-            content.vehicle_models = None;
-            content.vehicle_extras = None;
-            content.props_models = None;
-            content.vehicle_templates = Vec::new();
-            content.vehicle_blockers = None;
-            content.prop_bodies = Vec::new();
-            content.prop_clips = Vec::new();
-            content.death_regions = Vec::new();
-            content.route_words = None;
-            content.placed_items = Vec::new();
-            // Keep the scalar kill plane, but release the collision loader's
-            // authored triangle arrays after the kernel owns its native banks.
-            let collision = &mut content.collision;
-            collision.positions = std::rc::Rc::from([]);
-            collision.indices = std::rc::Rc::from([]);
-            collision.polygons = std::rc::Rc::from([]);
-            collision.terrain_positions = std::rc::Rc::from([]);
-            collision.terrain_indices = std::rc::Rc::from([]);
-            collision.tri_bounds = Vec::new();
-            collision.grid = None;
-            w.network = Some(Box::new(Network {
-                content,
-                defs,
-                options: options.clone(),
-                ids: state.0,
-                definitions: state.1,
-                holders: state.2,
-                bindings: state.3,
-                handles: admitted.handles,
-                recon_keys: Vec::new(),
-            }));
-            Ok(admitted)
+            return self.world_network_admit(files, options);
+        }
+        // The battle's game is one value: the options' family is the one loaded.
+        let options = &Options { family, ..options.clone() };
+        self.owned(|w| -> Result<Admitted, AdmitError> {
+            let loader = bfe_content::battle::Loader::new(files);
+            let mut query = options.query();
+            if let Some(m) = mission {
+                query.push_str("&mission=");
+                query.push_str(m);
+            }
+            let battle = bfe_content::battle::Battle::load_for_family(
+                &loader,
+                family,
+                &options.map,
+                &query,
+            )
+            .map_err(failure)?;
+            let content = Content::build(battle).map_err(failure)?;
+            admit_network_content(w, content, files, options, Some(crate::battle::roster::MAX_TEAM_SIZE))
         })?
         .map_err(|e| Error::host(e.to_string()))
     }
@@ -205,6 +270,7 @@ impl Context {
                 .get(player as usize)
                 .and_then(|p| p.recon_key);
             retire_recon(w, character.as_ref(), recon_key);
+            w.disconnect_space_pilot(player);
             crate::players::module::players_stop_in(w, player);
             crate::players::module::players_drop_in(w, player);
             if let Some(character) = character {
@@ -268,7 +334,28 @@ fn result<T>(words: &[f64], take: impl FnOnce(&[f64], &[f64]) -> T) -> T {
     take(&words[BlockHeader::WORDS..], &words[heap..])
 }
 impl Network {
+    /// Admits a network player. A 2004 battle runs the released body, kept as it
+    /// was; a 2005 battle runs its own, which also gives back what it reserved
+    /// when it refuses.
     fn join(
+        &mut self,
+        w: &mut World,
+        files: &dyn Files,
+        peer: u32,
+        id: &str,
+        name: &str,
+        spectator: bool,
+        auto: bool,
+        team_select: bool,
+        mailbox: u32,
+        at: f64,
+    ) -> Result<session::LocalPlayer, AdmitError> {
+        match self.options.family {
+            bfe_family::GameFamily::Swbf1 => self.released_join(w, files, peer, id, name, spectator, auto, team_select, mailbox, at),
+            bfe_family::GameFamily::Swbf2 => self.swbf2_join(w, files, peer, id, name, spectator, auto, team_select, mailbox, at),
+        }
+    }
+    fn released_join(
         &mut self,
         w: &mut World,
         files: &dyn Files,
@@ -499,6 +586,264 @@ impl Network {
             tick: 0.,
         })
     }
+    fn swbf2_join(
+        &mut self,
+        w: &mut World,
+        files: &dyn Files,
+        peer: u32,
+        id: &str,
+        name: &str,
+        spectator: bool,
+        auto: bool,
+        team_select: bool,
+        mailbox: u32,
+        at: f64,
+    ) -> Result<session::LocalPlayer, AdmitError> {
+        if !(1..=256).contains(&peer) || w.input.mailboxes.get(mailbox as usize).is_none() {
+            return Err(failure("invalid network connection".into()));
+        }
+        // addPlayer uses roster.counts(), whose team lists include the
+        // reserved Characters even when the public battle list is sparse.
+        let command = F4RosterCommand {
+            op: RoOperation::Counts,
+            ..Default::default()
+        };
+        record(w, F4RosterCommand::WORDS, &command, F4RosterCommand::put);
+        let words = crate::battle::f4_roster::f4_roster_command_in(w)
+            .ok_or_else(|| failure("roster unavailable".into()))?;
+        let counts = result(words, F4RosterResult::take).counts;
+        let team = counts
+            .iter()
+            .min_by(|a, b| a.humans.total_cmp(&b.humans))
+            .map_or(1., |c| c.team);
+        let key = bfe_content::js::number_to_string(team);
+        let roster = |team: &str| {
+            bfe_content::mission::playable_classes(
+                self.content
+                    .battle
+                    .world
+                    .get("mission")
+                    .and_then(|m| m.get("teams"))
+                    .and_then(|t| t.get(team)),
+            )
+        };
+        let class_name = roster(&key)
+            .first()
+            .cloned()
+            .ok_or_else(|| failure("no playable class".into()))?;
+        let classes = [roster("1"), roster("2")].concat();
+        let mut cx = Cx::new(
+            &self.content,
+            &self.defs,
+            files,
+            &self.options,
+            w.sim.strings.clone(),
+        );
+        cx.player = self.bindings.clone();
+        cx.ids = std::mem::take(&mut self.ids);
+        cx.definitions = std::mem::take(&mut self.definitions);
+        cx.holders = std::mem::take(&mut self.holders);
+        // The join spawns one body of its first class: a pooled one, or a
+        // new unit id. Class stock staged below takes no id until it is
+        // built, and a later class switch returns the old body to its pool.
+        let first = w.sim.strings.intern_str(&class_name);
+        let new_body = !crate::units::f3::pooled_in(w, first);
+        let needed = (w.sim.store.units.next_id as u32).saturating_add(new_body as u32);
+        if cx
+            .ids
+            .battle
+            .as_ref()
+            .and_then(|b| b.construction_limit)
+            .unwrap_or(0)
+            < needed
+        {
+            // The AI reserved its queries and identities for a fixed number
+            // of bodies, and a 2005 battle's network keeps its own; past that
+            // a new body would overflow them.
+            let room = rows::battle::stock::id_limit(w, self.options.family);
+            if room < needed {
+                self.ids = cx.ids;
+                self.definitions = cx.definitions;
+                self.holders = cx.holders;
+                return Err(failure("server full".into()));
+            }
+            let limit = needed.saturating_add(rows::battle::stock::FACTORY_HEADROOM).min(room);
+            w.reserve_spawn_bodies(limit);
+            if let Some(facts) = &mut cx.ids.battle {
+                facts.construction_limit = Some(limit);
+            }
+        }
+        let prepared = (|| {
+            for class in classes {
+                session::prepare_class(&mut cx, &class)?;
+                spawn::prepare(w, &mut cx, &class)?;
+            }
+            Ok::<_, AdmitError>(())
+        })();
+        self.ids = cx.ids;
+        self.definitions = cx.definitions;
+        self.holders = cx.holders;
+        prepared?;
+        let character = if spectator {
+            None
+        } else {
+            let cmd = F4RosterCommand {
+                op: RoOperation::Reserve,
+                team,
+                player_id: PlayerId::Str(w.sim.strings.intern_str(id)),
+                name: w.sim.strings.intern_str(name),
+                ..Default::default()
+            };
+            record(w, F4RosterCommand::WORDS, &cmd, F4RosterCommand::put);
+            let words = crate::battle::f4_roster::f4_roster_command_in(w)
+                .ok_or_else(|| failure("roster unavailable".into()))?;
+            Some(
+                result(words, F4RosterResult::take)
+                    .handle
+                    .ok_or_else(|| failure("team full".into()))?,
+            )
+        };
+        // F3Recon.admitKey is stable by authenticated identity, not by a
+        // transport slot that a different client can reuse after leave.
+        let recon_key = if spectator {
+            None
+        } else {
+            let index = self
+                .recon_keys
+                .iter()
+                .position(|key| key == id)
+                .unwrap_or_else(|| {
+                    self.recon_keys.push(id.to_string());
+                    self.recon_keys.len() - 1
+                });
+            Some(index as u32)
+        };
+        let mut unit_id = 1;
+        let mut generation = 0.;
+        if let Some(h) = &character {
+            let Some(r) = crate::battle::f4_core::resolve_character_ref(&w.battle, &w.sim.store, h) else {
+                release(w, h.clone());
+                return Err(failure("invalid Character".into()));
+            };
+            let binding = F3PlayerBinding {
+                character: r,
+                local: false,
+                combat_random: self.bindings.combat_random,
+                weapon_random: self.bindings.weapon_random,
+                recon_key,
+                recon_seed: rows::recon::seed(self.options.seed, id),
+                body: None,
+            };
+            w.bind_spawn_player(&binding);
+            for op in [F4ConnectionOp::Admit, F4ConnectionOp::Spawn] {
+                let cmd = F4ConnectionCommand {
+                    op,
+                    target: h.clone(),
+                    class_name: Some(w.sim.strings.intern_str(&class_name)),
+                    ordinal: peer as f64,
+                    ..Default::default()
+                };
+                record(
+                    w,
+                    F4ConnectionCommand::WORDS,
+                    &cmd,
+                    F4ConnectionCommand::put,
+                );
+                let Some(words) = crate::battle::f4_connections::f4_connection_command_in(w) else {
+                    release(w, h.clone());
+                    return Err(failure("connection unavailable".into()));
+                };
+                let view = result(words, F4ConnectionView::take);
+                if !view.accepted {
+                    release(w, h.clone());
+                    return Err(failure("no eligible spawn".into()));
+                }
+                if let Some(r) = view.unit {
+                    unit_id = r.slot;
+                    generation = w.sim.store.unit.get(r).map_or(0., |u| u.generation);
+                }
+            }
+            // A mission deploys its players itself, once they are its.
+            if !auto || w.has_mission() {
+                let cmd = F4ConnectionCommand {
+                    op: F4ConnectionOp::Unspawn,
+                    target: h.clone(),
+                    ..Default::default()
+                };
+                record(
+                    w,
+                    F4ConnectionCommand::WORDS,
+                    &cmd,
+                    F4ConnectionCommand::put,
+                );
+                crate::battle::f4_connections::f4_connection_command_in(w);
+            }
+        }
+        let setup = PlayerSetup {
+            mailbox,
+            character: character.clone(),
+            spectator,
+            reliable_fire: true,
+            separate_actions: true,
+            team_select,
+            recon_key,
+            ordinal: peer as f64,
+            team,
+            at,
+            ..Default::default()
+        };
+        record(w, PlayerSetup::WORDS, &setup, PlayerSetup::put);
+        let player = crate::players::module::players_create_in(w);
+        if player == 0 {
+            if let Some(h) = character {
+                release(w, h);
+            }
+            return Err(failure("no player capacity".into()));
+        }
+        crate::players::module::players_outcomes_enable_in(w, player);
+        if let Some(h) = character.as_ref().filter(|_| w.has_mission()) {
+            if let Err(e) = crate::battle::f4_connections::mission::bind(w, player) {
+                retire_recon(w, character.as_ref(), recon_key);
+                crate::players::module::players_drop_in(w, player);
+                release(w, h.clone());
+                return Err(failure(e.into()));
+            }
+            if auto {
+                let cmd = F4ConnectionCommand {
+                    op: F4ConnectionOp::Spawn,
+                    target: h.clone(),
+                    ordinal: peer as f64,
+                    ..Default::default()
+                };
+                record(w, F4ConnectionCommand::WORDS, &cmd, F4ConnectionCommand::put);
+                crate::battle::f4_connections::f4_connection_command_in(w);
+            }
+        }
+        if !spectator && w.space.is_some() {
+            w.connect_space_pilot(player, mailbox);
+        }
+        crate::wire::store_source::network_peer(
+            w,
+            self.handles.store_source,
+            peer,
+            Some(WireStorePeer {
+                id: peer,
+                character: character.clone(),
+                mailbox,
+            }),
+        );
+        Ok(session::LocalPlayer {
+            mailbox,
+            player,
+            character,
+            unit_id,
+            generation,
+            team,
+            class_name,
+            team_select,
+            tick: 0.,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -507,13 +852,35 @@ mod tests {
     use bfe_content::files::DirFiles;
 
     #[test]
+    fn retained_family_requires_fresh_world_at_both_admission_entries() {
+        let Ok(root) = std::env::var("BFE_CONTENT_DIR") else { return };
+        let files = DirFiles::new(root, bfe_family::GameFamily::Swbf1);
+        let options = Options {
+            family: bfe_family::GameFamily::Swbf1,
+            map: "nab2".into(), side: "rep".into(), enhanced: false, seed: 1,
+            heroes: false, unit: None, name: None, bots: Default::default(),
+            ..Default::default()
+        };
+        for admit in [Context::world_admit, Context::world_network_admit] {
+            let context = Context::new();
+            context.owned(|w| {
+                w.movement.select_family(bfe_family::GameFamily::Swbf2).unwrap();
+                w.movement.new_mover(0, |_| {});
+            }).unwrap();
+            let error = admit(&context, &files, &options).err().expect("retained mover");
+            assert!(error.to_string().contains("requires a fresh world"), "{error}");
+        }
+    }
+
+    #[test]
     fn network_admission_binds_names_and_distinct_source_characters() {
         let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
             return;
         };
-        let files = DirFiles::new(root);
+        let files = DirFiles::new(root, bfe_family::GameFamily::Swbf1);
         let context = Context::new();
         let options = Options {
+            family: bfe_family::GameFamily::Swbf1,
             map: "nab2".into(),
             side: "rep".into(),
             enhanced: false,
@@ -521,8 +888,11 @@ mod tests {
             heroes: false,
             unit: None,
             name: None, bots: Default::default(),
+            ..Default::default()
         };
         context.world_network_admit(&files, &options).unwrap();
+        // What a 2005 map adds to its world a 2004 battle never has.
+        context.owned(|w| assert!(w.space.is_none() && w.units.map_world_bounds.is_none())).unwrap();
         for (peer, name) in [(1, "First"), (2, "Second")] {
             let mailbox = context
                 .owned(|w| {
@@ -572,9 +942,10 @@ mod tests {
         let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
             return;
         };
-        let files = DirFiles::new(root);
+        let files = DirFiles::new(root, bfe_family::GameFamily::Swbf1);
         let context = Context::new();
         let options = Options {
+            family: bfe_family::GameFamily::Swbf1,
             map: "nab2".into(),
             side: "rep".into(),
             enhanced: false,
@@ -582,6 +953,7 @@ mod tests {
             heroes: false,
             unit: None,
             name: None, bots: Default::default(),
+            ..Default::default()
         };
         context.world_network_admit(&files, &options).unwrap();
         let mut players = Vec::new();
@@ -712,9 +1084,10 @@ mod tests {
         let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
             return;
         };
-        let files = DirFiles::new(root);
+        let files = DirFiles::new(root, bfe_family::GameFamily::Swbf1);
         let context = Context::new();
         let options = Options {
+            family: bfe_family::GameFamily::Swbf1,
             map: "nab2".into(),
             side: "rep".into(),
             enhanced: false,
@@ -723,6 +1096,7 @@ mod tests {
             unit: None,
             name: None,
             bots: crate::world::admit::Bots { fielded, ..Default::default() },
+            ..Default::default()
         };
         context.world_network_admit(&files, &options).unwrap();
         let join = |peer: u32| {
@@ -790,9 +1164,10 @@ mod tests {
         let Ok(root) = std::env::var("BFE_CONTENT_DIR") else {
             return;
         };
-        let files = DirFiles::new(root);
+        let files = DirFiles::new(root, bfe_family::GameFamily::Swbf1);
         let context = Context::new();
         let options = Options {
+            family: bfe_family::GameFamily::Swbf1,
             map: "nab2".into(),
             side: "rep".into(),
             enhanced: false,
@@ -801,6 +1176,7 @@ mod tests {
             unit: None,
             name: None,
             bots: Default::default(),
+            ..Default::default()
         };
         context.world_admit(&files, &options).unwrap();
         context

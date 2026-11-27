@@ -35,6 +35,7 @@ pub struct WeaponAi {
     pub extreme_range: f64,
     pub relation_mask: u32,
     pub category_mask: u32,
+    pub ai_category_mask: u32,
     pub barrage_min: f64,
     pub barrage_max: f64,
     pub barrage_delay: f64,
@@ -42,6 +43,7 @@ pub struct WeaponAi {
     pub trigger_single: bool,
     pub zoom_max: f64,
     pub action: f64,
+    pub swbf2_action: f64,
     /// Immutable definition flags used by consumeFire and prepareSpread.
     pub cannon: bool,
     pub authored_yaw: bool,
@@ -217,6 +219,7 @@ impl WeaponAiTable {
                 flags.map(|f| f.1).unwrap_or(DEFAULT_CATEGORY_MASK)
             }
         };
+        let ai_category = flags.map(|f| f.2).unwrap_or(DEFAULT_CATEGORY_MASK);
         let trigger_single = def.get("base").is_str("melee") || {
             let v = ai_get("triggerSingle");
             if !v.is_nullish() {
@@ -241,6 +244,11 @@ impl WeaponAiTable {
                 action_of(def.get("AnimationBank"))
             }
         };
+        let swbf2_action = if matches!(def.get("base").str(), Some("melee" | "meleethrow")) {
+            action::MELEE
+        } else {
+            action
+        };
         WeaponAi {
             min_range: f(pick("minRange", "MinRange", DEFAULT_MIN_RANGE)),
             optimal_range: f(pick("optimalRange", "OptimalRange", DEFAULT_OPTIMAL_RANGE)),
@@ -249,12 +257,14 @@ impl WeaponAiTable {
             extreme_range: f(extreme),
             relation_mask: relation,
             category_mask: category,
+            ai_category_mask: ai_category,
             barrage_min: pick("barrageMin", "BarrageMin", DEFAULT_BARRAGE_MIN),
             barrage_max: pick("barrageMax", "BarrageMax", DEFAULT_BARRAGE_MAX),
             barrage_delay: f(pick("barrageDelay", "BarrageDelay", DEFAULT_BARRAGE_DELAY)),
             trigger_single,
             zoom_max: f(zoom_max),
             action,
+            swbf2_action,
             cannon: is_cannon(Some(def)),
             authored_yaw: def.get("YawSpread").truthy(),
         }
@@ -292,10 +302,12 @@ pub fn num(value: &Js) -> Option<f64> {
 }
 
 /// `maskFromFlags(def)`: TargetAll first, then each
-/// flag its bit.
-fn mask_from_flags(def: &JsObj) -> (u32, u32) {
+/// flag its bit; the 2005 AI category mask starts from the same default
+/// independently and applies only `AITarget*` overrides.
+fn mask_from_flags(def: &JsObj) -> (u32, u32, u32) {
     let mut relation = DEFAULT_RELATION_MASK;
     let mut category = DEFAULT_CATEGORY_MASK;
+    let mut ai_category = DEFAULT_CATEGORY_MASK;
     let truthy_number = |v: &Js| {
         let n = v.num();
         !(n == 0.0 || n.is_nan())
@@ -324,7 +336,25 @@ fn mask_from_flags(def: &JsObj) -> (u32, u32) {
             category = if truthy_number(v) { category | bit } else { category & !bit };
         }
     }
-    (relation, category)
+    let ai_all = def.get("AITargetAll");
+    if !ai_all.is_undefined() {
+        ai_category = if truthy_number(ai_all) { 0xffff_ffff } else { 0 };
+    }
+    for (key, bit) in [
+        ("AITargetPerson", 1u32),
+        ("AITargetAnimal", 2),
+        ("AITargetDroid", 4),
+        ("AITargetVehicle", 8),
+        ("AITargetBuilding", 16),
+        ("AITargetBuildingDead", 32),
+        ("AITargetBuildingUnbuilt", 64),
+    ] {
+        let v = def.get(key);
+        if !v.is_undefined() {
+            ai_category = if truthy_number(v) { ai_category | bit } else { ai_category & !bit };
+        }
+    }
+    (relation, category, ai_category)
 }
 
 /// String(x) of a definition's value (for its lower-cased names).
@@ -603,13 +633,15 @@ pub fn weapon_utility<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, owner
     if !ordnance.truthy() && base.is_str("melee") && (target_kind == 0.0 || target_kind == 3.0) {
         return accept(1000.0);
     }
-    if owner_soldier && owner_hero && is_cannon(Some(&def)) {
+    if !w.uses_swbf2() && owner_soldier && owner_hero && is_cannon(Some(&def)) {
         return accept(1000.0);
     }
     if t.trap {
         return (false, 0.0);
     }
-    if owner_soldier && target_kind == 0.0 && table.weapon_ai(&def).category_mask & shl1(category_of(&t)) == 0 {
+    let ai = table.weapon_ai(&def);
+    let mask = if w.uses_swbf2() { ai.ai_category_mask } else { ai.category_mask };
+    if owner_soldier && target_kind == 0.0 && mask & shl1(category_of(&t)) == 0 {
         return (false, 0.0);
     }
     if !ordnance.truthy() {
@@ -720,6 +752,21 @@ fn grenade_priority(clusters: &mut Clusters, controller_roll: Option<f64>, targe
     id % 10.0 == v8math::trunc(v8math::trunc(now) / 3.0) % 10.0
 }
 
+/// Whether `unit` carries a loaded weapon that can engage `target` at any distance.
+pub fn has_weapon_for_target<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, unit: Obj, target: Obj) -> bool {
+    let count = w.weapon_count(unit);
+    for i in 0..count {
+        let Some(wv) = w.weapon(unit, i) else { continue };
+        if !(ammo_count(&wv) > 0.0) {
+            continue;
+        }
+        if weapon_utility(w, table, unit, i, target).0 {
+            return true;
+        }
+    }
+    false
+}
+
 /// `selectWeapon(controller, unit, target, switchAllowed,
 /// world)`.
 pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: Option<Obj>, unit: Obj, target: Option<Obj>, switch_allowed: bool) -> Choice {
@@ -736,12 +783,17 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
     let owner_soldier = w.unit_scalars(unit).kind == 0.0;
     let range_scale = controller.map(|c| w.ctl(c).range_scale).unwrap_or(None);
     let roll = controller.map(|c| w.ctl(c).roll);
+    let swbf2 = w.uses_swbf2();
     let mut best: Option<usize> = None;
     let mut best_score = -1.0;
     let mut best_big = false;
     let mut best_in_band = false;
     for i in 0..count {
         if !(ammo_count(&w.weapon(unit,i).expect("arsenal member")) > 0.0) {
+            continue;
+        }
+        let melee_throw = swbf2 && def_at(w, unit, i).get("base").is_str("meleethrow");
+        if switch_allowed && melee_throw && w.melee_throw_reloading(unit) {
             continue;
         }
         let (ok, score) = weapon_utility(w, &cx.weapons, unit, i, target);
@@ -756,7 +808,7 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
         let range = effective_range(&cx.weapons, w.unit_scalars(unit).kind, range_scale, &def);
         if d2 <= f(a.min_range * a.min_range) || f(range * range) <= d2 {
             // Out of the band: a fallback while nothing in band is found.
-            if best_in_band {
+            if best_in_band || melee_throw {
                 continue;
             }
             let (kind,speed)=w.unit_weapon_motion(unit);
@@ -786,7 +838,8 @@ pub fn select_weapon<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: 
     let Some(best) = best else { return out };
     out.ok = true;
     out.index = Some(best);
-    out.action = cx.weapons.weapon_ai(&def_at(w, unit, best)).action;
+    let best_ai = cx.weapons.weapon_ai(&def_at(w, unit, best));
+    out.action = if swbf2 { best_ai.swbf2_action } else { best_ai.action };
     out.in_band = best_in_band;
     if switch_allowed && selected_weapon(w, unit, controller) != Some(best) {
         if let Some(c) = controller {
@@ -832,6 +885,9 @@ pub struct FireControl {
     pub hold: f64,
     pub sniper_active: bool,
     pub sniper_deadline: f64,
+    pub single_waiting: bool,
+    pub single_deadline: f64,
+    pub melee_fire_raw: bool,
     pub burst: Burst,
     pub weapon_target: Option<Ref>,
     pub protected: Inline<Ref,8>,
@@ -847,6 +903,9 @@ impl Default for FireControl {
             hold: 0.0,
             sniper_active: false,
             sniper_deadline: 0.0,
+            single_waiting: true,
+            single_deadline: -1.0,
+            melee_fire_raw: false,
             burst: Burst::default(),
             weapon_target: None,
             protected: Inline::default(),
@@ -867,6 +926,9 @@ impl FireControl {
         self.hold = 0.0;
         self.sniper_active = false;
         self.sniper_deadline = 0.0;
+        self.single_waiting = true;
+        self.single_deadline = -1.0;
+        self.melee_fire_raw = false;
         self.burst.state = 0.0;
         self.weapon_target = None;
         self.protected.clear();
@@ -915,6 +977,9 @@ pub fn switch_weapon<W: World + ?Sized>(w: &mut W, controller: Obj, unit: Obj, i
     }
     let fire = fire_mut(w, controller).unwrap();
     fire.sniper_active = false;
+    fire.single_waiting = true;
+    fire.single_deadline = -1.0;
+    fire.melee_fire_raw = false;
     fire.last_release = -1.0;
     fire.charging = false;
     fire.burst.state = 0.0;
@@ -936,7 +1001,8 @@ pub fn set_target<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controlle
         let a = table.weapon_ai(&def_at(w, unit, index));
         let (ut, tt) = (w.unit_scalars(unit).team, w.unit_scalars(t).team);
         let rel = w.relation(ut, tt);
-        if a.relation_mask & relation_bit(rel) == 0 || a.category_mask & shl1(category_of(&w.unit(t))) == 0 {
+        let mask = if w.uses_swbf2() { a.ai_category_mask } else { a.category_mask };
+        if a.relation_mask & relation_bit(rel) == 0 || mask & shl1(category_of(&w.unit(t))) == 0 {
             kept = None;
         }
     }
@@ -993,6 +1059,7 @@ pub fn consume_fire<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: O
         (c.fire_a, c.fire_b, c.target)
     };
     let mut request = fire_a;
+    let mut melee_fire_raw = false;
     if let Some(index) = weapon {
         if !fire_a && fire_b {
             if let Some(t) = resolve(w, target) {
@@ -1000,6 +1067,7 @@ pub fn consume_fire<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: O
             }
         }
         let def = def_at(w, unit, index);
+        melee_fire_raw = request && def.get("base").is_str("melee");
         if w.weapon_chargeable(unit,index) {
             request = charge_request(w, controller, unit, index, request, now);
         } else {
@@ -1016,6 +1084,7 @@ pub fn consume_fire<W: World + ?Sized>(w: &mut W, cx: &mut Shared, controller: O
         prepare_spread(w, &cx.weapons, controller, unit, Some(index));
     }
     let fire = fire_mut(w, controller).unwrap();
+    fire.melee_fire_raw = melee_fire_raw;
     let channel = fire.channel;
     let a = index_of(channel).filter(|&i| i < 2).expect("consumeFire: the fire channel's button (0 or 1)");
     let b = index_of(1.0 - channel).filter(|&i| i < 2).expect("consumeFire: the other button (0 or 1)");
@@ -1108,11 +1177,76 @@ fn weapon_gravity(wv: &super::world::WeaponView) -> f64 {
     }
 }
 
+fn swbf2_skill_t(skill: f64) -> f64 {
+    let clamped = v8math::min(v8math::max(skill, 1.0), 20.0);
+    f(f(clamped - 1.0) / 19.0)
+}
+
+fn swbf2_skill_scale(skill: f64) -> f64 {
+    f(f(0.1) + f(f(0.8) * swbf2_skill_t(skill)))
+}
+
+fn step_swbf2_single_trigger(
+    waiting: &mut bool,
+    deadline: &mut f64,
+    request: bool,
+    now: f64,
+    skill: f64,
+    draw: impl FnOnce(f64, f64) -> f64,
+) -> bool {
+    if !request {
+        *waiting = true;
+        *deadline = -1.0;
+        return false;
+    }
+    if !*waiting {
+        let inv = v8math::max(0.0, f(1.0 - swbf2_skill_scale(skill)));
+        let wait = draw(f(f(0.2) * inv), f(f(2.0) * inv));
+        *waiting = true;
+        *deadline = f(f(now) + wait);
+        return true;
+    }
+    if f(*deadline) < f(now) {
+        *waiting = false;
+    }
+    false
+}
+
+fn swbf2_burst_count(barrage_min: f64, barrage_max: f64, skill: f64, draw: impl FnOnce(f64, f64) -> f64) -> f64 {
+    let t = swbf2_skill_t(skill);
+    let span = v8math::max(0.0, f(barrage_max - barrage_min));
+    let extra = if span > 0.0 { f(draw(0.0, span) * t) } else { 0.0 };
+    v8math::max(2.0, v8math::trunc(f(f(barrage_min) + extra)))
+}
+
+fn swbf2_burst_delay(barrage_delay: f64, skill: f64) -> f64 {
+    f(f(barrage_delay) * f(f(1.6) - swbf2_skill_scale(skill)))
+}
+
 /// `semiautoRequest`.
 fn semiauto_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller: Obj, unit: Obj, index: usize, mut request: bool, now: f64) -> bool {
     let wv = w.weapon(unit,index).expect("arsenal member");
-    if sniper_weapon(table, Some(&wv.def)) {
+    let sniper = sniper_weapon(table, Some(&wv.def));
+    if sniper {
         request = sniper_gate(w, controller, &wv, request, now);
+    } else if w.uses_swbf2() {
+        let skill = w.team_skill(w.unit_scalars(unit).team);
+        let (mut waiting, mut deadline) = {
+            let fire = &w.ctl(controller).perception.as_ref().unwrap().fire;
+            (fire.single_waiting, fire.single_deadline)
+        };
+        let emitted = step_swbf2_single_trigger(&mut waiting, &mut deadline, request, now, skill, |lo, hi| {
+            if lo == hi { lo } else { draw_range(w, Gen::A, lo, hi) }
+        });
+        let dst = fire_mut(w, controller).unwrap();
+        dst.single_waiting = waiting;
+        dst.single_deadline = deadline;
+        if emitted && matches!(wv.def.get("base").str(), Some("dispenser" | "remote" | "detonator" | "shield")) {
+            let c = w.ctl_mut(controller);
+            c.fire_a = false;
+            c.fire_b = false;
+        }
+        return emitted;
     }
     if !request {
         return false;
@@ -1190,14 +1324,23 @@ fn burst_request<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, controller
             b.state = 1.0;
         }
     }
+    let swbf2 = w.uses_swbf2();
+    let skill = if swbf2 { w.team_skill(w.unit_scalars(unit).team) } else { 0.0 };
     if fire_mut(w, controller).unwrap().burst.state == 1.0 {
-        let count = if single { 1.0 } else { draw_int(w, Gen::A, a.barrage_min, a.barrage_max) };
+        let count = if single {
+            1.0
+        } else if swbf2 {
+            swbf2_burst_count(a.barrage_min, a.barrage_max, skill, |lo, hi| draw_range(w, Gen::A, lo, hi))
+        } else {
+            draw_int(w, Gen::A, a.barrage_min, a.barrage_max)
+        };
         let b = &mut fire_mut(w, controller).unwrap().burst;
         b.count = count;
         b.state = 2.0;
     }
+    let delay = if swbf2 { swbf2_burst_delay(a.barrage_delay, skill) } else { f(a.barrage_delay) };
     let b = &mut fire_mut(w, controller).unwrap().burst;
-    if b.state == 2.0 && f(f(a.barrage_delay) + f(b.last_end)) < f(now) {
+    if b.state == 2.0 && f(delay + f(b.last_end)) < f(now) {
         let shots = v8math::max(wv.def.get("ShotsPerSalvo").or(1.0), 1.0);
         let salvo_heat = f(f(shots) * f(wv.def.get("HeatPerShot").or(0.0)));
         let mut needed = f(salvo_heat * v8math::ceil(f(b.count / f(shots))));
@@ -1396,4 +1539,317 @@ pub fn prepare_spread<W: World + ?Sized>(w: &mut W, table: &WeaponAiTable, contr
     let d2 = length_sq32(f(p.x - q.x), f(p.y - q.y), f(p.z - q.z));
     let s = w.weapon_settings(unit,index).sniper_scale.unwrap_or(0.0);
     w.set_weapon_yaw(unit,index,Some(f(f(s) * sniper_yaw(d2)) * (180.0 / std::f64::consts::PI)));
+}
+
+#[cfg(test)]
+mod swbf2_cadence_tests {
+    use super::*;
+
+    #[test]
+    fn single_trigger_cadence_paces_shots_by_skill_and_emits_single_tick_pulses() {
+        let measure_pulses = |skill: f64| {
+            let (mut waiting, mut deadline) = (true, -1.0);
+            let mut fired = Vec::new();
+            for tick in 0..300 {
+                let now = tick as f64 / 60.0;
+                // Deterministic midpoint of [lo, hi].
+                if step_swbf2_single_trigger(&mut waiting, &mut deadline, true, now, skill, |lo, hi| f(0.5 * f(lo + hi))) {
+                    fired.push(tick);
+                }
+            }
+            fired
+        };
+        let low = measure_pulses(4.0);
+        let mid = measure_pulses(11.0);
+        let high = measure_pulses(17.0);
+        assert!(low.len() < mid.len() && mid.len() < high.len(), "higher skill fires faster: low={} mid={} high={}", low.len(), mid.len(), high.len());
+        for w in mid.windows(2) {
+            assert!(w[1] - w[0] > 1, "each single-trigger shot is separated by its cooldown");
+        }
+        // Releasing resets the wait so the next sustained request emits on the following tick.
+        let (mut waiting, mut deadline) = (true, -1.0);
+        assert!(!step_swbf2_single_trigger(&mut waiting, &mut deadline, false, 1.0, 14.0, |lo, _| lo));
+        assert!(!step_swbf2_single_trigger(&mut waiting, &mut deadline, true, 1.02, 14.0, |lo, _| lo));
+        assert!(step_swbf2_single_trigger(&mut waiting, &mut deadline, true, 1.04, 14.0, |lo, _| lo));
+        assert!(!step_swbf2_single_trigger(&mut waiting, &mut deadline, true, 1.05, 14.0, |lo, _| lo));
+    }
+
+    #[test]
+    fn burst_count_and_delay_scale_with_skill() {
+        let low_count = swbf2_burst_count(3.0, 9.0, 4.0, |_, hi| hi);
+        let high_count = swbf2_burst_count(3.0, 9.0, 17.0, |_, hi| hi);
+        assert!(low_count < high_count, "higher skill fires longer bursts: {low_count} vs {high_count}");
+        assert_eq!(swbf2_burst_count(1.0, 1.0, 1.0, |lo, _| lo), 2.0, "minimum burst floor is 2");
+        let low_delay = swbf2_burst_delay(2.0, 4.0);
+        let high_delay = swbf2_burst_delay(2.0, 17.0);
+        assert!(low_delay > high_delay, "higher skill waits less between bursts: {low_delay} vs {high_delay}");
+    }
+
+    #[test]
+    fn ai_target_flags_and_swbf2_melee_actions_preserve_classic_masks() {
+        let table = WeaponAiTable::default();
+        let impulse_def = JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("cannon".into())),
+                ("TargetPerson".into(), Js::Str("1".into())),
+                ("TargetDroid".into(), Js::Str("1".into())),
+                ("AITargetPerson".into(), Js::Str("0".into())),
+                ("AITargetDroid".into(), Js::Str("0".into())),
+            ],
+            def: None,
+        };
+        let impulse = table.weapon_ai(&impulse_def);
+        assert_ne!(impulse.category_mask & 1, 0, "classic mask still permits persons");
+        assert_eq!(impulse.ai_category_mask & 1, 0, "AI person flag disables person targeting");
+        assert_eq!(impulse.ai_category_mask & 4, 0, "AI droid flag disables droid targeting");
+
+        let thrown_blade = JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("meleethrow".into())),
+                ("MinRange".into(), Js::Str("4".into())),
+                ("MaxRange".into(), Js::Str("40".into())),
+            ],
+            def: None,
+        };
+        let thrown = table.weapon_ai(&thrown_blade);
+        assert_eq!(thrown.swbf2_action, action::MELEE);
+        let blade_def = JsObj {
+            fields: vec![("base".into(), Js::Str("melee".into()))],
+            def: None,
+        };
+        assert_eq!(table.weapon_ai(&blade_def).swbf2_action, action::MELEE);
+    }
+
+    struct TestWeaponWorld {
+        swbf2: bool,
+        throw_reloading: bool,
+        shooter: UnitView,
+        target: UnitView,
+        weapons: Vec<super::super::world::WeaponView>,
+        selected: Option<usize>,
+        ctl: super::super::world::Ctl,
+    }
+
+    impl super::super::world::Draws for TestWeaponWorld {
+        fn uniform_a(&mut self) -> f64 { 0.5 }
+        fn uniform_b(&mut self) -> f64 { 0.5 }
+        fn uniform_c(&mut self) -> f64 { 0.5 }
+    }
+
+    impl World for TestWeaponWorld {
+        fn uses_swbf2(&self) -> bool { self.swbf2 }
+        fn melee_throw_reloading(&self, _unit: Obj) -> bool { self.throw_reloading }
+        fn time(&self) -> f64 { 1.0 }
+        fn difficulty(&self) -> super::super::world::DifficultyView { Default::default() }
+        fn mission_stay_in_turrets(&self) -> bool { false }
+        fn mission_no_jet_obstacle_test(&self) -> bool { false }
+        fn ai_stay_in_turrets(&mut self) -> bool { false }
+        fn unit(&self, u: Obj) -> UnitView {
+            if u == 1 { self.shooter.clone() } else { self.target.clone() }
+        }
+        fn has_arsenal(&self, _u: Obj) -> bool { true }
+        fn weapon_count(&self, _u: Obj) -> usize { self.weapons.len() }
+        fn current_weapon(&self, _u: Obj, _channel: f64) -> Option<usize> { self.selected }
+        fn weapon(&self, _u: Obj, index: usize) -> Option<super::super::world::WeaponView> { self.weapons.get(index).cloned() }
+        fn body_lease_count(&self, _u: Obj) -> usize { 0 }
+        fn body_lease(&self, _u: Obj, _index: usize) -> Option<super::super::world::LeaseView> { None }
+        fn weapon_settings(&self, _u: Obj, _index: usize) -> super::super::world::WeaponSettings { unimplemented!() }
+        fn edit_weapon<R>(&mut self, _u: Obj, _index: usize, _edit: impl FnOnce(&mut super::super::world::WeaponSettings) -> R) -> R { unimplemented!() }
+        fn origin(&mut self, u: Obj) -> Vector3 { if u == 1 { self.shooter.position } else { self.target.position } }
+        fn forward(&mut self, _u: Obj) -> Vector3 { Vector3 { x: 1.0, y: 0.0, z: 0.0 } }
+        fn aim_point(&mut self, u: Obj) -> Vector3 { if u == 1 { self.shooter.position } else { self.target.position } }
+        fn sphere(&mut self, _u: Obj) -> super::super::world::Sphere { super::super::world::Sphere { center: Vector3::default(), radius: 1.0 } }
+        fn set_intent_buttons(&mut self, _u: Obj, _b0: f64, _b1: f64) {}
+        fn set_intent_aim(&mut self, _u: Obj, _aim: Option<Vector3>) {}
+        fn arsenal_select(&mut self, _u: Obj, index: usize) -> bool { self.selected = Some(index); true }
+        fn use_classic_random(&mut self, _u: Obj) {}
+        fn object_buffer(&self) -> crate::ai::owned::scratch::List<Obj> { unimplemented!() }
+        fn query(&mut self, _center: &Vector3, _radius: f64, _filter: QueryFilter) -> crate::ai::owned::scratch::List<Obj> { unimplemented!() }
+        fn relation(&mut self, a: f64, b: f64) -> f64 { if a == b { 1.0 } else { -1.0 } }
+        fn living(&mut self) -> crate::ai::owned::scratch::List<Obj> { unimplemented!() }
+        fn los(&mut self, _from: &Vector3, _to: &Vector3, _a: Option<Obj>, _b: Option<Obj>) -> bool { true }
+        fn curves_for(&mut self, _team: f64) -> Option<super::super::world::Curves> { None }
+        fn character_team(&self, _character: Obj) -> f64 { 1.0 }
+        fn fresh_perception(&mut self, _c: Obj) -> super::super::perception::Perception { Default::default() }
+        fn ctl(&self, _c: Obj) -> &super::super::world::Ctl { &self.ctl }
+        fn ctl_mut(&mut self, _c: Obj) -> &mut super::super::world::Ctl { &mut self.ctl }
+        fn agent_controller(&self, _agent: Obj) -> Obj { 10 }
+        fn tracker(&mut self, _agent: Obj) -> Option<&mut super::super::perception::TargetTracker> { None }
+        fn is_controller(&self, _c: Obj) -> bool { true }
+        fn agent_accepts_alert(&mut self, _agent: Obj, _known: bool, _point: &Vector3) -> bool { false }
+        fn agent_accepts_hazard(&mut self, _agent: Obj) -> bool { false }
+        fn agent_accepts_acoustic(&mut self, _agent: Obj, _source: Obj) -> bool { false }
+        fn shared_target(&mut self, _controller: Obj) -> Option<Obj> { None }
+        fn has_vehicle_dispatch(&self) -> bool { false }
+        fn vehicle_dispatch(&mut self, _shared: &mut Shared, _controller: Obj, _unit: Obj, _target: Obj, _switch_allowed: bool) -> super::super::world::Engagement { Default::default() }
+        fn has_mount_reach(&self) -> bool { false }
+        fn mount_reach(&mut self, _unit: Obj, _point: &Vector3) -> bool { false }
+        fn current_controllable(&mut self, _character: Obj) -> (bool, Option<Obj>) { (false, None) }
+        fn character_remote(&self, _character: Obj) -> Option<Obj> { None }
+        fn character_unit(&self, _character: Obj) -> Option<Obj> { None }
+        fn is_unit(&self, _o: Obj) -> bool { true }
+        fn enter_pattern(&mut self, _agent: Obj, _state: f64) {}
+        fn exit_pattern(&mut self, _agent: Obj, _state: f64) {}
+        fn tick_pattern(&mut self, _agent: Obj, _state: f64, _dt: f64) {}
+        fn sidestep(&mut self, _agent: Obj) {}
+        fn cover_hints(&mut self, _center: &Vector3, _half: f64) -> crate::ai::owned::scratch::List<super::super::world::HintView> { unimplemented!() }
+        fn has_jet_hints(&self) -> bool { false }
+        fn jet_hints_excluded(&mut self, _controller: Obj) -> bool { false }
+        fn jet_hints_find(&mut self, _controller: Obj) -> Option<Obj> { None }
+        fn jet_hints_enter(&mut self, _controller: Obj, _hint: Option<Obj>) {}
+        fn jet_hints_exit(&mut self, _controller: Obj, _hint: Option<Obj>) {}
+        fn jet_hints_tick(&mut self, _controller: Obj, _hint: Option<Obj>, _dt: f64) -> bool { true }
+        fn nav_point_clear(&mut self, _point: &Vector3, _unit: Obj) -> Option<bool> { None }
+        fn nav_segment_blocked(&mut self, _from: &Vector3, _to: &Vector3, _unit: Obj) -> Option<bool> { None }
+        fn nav_direct_clear(&mut self, _unit: Obj, _point: &Vector3) -> Option<bool> { None }
+        fn nav_in_danger_region(&mut self, _unit: Obj) -> Option<bool> { None }
+        fn agent_sync(&mut self, _agent: &super::super::agent::CombatAgent) {}
+        fn agent_resync(&mut self, _agent: &mut super::super::agent::CombatAgent) {}
+        fn interrupts_tick(&mut self, _agent: Obj, _combat: &mut super::super::binding::CombatAi) -> bool { false }
+        fn agent_board_policy(&mut self, _agent: Obj, _candidate: Obj) -> bool { false }
+        fn has_helper(&self, _agent: Obj) -> bool { false }
+        fn helper_arrived(&mut self, _agent: Obj) -> bool { false }
+        fn helper_flying(&mut self, _agent: Obj) -> bool { false }
+        fn helper_has_follow(&self, _agent: Obj) -> bool { false }
+        fn helper_goto(&mut self, _agent: Obj, _point: &Vector3, _mode: Option<super::super::world::GotoMode>) {}
+        fn helper_stop(&mut self, _agent: Obj) {}
+        fn helper_tick(&mut self, _agent: Obj, _dt: f64) {}
+        fn helper_follow(&mut self, _agent: Obj, _target: Obj) {}
+        fn helper_terminate(&mut self, _agent: Obj) {}
+        fn request_jet(&mut self, _controller: Obj, _vector: &Vector3) {}
+        fn emit_vo(&mut self, _unit: Obj, _event: &str, _property: &str) {}
+    }
+
+    #[test]
+    fn ai_category_mask_defaults_independently_of_target_flags_and_allows_craft_or_buildings() {
+        let table = WeaponAiTable::default();
+        // Soldier weapon clears TargetVehicle and TargetBuilding without authoring AITarget* keys.
+        let blaster = Rc::new(JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("cannon".into())),
+                ("TargetVehicle".into(), Js::Str("0".into())),
+                ("TargetBuilding".into(), Js::Str("0".into())),
+            ],
+            def: None,
+        });
+        let ai = table.weapon_ai(&blaster);
+        assert_eq!(ai.category_mask & (8 | 16), 0, "classic mask clears vehicle and building bits");
+        assert_eq!(ai.ai_category_mask & (8 | 16), 8 | 16, "2005 AI mask defaults all standard categories on");
+
+        let make_world = |swbf2: bool, def: Rc<JsObj>, target_kind: f64, target_category: f64| TestWeaponWorld {
+            swbf2,
+            throw_reloading: false,
+            shooter: UnitView { obj: 1, alive: true, team: 1.0, kind: 0.0, generation: 1.0, ..Default::default() },
+            target: UnitView {
+                obj: 2,
+                alive: true,
+                team: 2.0,
+                kind: target_kind,
+                category: Some(target_category),
+                generation: 1.0,
+                position: Vector3 { x: 15.0, y: 0.0, z: 0.0 },
+                ..Default::default()
+            },
+            weapons: vec![super::super::world::WeaponView { def, clip: 10.0, reserve: 10.0, rounds: Js::Num(10.0), ..Default::default() }],
+            selected: Some(0),
+            ctl: super::super::world::Ctl { perception: Some(Default::default()), ..Default::default() },
+        };
+
+        // 2005 bot can aim the blaster at a craft (category 3) and a building (category 4).
+        for (kind, cat) in [(5.0, 3.0), (8.0, 4.0)] {
+            let mut w2005 = make_world(true, blaster.clone(), kind, cat);
+            set_target(&mut w2005, &table, 10, Some(1), Some(2));
+            assert_eq!(w2005.ctl.perception.as_ref().unwrap().fire.weapon_target.map(|r| r.obj), Some(2));
+
+            // 2004 bot uses category_mask and refuses both targets.
+            let mut w2004 = make_world(false, blaster.clone(), kind, cat);
+            set_target(&mut w2004, &table, 10, Some(1), Some(2));
+            assert_eq!(w2004.ctl.perception.as_ref().unwrap().fire.weapon_target, None);
+        }
+
+        // Explicit AITargetVehicle=0 blocks craft on 2005 while keeping buildings allowed.
+        let no_ai_veh = Rc::new(JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("cannon".into())),
+                ("TargetVehicle".into(), Js::Str("1".into())),
+                ("AITargetVehicle".into(), Js::Str("0".into())),
+            ],
+            def: None,
+        });
+        let mut w_craft = make_world(true, no_ai_veh.clone(), 5.0, 3.0);
+        set_target(&mut w_craft, &table, 10, Some(1), Some(2));
+        assert_eq!(w_craft.ctl.perception.as_ref().unwrap().fire.weapon_target, None);
+
+        let mut w_bldg = make_world(true, no_ai_veh, 8.0, 4.0);
+        set_target(&mut w_bldg, &table, 10, Some(1), Some(2));
+        assert_eq!(w_bldg.ctl.perception.as_ref().unwrap().fire.weapon_target.map(|r| r.obj), Some(2));
+    }
+
+    #[test]
+    fn thrown_blade_is_skipped_only_when_reloading_and_switching_is_allowed() {
+        let throw_ord = Js::Obj(Rc::new(JsObj {
+            fields: vec![("base".into(), Js::Str("bolt".into())), ("Damage".into(), Js::Num(200.0))],
+            def: None,
+        }));
+        let throw_def = Rc::new(JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("meleethrow".into())),
+                ("MinRange".into(), Js::Str("4".into())),
+                ("MaxRange".into(), Js::Str("40".into())),
+                ("ordnance".into(), throw_ord),
+            ],
+            def: None,
+        });
+        let rifle_ord = Js::Obj(Rc::new(JsObj {
+            fields: vec![("base".into(), Js::Str("bolt".into())), ("Damage".into(), Js::Num(40.0))],
+            def: None,
+        }));
+        let rifle_def = Rc::new(JsObj {
+            fields: vec![
+                ("base".into(), Js::Str("cannon".into())),
+                ("MinRange".into(), Js::Str("0".into())),
+                ("MaxRange".into(), Js::Str("60".into())),
+                ("ordnance".into(), rifle_ord),
+            ],
+            def: None,
+        });
+        let mut w = TestWeaponWorld {
+            swbf2: true,
+            throw_reloading: false,
+            shooter: UnitView { obj: 1, alive: true, team: 1.0, kind: 0.0, generation: 1.0, ..Default::default() },
+            target: UnitView {
+                obj: 2,
+                alive: true,
+                team: 2.0,
+                kind: 0.0,
+                category: Some(0.0),
+                generation: 1.0,
+                combat_max_health: Js::Num(100.0),
+                position: Vector3 { x: 15.0, y: 0.0, z: 0.0 },
+                ..Default::default()
+            },
+            weapons: vec![
+                super::super::world::WeaponView { def: throw_def, bottomless: true, rounds: Js::Num(1.0), ..Default::default() },
+                super::super::world::WeaponView { def: rifle_def, bottomless: true, rounds: Js::Num(30.0), ..Default::default() },
+            ],
+            selected: Some(1),
+            ctl: super::super::world::Ctl { perception: Some(Default::default()), ..Default::default() },
+        };
+        let mut shared = Shared::default();
+        // Ready thrown blade in band wins over the lower-damage rifle.
+        let ready = select_weapon(&mut w, &mut shared, Some(10), 1, Some(2), true);
+        assert_eq!((ready.ok, ready.index, ready.action), (true, Some(0), action::MELEE));
+        // While reloading and switching is allowed, selection skips the thrown blade.
+        w.throw_reloading = true;
+        let switching = select_weapon(&mut w, &mut shared, Some(10), 1, Some(2), true);
+        assert_eq!((switching.ok, switching.index), (true, Some(1)));
+        // When switching is disallowed, a reloading thrown blade is not excluded.
+        let no_switch = select_weapon(&mut w, &mut shared, Some(10), 1, Some(2), false);
+        assert_eq!((no_switch.ok, no_switch.index), (true, Some(0)));
+        // Out of MinRange..MaxRange, the thrown blade is excluded even when ready.
+        w.throw_reloading = false;
+        w.target.position.x = 2.0;
+        let too_close = select_weapon(&mut w, &mut shared, Some(10), 1, Some(2), true);
+        assert_eq!((too_close.ok, too_close.index), (true, Some(1)));
+    }
 }

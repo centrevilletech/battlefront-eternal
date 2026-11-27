@@ -2,6 +2,7 @@
 //! on a worker thread by the bink-decoder crate. Nothing is converted or copied.
 pub mod archive;
 pub mod library;
+pub mod swbf2_audio;
 
 pub use library::{MovieLibrary, Source};
 
@@ -309,7 +310,11 @@ mod tests {
         let Some(game) = std::env::var_os("BFE_GAME_DIR") else {
             return;
         };
-        let library = MovieLibrary::open(None, &[game.into()]);
+        let family = std::env::var("BFE_FAMILY")
+            .ok()
+            .and_then(|s| bfe_family::GameFamily::parse(&s))
+            .unwrap_or(bfe_family::GameFamily::Swbf1);
+        let library = MovieLibrary::open(family, None, &[game.into()]);
         assert!(library.archive_count() > 0, "no movie archive found");
         let mut count = 0;
         for source in library.sources() {
@@ -324,6 +329,10 @@ mod tests {
             count += 1;
         }
         eprintln!("{count} movies decoded");
-        assert!(count >= 55);
+        let minimum = match family {
+            bfe_family::GameFamily::Swbf1 => 55,
+            bfe_family::GameFamily::Swbf2 => 40,
+        };
+        assert!(count >= minimum, "expected at least {minimum} movies, got {count}");
     }
 }

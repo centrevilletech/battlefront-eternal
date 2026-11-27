@@ -99,12 +99,30 @@ pub enum Shot {
     Round(Ref<Round>),
 }
 
-/// What a damage call's definition is: the round's class, or a beam's
-/// copy of it carrying this step's share of the Damage (Beam.damage).
+/// The two in-flight projectile types the infantry guard can redirect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GuardProjectile {
+    Bolt(Ref<Bolt>),
+    Bullet(Ref<Round>),
+}
+
+impl From<GuardProjectile> for Shot {
+    fn from(projectile: GuardProjectile) -> Self {
+        match projectile {
+            GuardProjectile::Bolt(r) => Self::Bolt(r),
+            GuardProjectile::Bullet(r) => Self::Round(r),
+        }
+    }
+}
+
+/// What a damage call's definition is: the round's class, a beam's
+/// copy of it carrying this step's share of the Damage (Beam.damage), or
+/// an ordnance class with a flight-age scaled direct damage override.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DefArg {
     Ordnance(DefId),
     Beam(Ref<Beam>),
+    Scaled(DefId, f64),
 }
 
 /// Where a unit was hit, and which vector JavaScript is handed for it (a
@@ -166,6 +184,14 @@ pub trait World {
     /// A live world can refuse a nested shot before it changes any rows.
     /// Fixture worlds without a retained query budget admit every shot.
     fn admit_fire(&mut self) -> bool { true }
+    fn infantry_projectiles(&self) -> bool { false }
+    fn battle_family(&self) -> bfe_family::GameFamily { bfe_family::GameFamily::Swbf1 }
+    fn guard_active(&self) -> bool { false }
+    fn redirect_projectile(&mut self, _shot: GuardProjectile, _hit: UnitHit) -> bool { false }
+    fn observe_projectile(&mut self, _shot: Option<GuardProjectile>) {}
+    fn swbf2_round_age(&self, _r: Ref<Round>) -> f64 { 0.0 }
+    fn set_swbf2_round_age(&mut self, _r: Ref<Round>, _age: f64) {}
+
 
     // The rounds (OrdnanceWorld).
 
@@ -177,6 +203,17 @@ pub trait World {
     /// bolts; not beams, nor a second ray through a hull to its riders).
     #[allow(clippy::too_many_arguments)]
     fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>, mount: Option<Ref<Vehicle>>, bubbles: bool) -> Option<UnitHit>;
+    /// Piercing raycast for Battlefront II `PassThrough` beams: returns all
+    /// distinct units struck along `(origin, direction)` within `far`.
+    #[allow(clippy::too_many_arguments)]
+    fn raycast_units_piercing(&mut self, origin: Vec3, direction: Vec3, far: f64, owner: OrdnanceOwner, history_tick: Option<f64>, ignore_body: Option<Ref<Body>>) -> Vec<UnitHit> {
+        self.raycast_units(origin, direction, far, owner, history_tick, ignore_body, None, false)
+            .into_iter()
+            .collect()
+    }
+    /// Return a piercing query buffer to the world after hits complete so the
+    /// live phase keeps its capacity across ticks.
+    fn recycle_piercing_query(&mut self, _hits: Vec<UnitHit>) {}
     fn rider_mount(&mut self, body: Nullable<Ref<Body>>) -> Option<RiderMount>;
     /// None when the battle's units cannot be queried.
     fn fat_query(&mut self, center: Vec3, radius: f64, owner: OrdnanceOwner, struck: &RefSet<Unit>, ignore_body: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>>;

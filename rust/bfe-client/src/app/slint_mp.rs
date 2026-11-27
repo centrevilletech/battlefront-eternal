@@ -481,7 +481,7 @@ impl SlintHost {
                 .filter(|m| m.extracted != Some(false))
         };
         let map_idx = extracted()
-            .position(|m| m.id == filters.map)
+            .position(|m| m.has_browser_id(&filters.map))
             .map_or(0, |at| at + 1);
         if self.mp_models.map_options_key != Some(shell.app.data.maps.len()) {
             let labels: Vec<SharedString> = std::iter::once(SharedString::from("ALL MAPS"))
@@ -549,7 +549,7 @@ impl SlintHost {
                 .map(|v| {
                     if !v.map_name.is_empty() {
                         v.map_name.clone()
-                    } else if let Some(m) = shell.app.data.maps.iter().find(|m| m.id == v.map) {
+                    } else if let Some(m) = shell.app.data.maps.iter().find(|m| m.has_browser_id(&v.map)) {
                         m.name.clone()
                     } else if !v.map.is_empty() {
                         v.map.clone()
@@ -663,7 +663,7 @@ impl SlintHost {
                 .data
                 .maps
                 .iter()
-                .map(|m| MapCatalogEntry::new(m.id.clone(), m.name.clone()))
+                .map(bfe_shell::data::ShellMap::browser_catalog_entry)
                 .collect();
             let info = browser.describe(selected, &catalog);
             mp.set_has_selected_server(true);
@@ -861,7 +861,7 @@ impl SlintHost {
                         .iter()
                         .filter(|m| m.extracted != Some(false))
                         .nth((idx - 1) as usize)
-                        .map(|m| m.id.clone())
+                        .map(|m| m.browser_id().into_owned())
                         .unwrap_or_else(|| "all".into())
                 };
                 sh.browser.set_filter(FilterUpdate::Map(map_id));

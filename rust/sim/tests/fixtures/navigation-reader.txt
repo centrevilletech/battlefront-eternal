@@ -1,0 +1,36 @@
+{"map":"sample"} ai-nav: schema undefined, expected 1
+{"graph":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"plan":{"hubs":[]},"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":null,"graph":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":null,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":1,"map":"sample"} OK
+{"schema":1,"graph":null,"map":"sample"} OK
+{"schema":1,"plan":{"hubs":[]},"map":"sample"} OK
+{"schema":1.0,"map":"sample"} OK
+{"schema":1.0,"graph":null,"map":"sample"} OK
+{"schema":1.0,"plan":{"hubs":[]},"map":"sample"} OK
+{"schema":1e0,"map":"sample"} OK
+{"schema":1e0,"graph":null,"map":"sample"} OK
+{"schema":1e0,"plan":{"hubs":[]},"map":"sample"} OK
+{"schema":2,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2,"graph":null,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2.0,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2.0,"graph":null,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2.0,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2e0,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2e0,"graph":null,"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":2e0,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema 2, expected 1
+{"schema":3,"map":"sample"} ai-nav: schema 3, expected 1
+{"schema":3,"graph":null,"map":"sample"} ai-nav: schema 3, expected 1
+{"schema":3,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema 3, expected 1
+{"schema":true,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":true,"graph":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":true,"plan":{"hubs":[]},"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":[],"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":[],"graph":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":[],"plan":{"hubs":[]},"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":"2","map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":"2","graph":null,"map":"sample"} ai-nav: schema undefined, expected 1
+{"schema":"2","plan":{"hubs":[]},"map":"sample"} ai-nav: schema undefined, expected 1

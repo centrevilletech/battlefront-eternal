@@ -89,6 +89,17 @@ impl CollisionOwner {
         buildings: &BvhTree,
         terrain: Option<&BvhTree>,
     ) -> Result<Installed> {
+        let installed = self.install_geometry(col, buildings, terrain)?;
+        super::broad::prepare(&mut self.state, installed.world as usize);
+        Ok(installed)
+    }
+
+    fn install_geometry(
+        &mut self,
+        col: &MapCollision,
+        buildings: &BvhTree,
+        terrain: Option<&BvhTree>,
+    ) -> Result<Installed> {
         // Installation retains the existing partial-state/error contract.
         install::install(self, col, buildings, terrain).map_err(CollisionError::Content)
     }

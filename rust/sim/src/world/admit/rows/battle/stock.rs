@@ -145,7 +145,21 @@ fn spawn_point(cx: &Cx) -> Result<([f64; 3], f64), AdmitError> {
 pub fn spawn_viewpoint_body(world: &mut World, cx: &mut Cx, calls: &mut Calls) -> Result<(), AdmitError> {
     use crate::gen::{BodySpawn, DroidekaSpawn, Soldier};
     let kernel = cx.ids.kernel.as_ref().ok_or(AdmitError::Unavailable(Stage::Kernels))?.world as u32;
-    let (position, yaw) = spawn_point(cx)?;
+    let (position, yaw) = if let Some(path) = world.units.spawn_path.as_deref() {
+        // The active posts intentionally expose only their own spawn paths.
+        // The base map also owns authored nodes outside those posts.
+        let point = cx.battle.world.get("spawns").and_then(|paths| paths.get(path))
+            .or_else(|| cx.battle.map_data.get("spawns")?.get(path))
+            .and_then(Value::as_array).and_then(|nodes| nodes.first()).and_then(Value::as_array)
+            .ok_or_else(|| error(format!("no starting node on spawn path {path}")))?;
+        let [x, y, z, yaw] = std::array::from_fn(|i| to_number(point.get(i)));
+        if point.len() < 4 || ![x, y, z, yaw].into_iter().all(f64::is_finite) {
+            return Err(error("invalid starting node on selected spawn path"));
+        }
+        ([x, y, z], yaw)
+    } else {
+        spawn_point(cx)?
+    };
     let class_name = cx.battle.policy.class_name.clone();
     let walker = super::super::super::bodies::prepare::parts(cx, &class_name)?.walker.is_some();
     // spawnSoldier / spawnDroideka write the spawn row first, then refresh
@@ -185,6 +199,16 @@ pub fn spawn_viewpoint_body(world: &mut World, cx: &mut Cx, calls: &mut Calls) -
     Ok(())
 }
 
+/// Registry ids a battle's bodies may take in all, less what its hulls take
+/// when they are born: what its AI reserved for and, in a 2005 battle, what
+/// its publication, its infantry rows and its class lives hold for good.
+pub fn id_limit(world: &World, family: bfe_family::GameFamily) -> u32 {
+    let reserved = world.ai.battle().map_or(u32::MAX, |b| b.state.unit_limit() as u32);
+    if family == bfe_family::GameFamily::Swbf1 { return reserved; }
+    let unborn = crate::units::f3_hulls::unborn_in(&world.units);
+    reserved.min(crate::wire::bounds::Capacity::for_battle(family).known.saturating_sub(unborn) as u32)
+}
+
 /// `calls` receives every call as it is made and `stages` the typed stages of
 /// the prepared stock (Rows::cold_stages), even when a later body refuses.
 pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls, stages: &mut Vec<F3ColdStage>) -> Result<(), AdmitError> {
@@ -195,8 +219,12 @@ pub fn run(world: &mut World, cx: &mut Cx, calls: &mut Calls, stages: &mut Vec<F
     calls.extend(spawn::adopt_viewpoint(world, cx, slot, Stage::World)?.into_iter().map(|(_, name, call)| (Stage::World, name, call)));
     // `unitsSim.construction.reserve(units.nextId + 512)`: the future mixed
     // registry id bound, hull births included.
-    let limit = jsrt::to_uint32(world.sim.store.units.next_id).checked_add(FACTORY_HEADROOM).ok_or_else(|| error("registry bound overflows"))?
-        .min(world.ai.battle().map_or(u32::MAX, |b| b.state.unit_limit() as u32));
+    let next = jsrt::to_uint32(world.sim.store.units.next_id);
+    let limit = next.checked_add(FACTORY_HEADROOM).ok_or_else(|| error("registry bound overflows"))?
+        .min(id_limit(world, cx.options.family));
+    if limit < next {
+        return Err(error(format!("the battle's bodies, hulls and targets take {next} ids; its protocol keeps {limit} beside the hulls still to be born")));
+    }
     world.reserve_spawn_bodies(limit);
     calls.push((Stage::World, "f3_factory_reserve", super::super::Call { args: vec![limit as f64], ..Default::default() }));
     if let Some(facts) = &mut cx.ids.battle { facts.construction_limit = Some(limit); }

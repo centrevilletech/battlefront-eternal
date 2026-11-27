@@ -10,7 +10,12 @@ use bfe_render::interface::{
 };
 use std::collections::HashMap;
 mod screens;
+mod screens2;
 pub use self::screens::{draw_loading, LOADING_BACKDROP};
+pub use self::screens2::{
+    bitmap_tip_lines, draw_loading2, draw_loading_screen, tip_pages, wrap_bitmap_tip, BackdropDraw,
+    BackdropTextPlacement, BackdropTextures, TipPanel,
+};
 
 /// White RGBA (`[1.0, 1.0, 1.0, 1.0]`).
 /// Mirrors `WHITE`.

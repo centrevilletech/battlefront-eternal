@@ -39,18 +39,18 @@ const FAMILY_ORDER: [&str; 6] = [
 ];
 
 /// Expected total variant count across all six shader families.
-const EXPECTED_TOTAL_VARIANTS: usize = 1046;
+const EXPECTED_TOTAL_VARIANTS: usize = 1433;
 
 /// Expected variant count for each individual shader family.
 /// If a family manifest gains or loses variants without updating the native
 /// catalog, the per-family assertion fails explicitly rather than silently
 /// reporting a smaller denominator.
 const EXPECTED_FAMILY_COUNTS: [(&str, usize); 6] = [
-    ("world", 536),
-    ("actors", 310),
-    ("effects", 149),
+    ("world", 674),
+    ("actors", 554),
+    ("effects", 152),
     ("interface", 15),
-    ("post-hud", 12),
+    ("post-hud", 14),
     ("utility", 24),
 ];
 
@@ -516,6 +516,8 @@ fn headless() -> Result<Headless, String> {
     let context = not_current
         .make_current_surfaceless()
         .map_err(|e| e.to_string())?;
+    let context = std::rc::Rc::new(glutin::context::PossiblyCurrentContext::Egl(context));
+    bfe_client::scene::set_particle_loading_context(&context);
     Ok(Headless {
         kind: "egl-surfaceless",
         symbol: Box::new(move |name| {
@@ -606,7 +608,7 @@ fn run() -> Result<(), String> {
     // bfe-render's own program builder (`Bridge::add_owned_program`) on a fresh
     // cold `Bridge` before `Scene::load_with_random` pre-admits any map programs.
     // Running on a cold `Bridge` guarantees `cached == false`, `shaders == 2`,
-    // and `links == 1` for all 1,046 variants.
+    // and `links == 1` for every variant in the catalog.
     let mut cold_bridge = Bridge::new_boxed(load(), Ranges::new(load()));
     sink.emit(&json!({
         "stage": "fixtures",
@@ -861,7 +863,7 @@ fn run() -> Result<(), String> {
     // Build structured assertion results.
     let mut results = Vec::new();
     results.push(AssertionResult {
-        name: "All 1,046 manifest shader variants compiled and linked uncached".into(),
+        name: format!("All {EXPECTED_TOTAL_VARIANTS} manifest shader variants compiled and linked uncached"),
         ok: total_variants == EXPECTED_TOTAL_VARIANTS
             && accepted_variants == EXPECTED_TOTAL_VARIANTS
             && uncached_variants == EXPECTED_TOTAL_VARIANTS
@@ -1617,4 +1619,172 @@ fn write_contact_sheet(
         }
     }
     write_png(path, out_w, out_h, &canvas)
+}
+
+#[cfg(test)]
+mod particle_tests {
+    use super::*;
+
+    fn next_loading_frame() -> impl std::future::Future<Output = ()> {
+        let mut waiting = true;
+        std::future::poll_fn(move |_| {
+            if std::mem::take(&mut waiting) { std::task::Poll::Pending } else { std::task::Poll::Ready(()) }
+        })
+    }
+
+    fn loading_frames<T>(work: impl std::future::Future<Output = T>) -> (usize, T) {
+        use std::{pin::pin, task::{Context, Poll, Waker}};
+        let mut work = pin!(work);
+        let mut frames = 0;
+        loop {
+            if let Poll::Ready(result) = work.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+                return (frames, result);
+            }
+            frames += 1;
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    #[ignore = "requires a headless graphics context"]
+    fn first_battle_particle_draw_uses_only_loaded_resources() -> Result<(), String> {
+        let context = headless()?;
+        let load = || unsafe { glow::Context::from_loader_function(|s| (context.symbol)(s)) };
+        let mut bridge = Bridge::new_boxed(load(), Ranges::new(load()));
+        let canvas = bfe_client::canvas::Canvas::new(load(), [8, 8])?;
+        let key = "effects/particle-cpu";
+        let program = bridge.add_owned_program(key)?;
+        let spec = bfe_render::programs::spec(key)?;
+        let location = |name: &str| spec.attributes.iter().find(|(n, _)| *n == name).unwrap().1;
+        let fields = [
+            ("iPosition", 3), ("iColor", 4), ("iShape", 4),
+            ("iAxis", 3), ("iAxis2", 3), ("iFrame", 4),
+        ];
+        let attributes: Vec<_> = fields.iter()
+            .flat_map(|(name, width)| [location(name), *width])
+            .collect();
+        let blend = [
+            1, glow::FUNC_ADD, glow::FUNC_ADD, glow::SRC_ALPHA, glow::ONE, glow::ONE, glow::ONE,
+        ];
+        let batch = bridge.fx_add_batch(program, -1, &blend, location("corner"), &attributes, -1);
+        bridge.fx_batch_interleaved(batch);
+        bridge.r.effects.prepare_batch(&bridge.r.core, batch, 8);
+        bridge.fx_reserve(8 * 21);
+        let broken = unsafe { bridge.r.core.gl.create_framebuffer()? };
+        let (_, failed) = loading_frames(bridge.r.effects.warm_particle_batches(
+            &mut bridge.r.core, broken, [(batch, 0)].into_iter(), next_loading_frame,
+        ));
+        assert!(failed.is_err());
+        assert_eq!(unsafe { bridge.r.core.gl.get_error() }, glow::NO_ERROR);
+        unsafe {
+            bridge.r.core.gl.delete_framebuffer(broken);
+            bridge.r.core.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(canvas.framebuffer));
+        }
+        // A failed warm draw keeps the ordinary resizing path available.
+        bridge.r.effects.draw_view_batch(&mut bridge.r.core, batch as usize, 2, 0, 2);
+        bridge.r.effects.prepare_batch(&bridge.r.core, batch, 8);
+        let (frames, result) = loading_frames(bridge.r.effects.warm_particle_batches(
+            &mut bridge.r.core, canvas.framebuffer, [(batch, 0)].into_iter(), next_loading_frame,
+        ));
+        result?;
+        assert!(frames >= 2);
+
+        // Use the same current device with build calls absent from its dispatch.
+        // A resize, new object or shader compilation on the first burst fails here.
+        bridge.r.core.gl = unsafe {
+            glow::Context::from_loader_function(|name| match name {
+                "glBufferData" | "glGenBuffers" | "glGenTextures" | "glGenVertexArrays"
+                | "glTexImage2D" | "glTexStorage2D" | "glCompressedTexImage2D"
+                | "glCreateProgram" | "glCreateShader" | "glCompileShader" | "glLinkProgram" => {
+                    std::ptr::null()
+                }
+                _ => (context.symbol)(name),
+            })
+        };
+        unsafe {
+            bridge.r.core.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(canvas.framebuffer));
+        }
+        let before = bridge.r.core.stats.pass_draws[bfe_render::core::PASS_VIEW];
+        for count in [3, 7, 2] {
+            bridge.r.effects.draw_view_batch(&mut bridge.r.core, batch as usize, count, 0, count);
+        }
+        unsafe { bridge.r.core.gl.finish(); }
+        assert_eq!(bridge.r.core.stats.pass_draws[bfe_render::core::PASS_VIEW] - before, 3);
+        assert_eq!(unsafe { bridge.r.core.gl.get_error() }, glow::NO_ERROR);
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "requires prepared content and a headless graphics context"]
+    fn released_battle_bursts_use_batches_drawn_while_loading() -> Result<(), String> {
+        use bfe_render::effects::{DRAW_AT, DRAW_STRIDE, IN_DRAWS};
+        use std::{cell::{Cell, RefCell}, ffi::c_void};
+
+        type Draw = unsafe extern "system" fn(u32, i32, u32, *const c_void, i32);
+        type Get = unsafe extern "system" fn(u32, *mut i32);
+        type BufferData = unsafe extern "system" fn(u32, isize, *const c_void, u32);
+        thread_local! {
+            static DISPATCH: Cell<Option<(Draw, Get, BufferData)>> = const { Cell::new(None) };
+            static DRAWS: RefCell<BTreeSet<(i32, i32)>> = const { RefCell::new(BTreeSet::new()) };
+            static RESIZES: Cell<usize> = const { Cell::new(0) };
+        }
+        unsafe extern "system" fn draw(mode: u32, n: i32, ty: u32, at: *const c_void, instances: i32) {
+            let (real, get, _) = DISPATCH.get().unwrap();
+            let (mut program, mut array) = (0, 0);
+            unsafe {
+                get(glow::CURRENT_PROGRAM, &mut program);
+                get(glow::VERTEX_ARRAY_BINDING, &mut array);
+                real(mode, n, ty, at, instances);
+            }
+            DRAWS.with_borrow_mut(|seen| seen.insert((program, array)));
+        }
+        unsafe extern "system" fn resize(target: u32, size: isize, data: *const c_void, usage: u32) {
+            RESIZES.set(RESIZES.get() + 1);
+            unsafe { (DISPATCH.get().unwrap().2)(target, size, data, usage) };
+        }
+
+        let root = std::env::var_os("BFE_CONTENT_DIR").ok_or("set BFE_CONTENT_DIR to prepared content")?;
+        let device = headless()?;
+        unsafe {
+            DISPATCH.set(Some((
+                std::mem::transmute::<*const c_void, Draw>((device.symbol)("glDrawElementsInstanced")),
+                std::mem::transmute::<*const c_void, Get>((device.symbol)("glGetIntegerv")),
+                std::mem::transmute::<*const c_void, BufferData>((device.symbol)("glBufferData")),
+            )));
+        }
+        let load = || unsafe {
+            glow::Context::from_loader_function(|name| match name {
+                "glDrawElementsInstanced" => draw as *const c_void,
+                "glBufferData" => resize as *const c_void,
+                _ => (device.symbol)(name),
+            })
+        };
+        let map = std::env::var("BFE_MAP").unwrap_or_else(|_| "tat2".into());
+        let (mut scene, _) = Scene::load_online(Path::new(&root), &format!("?map={map}"), [32, 32], load)?;
+        let loaded = DRAWS.take();
+        let particles = &mut scene.online.as_mut().ok_or("missing battle")?.combat.particles;
+        particles.begin(&mut scene.bridge);
+        for batch in particles.effect_batches.clone().into_iter().flatten() {
+            particles.quad(&mut scene.bridge, batch, &[0.25; 21]);
+        }
+        particles.finish(&mut scene.bridge);
+        let canvas = bfe_client::canvas::Canvas::new(load(), [32, 32])?;
+        let renderer = &mut scene.bridge.r;
+        unsafe { renderer.core.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(canvas.framebuffer)) };
+        RESIZES.set(0);
+        let draws = renderer.effects.input[IN_DRAWS] as usize;
+        assert!(draws > 0);
+        for i in 0..draws {
+            let row = &renderer.effects.input[DRAW_AT + i * DRAW_STRIDE..];
+            let (handle, count, offset) = (row[1] as usize, row[2] as usize, row[4] as usize);
+            renderer.effects.draw_view_batch(&mut renderer.core, handle, count, offset, count);
+        }
+        unsafe { renderer.core.gl.finish() };
+        let burst = DRAWS.take();
+        assert_eq!(burst.len(), draws);
+        assert_eq!(burst.difference(&loaded).count(), 0, "particle layouts first drawn in battle");
+        assert_eq!(RESIZES.get(), 0, "particle buffers resized during a battle burst");
+        assert_eq!(unsafe { renderer.core.gl.get_error() }, glow::NO_ERROR);
+        Ok(())
+    }
 }

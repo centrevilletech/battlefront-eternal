@@ -20,6 +20,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bfe_family::GameFamily;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -51,6 +52,7 @@ pub struct PlayerSettingsRecord {
     /// True if `values` represents a full snapshot of player settings.
     pub complete: bool,
     /// Key-value map of player settings.
+    #[serde(deserialize_with = "bfe_storage::settings_json::map")]
     pub values: BTreeMap<String, Value>,
 }
 
@@ -123,7 +125,9 @@ pub struct PreparationRecord {
 /// Persistent desktop host state stored in `desktop-settings.json` / `settings.json`.
 ///
 /// Mirrors `settings` in the desktop host, keeping any additional keys via
-/// `extra` so unknown fields are preserved on save.
+/// `extra` so unknown fields (including non-2004 `games.<family>` entries) are
+/// preserved byte-for-byte on save. Top-level `gameDir` and `preparations` are
+/// the single source of truth for `GameFamily::Swbf1`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopSettings {
@@ -154,7 +158,7 @@ pub struct DesktopSettings {
     /// Whether Discord Rich Presence is enabled.
     #[serde(default = "default_true")]
     pub discord_presence: bool,
-    /// Historical content preparation records keyed by content directory path.
+    /// Historical 2004 content preparation records keyed by content directory path.
     #[serde(default)]
     pub preparations: BTreeMap<String, PreparationRecord>,
     /// Presence settings object (`presence`).
@@ -163,9 +167,13 @@ pub struct DesktopSettings {
     /// Steam integration settings object (`steam`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub steam: Option<SteamSettingsRecord>,
-    /// Additional forward-compatible fields preserved across saves.
-    #[serde(flatten)]
+    /// Additional forward-compatible fields preserved across saves (including `games`).
+    #[serde(flatten, deserialize_with = "bfe_storage::settings_json::map")]
     pub extra: BTreeMap<String, Value>,
+}
+
+fn readable_json<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> bool {
+    std::str::from_utf8(bytes).is_ok_and(|text| serde_json::from_str::<T>(text).is_ok())
 }
 
 fn default_update_channel() -> String {
@@ -202,6 +210,179 @@ impl DesktopSettings {
     pub fn enhanced_sound_wanted(&self) -> bool {
         self.enhanced_sound != Some(false)
     }
+
+    fn games_object(&self) -> Option<&serde_json::Map<String, Value>> {
+        self.extra.get("games").and_then(Value::as_object)
+    }
+
+    fn ensure_family_object_mut(&mut self, family: GameFamily) -> &mut serde_json::Map<String, Value> {
+        let games_entry = self
+            .extra
+            .entry("games".to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if !games_entry.is_object() {
+            *games_entry = Value::Object(serde_json::Map::new());
+        }
+        let games = games_entry.as_object_mut().expect("games is an object");
+        let family_entry = games
+            .entry(family.as_str().to_string())
+            .or_insert_with(|| Value::Object(serde_json::Map::new()));
+        if !family_entry.is_object() {
+            *family_entry = Value::Object(serde_json::Map::new());
+        }
+        family_entry
+            .as_object_mut()
+            .expect("family entry is an object")
+    }
+
+    fn prune_empty_family(&mut self, family: GameFamily) {
+        let remove_games = if let Some(games) = self.extra.get_mut("games").and_then(Value::as_object_mut) {
+            let remove_family = games
+                .get(family.as_str())
+                .and_then(Value::as_object)
+                .is_some_and(serde_json::Map::is_empty);
+            if remove_family {
+                games.remove(family.as_str());
+            }
+            games.is_empty()
+        } else {
+            false
+        };
+        if remove_games {
+            self.extra.remove("games");
+        }
+    }
+
+    /// Returns the saved install directory for `family`.
+    ///
+    /// Top-level `gameDir` is the single source of truth for `GameFamily::Swbf1`;
+    /// other families read `extra["games"][<family>]["gameDir"]` on demand.
+    pub fn game_dir_for(&self, family: GameFamily) -> Option<&str> {
+        if family == GameFamily::Swbf1 {
+            return self.game_dir.as_deref().filter(|s| !s.is_empty());
+        }
+        self.games_object()?
+            .get(family.as_str())
+            .and_then(Value::as_object)
+            .and_then(|obj| obj.get("gameDir"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Sets the saved install directory for `family`.
+    ///
+    /// Updates top-level `gameDir` for `GameFamily::Swbf1` without touching
+    /// `extra["games"]`; updates `extra["games"][<family>]["gameDir"]` for
+    /// other families while preserving any unknown keys in that family's object.
+    pub fn set_game_dir_for(&mut self, family: GameFamily, dir: Option<String>) {
+        if family == GameFamily::Swbf1 {
+            self.game_dir = dir;
+            return;
+        }
+        match dir {
+            Some(path) => {
+                let obj = self.ensure_family_object_mut(family);
+                obj.insert("gameDir".to_string(), Value::String(path));
+            }
+            None => {
+                if let Some(obj) = self
+                    .extra
+                    .get_mut("games")
+                    .and_then(Value::as_object_mut)
+                    .and_then(|g| g.get_mut(family.as_str()))
+                    .and_then(Value::as_object_mut)
+                {
+                    obj.remove("gameDir");
+                }
+                self.prune_empty_family(family);
+            }
+        }
+    }
+
+    /// Returns the preparation history for `family`.
+    ///
+    /// Top-level `preparations` is the single source of truth for `GameFamily::Swbf1`;
+    /// other families read `extra["games"][<family>]["preparations"]` on demand.
+    pub fn preparations_for(&self, family: GameFamily) -> BTreeMap<String, PreparationRecord> {
+        if family == GameFamily::Swbf1 {
+            return self.preparations.clone();
+        }
+        let Some(map) = self
+            .games_object()
+            .and_then(|g| g.get(family.as_str()))
+            .and_then(Value::as_object)
+            .and_then(|obj| obj.get("preparations"))
+            .and_then(Value::as_object)
+        else {
+            return BTreeMap::new();
+        };
+        let mut out = BTreeMap::new();
+        for (k, v) in map {
+            if let Ok(rec) = serde_json::from_value::<PreparationRecord>(v.clone()) {
+                out.insert(k.clone(), rec);
+            }
+        }
+        out
+    }
+
+    /// Replaces the preparation history for `family`.
+    ///
+    /// Updates top-level `preparations` for `GameFamily::Swbf1` without touching
+    /// `extra["games"]`; updates `extra["games"][<family>]["preparations"]` for
+    /// other families while preserving any unknown keys in that family's object.
+    pub fn set_preparations_for(
+        &mut self,
+        family: GameFamily,
+        preps: BTreeMap<String, PreparationRecord>,
+    ) {
+        if family == GameFamily::Swbf1 {
+            self.preparations = preps;
+            return;
+        }
+        if preps.is_empty() {
+            if let Some(obj) = self
+                .extra
+                .get_mut("games")
+                .and_then(Value::as_object_mut)
+                .and_then(|g| g.get_mut(family.as_str()))
+                .and_then(Value::as_object_mut)
+            {
+                obj.remove("preparations");
+            }
+            self.prune_empty_family(family);
+            return;
+        }
+        if let Ok(val) = serde_json::to_value(preps) {
+            let obj = self.ensure_family_object_mut(family);
+            obj.insert("preparations".to_string(), val);
+        }
+    }
+
+    /// Records one completed preparation entry for `family` under `content_dir`
+    /// without disturbing unrelated sibling entries under `preparations`.
+    pub fn record_preparation_for(
+        &mut self,
+        family: GameFamily,
+        content_dir: impl Into<String>,
+        record: PreparationRecord,
+    ) {
+        if family == GameFamily::Swbf1 {
+            self.preparations.insert(content_dir.into(), record);
+            return;
+        }
+        if let Ok(val) = serde_json::to_value(record) {
+            let obj = self.ensure_family_object_mut(family);
+            let preps = obj
+                .entry("preparations".to_string())
+                .or_insert_with(|| Value::Object(serde_json::Map::new()));
+            if !preps.is_object() {
+                *preps = Value::Object(serde_json::Map::new());
+            }
+            if let Some(map) = preps.as_object_mut() {
+                map.insert(content_dir.into(), val);
+            }
+        }
+    }
 }
 
 /// Patch object applied by [`SettingsStore::save`].
@@ -213,6 +394,8 @@ pub struct SettingsPatch {
     pub content_dir: Option<Option<String>>,
     /// Optional replacement for `game_dir`.
     pub game_dir: Option<Option<String>>,
+    /// Optional per-family install directory updates (`games.<family>.gameDir`).
+    pub game_dirs: BTreeMap<GameFamily, Option<String>>,
     /// Optional replacement for `update_channel`.
     pub update_channel: Option<String>,
     /// Optional replacement for `auto_check_updates`.
@@ -225,6 +408,11 @@ pub struct SettingsPatch {
     pub steam: Option<SteamSettingsRecord>,
     /// Optional replacement for `preparations`.
     pub preparations: Option<BTreeMap<String, PreparationRecord>>,
+    /// Optional per-family preparation record replacements (`games.<family>.preparations`).
+    pub game_preparations: BTreeMap<GameFamily, BTreeMap<String, PreparationRecord>>,
+    /// Optional explicit replacement or removal of the raw `extra["games"]` value.
+    /// `None` leaves `extra["games"]` on disk completely untouched.
+    pub games_extra: Option<Option<Value>>,
 }
 
 /// File-backed store for [`DesktopSettings`].
@@ -259,8 +447,21 @@ impl SettingsStore {
             current.content_dir = cd.clone();
             current.chosen_content_dir = cd.clone();
         }
+        if let Some(games_val) = &patch.games_extra {
+            match games_val {
+                Some(val) => {
+                    current.extra.insert("games".to_string(), val.clone());
+                }
+                None => {
+                    current.extra.remove("games");
+                }
+            }
+        }
         if let Some(gd) = &patch.game_dir {
             current.game_dir = gd.clone();
+        }
+        for (family, gd) in &patch.game_dirs {
+            current.set_game_dir_for(*family, gd.clone());
         }
         if let Some(ch) = &patch.update_channel {
             current.update_channel = ch.clone();
@@ -280,6 +481,9 @@ impl SettingsStore {
         if let Some(preps) = &patch.preparations {
             current.preparations = preps.clone();
         }
+        for (family, preps) in &patch.game_preparations {
+            current.set_preparations_for(*family, preps.clone());
+        }
         let dir = self.file_path.parent().unwrap_or_else(|| Path::new("."));
         let name = self
             .file_path
@@ -287,7 +491,7 @@ impl SettingsStore {
             .and_then(|n| n.to_str())
             .unwrap_or(DESKTOP_SETTINGS_FILE);
         let body = serde_json::to_string_pretty(&current).map_err(|e| e.to_string())?;
-        write_atomic(dir, name, body.as_bytes()).map_err(|e| e.to_string())?;
+        write_atomic(dir, name, body.as_bytes(), readable_json::<DesktopSettings>).map_err(|e| e.to_string())?;
         Ok(current)
     }
 }
@@ -299,6 +503,7 @@ pub struct PlayerSettingsDocument {
     /// Schema version (`1`).
     pub version: u32,
     /// Gameplay, audio, and video settings map.
+    #[serde(deserialize_with = "bfe_storage::settings_json::map")]
     pub settings: BTreeMap<String, Value>,
     /// Action keybinding lists.
     pub keybindings: BTreeMap<String, Vec<String>>,
@@ -309,6 +514,7 @@ pub struct PlayerSettingsDocument {
     /// Bookmarked multiplayer server URLs/addresses.
     pub favorite_servers: Vec<String>,
     /// Recently joined multiplayer servers.
+    #[serde(deserialize_with = "bfe_storage::settings_json::list")]
     pub recent_servers: Vec<Value>,
     /// Last updated epoch timestamp.
     pub updated_at: u64,
@@ -405,7 +611,7 @@ impl PlayerSettingsStore {
             .and_then(|n| n.to_str())
             .unwrap_or(PLAYER_SETTINGS_FILE);
         let body = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
-        write_atomic(dir, name, body.as_bytes()).map_err(|e| e.to_string())?;
+        write_atomic(dir, name, body.as_bytes(), readable_json::<PlayerSettingsDocument>).map_err(|e| e.to_string())?;
         Ok(doc)
     }
 }
@@ -441,14 +647,18 @@ pub fn clean_record(record: &Value) -> Option<PlayerSettingsRecord> {
 /// returning `None` if the file is missing, unreadable, or malformed.
 pub fn read_player_settings(dir: &Path) -> Option<PlayerSettingsRecord> {
     let text = fs::read_to_string(dir.join(PLAYER_SETTINGS_FILE)).ok()?;
-    let parsed: Value = serde_json::from_str(&text).ok()?;
+    parse_player_settings_record(&text)
+}
+
+fn parse_player_settings_record(text: &str) -> Option<PlayerSettingsRecord> {
+    let parsed = bfe_storage::settings_json::from_str(text).ok()?;
     clean_record(&parsed)
 }
 
 /// Ports `writePlayerSettings` from the desktop host.
 ///
 /// Validates `record` with [`clean_record`], writes the compact JSON to
-/// `<dir>/player-settings.json.<pid>.tmp`, and renames it over
+/// a temporary sibling, and renames it over
 /// `player-settings.json`. Returns `false` if the record is invalid or the
 /// disk write fails.
 pub fn write_player_settings_value(dir: &Path, record: &Value) -> bool {
@@ -467,20 +677,10 @@ pub fn write_player_settings(dir: &Path, record: &PlayerSettingsRecord) -> bool 
     if text.len() > LIMIT {
         return false;
     }
-    let file = dir.join(PLAYER_SETTINGS_FILE);
-    let temp = dir.join(format!("{PLAYER_SETTINGS_FILE}.{}.tmp", std::process::id()));
-    if fs::create_dir_all(dir).is_err() {
-        return false;
-    }
-    if fs::write(&temp, text.as_bytes()).is_err() {
-        let _ = fs::remove_file(&temp);
-        return false;
-    }
-    if fs::rename(&temp, &file).is_err() {
-        let _ = fs::remove_file(&temp);
-        return false;
-    }
-    true
+    write_atomic(dir, PLAYER_SETTINGS_FILE, text.as_bytes(), |original| {
+        std::str::from_utf8(original).is_ok_and(|text| parse_player_settings_record(text).is_some())
+    })
+    .is_ok()
 }
 
 /// Ports `shadowedStorage` from the desktop host.
@@ -523,7 +723,7 @@ pub fn write_desktop_settings(
 ) -> std::io::Result<()> {
     let body = serde_json::to_string_pretty(settings)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-    write_atomic(user_data_dir, DESKTOP_SETTINGS_FILE, body.as_bytes())
+    write_atomic(user_data_dir, DESKTOP_SETTINGS_FILE, body.as_bytes(), readable_json::<DesktopSettings>)
 }
 
 /// Ports `readSteamSettings` from the desktop host.
@@ -550,7 +750,7 @@ pub fn get_setting(user_data_dir: &Path, key: &str) -> Option<String> {
     }
     let desktop_file = user_data_dir.join(DESKTOP_SETTINGS_FILE);
     if let Ok(text) = fs::read_to_string(&desktop_file) {
-        if let Ok(Value::Object(map)) = serde_json::from_str::<Value>(&text) {
+        if let Ok(Value::Object(map)) = bfe_storage::settings_json::from_str(&text) {
             if let Some(val) = map.get(key) {
                 return match val {
                     Value::String(s) => Some(s.clone()),
@@ -565,7 +765,12 @@ pub fn get_setting(user_data_dir: &Path, key: &str) -> Option<String> {
 
 /// Writes `bytes` to `<dir>/<file_name>.<pid>.<seq>.tmp` and renames it over
 /// `<dir>/<file_name>`. Removes the temporary file if either step fails.
-pub(crate) fn write_atomic(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomic(
+    dir: &Path,
+    file_name: &str,
+    bytes: &[u8],
+    readable: impl FnOnce(&[u8]) -> bool,
+) -> std::io::Result<()> {
     fs::create_dir_all(dir)?;
     let seq = SAVE_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
     let pid = std::process::id();
@@ -575,7 +780,9 @@ pub(crate) fn write_atomic(dir: &Path, file_name: &str, bytes: &[u8]) -> std::io
         let _ = fs::remove_file(&tmp_path);
         return Err(err);
     }
-    if let Err(err) = fs::rename(&tmp_path, &dst_path) {
+    if let Err(err) = bfe_storage::preserve_unreadable(&dst_path, readable)
+        .and_then(|_| fs::rename(&tmp_path, &dst_path))
+    {
         let _ = fs::remove_file(&tmp_path);
         return Err(err);
     }

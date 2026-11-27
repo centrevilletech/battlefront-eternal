@@ -31,6 +31,7 @@ struct TrapView {
 struct Holding { id: u32, generation: u32, grab: usize, since: f64 }
 struct Rider { handle: usize, birth: Option<(u32, u32, u64)> }
 pub struct Animated {
+    space_doors: Vec<super::space_doors::Door>,
     owner: Box<Props>,
     views: Vec<View>,
     traps: Vec<TrapView>,
@@ -47,11 +48,12 @@ impl Animated {
         textures: &[u32],
     ) -> Result<Self, String> {
         let mut owner = Box::new(Props::new());
+        let space_doors = super::space_doors::Door::admit(content, bridge, textures)?;
         let mut views = Vec::new();
         let mut traps = Vec::new();
         let mut grab_clips = Vec::new();
         let Some(data) = content.content.battle.props.as_ref() else {
-            return Ok(Self { owner, views, traps, holds: vec![], grab_clips, held_clips: vec![], riders: vec![], rider_clips: Default::default() });
+            return Ok(Self { owner, space_doors, views, traps, holds: vec![], grab_clips, held_clips: vec![], riders: vec![], rider_clips: Default::default() });
         };
         for (source, desc) in data
             .get("instances")
@@ -60,6 +62,7 @@ impl Animated {
             .iter()
             .enumerate()
         {
+            if space_doors.iter().any(|door| door.skin.instance == source) { continue; }
             if !matches!(
                 desc.get("base").and_then(Value::as_str),
                 Some("animatedprop" | "door")
@@ -229,14 +232,12 @@ impl Animated {
                 grab_nodes: grabs.iter().map(|g| rig.named(g.get("node").and_then(Value::as_str)).map_or(-1,|id|ids[id as usize] as i32)).collect(),
                 time,
             });
-            let admission = crate::static_scene::props(
+            let admission = crate::static_scene::moving_props(
                 bridge,
                 content,
                 textures,
                 bfe_content_native::placed::admit_look(content, source, 0)?,
-                bridge.shadow_cascades(),
-                false,
-            )?;
+                bridge.shadow_cascades())?;
             views.push(View {
                 death_camera: anim.get("deathCamera").is_some_and(Value::truthy),
                 skin: vec![0.; inverses.len() * 16],
@@ -272,10 +273,10 @@ impl Animated {
             let build = load("build");
             let index = owner.add_trap(TrapDesc { scene: Default::default(), root: root as i32, initial,
                 trigger_clip: trigger.map(|c|c.0), build_clip: build.map(|c|c.0), trigger_length: trigger.map_or(0.,|c|c.1) });
-            let admission = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_look(content,source,0)?,bridge.shadow_cascades(),false)?;
-            let pad = crate::static_scene::props(bridge,content,textures,
-                bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades(),false)?;
+            let admission = crate::static_scene::moving_props(bridge,content,textures,
+                bfe_content_native::placed::admit_look(content,source,0)?,bridge.shadow_cascades())?;
+            let pad = crate::static_scene::moving_props(bridge,content,textures,
+                bfe_content_native::placed::admit_trap_pad(content,source)?,bridge.shadow_cascades())?;
             let building = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle).iter().position(|id|*id==source).ok_or("trap has no building id")?;
             traps.push(TrapView { building, view: View { death_camera: false, skin: vec![0.; inverses.len()*16], rig, inverses,
                 rows: admission.records, bone: owner.bone_start(true,index) }, pad_rows: pad.records, pad_bones: pad.bones,
@@ -283,7 +284,7 @@ impl Animated {
         }
         let holds = vec![None; views.len()];
         let held_clips = vec![None; views.len()];
-        Ok(Self { owner, views, traps, holds, grab_clips, held_clips, riders: vec![], rider_clips: Default::default() })
+        Ok(Self { owner, space_doors, views, traps, holds, grab_clips, held_clips, riders: vec![], rider_clips: Default::default() })
     }
     pub fn bind_actor(&mut self, units: &bfe_presentation::units::Units, actor: usize, model: usize, names: &[(String, f64)]) {
         if self.grab_clips.iter().all(Vec::is_empty) { return; }
@@ -306,6 +307,7 @@ impl Animated {
     }
     pub fn frame(&mut self, receiver: &Receiver, tick: f64, dt: f64, units: &bfe_presentation::units::Units,
         resolve: impl Fn(u32,u32)->Option<(usize,usize)>) {
+        super::space_doors::Door::frame(&mut self.space_doors, receiver, tick);
         self.owner.input[f::VERSION] = bfe_presentation::layout::VERSION as f64;
         self.owner.input[f::DT] = dt;
         self.owner.input[f::TICK] = tick;
@@ -418,11 +420,12 @@ impl Animated {
             .iter()
             .chain(self.traps.iter().map(|t| &t.view))
             .map(|v| v.inverses.len())
+            .chain(self.space_doors.iter().map(|d|d.skin.bone_count()))
             .max()
             .unwrap_or(1)
     }
     pub fn record_budget(&self) -> usize {
-        self.views.iter().map(|v| v.rows.len()).sum::<usize>() + self.traps.iter().map(|t| t.view.rows.len() + if t.phase == 0 { t.pad_rows.len() } else { 0 }).sum::<usize>()
+        self.space_doors.iter().map(|d|d.rows.len()).sum::<usize>() + self.views.iter().map(|v| v.rows.len()).sum::<usize>() + self.traps.iter().map(|t| t.view.rows.len() + if t.phase == 0 { t.pad_rows.len() } else { 0 }).sum::<usize>()
     }
     pub fn trap_states(&self) -> impl Iterator<Item=(usize,u8,f64)> + '_ {
         self.traps.iter().enumerate().map(|(i,t)|(i,t.phase,t.started))
@@ -439,7 +442,12 @@ impl Animated {
         for view in self.views.iter().chain(self.traps.iter().map(|t| &t.view)) {
             for recipe in &view.rows {
                 let count = view.inverses.len();
-                if records >= draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
+                if records >= draw::MAX_RECORDS {
+                    bridge.r.instances.overflow.note_record_drop(1);
+                    continue;
+                }
+                if bones + count > draw::MAX_BONES {
+                    bridge.r.instances.overflow.note_bone_drop(1);
                     continue;
                 }
                 let mut row = *recipe;
@@ -456,7 +464,14 @@ impl Animated {
             for recipe in &trap.pad_rows {
                 let count = recipe[draw::REC_BONES] as usize;
                 let source = recipe[draw::REC_BONE_AT] as usize;
-                if records >= draw::MAX_RECORDS || bones + count > draw::MAX_BONES { continue; }
+                if records >= draw::MAX_RECORDS {
+                    bridge.r.instances.overflow.note_record_drop(1);
+                    continue;
+                }
+                if bones + count > draw::MAX_BONES {
+                    bridge.r.instances.overflow.note_bone_drop(1);
+                    continue;
+                }
                 let mut row = *recipe;
                 row[draw::REC_BONE_AT] = bones as f64;
                 bridge.r.core.bones[bones*16..(bones+count)*16].copy_from_slice(&trap.pad_bones[source*16..(source+count)*16]);
@@ -465,6 +480,7 @@ impl Animated {
                 records += 1; bones += count;
             }
         }
+        for door in &self.space_doors { (records,bones) = door.append(bridge,records,bones); }
         (records, bones)
     }
 }

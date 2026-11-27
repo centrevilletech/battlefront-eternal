@@ -255,6 +255,19 @@ impl CombatAi {
         if !w.unit_scalars(unit).alive || w.ctl(controller).perception.is_none() {
             return None;
         }
+        if w.uses_swbf2() {
+            let vel = w.unit_velocity(unit).unwrap_or_default();
+            let (kind, max_speed) = w.unit_weapon_motion(unit);
+            let radius = super::perception::bound_radius(w, unit);
+            let opp_skill = w.opposing_team_skill(w.unit_scalars(unit).team);
+            let is_vehicle = !matches!(kind, 0.0 | 1.0 | 3.0);
+            let rz = (w.uniform_a() - 0.5) * 2.0;
+            let ry = (w.uniform_a() - 0.5) * 2.0;
+            let rx = (w.uniform_a() - 0.5) * 2.0;
+            let motion_flags = w.unit_evasion_flags(unit);
+            let p = w.ctl_mut(controller).perception.as_mut().unwrap();
+            p.miss.step(dt, &vel, max_speed, radius, kind, is_vehicle, opp_skill, (rx, ry, rz), motion_flags);
+        }
         let desired = w.forward(unit);
         let curves = curves_of(w, controller, unit);
         let weapon = selected_weapon(w, unit, Some(controller));

@@ -8,6 +8,40 @@ use bfe_render::{
     interface_scene::layout as D,
 };
 use three::Matrix4;
+/// The light a class's body takes on the spawn launcher's stage, in the look
+/// `theme`, `build` seconds after the class was picked (it builds up from its
+/// feet behind a line of light).
+pub(crate) fn body_look(mut look: [f64; L::LEN], theme: usize, build: f64) -> [f64; L::LEN] {
+    look[L::AMBIENT] = 0.62;
+    look[L::RIM_POWER] = 3.;
+    look[L::KEY_TINT..L::KEY_TINT + 3].copy_from_slice(&if theme == 2 {
+        [1., 246. / 255., 228. / 255.]
+    } else if theme == 0 {
+        [236. / 255., 246. / 255., 1.]
+    } else {
+        [250. / 255., 252. / 255., 1.]
+    });
+    look[L::RIM..L::RIM + 3].copy_from_slice(&if theme == 2 {
+        [0.6, 150. / 255. * 0.6, 40. / 255. * 0.6]
+    } else if theme == 0 {
+        [110. / 255. * 0.7, 190. / 255. * 0.7, 0.7]
+    } else {
+        [200. / 255. * 0.55, 220. / 255. * 0.55, 0.55]
+    });
+    let age = (build / 0.65).clamp(0., 1.);
+    look[L::CUT] = if age >= 1. {
+        1e9
+    } else {
+        -0.05 + (1. - (1. - age).powi(3)) * 2.3
+    };
+    look[L::CUT_GLOW..L::CUT_GLOW + 3].copy_from_slice(&if theme == 2 {
+        [2., 160. / 255. * 2., 50. / 255. * 2.]
+    } else {
+        [90. / 255. * 2., 180. / 255. * 2., 2.]
+    });
+    look
+}
+
 #[derive(Clone)]
 pub(crate) struct Appearance {
     pub handle: usize,

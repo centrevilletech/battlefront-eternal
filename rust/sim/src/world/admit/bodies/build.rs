@@ -59,7 +59,17 @@ pub fn build(content: &Content, class: &ClassDef, ids: Bindings, max_fly_height:
     let shared = class.clips.and_then(|i| content.body_clips.get(i)).map(|(_, c)| c.as_ref())
         .ok_or_else(|| error("unit class has no prepared shared clips"))?;
     let walker_clips = class.walker_clips.and_then(|i| content.walker_clips.get(i)).map(|(_, c)| c);
-    from_parts(&class.record, actor, shared, walker_clips, ids, max_fly_height, passive, intern)
+    let mut body = from_parts(&class.record, actor, shared, walker_clips, ids, max_fly_height, passive, intern)?;
+    // A 2005 soldier's body takes its class's acceleration, by the rule local
+    // play and prediction share (`movement::soldier::swbf2::classes`).
+    if content.battle.family == bfe_family::GameFamily::Swbf2 {
+        if let (UnitBody::Soldier(soldier), Some(acceleration)) =
+            (&mut body.unit.soldier, crate::movement::soldier::swbf2::classes::body_acceleration(&class.record))
+        {
+            soldier.accel = acceleration;
+        }
+    }
+    Ok(body)
 }
 
 /// buildBody over already decoded actor/clip content, also used by small
@@ -156,6 +166,11 @@ fn nav_radius(actor: &Actor) -> Result<f64, AdmitError> {
         }
     }
     Ok((0.25 * v8math::hypot(hi[0] - lo[0], hi[1] - lo[1])) as f32 as f64)
+}
+
+/// The rounded bind-pose clearance used when constructing a unit.
+pub fn actor_navigation_radius(actor: &Actor) -> Result<f64, AdmitError> {
+    nav_radius(actor)
 }
 
 pub(super) fn number(def: &Value, key: &str, fallback: f64) -> f64 {

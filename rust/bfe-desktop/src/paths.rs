@@ -15,6 +15,8 @@ use std::env;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use bfe_content::layout::{family_dir, is_swbf2_marked_dir};
+use bfe_family::GameFamily;
 use serde::{Deserialize, Serialize};
 
 /// Top-level subdirectories produced by `tools/prepare_content.py` inside a prepared
@@ -478,9 +480,21 @@ pub fn prepare_log_file(user_data: &Path) -> PathBuf {
 
 /// Ports `hasGameData` from the desktop host.
 ///
-/// Returns true when `root` is non-empty and `<root>/common/common.json` exists.
+/// Returns true when prepared 2004 game data exists under `root`
+/// (`<root>/common/common.json`) and `root` is not marked as `swbf2` content.
 pub fn has_game_data(root: &Path) -> bool {
-    root.join("common").join("common.json").exists()
+    !is_swbf2_marked_dir(root) && root.join("common").join("common.json").exists()
+}
+
+/// Returns true when prepared game data for `family` exists under `root`.
+pub fn has_game_data_for(root: &Path, family: GameFamily) -> bool {
+    if family == GameFamily::Swbf1 {
+        return has_game_data(root);
+    }
+    family_dir(root, family)
+        .join("common")
+        .join("common.json")
+        .exists()
 }
 
 /// Ports `samePath` from the desktop host.

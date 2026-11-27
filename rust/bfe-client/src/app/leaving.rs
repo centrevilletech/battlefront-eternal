@@ -43,7 +43,11 @@ pub(super) fn polygons(nav: &serde_json::Value) -> Vec<Vec<Vec3>> {
 impl LeavingFeed {
     /// The map's boundary; a map without one (both Yavin maps) has no outside.
     pub fn load(content_dir: &Path, map: &str) -> Self {
-        let text = std::fs::read_to_string(content_dir.join("maps").join(map).join("ai-nav.json")).ok();
+        let family_dir = bfe_content::layout::family_dir(
+            content_dir,
+            bfe_family::GameFamily::Swbf1,
+        );
+        let text = std::fs::read_to_string(family_dir.join("maps").join(map).join("ai-nav.json")).ok();
         let nav = text.and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
         let boundary = nav.map_or_else(Boundary::default, |nav| Boundary::new(&polygons(&nav)));
         Self { boundary, warning: Warning::default() }

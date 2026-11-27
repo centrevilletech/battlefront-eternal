@@ -4,7 +4,7 @@
 
 macro_rules! jet_store {($w:expr,$s:expr)=>{&($w).sim.store};}
 
-macro_rules! jet_command {($nav:expr,$w:expr,$store:expr,$seats:expr,$($a:expr),*)=>{($nav).command_for($w,$($a),*)};}
+macro_rules! jet_command {($nav:expr,$w:expr,$store:expr,$seats:expr,$($a:expr),*)=>{($nav).phase_command_for($w,$($a),*)};}
 
 use super::{hints::Hints,navigation::{Actor,HelperKey,Command,Environment,Navigation}};
 use crate::{ai::{combat::world::Obj,nav::{goto::GotoMode,jet_hints::{JetHintJob,jet_tick},math::Vec3},phase::RandomState}};
@@ -27,7 +27,7 @@ impl Jets {
         best
     }
     pub fn enter(&mut self,controller:Obj,actor:Option<Actor>,hint:Option<usize>,nav:&mut Navigation,
-         w:&mut crate::world::owner::World,random:&mut RandomState,env:&mut dyn Environment) {
+         w:&mut crate::world::owner::World,random:&mut RandomState,env:&mut impl Environment) {
         let (Some(actor),Some(hint))=(actor,hint) else {return};
         if nav.helper_observation(jet_store!(w,store),actor).is_none() {return;}
         let Some(helper)=nav.helper_key(actor) else{return};
@@ -37,7 +37,7 @@ impl Jets {
         self.jobs[controller as u32 as usize]=Some(Job {controller,actor,helper,value:JetHintJob {helper:actor.0,hint,state:2.,started:0.}});
         jet_command!(nav,w,store,seats,random,env,helper,Command::Goto(position,GotoMode::Route));
     }
-    pub fn tick(&mut self,controller:Obj,nav:&mut Navigation, w:&mut crate::world::owner::World,random:&mut RandomState,env:&mut dyn Environment)->bool {
+    pub fn tick(&mut self,controller:Obj,nav:&mut Navigation, w:&mut crate::world::owner::World,random:&mut RandomState,env:&mut impl Environment)->bool {
         let Some(job)=self.jobs.get_mut(controller as u32 as usize).and_then(Option::as_mut).filter(|j|j.controller==controller) else {return true};
         let Some(observation)=nav.helper_observation_for(jet_store!(w,store),job.helper) else {return true};
         let jetting=nav.control(job.actor).is_some_and(|c|c.jetting);

@@ -10,6 +10,7 @@ use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -443,7 +444,9 @@ pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool,
             fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
         }
     }
-    let tmp_path = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    static SEQUENCE: AtomicU32 = AtomicU32::new(0);
+    let seq = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let tmp_path = path.with_extension(format!("json.{}.{seq}.tmp", std::process::id()));
     let record = ConsentRecord {
         version: ONLINE_NOTICE_VERSION.to_string(),
         accepted_at: accepted_at_ms,
@@ -464,7 +467,12 @@ pub fn write_online_consent_at(path: &Path, accepted_at_ms: u64) -> Result<bool,
         file.write_all(&payload)
             .map_err(|e| format!("{}: {e}", tmp_path.display()))?;
     }
-    fs::rename(&tmp_path, path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if let Err(e) = bfe_storage::preserve_unreadable_text(path, |text| serde_json::from_str::<ConsentRecord>(text).is_ok())
+        .and_then(|_| fs::rename(&tmp_path, path))
+    {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("{}: {e}", path.display()));
+    }
     Ok(true)
 }
 

@@ -17,4 +17,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 
 [dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }
 sha2 = "0.10"

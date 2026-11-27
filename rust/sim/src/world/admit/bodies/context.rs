@@ -33,10 +33,16 @@ pub fn from_context(cx: &mut Cx, content: &Content, class: &ClassDef,
     let scale = health_scale(&class.record);
     let ids = Bindings { key, side: cx.intern(call, side), class_name: cx.intern(call, name),
         class: class_id, health_scale: cx.intern(call, scale), shield };
-    let ceiling = content.battle.world.get("mission").map_or(200., |mission| match mission.get("maxFlyHeight") {
-        None | Some(Value::Null) => 200., value => bfe_content::js::to_number(value),
-    });
+    let ceiling = mission_ceiling(&content.battle.world);
     build(content, class, ids, ceiling, passive, |name| cx.intern(call, name))
+}
+
+/// The battle's flight ceiling in metres: the mission's `maxFlyHeight`, or
+/// 200 when it names none. Every soldier body is built with it.
+pub fn mission_ceiling(world: &Value) -> f64 {
+    world.get("mission").map_or(200., |mission| match mission.get("maxFlyHeight") {
+        None | Some(Value::Null) => 200., value => bfe_content::js::to_number(value),
+    })
 }
 
 /// CombatFacade's HEALTH_SCALES lookup. Unknown health types retain the

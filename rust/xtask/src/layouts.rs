@@ -547,6 +547,17 @@ pub fn transport_schema(root: &Path, check: bool) -> Result<(), String> {
             input_catalog.push_str(&format!("pub const INPUT_CODES: [&str; {}] = [{}];\n", arr.len(), items.join(",")));
         }
     }
+    // The 2005 game's tables extend the released ones: their prefixes are the
+    // 2004 tables, so a shared index means the same input in both games.
+    for (name, base, added) in [("SWBF2_INPUT_CODES", "inputCodes", "swbf2InputCodes"),
+        ("SWBF2_INPUT_ACTIONS", "inputActions", "swbf2InputActions")] {
+        let mut items = Vec::new();
+        for key in [base, added] {
+            let arr = schema.get(key).and_then(|v| v.as_array()).ok_or("missing input list")?;
+            items.extend(arr.iter().map(|v| quote_str(v.as_str().unwrap())));
+        }
+        rs.push_str(&format!("pub const {name}: [&str; {}] = [{}];\n", items.len(), items.join(",")));
+    }
 
     // Controls and transport must accept the same physical code vocabulary.
     write_or_check(root, "rust/bfe-interface/src/input_codes.rs", &input_catalog,

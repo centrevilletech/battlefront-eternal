@@ -984,3 +984,6 @@ impl Input {
         (command, look)
     }
 }
+
+mod battle;
+pub use battle::{BattleCommands, BattleInput, Swbf2Actions};

@@ -21,7 +21,7 @@ impl ShellHost {
         if previous != next {
             let clip = next
                 .as_ref()
-                .and_then(|id| self.app.data.maps.iter().find(|map| &map.id == id))
+                .and_then(|id| self.app.data.maps.iter().find(|map| map.has_browser_id(id)))
                 .and_then(|map| map.fly.clone());
             self.preview_movies.play(
                 &self.movie_library,

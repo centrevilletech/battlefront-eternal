@@ -191,6 +191,9 @@ pub struct ShellMap {
     pub id: String,
     /// Localized display title (`"NABOO: THEED"`, etc.), falling back to `id.to_ascii_uppercase()`.
     pub name: String,
+    /// Whether the catalog supplied a nonblank display title.
+    #[serde(skip)]
+    pub title_resolved: bool,
     /// Optional localization key (`"mapname.name.nab2"`, etc.) in `common.json` / `shell.json`.
     pub name_key: Option<String>,
     /// Top-level extraction flag (`None` when `shell.json` did not specify a boolean).
@@ -221,6 +224,29 @@ impl ShellMap {
     /// Returns the family-prefixed map id (`"swbf1/nab2"`).
     pub fn prefixed_id(&self) -> String {
         format!("{}/{}", self.family, self.id)
+    }
+
+    /// The id the server browser knows this map by: the bare id for a 2004 map
+    /// (as listings and released filters always used), the qualified id for a
+    /// 2005 map (`"swbf2/tat2"`, as a 2005 battle publishes it).
+    pub fn browser_id(&self) -> std::borrow::Cow<'_, str> {
+        match self.family {
+            GameFamily::Swbf2 => format!("{}{}", bfe_family::swbf2::PREFIX, self.id).into(),
+            GameFamily::Swbf1 => self.id.as_str().into(),
+        }
+    }
+
+    /// The title and lookup key used by the server browser.
+    pub fn browser_catalog_entry(&self) -> bfe_online::browser::MapCatalogEntry {
+        bfe_online::browser::MapCatalogEntry { id: self.browser_id().into_owned(), name: self.name.clone(), title_resolved: self.title_resolved }
+    }
+
+    /// Whether `id` is [`Self::browser_id`], without allocating.
+    pub fn has_browser_id(&self, id: &str) -> bool {
+        match self.family {
+            GameFamily::Swbf2 => bfe_family::swbf2::bare_map(id) == Some(self.id.as_str()),
+            GameFamily::Swbf1 => self.id == id,
+        }
     }
 
     /// Returns the `common.json` texture name for this map's still preview
@@ -723,12 +749,13 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
                 .map(str::to_string);
             // Resolve the map's display title: explicit `map.name` first, then
             // `strings[map.nameKey]`, falling back to `bare_id.to_ascii_uppercase()`.
-            let name = obj
+            let title = obj
                 .and_then(|o| o.get("name"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
-                .or_else(|| name_key.as_deref().and_then(|k| strings.get(k)).cloned())
-                .unwrap_or_else(|| bare_id.to_ascii_uppercase());
+                .or_else(|| name_key.as_deref().and_then(|k| strings.get(k)).cloned());
+            let title_resolved = title.as_ref().is_some_and(|name| !name.trim().is_empty());
+            let name = title.unwrap_or_else(|| bare_id.to_ascii_uppercase());
             let extracted = obj.and_then(|o| o.get("extracted")).and_then(Value::as_bool);
             // Copy per-era (`"cw"`, `"gcw"`) extraction status, faction `teams`,
             // and `attacker` index from `map.eras`.
@@ -768,6 +795,7 @@ pub fn read_maps(maps: Option<&Value>, strings: &BTreeMap<String, String>) -> Ve
             ShellMap {
                 family,
                 id: bare_id,
+                title_resolved,
                 name,
                 name_key,
                 extracted,

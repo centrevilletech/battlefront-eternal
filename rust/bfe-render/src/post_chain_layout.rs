@@ -22,9 +22,14 @@ pub mod facts {
     pub const PROJECTION: usize = 19;
     pub const VIEW: usize = 35;
     pub const WORLD: usize = 51;
-    pub const LEN: usize = 122;
-    pub const RESOURCES: usize = 67;
-    pub const PROGRAMS: usize = 111;
+    pub const HDR: usize = 67;
+    pub const HDR_THRESHOLD: usize = 68;
+    pub const HDR_FACTOR: usize = 69;
+    pub const HDR_PASSES: usize = 70;
+    pub const HDR_WEIGHT: usize = 71;
+    pub const LEN: usize = 129;
+    pub const RESOURCES: usize = 72;
+    pub const PROGRAMS: usize = 116;
 }
 pub mod state {
     pub const READ: usize = 0;
@@ -79,7 +84,9 @@ pub mod program {
     pub const MOTION: usize = 8;
     pub const RESOLVE: usize = 9;
     pub const SHARPEN: usize = 10;
-    pub const COUNT: usize = 11;
+    pub const HDR_EXTRACT: usize = 11;
+    pub const HDR_BLUR: usize = 12;
+    pub const COUNT: usize = 13;
 }
 pub mod mode {
     pub const OFF: usize = 0;
@@ -92,7 +99,7 @@ pub mod aa {
     pub const FXAA: usize = 1;
     pub const FAST: usize = 2;
 }
-pub const TYPES: [&[u32]; 11] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 1], &[32, 32, 32, 2, 1, 9, 9, 32, 32, 16, 16, 1], &[32, 1]];
+pub const TYPES: [&[u32]; 13] = [&[32], &[32, 2], &[32, 2], &[32, 32, 32, 1, 1, 1, 1, 1], &[16, 16, 32, 2], &[16, 16, 32, 2], &[32], &[32, 2, 2], &[32, 32, 16, 16, 1], &[32, 32, 32, 2, 1, 9, 9, 32, 32, 16, 16, 1], &[32, 1], &[32, 1], &[32, 2, 1]];
 pub mod uniform {
 pub mod copy {
     pub const MAP: usize = 0;
@@ -113,6 +120,7 @@ pub mod composite {
     pub const BLOOM_STRENGTH: usize = 4;
     pub const SPEED_BLUR: usize = 5;
     pub const SPEED_TURN: usize = 6;
+    pub const GLOW_ADD: usize = 7;
 }
 pub mod fxaa {
     pub const PROJECTION_MATRIX: usize = 0;
@@ -158,5 +166,14 @@ pub mod resolve {
 pub mod sharpen {
     pub const MAP: usize = 0;
     pub const SHARPNESS: usize = 1;
+}
+pub mod hdr_extract {
+    pub const MAP: usize = 0;
+    pub const THRESHOLD: usize = 1;
+}
+pub mod hdr_blur {
+    pub const MAP: usize = 0;
+    pub const OFFSET: usize = 1;
+    pub const WEIGHT: usize = 2;
 }
 }

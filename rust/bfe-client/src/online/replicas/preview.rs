@@ -198,37 +198,7 @@ impl Replicas {
             .try_into()
             .unwrap();
         let mut records = 0;
-        let lighting = |part: &Appearance| {
-            let mut look = part.look;
-            look[UI::AMBIENT] = 0.62;
-            look[UI::RIM_POWER] = 3.;
-            look[UI::KEY_TINT..UI::KEY_TINT + 3].copy_from_slice(&if theme == 2 {
-                [1., 246. / 255., 228. / 255.]
-            } else if theme == 0 {
-                [236. / 255., 246. / 255., 1.]
-            } else {
-                [250. / 255., 252. / 255., 1.]
-            });
-            look[UI::RIM..UI::RIM + 3].copy_from_slice(&if theme == 2 {
-                [0.6, 150. / 255. * 0.6, 40. / 255. * 0.6]
-            } else if theme == 0 {
-                [110. / 255. * 0.7, 190. / 255. * 0.7, 0.7]
-            } else {
-                [200. / 255. * 0.55, 220. / 255. * 0.55, 0.55]
-            });
-            let age = (build / 0.65).clamp(0., 1.);
-            look[UI::CUT] = if age >= 1. {
-                1e9
-            } else {
-                -0.05 + (1. - (1. - age).powi(3)) * 2.3
-            };
-            look[UI::CUT_GLOW..UI::CUT_GLOW + 3].copy_from_slice(&if theme == 2 {
-                [2., 160. / 255. * 2., 50. / 255. * 2.]
-            } else {
-                [90. / 255. * 2., 180. / 255. * 2., 2.]
-            });
-            look
-        };
+        let lighting = |part: &Appearance| crate::app::page_battle::appearance::body_look(part.look, theme, build);
         let parts = match self.skins.get(class).and_then(Option::as_ref) {
             Some((_, parts)) => parts,
             None => &data.preview_parts,

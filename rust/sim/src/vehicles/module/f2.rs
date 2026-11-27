@@ -441,6 +441,7 @@ fn spawns_in(world_ctx: &mut crate::world::owner::World, dt: f64,mut services:Op
             firing::reset_life_in(world_ctx, r,world_ctx.sim.store.vehicle.get(r).unwrap().target_generation);
         } else { publish_posed_in(world_ctx); }
         recycle_in(world_ctx, hull);
+        if world_ctx.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) { crate::units::f3_hulls::mission_hull_spawn(world_ctx,r); }
         if !crate::units::f3::active_in(&world_ctx.units) { import_f2_life(&VehHull { hull: index as f64 }); }
     }
 }

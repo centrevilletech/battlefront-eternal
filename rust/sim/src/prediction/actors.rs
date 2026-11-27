@@ -8,15 +8,17 @@ use crate::collision::{
     State, MISS, TERRAIN,
 };
 use crate::combat::combat::update_kick;
-use crate::gen::{Air, Combat, Posture, Soldier, Unit, UnitBody};
+use crate::gen::{Combat, Unit, UnitBody};
+use bfe_family::GameFamily;
 use crate::movement::{
-    scene::{GroundCache, Scene},
-    soldier::{Air as MAir, Input, Mover, Posture as MPosture, Trig, PART_CACHES, V3},
+    advance_profiled, scene::{GroundCache, Scene},
+    soldier::{swbf2::Step, Mover, PART_CACHES, V3},
 };
 use crate::pose::Clip;
 use crate::units::{
     droideka::{self, DroidekaDef, DroidekaParts, ModeClips},
     shapes::{Bounds, HitShape},
+    soldier::{load_body, load_class, profile_input, store_body},
     world::{CastHit, UnitsWorld},
 };
 use std::rc::Rc;
@@ -163,6 +165,12 @@ impl Session {
     /// clips (present; frames, fps, rootMotion, track count/tracks, Float32
     /// data count/data).
     pub fn configure(&mut self, input: &[f64]) -> Result<(), &'static str> {
+        self.configure_for_family(input, self.family())
+    }
+
+    pub(crate) fn family(&self) -> GameFamily { self.mover.family() }
+
+    pub fn configure_for_family(&mut self, input: &[f64], family: GameFamily) -> Result<(), &'static str> {
         let mut r = Reader { words: input, at: 0 };
         let kind = r.count()?;
         let parts = match kind {
@@ -195,7 +203,7 @@ impl Session {
         for cache in &mut self.caches { cache.reset(); }
         self.gathered.reset();
         self.ground.reset();
-        self.mover = Mover::new(0);
+        self.mover = Mover::for_family(0, family);
         Ok(())
     }
 
@@ -204,13 +212,16 @@ impl Session {
     pub(crate) fn step(&mut self, collision: &mut State, world: usize, ignored: i64,
         flags: &[u8], dt: f64, scratch: (f64, V3, bool), movement_backend: bool,
         shield: bool, underwater: bool, pressed: bool, airborne: bool, dive: bool, lock: f64,
-    ) -> Result<(), &'static str> {
-        if self.kind == Some(0) {
+        swbf2: Option<Step<'_>>,
+    ) -> Result<bool, &'static str> {
+        let can_fire = if self.kind == Some(0) {
             let UnitBody::Soldier(s) = &mut self.unit.soldier else {
                 unreachable!()
             };
             let m = &mut self.mover;
-            load_mover(m, s, world, ignored);
+            m.world = world;
+            load_class(m, s);
+            load_body(m, s, ignored);
             m.set_prediction_scratch(
                 if movement_backend { 0.0 } else { scratch.0 },
                 if movement_backend {
@@ -220,36 +231,8 @@ impl Session {
                 },
                 if movement_backend { false } else { scratch.2 },
             );
-            let input = &self.unit.input;
-            let inp = Input {
-                forward: input.forward,
-                right: input.right,
-                turn: or_zero(input.turn),
-                pitch: or_zero(input.pitch),
-                jump: input.jump,
-                crouch: input.crouch,
-                prone: input.prone,
-                jet_direction: input
-                    .jet_direction
-                    .filter(|v| v.iter().any(|&x| truthy(x)))
-                    .map(V3::from),
-            };
-            let yaw = m.aim_yaw;
-            let mut trig = Trig {
-                sin0: v8math::sin(yaw),
-                cos0: v8math::cos(yaw),
-                ..Trig::default()
-            };
-            if m.air == MAir::Jet && m.jet.hover {
-                trig.sin_pitch = v8math::sin(m.aim_pitch);
-                trig.cos_pitch = v8math::cos(m.aim_pitch);
-            }
-            let rest = m.begin(&inp, dt, &trig);
-            (trig.sin1, trig.cos1) = if m.aim_yaw.to_bits() != yaw.to_bits() {
-                (v8math::sin(m.aim_yaw), v8math::cos(m.aim_yaw))
-            } else {
-                (trig.sin0, trig.cos0)
-            };
+            let profiled = swbf2.is_some();
+            let inp = profile_input(&self.unit.input, profiled);
             let mut scene = Scene {
                 s: collision,
                 world,
@@ -258,8 +241,10 @@ impl Session {
                 caches: &mut self.caches,
                 ground_cache: &mut self.ground,
             };
-            m.finish(rest, &inp, dt, &trig, &mut scene);
-            store_mover(s, m, dt);
+            let permission = advance_profiled(m, &inp, dt, &mut scene, swbf2).map_err(|e| e.message())?;
+            if profiled && dt == 0.0 { return Ok(permission); }
+            store_body(s, m, dt);
+            permission
         } else {
             let mut scene = ActorWorld {
                 candidates: &mut self.candidates,
@@ -291,102 +276,12 @@ impl Session {
             if shield && pressed && !blocked {
                 d.toggle_shield();
             }
-        }
+            true
+        };
         update_kick(&mut self.combat, &mut self.unit, dt);
-        Ok(())
+        Ok(can_fire)
     }
 
-}
-
-fn load_mover(m: &mut Mover, s: &Soldier, world: usize, ignored: i64) {
-    m.world = world;
-    m.max_speed = s.max_speed;
-    m.max_strafe = s.max_strafe;
-    m.max_jump = s.max_jump;
-    m.max_turn = s.max_turn;
-    m.max_pitch = s.max_pitch;
-    m.accel = s.accel;
-    m.pitch_limits = s.pitch_limits;
-    m.jet.jump = s.jet.jump;
-    m.jet.push = s.jet.push;
-    m.jet.recharge = s.jet.recharge;
-    m.jet.cost = s.jet.cost;
-    m.jet.initial = s.jet.initial;
-    m.jet.min_border = s.jet.min_border;
-    m.jet.hover = s.jet.hover;
-    m.threshold = s.collision_rule.threshold;
-    m.scale = s.collision_rule.scale;
-    m.max_fly_height = s.max_fly_height;
-    m.getup_time = s.getup_time;
-    m.dive_time = s.dive_time;
-    m.position = V3::from(s.position);
-    m.settled = V3::from(s.settled);
-    m.velocity = V3::from(s.velocity);
-    m.normal = V3::from(s.normal);
-    m.avoidance = V3::from(s.avoidance);
-    m.aim_yaw = s.aim_yaw;
-    m.aim_pitch = s.aim_pitch;
-    m.state_time = s.state_time;
-    m.lock = s.lock;
-    m.fuel = s.fuel;
-    m.dive = s.dive;
-    m.posture = match s.posture {
-        Posture::Stand => MPosture::Stand,
-        Posture::Crouch => MPosture::Crouch,
-        Posture::Prone => MPosture::Prone,
-    };
-    m.dive_from = match s.dive_from {
-        Posture::Stand => MPosture::Stand,
-        Posture::Crouch => MPosture::Crouch,
-        Posture::Prone => MPosture::Prone,
-    };
-    m.air = match s.air {
-        None => MAir::None,
-        Some(Air::Jump) => MAir::Jump,
-        Some(Air::Fall) => MAir::Fall,
-        Some(Air::Thrown) => MAir::Thrown,
-        Some(Air::Jet) => MAir::Jet,
-    };
-    m.grounded = s.grounded;
-    m.ground_adjustment = s.ground_adjustment;
-    m.pass_through = ignored;
-}
-fn store_mover(s: &mut Soldier, m: &Mover, dt: f64) {
-    s.previous = s.position;
-    s.position = m.position.arr();
-    s.settled = m.settled.arr();
-    s.velocity = m.velocity.arr();
-    s.normal = m.normal.arr();
-    s.avoidance = m.avoidance.arr();
-    s.aim_yaw = m.aim_yaw;
-    s.aim_pitch = m.aim_pitch;
-    s.state_time = m.state_time;
-    s.lock = m.lock;
-    s.fuel = m.fuel;
-    s.dive = m.dive;
-    s.posture = match m.posture {
-        MPosture::Stand => Posture::Stand,
-        MPosture::Crouch => Posture::Crouch,
-        MPosture::Prone => Posture::Prone,
-    };
-    s.dive_from = match m.dive_from {
-        MPosture::Stand => Posture::Stand,
-        MPosture::Crouch => Posture::Crouch,
-        MPosture::Prone => Posture::Prone,
-    };
-    s.air = match m.air {
-        MAir::None => None,
-        MAir::Jump => Some(Air::Jump),
-        MAir::Fall => Some(Air::Fall),
-        MAir::Thrown => Some(Air::Thrown),
-        MAir::Jet => Some(Air::Jet),
-    };
-    s.grounded = m.grounded;
-    s.ground_adjustment = m.ground_adjustment;
-    s.collision_damage = m.collision_damage;
-    s.tick_length = dt;
-    s.look_x = 0.0;
-    s.look_y = 0.0;
 }
 
 struct ActorWorld<'a> {

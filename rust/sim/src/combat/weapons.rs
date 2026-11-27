@@ -418,7 +418,7 @@ impl Weapon {
     }
 
     /// startBurst(shots, aim, seed).
-    fn start_burst(&mut self, index: u32, class: &WeaponClass, aim: &Aim, seed: Option<f64>, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+    fn start_burst(&mut self, index: u32, class: &WeaponClass, aim: &Aim, seed: Option<f64>, swbf2: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         self.salvo_seed = seed;
         self.salvo_count = 0.0;
         draws.salvo_started(index, self);
@@ -426,11 +426,11 @@ impl Weapon {
         self.salvos_left = js_max(1.0, jsrt::conv::js_floor(d.get(K::SalvoCount).or(1.0)));
         self.salvo_wait = js_max(0.0, d.get(K::InitialSalvoDelay).or(0.0));
         self.limit = d.get(K::ShotDelay).or(0.0);
-        self.salvo_step(index, class, aim, false, draws, out);
+        self.salvo_step(index, class, aim, false, swbf2, draws, out);
     }
 
     /// salvoStep(shots, aim, cooldown).
-    fn salvo_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, cooldown: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+    fn salvo_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, cooldown: bool, swbf2: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         while self.salvos_left > 0.0 && self.salvo_wait <= EPSILON {
             if !self.can_shoot() {
                 self.salvos_left = 0.0;
@@ -443,7 +443,8 @@ impl Weapon {
         if self.salvos_left == 0.0 {
             let d = self.level(class);
             if cooldown {
-                self.wait = js_max(self.wait, self.salvo_wait + d.get(K::ShotDelay).or(0.0));
+                let trailing = if swbf2 { 0.0 } else { self.salvo_wait };
+                self.wait = js_max(self.wait, trailing + d.get(K::ShotDelay).or(0.0));
             }
             if d.kind==WeaponBase::Launcher && !matches!(d.get(K::ClearLockOnFire), Js::Num(x) if *x == 0.0) {
                 self.lock_elapsed = 0.0;
@@ -469,21 +470,34 @@ impl Weapon {
         }
     }
 
+    fn throw_length_for_family(swbf2: bool, d: &Level) -> f64 {
+        if !swbf2 {
+            return Self::throw_length(d);
+        }
+        let initial = d.get(K::InitialSalvoDelay).num();
+        let shot_delay = d.get(K::ShotDelay).num();
+        if matches!(d.kind, WeaponBase::Dispenser | WeaponBase::Detonator | WeaponBase::Remote) {
+            js_max(initial, js_max(shot_delay, 0.01))
+        } else {
+            initial + shot_delay
+        }
+    }
+
     /// startThrow(shots, aim).
-    fn start_throw(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+    fn start_throw(&mut self, index: u32, class: &WeaponClass, swbf2: bool, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         self.throw_time = 0.0;
         self.released = false;
-        self.wait = Self::throw_length(d);
+        self.wait = Self::throw_length_for_family(swbf2, d);
         self.limit = d.get(K::ShotDelay).or(0.0);
-        self.throw_step(index, class, aim, draws, out);
+        self.throw_step(index, class, swbf2, aim, draws, out);
     }
 
     /// throwStep(shots, aim).
-    fn throw_step(&mut self, index: u32, class: &WeaponClass, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+    fn throw_step(&mut self, index: u32, class: &WeaponClass, swbf2: bool, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let d = self.level(class);
         let initial = d.get(K::InitialSalvoDelay).num();
-        let length = Self::throw_length(d);
+        let length = Self::throw_length_for_family(swbf2, d);
         let hide = !matches!(d.get(K::HideOnFire), Js::Num(x) if *x == 0.0);
         if !self.released && self.throw_time >= initial {
             let before = out.len();
@@ -513,6 +527,15 @@ impl Weapon {
     /// the shots fired go to `out`. A melee weapon's update is its swing's.
     #[allow(clippy::too_many_arguments)]
     pub fn update(&mut self, index: u32, class: &WeaponClass, dt: f64, selected: bool, trigger: &Trigger, reload: bool, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+        self.update_for_family(index, class, bfe_family::GameFamily::Swbf1, dt, selected, trigger, reload, aim, draws, out);
+    }
+
+    /// Family-aware weapon tick: Battlefront II starts `ShotDelay` immediately
+    /// after the last round of a multi-shot salvo rather than adding a trailing
+    /// `SalvoDelay`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_for_family(&mut self, index: u32, class: &WeaponClass, family: bfe_family::GameFamily, dt: f64, selected: bool, trigger: &Trigger, reload: bool, aim: &Aim, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+        let swbf2 = family == bfe_family::GameFamily::Swbf2;
         if self.melee.is_some() {
             self.melee_update(index, class, dt, selected, trigger, draws, out);
             return;
@@ -543,7 +566,7 @@ impl Weapon {
 
         if self.salvos_left > 0.0 {
             self.salvo_wait -= dt;
-            self.salvo_step(index, class, aim, true, draws, out);
+            self.salvo_step(index, class, aim, true, swbf2, draws, out);
             return;
         }
 
@@ -569,7 +592,7 @@ impl Weapon {
 
         if self.throw_time >= 0.0 {
             self.throw_time += dt;
-            self.throw_step(index, class, aim, draws, out);
+            self.throw_step(index, class, swbf2, aim, draws, out);
             return;
         }
 
@@ -611,9 +634,9 @@ impl Weapon {
                 self.charge = self.held / most;
                 self.held = 0.0;
                 if thrown {
-                    self.start_throw(index, class, aim, draws, out);
+                    self.start_throw(index, class, swbf2, aim, draws, out);
                 } else {
-                    self.start_burst(index, class, aim, None, draws, out);
+                    self.start_burst(index, class, aim, None, swbf2, draws, out);
                     self.wait = self.level(class).get(K::ShotDelay).num();
                 }
                 return;
@@ -637,7 +660,7 @@ impl Weapon {
         if thrown {
             if trigger.pressed && self.wait <= EPSILON && !self.deployed {
                 self.charge = 1.0;
-                self.start_throw(index, class, aim, draws, out);
+                self.start_throw(index, class, swbf2, aim, draws, out);
             }
             return;
         }
@@ -649,7 +672,7 @@ impl Weapon {
         }
         if single {
             if trigger.pressed && self.wait <= EPSILON {
-                self.start_burst(index, class, aim, trigger.seed, draws, out);
+                self.start_burst(index, class, aim, trigger.seed, swbf2, draws, out);
                 let late = if trigger.late != 0.0 && !trigger.late.is_nan() { trigger.late } else { 0.0 };
                 self.wait = shot_delay.num() - js_min(late, shot_delay.or(0.0) * 0.5);
             }
@@ -660,7 +683,7 @@ impl Weapon {
             // Only the press's own cycle has its seed; held repeats draw as before.
             let mut seed = if trigger.pressed { trigger.seed } else { None };
             while self.wait <= EPSILON && self.can_shoot() {
-                self.start_burst(index, class, aim, seed, draws, out);
+                self.start_burst(index, class, aim, seed, swbf2, draws, out);
                 seed = None;
                 self.wait += js_max(shot_delay.or(0.0), EPSILON);
                 if self.salvos_left > 0.0 || !(shot_delay.num() > 0.0) {
@@ -814,6 +837,11 @@ impl Arsenal<'_> {
     /// update(dt, input, aim): every weapon's tick, the
     /// selected ones' triggers given (only one channel fires at a time).
     pub fn update(&mut self, defs: &WeaponDefs, dt: f64, input: &ArsenalInput, aim: &Aim, blocked: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
+        self.update_for_family(defs, bfe_family::GameFamily::Swbf1, dt, input, aim, blocked, draws, out);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_for_family(&mut self, defs: &WeaponDefs, family: bfe_family::GameFamily, dt: f64, input: &ArsenalInput, aim: &Aim, blocked: bool, draws: &mut dyn WeaponDraws, out: &mut Vec<Shot>) {
         let primary = self.current(defs, 0);
         let secondary = self.current(defs, 1);
         let none = Trigger::default();
@@ -832,7 +860,7 @@ impl Arsenal<'_> {
             let selected = Some(i) == primary || Some(i) == secondary;
             let reload = Some(i) == primary && input.reload;
             let class = defs.class(self.weapons[i].def);
-            self.weapons[i].update(i as u32, class, dt, selected, &trigger, reload, aim, draws, out);
+            self.weapons[i].update_for_family(i as u32, class, family, dt, selected, &trigger, reload, aim, draws, out);
         }
     }
 }
@@ -919,5 +947,158 @@ mod tests {
         let (left, idle) = throw_ticks("grenade", 0.3, 1.4);
         assert!((18..=19).contains(&left), "{left}");
         assert!((102..=103).contains(&idle), "{idle}");
+    }
+
+    #[test]
+    fn swbf2_salvo_starts_shot_delay_without_extra_salvo_delay() {
+        let fields = [
+            ("base", Js::Str("cannon".into())),
+            ("SalvoCount", Js::Num(3.0)),
+            ("SalvoDelay", Js::Num(0.10)),
+            ("ShotDelay", Js::Num(0.40)),
+            ("RoundsPerClip", Js::Num(12.0)),
+            ("ammo", Js::Num(4.0)),
+            ("TriggerSingle", Js::Num(1.0)),
+        ];
+        let fields = fields.into_iter().map(|(k, v)| (Rc::from(k), v)).collect();
+        let mut defs = WeaponDefs::default();
+        defs.set(DefId(0), WeaponClass::new(Rc::new(JsObj { fields, def: None })));
+        let class = defs.class(DefId(0));
+        let aim = Aim { stick: 0.0, posture: None, zoomed: false, repair_target: false };
+
+        let run = |family: bfe_family::GameFamily| -> Vec<usize> {
+            let mut weapon = Weapon::create(DefId(0), &defs, true);
+            let mut fired = Vec::new();
+            for tick in 0..80 {
+                let mut out = Vec::new();
+                // Tap on tick 0, then tap every tick to observe earliest next burst.
+                let trigger = Trigger { held: true, pressed: true, seed: None, late: 0.0 };
+                weapon.update_for_family(0, class, family, 1.0 / 60.0, true, &trigger, false, &aim, &mut Draws, &mut out);
+                if !out.is_empty() {
+                    fired.push(tick);
+                }
+            }
+            fired
+        };
+
+        let bf1 = run(bfe_family::GameFamily::Swbf1);
+        let bf2 = run(bfe_family::GameFamily::Swbf2);
+        // First 3 rounds fire at identical salvo spacing (ticks 0, 6, 12).
+        assert_eq!(&bf1[..3], &[0, 6, 12]);
+        assert_eq!(&bf2[..3], &[0, 6, 12]);
+        // Second burst starts after ShotDelay (24 ticks -> tick 36) in SWBF2,
+        // whereas SWBF1 waits SalvoDelay + ShotDelay (30 ticks -> tick 42).
+        assert_eq!(bf1[3] - bf1[2], 30);
+        assert_eq!(bf2[3] - bf2[2], 24);
+    }
+
+    #[test]
+    fn charged_weapon_fan_at_base_and_center_at_charge_tier() {
+        let pair = |p: f64, y: f64| Js::Arr(Rc::new(vec![Js::Num(p), Js::Num(y)]));
+        let charge_fields = vec![
+            (Rc::from("at"), Js::Num(0.55)),
+            (Rc::from("ShotsPerSalvo"), Js::Num(1.0)),
+            (Rc::from("ShotPatternCount"), Js::Num(1.0)),
+            (Rc::from("ShotPatternPitchYaw"), Js::Arr(Rc::new(Vec::new()))),
+        ];
+        let base_fields = vec![
+            (Rc::from("base"), Js::Str("cannon".into())),
+            (Rc::from("MaxPressedTime"), Js::Num(1.4)),
+            (Rc::from("ShotDelay"), Js::Num(0.35)),
+            (Rc::from("RoundsPerClip"), Js::Num(18.0)),
+            (Rc::from("ammo"), Js::Num(3.0)),
+            (Rc::from("TriggerSingle"), Js::Num(1.0)),
+            (Rc::from("ShotsPerSalvo"), Js::Num(3.0)),
+            (Rc::from("ShotPatternCount"), Js::Num(3.0)),
+            (
+                Rc::from("ShotPatternPitchYaw"),
+                Js::Arr(Rc::new(vec![
+                    pair(-0.2, -1.3),
+                    pair(0.1, 0.2),
+                    pair(0.0, 1.9),
+                ])),
+            ),
+            (
+                Rc::from("charges"),
+                Js::Arr(Rc::new(vec![Js::Obj(Rc::new(JsObj {
+                    fields: charge_fields,
+                    def: None,
+                }))])),
+            ),
+        ];
+        let mut defs = WeaponDefs::default();
+        defs.set(DefId(0), WeaponClass::new(Rc::new(JsObj { fields: base_fields, def: None })));
+        let class = defs.class(DefId(0));
+        let aim = Aim { stick: 0.0, posture: None, zoomed: false, repair_target: false };
+
+        // Quick tap: releases at base level -> 3 bolts matching the invented asymmetric pattern.
+        let mut weapon = Weapon::create(DefId(0), &defs, true);
+        let mut tap_shots = Vec::new();
+        weapon.update_for_family(
+            0, class, bfe_family::GameFamily::Swbf2, 1.0 / 60.0, true,
+            &Trigger { held: true, pressed: true, seed: None, late: 0.0 }, false, &aim, &mut Draws, &mut tap_shots,
+        );
+        weapon.update_for_family(
+            0, class, bfe_family::GameFamily::Swbf2, 1.0 / 60.0, true,
+            &Trigger { held: false, pressed: false, seed: None, late: 0.0 }, false, &aim, &mut Draws, &mut tap_shots,
+        );
+        assert_eq!(weapon.level, 0.0);
+        assert_eq!(tap_shots.len(), 3);
+        let angles: Vec<(f64, f64)> = tap_shots
+            .iter()
+            .map(|s| match s.kind { ShotKind::Round { pitch, yaw, .. } => (pitch / DEG, yaw / DEG), _ => panic!() })
+            .collect();
+        for ((gp, gy), (wp, wy)) in angles.iter().zip([(0.2, -1.3), (-0.1, 0.2), (0.0, 1.9)]) {
+            assert!((gp - wp).abs() < 1e-9 && (gy - wy).abs() < 1e-9, "got ({gp}, {gy}), want ({wp}, {wy})");
+        }
+
+        // Hold past 0.55 * 1.4 = 0.77 s (55 ticks): releases at charge level 1 -> 1 bolt dead-center.
+        let mut weapon = Weapon::create(DefId(0), &defs, true);
+        let mut charged_shots = Vec::new();
+        for tick in 0..55 {
+            weapon.update_for_family(
+                0, class, bfe_family::GameFamily::Swbf2, 1.0 / 60.0, true,
+                &Trigger { held: true, pressed: tick == 0, seed: None, late: 0.0 }, false, &aim, &mut Draws, &mut charged_shots,
+            );
+        }
+        assert!(charged_shots.is_empty());
+        assert_eq!(weapon.level, 1.0);
+        weapon.update_for_family(
+            0, class, bfe_family::GameFamily::Swbf2, 1.0 / 60.0, true,
+            &Trigger { held: false, pressed: false, seed: None, late: 0.0 }, false, &aim, &mut Draws, &mut charged_shots,
+        );
+        assert_eq!(weapon.level, 1.0);
+        assert_eq!(charged_shots.len(), 1);
+        match charged_shots[0].kind {
+            ShotKind::Round { yaw, pitch, .. } => {
+                assert!(yaw.abs() < 1e-9, "expected center yaw, got {yaw}");
+                assert!(pitch.abs() < 1e-9, "expected center pitch, got {pitch}");
+            }
+            _ => panic!("expected round"),
+        }
+    }
+
+    #[test]
+    fn detonator_base_stays_other_in_2004_and_throws_as_detonator_in_2005() {
+        use super::super::defs::{Js, JsObj, WeaponBase, WeaponClass};
+        use std::rc::Rc;
+
+        let def = Rc::new(JsObj {
+            fields: vec![
+                (Rc::from("base"), Js::Str(Rc::from("detonator"))),
+                (Rc::from("InitialSalvoDelay"), Js::Num(0.2)),
+                (Rc::from("ShotDelay"), Js::Num(0.6)),
+            ],
+            def: None,
+        });
+        let swbf1 = WeaponClass::new_for_family(bfe_family::GameFamily::Swbf1, def.clone());
+        assert_eq!(swbf1.base().kind, WeaponBase::Other);
+        assert!(!swbf1.base().kind.thrown());
+        assert!((Weapon::throw_length_for_family(false, swbf1.base()) - 0.8).abs() < 1e-9);
+
+        let swbf2 = WeaponClass::new_for_family(bfe_family::GameFamily::Swbf2, def);
+        assert_eq!(swbf2.base().kind, WeaponBase::Detonator);
+        assert!(swbf2.base().kind.thrown());
+        assert!((Weapon::throw_length_for_family(true, swbf2.base()) - 0.6).abs() < 1e-9);
     }
 }

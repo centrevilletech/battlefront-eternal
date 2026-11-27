@@ -126,3 +126,12 @@ fn world_digest() {
         run(&root, map, ticks);
     }
 }
+
+#[path = "world_digest/fight.rs"]
+mod fight;
+
+#[path = "world_digest/roster.rs"]
+mod roster;
+
+#[path = "world_digest/swbf2.rs"]
+mod swbf2;

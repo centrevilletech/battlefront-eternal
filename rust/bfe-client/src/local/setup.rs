@@ -15,11 +15,14 @@ use serde_json::Value;
 pub use admit::Handles;
 
 pub struct Admitted {
+    /// The battle's game, as the world admitted it.
+    pub family: bfe_family::GameFamily,
     pub setup: WorldTickSetup,
     pub tick: WorldTickInput,
     pub handles: Handles,
     pub player_id: f64,
     pub registry: Value,
+    pub wire_bounds: bfe_sim::wire::PositionBounds,
     pub query: String,
     /// Packet bytes from `createLocalServer.welcome`'s initial tick-0 publication
     /// produced during `Context::world_admit`.
@@ -59,10 +62,12 @@ impl Admitted {
             return Err("native admission returned an invalid player identity".into());
         }
         Ok(Self {
+            family: world.family,
             setup: world.setup,
             handles: world.handles,
             player_id: world.player_id,
             registry: world.registry,
+            wire_bounds: world.wire_bounds,
             query: options.query(),
             publication: world.publication,
             publication_output: world.publication_output,
@@ -86,22 +91,33 @@ pub trait Source {
     fn admit(&self, context: &Context) -> Result<Admitted, String>;
 }
 
+/// Optional authored starting node for a local developer battle.
+pub(super) fn select_developer_spawn_path(context: &Context, family: bfe_family::GameFamily) -> Result<(), String> {
+    if family == bfe_family::GameFamily::Swbf2 {
+        if let Ok(path) = std::env::var("BFE_DEV_SWBF2_SPAWN") {
+            context.owned(|world| world.select_local_spawn_path(path)).map_err(describe)?;
+        }
+    }
+    Ok(())
+}
+
 impl Source for NativeSource<'_> {
     // The Context supplies Unavailable itself while admission has no bodies.
     // Propagate it unchanged before making a window or loading display assets;
     // a launch never substitutes a recording or another simulation host.
     fn admit(&self, context: &Context) -> Result<Admitted, String> {
-        let world = if self.spawn_screen {
-            context.world_admit_spawn_screen(self.files, &self.options)
-        } else {
-            context.world_admit(self.files, &self.options)
-        }.map_err(describe)?;
+        select_developer_spawn_path(context, self.options.family)?;
+        let world = context.world_admit_for_family(
+            self.files, self.options.family, &self.options, None, self.spawn_screen,
+        ).map_err(describe)?;
         let mut admitted = Admitted::from_world(world, &self.options)?;
         if self.spawn_screen { admitted.query.push_str("&spawnscreen=1"); }
-        let (explosions, content) = bfe_sim::host::content_tables_files(
+        let (explosions, content) = bfe_sim::host::content_tables_files_for_family(
             context,
             self.files,
+            self.options.family,
             &self.options,
+            None,
             admitted.handles.store_source,
         )?;
         admitted.explosions = explosions;

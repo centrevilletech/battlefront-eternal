@@ -22,7 +22,7 @@ enum Message {
     Scene(Result<crate::scene::Prepared, String>),
     Instant(Result<InstantAdmission, String>),
     /// The online battle's map, as soon as the server has said which battle it runs.
-    Map(String),
+    Map(bfe_family::GameFamily, String),
     Online(Result<OnlineAdmission, String>),
 }
 type Opening = Pin<Box<dyn Future<Output = Result<BattleController, String>>>>;
@@ -30,6 +30,14 @@ type Opening = Pin<Box<dyn Future<Output = Result<BattleController, String>>>>;
 /// draws in the rest of a 60 Hz frame on a slow PC).
 const STEP_BUDGET: std::time::Duration = std::time::Duration::from_millis(10);
 type WorldSlot = Rc<RefCell<Option<Result<InstantAdmission, String>>>>;
+
+/// What loading hands the app: a battle once the loading screen's timeline
+/// ends, or, at once, a 2005 battle this client sits out, with the launch
+/// that carries on to the next battle.
+pub enum Handover {
+    Battle(Box<BattleController>),
+    SitOut(Box<crate::online::sitout::SitOut>, bfe_shell::screens::MultiplayerLaunch),
+}
 
 #[derive(Default)]
 pub struct Work {
@@ -39,12 +47,14 @@ pub struct Work {
     /// The admitted world, once it arrives, for an opening already under way.
     world: WorldSlot,
     pub ready: Option<Box<BattleController>>,
+    /// A 2005 battle this client sits out: no display to prepare.
+    sitting: Option<(Box<crate::online::sitout::SitOut>, bfe_shell::screens::MultiplayerLaunch)>,
     handover: u8,
     display_ms: f64,
     /// When loading began, to say how long before the screen's end it was ready.
     began: Option<std::time::Instant>,
     /// The online battle's map once known, for the loading screen to show.
-    pub map: Option<String>,
+    pub map: Option<(bfe_family::GameFamily, String)>,
 }
 impl Work {
     pub fn advance(
@@ -98,8 +108,8 @@ impl Work {
                                 server_target,
                                 &snapshot,
                                 textures,
-                                move |id| {
-                                    let _ = map.send(Message::Map(id.to_string()));
+                                move |family, id| {
+                                    let _ = map.send(Message::Map(family, id.to_string()));
                                 },
                             ))
                         }
@@ -152,10 +162,17 @@ impl Work {
                     *self.world.borrow_mut() = Some(admitted);
                     eprintln!("battle loading: world admitted");
                 }
-                Message::Map(id) => self.map = Some(id),
+                Message::Map(family, id) => self.map = Some((family, id)),
                 Message::Online(admitted) => {
                     self.rx = None;
-                    let admitted = admitted?;
+                    let admitted = match admitted?.sit_out() {
+                        Ok((sitting, launch)) => {
+                            self.sitting = Some((Box::new(sitting), launch));
+                            eprintln!("battle loading: sitting this Battlefront II battle out");
+                            continue;
+                        }
+                        Err(admitted) => admitted,
+                    };
                     let load = load.take().ok_or("battle display opened twice")?;
                     self.opening = Some(Box::pin(async move {
                         BattleController::open_online(&root, admitted, size, &settings, &audio, load).await
@@ -198,20 +215,49 @@ impl Work {
         }
         Ok(())
     }
+    fn handover_frame(&mut self, timeline_done: bool, ready: bool) -> bool {
+        if timeline_done && ready {
+            self.handover += 1;
+        }
+        self.handover >= 2
+    }
+
     pub fn handover(
         &mut self,
         timeline_done: bool,
         audio: &SharedAudioRouter,
-    ) -> Option<Box<BattleController>> {
-        if timeline_done && self.ready.is_some() {
-            self.handover += 1;
+    ) -> Option<Handover> {
+        if let Some((sitting, launch)) = self.sitting.take() {
+            return Some(Handover::SitOut(sitting, launch));
         }
-        if self.handover >= 2 {
+        if self.handover_frame(timeline_done, self.ready.is_some()) {
             let mut battle = self.ready.take()?;
             battle.activate(audio);
-            Some(battle)
+            Some(Handover::Battle(battle))
         } else {
             None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bfe_shell::loading::{LoadingTimeline, LEAD};
+
+    #[test]
+    fn ready_planet_load_hands_over_on_the_released_tick_even_after_retarget() {
+        // Both Instant Action and an initially unknown server map use this gate.
+        for online in [false, true] {
+            let mut timeline = LoadingTimeline::default();
+            let mut work = Work::default();
+            for tick in 0..=817 {
+                if online && tick == 240 {
+                    timeline.targets = vec![Some([0.1, 0.2, 0.3, 0.4]); 4];
+                }
+                let elapsed = tick as f64 / 60.0 - LEAD;
+                assert_eq!(work.handover_frame(elapsed >= timeline.duration(), true), tick == 817);
+            }
         }
     }
 }

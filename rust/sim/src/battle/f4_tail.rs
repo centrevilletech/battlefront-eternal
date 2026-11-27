@@ -1,15 +1,18 @@
 //! Battlefield and battle rules enter once after items. Canonical Store rows
 //! remain native through capture, deaths, queues, AI hooks and human choices.
+use bfe_wide::Wide;
 use crate::world::owner::World as Root;
 use super::owner::BattleOwner;
 use super::{
     battlefield::Battlefield, human::Command, human_posts::Choices, human_world,
     native_actions::Actions, native_lifecycle::Native, owned_world::Owner,
+    rules::RuleSet,
 };
 use crate::{ gen::*, store::StrId, units::f3};
 
 pub(super) struct State {
     owner: Owner,
+    capacity: super::rules::events::BattleCapacity,
     human: super::native_human::Driver,
     shell: Option<Store>,
     commands: Vec<Command>,
@@ -30,10 +33,234 @@ pub(crate) fn human_choices(battle: &BattleOwner) -> &Choices {
     &battle.tail.as_ref().expect("native battle tail initialized").human.human.choices
 }
 pub(crate) fn reset(battle: &mut BattleOwner) {
-    {
-        battle.tail = None;
+    // This reset cannot reach the bots: the dropped rules' goal bots wait for
+    // the next tail or rules installation to hand their bots back.
+    if let Some(bots) = take_goal_bots(battle) {
+        battle.parked_goal_bots.push(*bots);
+    }
+    battle.bot_phase = if battle.parked_goal_bots.is_empty() {
+        crate::ai::owned::entry::native_phase_in::<false>
+    } else { retire_before_phase };
+    battle.soldier_phase = f3::released_step_in;
+    battle.tail = None;
+    battle.rule_events = None;
+    battle.death_tickets = super::rules::DeathTickets::Conquest;
+}
+
+/// The goal bots of the installed rules, when they have a goal table.
+pub(crate) fn goal_bots(battle: &mut BattleOwner) -> Option<&mut crate::ai::goals::GoalController> {
+    match &mut battle.tail.as_mut()?.owner.tail.rules {
+        RuleSet::Conquest => None,
+        RuleSet::EventDriven(mode) => mode.goal_bots(),
     }
 }
+
+pub(crate) fn soldier_inputs(battle: &mut BattleOwner) -> Option<&mut crate::ai::goals::SoldierInputs> {
+    let RuleSet::EventDriven(mode) = &mut battle.tail.as_mut()?.owner.tail.rules else { return None };
+    mode.soldier_inputs()
+}
+
+/// Take the installed rules' goal bots out, keeping every goal handle their
+/// table issued out of later installations.
+fn take_goal_bots(battle: &mut BattleOwner) -> Option<Box<crate::ai::goals::GoalController>> {
+    let tail = battle.tail.as_mut()?;
+    let RuleSet::EventDriven(mode) = &mut tail.owner.tail.rules else { return None };
+    mode.take_goal_bots()
+}
+
+/// Hand back the bots of goal bots whose rules are gone. False while the
+/// bots cannot be reached; those goal bots then wait for the next try.
+fn retire_parked_in(w: &mut Root) -> bool {
+    while let Some(mut bots) = w.battle.parked_goal_bots.pop() {
+        if !crate::ai::goals::api::retire_in(w, &mut bots) {
+            w.battle.parked_goal_bots.push(bots);
+            return false;
+        }
+    }
+    true
+}
+
+/// A reset can happen inside a physical callback while the AI is on loan.
+fn retire_before_phase(w: &mut Root) -> u32 {
+    if !retire_parked_in(w) { return 0; }
+    if let Some(ai) = w.ai.battle_mut() { ai.runtime.core.goal_publications(false); }
+    w.battle.bot_phase = crate::ai::owned::entry::native_phase_in::<false>;
+    (w.battle.bot_phase)(w)
+}
+
+/// Install `rules` as an admitted selection would.
+#[cfg(test)]
+pub(crate) fn install_rules_for_test(w: &mut Root, mut rules: RuleSet) -> Option<()> { try_install(w, &mut rules) }
+
+#[cfg(test)]
+pub(crate) fn event_rules_mut_for_test(w: &mut Root) -> Option<&mut super::rules::events::EventDriven> {
+    match &mut w.battle.tail.as_mut()?.owner.tail.rules {
+        RuleSet::EventDriven(mode) => Some(mode),
+        RuleSet::Conquest => None,
+    }
+}
+
+pub(crate) fn select_rules(w: &mut Root, family: bfe_family::GameFamily, mode: &str,
+    parameters: super::rules::ModeParameters, objects: Vec<super::rules::objects::NamedObject>) -> super::rules::objects::RuleResult<()> {
+    if w.battle.tail.is_none() { return Err(super::rules::objects::RuleError::NotAvailable); }
+    let objects = super::rules::objects::MissionObjects::admitted(w, objects);
+    use super::rules::objects::RuleError;
+    if w.battle.prepared_mission.is_some() {
+        if !w.battle.rule_request.as_ref().is_some_and(|r| r.family == family && r.mode == mode && r.parameters == parameters) {
+            return Err(RuleError::InvalidValue);
+        }
+        let mut staged = w.battle.prepared_mission.take().unwrap();
+        if let RuleSet::EventDriven(mode) = staged.as_mut() {
+            mode.admit_objects(objects, parameters.score_limit);
+        }
+        if try_install(w, &mut staged).is_none() {
+            w.battle.prepared_mission = Some(staged);
+            return Err(RuleError::LimitReached);
+        }
+        w.battle.rule_request = None;
+        return Ok(());
+    }
+    let mut rules = RuleSet::select(family, mode, parameters, w.battle.rule_factory.as_deref(), objects)?;
+    if matches!(&rules, RuleSet::EventDriven(r) if r.mission().is_some()) { return Err(RuleError::InvalidValue); }
+    try_install(w, &mut rules).ok_or(RuleError::LimitReached)
+}
+
+impl Root {
+    pub(crate) fn observe_local_mission_transitions(&mut self) {
+        if let Some(tail) = &mut self.battle.tail {
+            if let RuleSet::EventDriven(mode) = &mut tail.owner.tail.rules {
+                mode.observe_transitions();
+            }
+        }
+    }
+}
+
+/// Whether a battle's rules leave room for one more alive of a class of the
+/// human roster: always in a battle without a mission.
+pub(crate) fn wire_class_room_in(battle: &BattleOwner, store: &Store, team: usize, class: StrId) -> bool {
+    event_rules_in(battle).is_none_or(|rules| rules.has_room(store, team, class))
+}
+pub(crate) fn event_rules_in(battle: &BattleOwner) -> Option<&super::rules::events::EventDriven> {
+    match &battle.tail.as_ref()?.owner.tail.rules {
+        RuleSet::EventDriven(mode) => Some(mode),
+        RuleSet::Conquest => None,
+    }
+}
+
+impl Root {
+    pub fn event_rules(&self) -> Option<&super::rules::events::EventDriven> { event_rules_in(&self.battle) }
+
+    /// Version-local checksum of the quiescent mission authority and its native inputs.
+    /// Physics and combat publications have their own replay digest.
+    pub fn mission_digest(&self) -> Option<Wide> {
+        let rules = self.event_rules()?;
+        let mut h = super::script::state::MissionDigest::new();
+        h.field(&rules.mission()?.0.authoritative_digest());
+        rules.digest_into(&mut h);
+        self.battle.rule_events.as_ref()?.digest_into(&mut h);
+        crate::units::f3_hulls::digest_mission(&self.units,&mut h);
+        crate::units::f3_props::digest_mission(self, &mut h);
+        let s = &self.sim.store;
+        h.field(&(&s.spawning.wave,&s.spawning.wave_countdown,&s.battle.reinforcements,s.battle.over,s.battle.loser));
+        h.field(&s.spawning.teams);
+        for row in rules.named_objects().iter() {
+            h.field(row);
+            let life=super::native_actions::current(self,s,&row.object);
+            h.field(&life);
+            if let Ok(object)=life {
+                h.field(&super::native_actions::object_state(self,s,&object));
+                h.field(&super::native_actions::shields(self,s,&object));
+            }
+        }
+        for r in &s.spawning.characters {
+            if let Some(c)=s.character.get(*r) {
+                h.field(&(r,c.unit,c.team,c.human,c.hero,c.kills,c.class_name,&c.spawn));
+                if let Some(body) = c.unit.and_then(|unit| s.unit.get(unit)) {
+                    h.field(&(body.character, body.class_name, body.alive, body.combat.dead,
+                        body.combat.health, body.combat.max_health));
+                }
+            }
+        }
+        Some(h.finish())
+    }
+
+    pub fn mission_state(&self) -> Option<(&super::script::ScriptRules, &[super::rules::awards::PersonalScore])> {
+        self.event_rules()?.mission()
+    }
+
+    pub fn mission_view(&self) -> Option<super::script::MissionView<'_>> {
+        let rules = self.event_rules()?;
+        Some(super::script::MissionView { host: rules.mission()?.0.host(), rules,
+            battle: &self.sim.store.battle, human_spawn: &self.sim.store.human_spawn })
+    }
+
+}
+
+#[cfg(test)]
+fn set_rules(w: &mut Root, mut rules: RuleSet) -> Option<()> { try_install(w, &mut rules) }
+
+fn try_install(w: &mut Root, rules: &mut RuleSet) -> Option<()> {
+    let capacity = w.battle.tail.as_ref()?.capacity;
+    // Everything that can fail comes first: a failed installation leaves the
+    // installed rules and their goal bots as they are.
+    let producer = match &mut *rules {
+        RuleSet::Conquest => None,
+        RuleSet::EventDriven(mode) => {
+            if w.ai.battle_on_loan() || !mode.accepts_goal_handles(&w.goal_handles()) { return None; }
+            let producer = mode.prepare(capacity)?;
+            let epoch = w.battle.goal_installations.checked_add(1)?;
+            if let Some(bots) = mode.goal_bots() {
+                let (characters, regions) = crate::ai::goals::api::admission_in(w)?;
+                bots.admit(characters, regions, epoch)?;
+            } else {
+                let characters = w.ai.battle().map_or(0, |ai| ai.character_capacity())
+                    .max(w.sim.store.character.slots() as usize);
+                mode.prepare_unassigned_inputs(characters, epoch)?;
+            }
+            let targets = w.ai.battle().map_or(0, |ai| ai.state.identity_capacity());
+            mode.soldier_inputs()?.reserve_targets(targets)?;
+            Some(producer)
+        }
+    };
+    // The replaced rules' goal bots hand their bots back before the new rules
+    // take over; while that cannot happen, the installation is refused.
+    if !retire_parked_in(w) {
+        return None;
+    }
+    if let Some(mut bots) = take_goal_bots(&mut w.battle) {
+        if !crate::ai::goals::api::retire_in(w, &mut bots) {
+            if let Some(RuleSet::EventDriven(mode)) = w.battle.tail.as_mut().map(|t| &mut t.owner.tail.rules) {
+                mode.restore_goal_bots(bots);
+            }
+            return None;
+        }
+    }
+    if matches!(&*rules, RuleSet::EventDriven(_)) {
+        w.battle.goal_installations += 1;
+        w.sim.store.battle.reinforcements.reserve(super::spawning::TEAM_COUNT);
+    }
+    if producer.as_ref().is_some_and(|p| p.mission_events()) { crate::units::f3_hulls::prepare_mission(&mut w.units); }
+    let battle = &mut w.battle;
+    let tail = battle.tail.as_mut()?;
+    battle.rule_events = producer;
+    battle.death_tickets = match rules {
+        RuleSet::Conquest => super::rules::DeathTickets::Conquest,
+        RuleSet::EventDriven(_) => super::rules::DeathTickets::Handler,
+    };
+    if let Some(ai) = w.ai.battle_mut() {
+        ai.runtime.core.goal_publications(matches!(&*rules, RuleSet::EventDriven(mode) if mode.has_goal_bots()));
+    }
+    battle.soldier_phase = if battle.melee_driver.is_some() && matches!(&*rules, RuleSet::EventDriven(_)) {
+        f3::goal_step_in
+    } else { f3::released_step_in };
+    battle.bot_phase = match &mut *rules {
+        RuleSet::EventDriven(_) => crate::ai::owned::entry::native_phase_in::<true>,
+        _ => crate::ai::owned::entry::native_phase_in::<false>,
+    };
+    tail.owner.tail.rules = std::mem::replace(rules, RuleSet::Conquest);
+    Some(())
+}
+
 /// captureWorldSummaries reads the same prepared human roster without
 /// running a spawn choice, advancing a queue or consuming a random draw.
 pub(crate) fn wire_roster_in(battle: &BattleOwner, team: usize) -> &[StrId] {
@@ -69,6 +296,18 @@ pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
         f3::active_in(&w.units) && super::f4_core::active_in(&mut w.battle),
         "canonical unit and battle owners required"
     );
+    // A new tail replaces the installed rules: their goal bots, and any whose
+    // rules a reset dropped, hand their bots back first.
+    if let Some(bots) = take_goal_bots(&mut w.battle) {
+        w.battle.parked_goal_bots.push(*bots);
+    }
+    w.battle.soldier_phase = f3::released_step_in;
+    w.battle.bot_phase = if retire_parked_in(w) {
+        if let Some(ai) = w.ai.battle_mut() { ai.runtime.core.goal_publications(false); }
+        crate::ai::owned::entry::native_phase_in::<false>
+    } else {
+        retire_before_phase
+    };
     let (row, heap) = w.sim.calls.args();
     let cfg = F4TailSetup::take(row, heap);
     let edges: Vec<_> = cfg.boundary.polygons.into_iter().map(|p| p.edges).collect();
@@ -108,10 +347,19 @@ pub fn f4_tail_init_in(w: &mut Root) -> Option<&[f64]> {
         w.sim.strings.intern_str("med_explosion"),
         w.sim.strings.intern_str("small_explosion"),
     ];
+    // The historical initialization call includes the default Conquest selection.
+    w.battle.rule_events = None;
+    w.battle.death_tickets = super::rules::DeathTickets::Conquest;
     super::f4_core::configure_tail(&mut w.battle, cfg.classic, cfg.local);
     {
         w.battle.tail = Some(State {
             owner,
+            capacity: super::rules::events::BattleCapacity {
+                registry: cfg.registry_capacity as usize,
+                victims: cfg.victim_capacity as usize,
+                buildings: super::f4::live_ref(&w.battle).buildings.len() + super::f4::live_ref(&w.battle).traps.len(),
+                posts,
+            },
             human: super::native_human::Driver {
                 human,
                 classic: cfg.classic,
@@ -229,6 +477,9 @@ pub fn f4_tail_ready_in(w: &mut Root) -> Option<&[f64]> {
 }
 pub fn f4_tail_in(w: &mut Root) {
     let input = super::f4_live::tail_input(&mut w.battle);
+    if w.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) {
+        super::rules::hero_health::advance(w,input.dt);
+    }
     let mut state = {
         w.battle.tail
             .take()
@@ -269,6 +520,10 @@ pub fn f4_tail_in(w: &mut Root) {
     });
     {
         w.battle.tail = Some(state);
+    }
+    // Let damage handlers see a depleted shield before its next recharge step.
+    if w.space.is_some() || w.battle.rule_events.as_ref().is_some_and(|q| q.mission_events()) {
+        crate::units::f3_props::advance_mission_shields(&mut w.units, input.dt);
     }
     outer.finish(w, true);
     super::f4_live::count_tail(w, input.human_count as usize);
@@ -449,3 +704,6 @@ mod native_commands {
         assert_eq!(super::super::f4_live::tail_input(&mut w.battle).human_count, 0);
     }
 }
+
+#[cfg(test)]
+pub(super) mod rule_tests;

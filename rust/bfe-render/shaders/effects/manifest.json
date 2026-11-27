@@ -5168,6 +5168,63 @@
         "vertexLine": 26,
         "fragmentLine": 35
       }
+    },
+    {
+      "key": "effects/sky-stars",
+      "material": "effects/sky",
+      "kind": "Plain",
+      "vertex": "sky-stars.vert",
+      "fragment": "sky-stars.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-alpha-test-s2",
+      "material": "effects/sky",
+      "kind": "Plain",
+      "vertex": "sky-ext.vert",
+      "fragment": "sky-ext.frag",
+      "vertexPrefix": "#version 300 es\nprecision highp float;\n",
+      "fragmentPrefix": "#version 300 es\nprecision highp float;\n#define ALPHA_TEST\n",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "map": 32
+      },
+      "source": "expanded"
+    },
+    {
+      "key": "effects/sky-blended-scroll-s2",
+      "material": "effects/sky",
+      "kind": "Plain",
+      "vertex": "sky-ext.vert",
+      "fragment": "sky-ext.frag",
+      "vertexPrefix": "#version 300 es\nprecision highp float;\n#define SCROLL\n",
+      "fragmentPrefix": "#version 300 es\nprecision highp float;\n#define BLENDED\n",
+      "attributes": {
+        "position": 0,
+        "uv": 2
+      },
+      "uniforms": {
+        "projectionMatrix": 16,
+        "modelViewMatrix": 16,
+        "time": 1,
+        "scroll": 2,
+        "map": 32
+      },
+      "source": "expanded"
     }
   ]
 }

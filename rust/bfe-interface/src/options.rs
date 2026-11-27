@@ -623,7 +623,7 @@ impl OptionSpec {
 }
 
 /// All 57 option specifications in exact `src/menus/options.js` order.
-pub const OPTIONS: [OptionSpec; 58] = [
+pub const OPTIONS: [OptionSpec; 59] = [
     // 1..6: Starfighter & key bindings
     // 1. `flightFirstPerson`: starfighter cockpit camera preference (`game` page, live toggle).
     // Default: `false` (3rd-person chase camera); toggles cockpit view in starfighters.
@@ -964,6 +964,10 @@ pub const OPTIONS: [OptionSpec; 58] = [
         ApplyMode::Live,
         None,
     ),
+    // 29b. `bloomSwbf2`: the 2005 game's Light Bloom option, the bloom a 2005 map declares.
+    // Default: `true` (`ON`), as the 2005 game starts; not a `PRESET_KEYS` entry, so the quality
+    // preset a new install measures leaves it on. A 2004 battle does not read it.
+    OptionSpec::toggle("bloomSwbf2", "video", "LIGHT BLOOM", None, ApplyMode::Live, None),
     // 30. `vehicleMotionBlur`: high-speed radial blur when boosting in vehicles/starfighters.
     // Default: `true` (`ON`); enables speed-dependent motion blur while piloting vehicles.
     // Part of `PRESET_KEYS` and applies immediately (`ApplyMode::Live`).
@@ -1313,7 +1317,7 @@ pub const OPTIONS: [OptionSpec; 58] = [
 ];
 
 /// Keys in [`OPTIONS`] (`OPTION_KEYS`), in exact table order.
-pub const OPTION_KEYS: [&str; 58] = [
+pub const OPTION_KEYS: [&str; 59] = [
     // 1..6: Starfighter camera, key binding maps, and flight controls.
     "flightFirstPerson",
     "keyBindings",
@@ -1348,6 +1352,7 @@ pub const OPTION_KEYS: [&str; 58] = [
     "bumpMapping",
     "softFocus",
     "bloom",
+    "bloomSwbf2",
     "vehicleMotionBlur",
     "softParticles",
     "lampLighting",
@@ -1592,7 +1597,7 @@ mod tests {
 
     #[test]
     fn every_settings_key_is_present_with_default_and_page() {
-        assert_eq!(DEFAULTS.len(), 60);
+        assert_eq!(DEFAULTS.len(), 61);
         for def in DEFAULTS {
             assert!(
                 default_for(def.key).is_some(),

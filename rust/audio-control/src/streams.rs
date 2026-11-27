@@ -14,6 +14,16 @@ pub const STREAM_VOICES: usize = 32;
 pub struct Stream { pub slots: usize, pub channels: usize }
 #[derive(Clone, Copy)]
 pub struct Segment { pub stream: usize, pub duration: f64, pub channels: usize, pub variants: [usize; 4] }
+impl Segment {
+    fn variant(&self, e: &Engine) -> usize {
+        let [stereo, surround, wide, other] = self.variants;
+        if !e.enhanced { NONE }
+        else if stereo == NONE { other }
+        else if e.channels >= 8 && wide != NONE { wide }
+        else if e.channels >= 6 && surround != NONE { surround }
+        else { stereo }
+    }
+}
 #[derive(Clone, Copy)]
 pub struct Options { pub ask: Ask, pub spatial: bool, pub segment: usize, pub fade: f64 }
 impl Options { pub fn new(sound: usize, category: usize) -> Self { Self { ask: Ask::new(sound, category), spatial: false, segment: NONE, fade: 0.0 } } }
@@ -25,36 +35,75 @@ pub struct Request { pub voice: usize, pub generation: u64, pub segment: usize, 
 struct Playing {
     generation: u64, active: bool, release_at: f64, sound: usize, stream: usize, category: usize,
     spatial: bool, position: Option<Point>, gain: f64, pitch: f64, looping: bool, sounding: bool,
-    pending: bool, current: Option<Part>, queued: Option<Part>,
+    pending: bool, last_original: usize, last_variant: usize, current: Option<Part>, queued: Option<Part>,
     parts: [f64; 3], channels: usize, bound: bool, level: f64, target: Option<f64>, tau: f64, until: f64,
     gain_target: Target, placement: Voice,
 }
 impl Default for Playing {
     fn default() -> Self { Self { generation: 0, active: false, release_at: 0.0, sound: NONE, stream: NONE, category: MUSIC,
         spatial: false, position: None, gain: 1.0, pitch: 1.0, looping: false, sounding: false,
-        pending: false, current: None, queued: None, parts: [0.0; 3], channels: 1, bound: false,
+        pending: false, last_original: NONE, last_variant: NONE, current: None, queued: None, parts: [0.0; 3], channels: 1, bound: false,
         level: 1.0, target: None, tau: 0.02, until: 0.0, gain_target: Target::default(), placement: Voice::default() } }
 }
 #[derive(Clone, Copy)]
 struct Queued { options: Options, score: f64 }
 pub struct Streams {
     pub definitions: Vec<Stream>, pub segments: Vec<Segment>, pub requests: Vec<Request>,
-    reserved: [bool; STREAM_VOICES], voices: Vec<Playing>, queues: Vec<[Option<Queued>; 4]>, serial: u64, pub sample_base: usize, pub cache_seconds: f64, cache_order: Vec<usize>,
+    pub max_active: usize,
+    reserved: [bool; STREAM_VOICES], voices: Vec<Playing>, queues: Vec<[Option<Queued>; 4]>, serial: u64, pub sample_base: usize, pub cache_seconds: f64, cache_order: Vec<usize>, failed_variants: std::collections::HashSet<usize>, original_retry: Vec<Option<f64>>, original_files: Vec<usize>, variant_files: Vec<usize>,
 }
 impl Default for Streams {
-    fn default() -> Self { Self { reserved: [false; STREAM_VOICES], definitions: Vec::new(), segments: Vec::new(), requests: Vec::with_capacity(128), voices: vec![Playing::default(); STREAM_VOICES], queues: Vec::new(), serial: 0, sample_base: 0, cache_seconds: 600.0, cache_order: Vec::new() } }
+    fn default() -> Self { Self { reserved: [false; STREAM_VOICES], definitions: Vec::new(), segments: Vec::new(), requests: Vec::with_capacity(128), max_active: 0, voices: vec![Playing::default(); STREAM_VOICES], queues: Vec::new(), serial: 0, sample_base: 0, cache_seconds: 600.0, cache_order: Vec::new(), failed_variants: Default::default(), original_retry: Vec::new(), original_files: Vec::new(), variant_files: Vec::new() } }
 }
 impl Streams {
     pub fn invalidate_placement(&mut self) { for v in &mut self.voices { v.placement.sent = [f32::NAN;5]; } }
     pub fn reserve_slot(&mut self) -> usize { let id = self.voices.iter().enumerate().position(|(id,v)| !self.reserved[id] && !v.active && v.release_at == 0.0).expect("sound stream capacity exhausted"); self.reserved[id] = true; id }
     pub fn return_slot(&mut self, id: usize) { assert!(self.reserved[id]); self.reserved[id] = false; }
-    pub fn configure(&mut self) { self.cache_order.reserve(self.segments.len()); self.queues.resize(self.definitions.len(), [None; 4]); }
+    pub fn configure(&mut self) {
+        self.cache_order.reserve(self.segments.len());
+        self.queues.resize(self.definitions.len(), [None; 4]);
+        self.original_retry.resize(self.segments.len(), None);
+        self.failed_variants.reserve(self.segments.len() * 4);
+    }
+    /// Prepared banks can expose the same original byte range or Enhanced file
+    /// under multiple segment names. Requests keep their authored indices.
+    pub fn set_source_files(&mut self, originals: Vec<usize>, variants: Vec<usize>) {
+        self.original_files = originals;
+        self.variant_files = variants;
+    }
+    fn unavailable(&self, e: &Engine, segment: usize) -> bool {
+        let original = self.original_files.get(segment).copied().unwrap_or(segment);
+        let Some(retry) = self.original_retry[original] else { return false };
+        let variant = self.segments[segment].variant(e);
+        if variant == NONE { e.wall_now < retry }
+        else { self.failed_variants.contains(self.variant_files.get(variant).unwrap_or(&variant)) }
+    }
+    pub fn has_free_voice(&self) -> bool { self.voices.iter().enumerate().any(|(id, v)| !self.reserved[id] && !v.active && v.release_at == 0.0) }
+    pub fn has_playable_segment(&self, e: &Engine, sound_id: usize) -> bool {
+        let Some(sound) = e.sounds.get(sound_id) else { return false; };
+        if sound.kind != 4 || sound.stream == NONE || sound.stream >= self.definitions.len() { return false; }
+        sound.entries.iter().any(|entry| entry.id < self.segments.len() && !self.unavailable(e, entry.id))
+    }
+    fn first_playable_segment(&self, e: &Engine, sound_id: usize) -> Option<usize> {
+        let sound = e.sounds.get(sound_id)?;
+        sound.entries.iter().find(|entry| entry.id < self.segments.len() && !self.unavailable(e, entry.id)).map(|entry| entry.id)
+    }
     fn id(&self, handle: u64) -> Option<usize> { let id = (handle % STREAM_VOICES as u64) as usize; (handle != SILENT && self.voices[id].generation == handle / STREAM_VOICES as u64).then_some(id) }
     pub fn playing(&self, handle: u64) -> bool { self.id(handle).is_some_and(|id| self.voices[id].active) }
+    pub(crate) fn sounding(&self, handle: u64) -> bool { self.id(handle).is_some_and(|id| self.voices[id].sounding) }
     /// The sound and category of every stream voice playing (bench telemetry).
     pub fn census(&self) -> impl Iterator<Item = (usize, usize)> + '_ { self.voices.iter().filter(|v| v.active && v.sounding).map(|v| (v.sound, v.category)) }
     pub fn busy(&self, bus: usize, e: &Engine) -> bool { self.voices.iter().any(|v| v.active && v.sounding && e.sounds[v.sound].bus == bus) }
-    pub fn free(&self, stream: usize) -> bool { self.definitions.get(stream).is_some_and(|s| self.voices.iter().filter(|v| v.active && v.stream == stream).count() < s.slots) }
+    /// Counts all currently active stream voices across every stream channel.
+    pub fn active_count(&self) -> usize { self.voices.iter().filter(|v| v.active).count() }
+    /// Counts active stream voices whose stream index matches `pred`.
+    pub fn active_in_group(&self, pred: impl Fn(usize) -> bool) -> usize { self.voices.iter().filter(|v| v.active && pred(v.stream)).count() }
+    pub fn free(&self, stream: usize) -> bool {
+        if self.max_active > 0 && self.active_count() >= self.max_active {
+            return false;
+        }
+        self.definitions.get(stream).is_some_and(|s| self.voices.iter().filter(|v| v.active && v.stream == stream).count() < s.slots)
+    }
     /// ports Streams.score: a far line still has its bias/priority score and
     /// therefore holds an unheard stream slot instead of being culled.
     fn score(&self, e: &Engine, sound: usize, position: Option<Point>) -> f64 {
@@ -63,8 +112,13 @@ impl Streams {
         (1.0 - s.bias) * level + s.bias * s.priority
     }
     fn ask(&mut self, e: &mut Engine, mut options: Options) -> Option<(Options, f64)> {
-        let sound = e.sounds.get_mut(options.ask.sound)?; if sound.kind != 4 || sound.stream == NONE { return None; }
-        options.segment = sound.pick(e.time, &mut e.random)?;
+        if !self.has_playable_segment(e, options.ask.sound) { return None; }
+        let mut picked = e.sounds.get_mut(options.ask.sound)?.pick(e.time, &mut e.random)?;
+        if self.unavailable(e, picked) {
+            picked = self.first_playable_segment(e, options.ask.sound)?;
+        }
+        options.segment = picked;
+        let sound = e.sounds.get_mut(options.ask.sound)?;
         if !sound.gate(e.time, &mut e.random) { return None; }
         let position = if sound.mode3d { options.ask.position } else { None };
         let score = self.score(e, options.ask.sound, position); (score > 0.0).then_some((options, score))
@@ -96,10 +150,26 @@ impl Streams {
     /// ports Streams.play and StreamVoice.constructor. The first segment is
     /// picked before the gain/pitch dice; ordinary play does not run gate().
     pub fn play(&mut self, e: &mut Engine, options: Options) -> u64 {
+        self.play_replacing(e, options, SILENT)
+    }
+    pub(crate) fn play_replacing(&mut self, e: &mut Engine, options: Options, retiring: u64) -> u64 {
         let Some(sound) = e.sounds.get(options.ask.sound) else { return SILENT; };
-        let stream = sound.stream; if sound.kind != 4 || !self.free(stream) { return SILENT; }
-        let first = if options.segment != NONE { options.segment } else { let Some(id) = e.sounds[options.ask.sound].pick(e.time, &mut e.random) else { return SILENT; }; id };
-        let Some(id) = self.voices.iter().enumerate().position(|(id,v)| !self.reserved[id] && !v.active && v.release_at == 0.0) else { panic!("sound stream capacity exhausted"); };
+        let stream = sound.stream;
+        let shares_slot = self.id(retiring).is_some_and(|id| self.voices[id].active && self.voices[id].stream == stream);
+        if sound.kind != 4 || (!self.free(stream) && !shares_slot) { return SILENT; }
+        let Some(id) = self.voices.iter().enumerate().position(|(id, v)| !self.reserved[id] && !v.active && v.release_at == 0.0) else { return SILENT; };
+        let first = if options.segment != NONE {
+            if options.segment >= self.segments.len() || self.unavailable(e, options.segment) { return SILENT; }
+            options.segment
+        } else {
+            if !self.has_playable_segment(e, options.ask.sound) { return SILENT; }
+            let Some(mut picked) = e.sounds[options.ask.sound].pick(e.time, &mut e.random) else { return SILENT; };
+            if self.unavailable(e, picked) {
+                let Some(alt) = self.first_playable_segment(e, options.ask.sound) else { return SILENT; };
+                picked = alt;
+            }
+            picked
+        };
         let sound = &e.sounds[options.ask.sound]; let definition = self.definitions[stream]; self.serial += 1;
         let gain = (sound.gain + sound.gain_dev * e.random.spread()).clamp(0.0, 1.0) * options.ask.gain;
         let pitch = (sound.pitch + sound.pitch_dev * e.random.spread()).max(0.01);
@@ -118,11 +188,11 @@ impl Streams {
     fn request(&mut self, e: &mut Engine, id: usize, segment: usize) {
         if segment == NONE { self.finish(e, id); return; }
         let v = &mut self.voices[id]; let part = (0..3).find(|&part| v.parts[part] <= e.now).expect("stream segment capacity exhausted");
-        v.parts[part] = f64::INFINITY; v.pending = true;
+        v.parts[part] = f64::INFINITY; v.pending = true; v.last_original = self.original_files.get(segment).copied().unwrap_or(segment);
         assert!(self.requests.len() < self.requests.capacity(), "stream request capacity exhausted");
         let generation = v.generation;
-        let variants = self.segments[segment].variants;
-        let variant = if !e.enhanced { NONE } else if variants[0] == NONE { variants[3] } else if e.channels >= 8 { [variants[2], variants[1], variants[0]].into_iter().find(|v| *v != NONE).unwrap() } else if e.channels >= 6 { if variants[1] != NONE { variants[1] } else { variants[0] } } else { variants[0] };
+        let variant = self.segments[segment].variant(e);
+        v.last_variant = self.variant_files.get(variant).copied().unwrap_or(variant);
         self.requests.push(Request { voice: id, generation, segment, part, sample: self.sample_base + id * 3 + part, operation: crate::layout::request_kind::LOAD, variant });
         if variant == NONE { self.cache_touch(segment); }
     }
@@ -146,10 +216,23 @@ impl Streams {
     pub fn ready(&mut self, e: &mut Engine, id: usize, generation: u64, part: usize, sample: usize, duration: f64, channels: usize) -> bool {
         let v = &mut self.voices[id]; if !v.active || v.generation != generation { return false; }
         if !v.bound { v.bound = true; if v.channels != channels { v.channels = channels; let kind = match v.category { VOICE => 1.0, MUSIC => 2.0, _ => 0.0 }; e.commands.extend_from_slice(&[render::STREAM_BIND as f64, id as f64, channels as f64, kind, v.spatial as u8 as f64]); } }
+        if v.last_variant == NONE { self.original_retry[v.last_original] = None; }
         let when = v.current.map_or(e.now, |p| p.ends.max(e.now)); let ends = when + duration / v.pitch;
         let playing = Part { part, ends }; if v.current.is_some() { v.queued = Some(playing); } else { v.current = Some(playing); }
         v.parts[part] = ends; v.pending = false; v.sounding = true;
         e.commands.extend_from_slice(&[render::STREAM_START as f64, id as f64, part as f64, sample as f64, when, 0.0, v.pitch, 0.0]); true
+    }
+    /// A native decoder reached the end before the duration in its load reply.
+    pub fn shorten(&mut self, request: Request, missing_seconds: f64) {
+        let Some(v) = self.voices.get_mut(request.voice) else { return };
+        if !v.active || v.generation != request.generation { return; }
+        for part in [&mut v.current, &mut v.queued].into_iter().flatten() {
+            if part.part == request.part {
+                part.ends -= missing_seconds / v.pitch;
+                v.parts[part.part] = part.ends;
+                break;
+            }
+        }
     }
     fn fade_id(&mut self, e: &mut Engine, id: usize, level: f64, seconds: f64) {
         let base = self.voices[id].target.unwrap_or_else(|| self.level(e, id)); let v = &mut self.voices[id];
@@ -164,7 +247,28 @@ impl Streams {
         self.finish(e, id);
     }
     pub fn stop(&mut self, e: &mut Engine, handle: u64, fade: f64) { if let Some(id) = self.id(handle) { self.stop_id(e, id, fade); } }
-    pub fn failed(&mut self, e: &Engine, id: usize, generation: u64) -> bool { if id >= self.voices.len() || !self.voices[id].active || self.voices[id].generation != generation { return false; } self.finish(e, id); true }
+    pub fn refused(&mut self, e: &Engine, id: usize, generation: u64) {
+        if self.voices.get(id).is_some_and(|v| v.active && v.generation == generation) {
+            self.finish(e, id);
+        }
+    }
+    pub fn failed(&mut self, e: &Engine, id: usize, generation: u64) -> bool {
+        if id >= self.voices.len() || !self.voices[id].active || self.voices[id].generation != generation { return false; }
+        let voice = &self.voices[id];
+        self.original_retry[voice.last_original] = Some(e.wall_now + 3.0);
+        if voice.last_variant != NONE { self.failed_variants.insert(voice.last_variant); }
+        if !self.voices[id].sounding && self.voices[id].current.is_none() {
+            let v = &mut self.voices[id];
+            v.active = false;
+            v.sounding = false;
+            v.pending = false;
+            v.parts = [0.0; 3];
+            v.release_at = 0.0;
+        } else {
+            self.finish(e, id);
+        }
+        true
+    }
     pub fn stop_all(&mut self, e: &mut Engine, fade: f64) { for id in 0..STREAM_VOICES { self.stop_id(e, id, fade); } self.queues.fill([None; 4]); }
     /// ports StreamVoice.update, including its five-millisecond queued handoff
     /// and eight-second lookahead. No segment choice or timing remains in JS.
@@ -181,7 +285,16 @@ impl Streams {
             if v.queued.is_some() && v.current.is_some_and(|p| e.now >= p.ends - 0.005) { v.current = v.queued; v.queued = None; }
             if v.current.is_some_and(|p| e.now >= p.ends) && v.queued.is_none() && !v.pending { self.finish(e, id); continue; }
             if v.looping && v.current.is_some_and(|p| p.ends - e.now < 8.0) && v.queued.is_none() && !v.pending {
-                let sound = v.sound; let segment = e.sounds[sound].pick(e.time, &mut e.random).unwrap_or(NONE); self.request(e, id, segment);
+                let sound = v.sound;
+                if !self.has_playable_segment(e, sound) {
+                    self.voices[id].looping = false;
+                } else {
+                    let mut segment = e.sounds[sound].pick(e.time, &mut e.random).unwrap_or(NONE);
+                    if segment != NONE && self.unavailable(e, segment) {
+                        segment = self.first_playable_segment(e, sound).unwrap_or(NONE);
+                    }
+                    self.request(e, id, segment);
+                }
             }
             let mut gain = self.level(e, id); let v = &mut self.voices[id]; let reverb = e.sounds[v.sound].reverb; let mode3d = e.sounds[v.sound].mode3d;
             if let Some(position) = v.position {

@@ -11,7 +11,7 @@ use bfe_sim::world::admit::{Options};
 
 fn value(text: &str) -> Value { parse(text).expect("synthetic JSON") }
 fn options() -> Options {
-    Options { map: "test".into(), side: "rep".into(), unit: Some("rep_test".into()), enhanced: false, seed: 1, heroes: false, name: None, bots: Default::default() }
+    Options { map: "test".into(), side: "rep".into(), unit: Some("rep_test".into()), enhanced: false, seed: 1, heroes: false, name: None, bots: Default::default(), ..Default::default() }
 }
 
 fn battle() -> Battle {
@@ -44,7 +44,7 @@ fn content(battle: Battle) -> bfe_content::content::Content {
     bfe_content::content::Content {
         battle, weapon_packs: vec![], vehicle_models: None, vehicle_extras: None,
         props_models: None, weapon_models: Default::default(), weapon_model_sources: vec![],
-        actors: vec![], body_clips: vec![], walker_clips: vec![],
+        actors: vec![], body_clips: vec![], unit_clips: vec![], unit_anim_stats: vec![], walker_clips: vec![],
         collision: bfe_content::collision::MapCollision::load(&[],&[],&[],&[],&[]).unwrap(),
         vehicle_templates, vehicle_blockers: None, prop_bodies: vec![],
         prop_clips: vec![], death_regions: vec![], route_words: None, placed_items: vec![],
@@ -201,7 +201,7 @@ fn collider_bounds_round_authored_corners_before_cache_sizing() {
 #[test]
 fn extracted_corpus_fleet_content_has_complete_packs_and_collider_shapes() {
     let Ok(root) = std::env::var("BFE_CONTENT_DIR") else { return; };
-    let files = bfe_content::files::DirFiles::new(root);
+    let files = bfe_content::files::DirFiles::new(root, bfe_family::GameFamily::Swbf1);
     let loader = Loader::new(&files);
     // The checked-in matrix is only option text; no game-derived fixtures
     // enter the repository. CI runs the synthetic cases above without files.
@@ -211,9 +211,9 @@ fn extracted_corpus_fleet_content_has_complete_packs_and_collider_shapes() {
         let args: Vec<_> = line.split('#').next().unwrap_or("").split_whitespace().collect();
         if args.is_empty() { continue; }
         let get = |name| args.windows(2).find(|a| a[0] == name).map(|a| a[1]);
-        let options = Options { map: get("--map").unwrap_or("nab2").into(), side: get("--side").unwrap_or("rep").into(),
+        let options = Options { family: bfe_family::GameFamily::Swbf1, map: get("--map").unwrap_or("nab2").into(), side: get("--side").unwrap_or("rep").into(),
             enhanced: get("--ai") == Some("enhanced"), seed: get("--seed").unwrap_or("1").parse().unwrap(),
-            heroes: args.contains(&"--heroes"), unit: get("--unit").map(String::from), name: None, bots: Default::default() };
+            heroes: args.contains(&"--heroes"), unit: get("--unit").map(String::from), name: None, bots: Default::default(), ..Default::default() };
         let battle = Battle::load(&loader,&options.map,&options.query()).unwrap();
         let pack = Pack::from_battle(&battle).unwrap();
         let calls = fleet::content_calls(&battle,&options).unwrap();

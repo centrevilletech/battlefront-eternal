@@ -4,6 +4,7 @@
 //! for these slots name them; they are never dereferenced as addresses.
 use crate::store::handles::Pool;
 pub struct Owner {
+    bounds: Option<super::PositionBounds>,
     pub runtimes:Pool<super::Runtime>,pub hosts:Pool<super::host::Host>,
     pub staggers:Pool<super::stagger::Stagger>,pub shots:Pool<super::shots::Counters>,
     pub edges:Pool<super::edges::Host>,pub combat:Pool<super::combat::Capture>,
@@ -18,7 +19,7 @@ pub struct Owner {
 }
 impl Default for Owner {fn default()->Self {Self::new()}}
 impl Owner {
-    pub const fn new()->Self {Self {runtimes:Pool::new(1),hosts:Pool::new(2),staggers:Pool::new(3),shots:Pool::new(4),
+    pub const fn new()->Self {Self {bounds:None,runtimes:Pool::new(1),hosts:Pool::new(2),staggers:Pool::new(3),shots:Pool::new(4),
         edges:Pool::new(5),combat:Pool::new(6),budgets:Pool::new(7),semantic:Pool::new(8),presentation:Pool::new(9),
         cosmetics:Pool::new(10),attached_shots:Vec::new(),
 
@@ -26,6 +27,12 @@ impl Owner {
 
         publications:Pool::new(12),
         census:super::census::Census::new()}}
+    pub(super) fn bounds(&self) -> super::PositionBounds {
+        self.bounds.unwrap_or(super::PositionBounds::LEGACY)
+    }
+    pub(super) fn bind_bounds(&mut self, bounds: super::PositionBounds) -> bool {
+        *self.bounds.get_or_insert(bounds) == bounds
+    }
     /// Canonical fired notices update only this battle's admitted counters.
     /// Capture itself never dispatches a gameplay or presentation callback.
     pub fn observe_shot(&mut self,id:f64,generation:f64,live:f64) {

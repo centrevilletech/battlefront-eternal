@@ -51,6 +51,89 @@ pub struct Jetpacks {
     /// Flame and wake draws handed to the renderer so far.
     pub draws: u64,
 }
+fn swbf2_jet_effect(record: &bfe_content::Value) -> Option<&str> {
+    record
+        .get("JetEffect")
+        .and_then(bfe_content::Value::as_str)
+        .or_else(|| {
+            record
+                .get("properties")
+                .and_then(bfe_content::Value::as_array)?
+                .iter()
+                .rev()
+                .filter_map(bfe_content::Value::as_array)
+                .find_map(|pair| {
+                    (pair.first()?.as_str()?.eq_ignore_ascii_case("JetEffect"))
+                        .then(|| pair.get(1)?.as_str())
+                        .flatten()
+                })
+        })
+        .filter(|name| !name.is_empty())
+}
+
+fn swbf2_effect_definition<'a>(
+    root: &'a bfe_content::Value,
+    name: &str,
+) -> Option<&'a bfe_content::Value> {
+    let effects = root.get("effects")?.as_object()?;
+    effects.get(name).or_else(|| {
+        effects
+            .entries()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value)
+    })
+}
+
+fn resolve_swbf1_class(
+    record: &bfe_content::Value,
+    side_fx: Option<&bfe_content::Value>,
+    shared_fx: &bfe_content::Value,
+    effects: &[(String, usize)],
+) -> Option<Class> {
+    let name = record.get("JetEffect").and_then(bfe_content::Value::as_str)?;
+    // jetEffect: the side's own effect of that name, else
+    // the shared one, else none.
+    let own = side_fx.and_then(|fx| fx.get("effects")).and_then(|e| e.get(name));
+    let definitions = own
+        .or_else(|| shared_fx.get("effects").and_then(|e| e.get(name)))
+        .map_or_else(|| "[]".to_string(), |d| authored_json(d).to_string());
+    let classic = effects.iter().find(|(known, _)| known == name).map(|(_, group)| *group);
+    Some(Class { definitions, classic })
+}
+
+fn resolve_swbf2_class(
+    record: &bfe_content::Value,
+    side_fx: Option<&bfe_content::Value>,
+    shared_fx: &bfe_content::Value,
+    effects: &[(String, usize)],
+) -> Option<Class> {
+    let name = swbf2_jet_effect(record)?;
+    let own = side_fx.and_then(|fx| swbf2_effect_definition(fx, name));
+    let definitions = own
+        .or_else(|| swbf2_effect_definition(shared_fx, name))
+        .map_or_else(|| "[]".to_string(), |d| authored_json(d).to_string());
+    let classic = effects
+        .iter()
+        .find(|(known, _)| known == name)
+        .or_else(|| effects.iter().find(|(known, _)| known.eq_ignore_ascii_case(name)))
+        .map(|(_, group)| *group);
+    Some(Class { definitions, classic })
+}
+
+fn resolve_class(
+    family: bfe_content::GameFamily,
+    record: &bfe_content::Value,
+    side_fx: Option<&bfe_content::Value>,
+    shared_fx: &bfe_content::Value,
+    effects: &[(String, usize)],
+) -> Option<Class> {
+    if family == bfe_content::GameFamily::Swbf2 {
+        resolve_swbf2_class(record, side_fx, shared_fx, effects)
+    } else {
+        resolve_swbf1_class(record, side_fx, shared_fx, effects)
+    }
+}
+
 impl Jetpacks {
     /// `effects`: the battle effect library's groups by name. `data`: where
     /// this owner's floats start in the effect data.
@@ -58,18 +141,18 @@ impl Jetpacks {
         let shadow_cascades = bridge.shadow_cascades();
         let defs = content.defs()?;
         let battle = &content.content.battle;
+        let family = battle.family;
         let mut classes = Vec::new();
         classes.resize_with(defs.registry.classes.len() + 1, || None);
         for class in &defs.classes {
-            let (Some(id), Some(name)) = (class.registry_id, class.record.get("JetEffect").and_then(bfe_content::Value::as_str)) else {
+            let Some(id) = class.registry_id else {
                 continue;
             };
-            // jetEffect: the side's own effect of that name, else
-            // the shared one, else none.
             let side = defs.names.text(class.side);
-            let own = battle.sides.iter().find(|s| s.name == side).and_then(|s| s.fx.as_ref()).and_then(|fx| fx.get("effects")).and_then(|e| e.get(name));
-            let definitions = own.or_else(|| battle.effects.get("effects").and_then(|e| e.get(name))).map_or_else(|| "[]".to_string(), |d| authored_json(d).to_string());
-            classes[id as usize] = Some(Class { definitions, classic: effects.iter().find(|(known, _)| known == name).map(|(_, group)| *group) });
+            let side_fx = battle.sides.iter().find(|s| s.name == side).and_then(|s| s.fx.as_ref());
+            if let Some(entry) = resolve_class(family, &class.record, side_fx, content.visual_effects(), effects) {
+                classes[id as usize] = Some(entry);
+            }
         }
         let shadows = shadow_cascades > 0;
         // JetpackVolume's density field: 32 cubed bytes, repeating, linear.
@@ -103,6 +186,10 @@ impl Jetpacks {
     /// The Classic exhaust's effect group for a class with a JetEffect.
     pub fn classic(&self, class: usize) -> Option<usize> {
         self.classes.get(class)?.as_ref()?.classic
+    }
+    /// Whether this unit currently holds an active or decaying jetpack slot.
+    pub fn tracks(&self, unit: (u32, u32)) -> bool {
+        self.packs.iter().any(|pack| pack.unit == Some(unit))
     }
     pub fn begin(&mut self) {
         for pack in &mut self.packs {
@@ -222,5 +309,92 @@ impl Jetpacks {
             }
         }
         bridge.r.effects.input[render::IN_DRAWS] = draws as f64;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolves_swbf2_jet_effect_from_property_list_and_builds_nozzles() {
+        let parse = |s| bfe_content::json::parse(s).unwrap();
+        let top = parse(r#"{"JetEffect":"alpha_jet"}"#);
+        assert_eq!(swbf2_jet_effect(&top), Some("alpha_jet"));
+
+        let props = parse(r#"{"properties":[["JetEffect","first_jet"],["jeteffect","second_jet"]]}"#);
+        assert_eq!(swbf2_jet_effect(&props), Some("second_jet"));
+
+        let empty = parse(r#"{"properties":[["JetEffect",""]]}"#);
+        assert_eq!(swbf2_jet_effect(&empty), None);
+
+        let pack = parse(
+            r#"{"effects":{"Second_Jet":[{"name":"JetExhaust","spawner":{"offset":[[-0.3,-0.3],[-0.2,-0.2],[0.12,0.12]],"box":[[-1,-1],[0,0],[0,0]]}},{"name":"JetExhaust","spawner":{"offset":[[-0.3,-0.3],[-0.2,-0.2],[-0.12,-0.12]],"box":[[-1,-1],[0,0],[0,0]]}}]}}"#,
+        );
+        let shared = parse(r#"{"effects":{}}"#);
+        let effects = vec![("Second_Jet".to_string(), 7)];
+        let resolved = resolve_class(
+            bfe_content::GameFamily::Swbf2,
+            &props,
+            Some(&pack),
+            &shared,
+            &effects,
+        )
+        .unwrap();
+        assert_eq!(resolved.classic, Some(7));
+        let parsed: Vec<Definition> = serde_json::from_str(&resolved.definitions).unwrap();
+        let owner = Jetpack::new(parsed);
+        assert_eq!(owner.input[j::NOZZLES], 2.);
+    }
+
+    #[test]
+    fn swbf1_jet_effect_lookup_stays_exact_and_keeps_empty_names() {
+        let parse = |s| bfe_content::json::parse(s).unwrap();
+        let record = parse(r#"{"JetEffect":"AlphaPack"}"#);
+        let side_fx = parse(
+            r#"{"effects":{"alphapack":[{"name":"JetExhaust","spawner":{"offset":[[-0.3,-0.3],[-0.2,-0.2],[0.0,0.0]],"box":[[-1,-1],[0,0],[0,0]]}}]}}"#,
+        );
+        let shared_fx = parse(
+            r#"{"effects":{"AlphaPack":[{"name":"JetExhaust","spawner":{"offset":[[-0.3,-0.3],[-0.2,-0.2],[0.14,0.14]],"box":[[-1,-1],[0,0],[0,0]]}},{"name":"JetExhaust","spawner":{"offset":[[-0.3,-0.3],[-0.2,-0.2],[-0.14,-0.14]],"box":[[-1,-1],[0,0],[0,0]]}}]}}"#,
+        );
+        let effects = vec![("alphapack".to_string(), 1), ("AlphaPack".to_string(), 2)];
+
+        // Swbf1 must ignore the case-variant side definition and classic entry,
+        // falling through to the exact shared definition and exact classic match.
+        let swbf1 = resolve_class(
+            bfe_content::GameFamily::Swbf1,
+            &record,
+            Some(&side_fx),
+            &shared_fx,
+            &effects,
+        )
+        .unwrap();
+        assert_eq!(swbf1.classic, Some(2));
+        let nozzles: Vec<Definition> = serde_json::from_str(&swbf1.definitions).unwrap();
+        assert_eq!(Jetpack::new(nozzles).input[j::NOZZLES], 2.);
+
+        // Swbf1 retains a class entry with empty definitions for an empty JetEffect,
+        // and never reads a Swbf2 properties list.
+        let empty = parse(r#"{"JetEffect":""}"#);
+        let kept = resolve_class(
+            bfe_content::GameFamily::Swbf1,
+            &empty,
+            Some(&side_fx),
+            &shared_fx,
+            &effects,
+        )
+        .unwrap();
+        assert_eq!(kept.definitions, "[]");
+        assert_eq!(kept.classic, None);
+
+        let props_only = parse(r#"{"properties":[["JetEffect","AlphaPack"]]}"#);
+        assert!(resolve_class(
+            bfe_content::GameFamily::Swbf1,
+            &props_only,
+            Some(&side_fx),
+            &shared_fx,
+            &effects,
+        )
+        .is_none());
     }
 }

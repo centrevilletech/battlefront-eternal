@@ -137,7 +137,7 @@ pub fn parse_server_packet(
     if datagram.is_empty() || datagram.len() > MAX_LAN_PACKET {
         return None;
     }
-    let msg: LanServerPacket = serde_json::from_slice(datagram).ok()?;
+    let msg: LanServerPacket = crate::declared::read_row(datagram, Some("info")).ok()?;
     if msg.magic != LAN_MAGIC || msg.kind != "server" || msg.nonce != expected_nonce {
         return None;
     }
@@ -393,6 +393,18 @@ mod tests {
         let info: serde_json::Value = serde_json::from_slice(reply).unwrap();
         let direct: ServerEntry = serde_json::from_value(info["info"].clone()).unwrap();
         assert_eq!(server.name, direct.name);
+    }
+
+    #[test]
+    fn nontext_family_needs_no_string_decoding() {
+        let nonce = "0".repeat(32);
+        for field in [r#""battle":{"family":{"extension":"BAD"}}"#, r#""rotation":[{"family":["BAD"],"map":"moon"}]"#] {
+            let text = format!(r#"{{"magic":"BFE-LAN/1","type":"server","nonce":"{nonce}","info":{{"id":"{}","name":"Game","port":81,{field}}}}}"#, "ab".repeat(32));
+            let mut packet = text.into_bytes();
+            let byte = packet.windows(3).position(|v| v == b"BAD").unwrap();
+            packet[byte] = 255;
+            assert!(parse_server_packet(&packet, &nonce, Ipv4Addr::LOCALHOST.into()).is_some(), "{field}");
+        }
     }
 
     // Spawns a single-shot mock `BFE-LAN/1` UDP responder thread that waits for

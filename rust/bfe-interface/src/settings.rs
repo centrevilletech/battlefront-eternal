@@ -476,7 +476,11 @@ impl SettingDefault {
 }
 
 /// All 60 keys and defaults from `DEFAULTS`, in exact source order.
-pub const DEFAULTS: [SettingDefault; 60] = [
+/// Settings of the 2005 game a complete record writes only once the player changes them, so a
+/// settings file keeps the released build's bytes until then.
+pub const UNWRITTEN_AT_DEFAULT: [&str; 1] = ["bloomSwbf2"];
+
+pub const DEFAULTS: [SettingDefault; 61] = [
     // Simulation rate (`"60"` Hz fixed tick) and video preset / pacing / upscaling.
     // 1. Fixed 60 Hz gameplay simulation tick rate.
     SettingDefault::s("physicsRate", "60"),
@@ -508,6 +512,9 @@ pub const DEFAULTS: [SettingDefault; 60] = [
     SettingDefault::b("softFocus", true),
     // 14. Emissive HDR bloom and glow post-processing.
     SettingDefault::b("bloom", true),
+    // 14b. The 2005 game's Light Bloom, a map's own bloom in a 2005 battle. On, as the 2005 game
+    // starts on every PC that can run it; no quality preset changes it.
+    SettingDefault::b("bloomSwbf2", true),
     // 15. High-speed radial motion blur in vehicles and starfighters.
     SettingDefault::b("vehicleMotionBlur", true),
     // 16. Depth-feathered soft particle billboards.
@@ -608,6 +615,11 @@ pub const DEFAULTS: [SettingDefault; 60] = [
     // 59. Menu and HUD interface sound bus gain (`0.0..1.0`).
     SettingDefault::n("interfaceVolume", 1.0),
 ];
+
+/// Optional native profile keys admitted only on a marked Battlefront II record.
+pub const SWBF2_GROUND_BINDINGS: &str = "keyBindingsSwbf2";
+pub const SWBF2_FLIGHT_BINDINGS: &str = "flightBindingsSwbf2";
+pub const SWBF2_BINDINGS: [&str; 2] = [SWBF2_GROUND_BINDINGS, SWBF2_FLIGHT_BINDINGS];
 
 /// Looks up the default value for `key` in [`DEFAULTS`].
 #[inline]
@@ -895,6 +907,8 @@ pub struct DesktopSettingsSnapshot {
 /// Persistent and session-overridden settings container (`Settings`).
 #[derive(Clone, Debug)]
 pub struct Settings {
+    /// Sparse Battlefront II overrides, independent of the released settings namespace.
+    pub swbf2_bindings: BTreeMap<crate::hotkeys::ControlContext, crate::hotkeys::BindingMap>,
     /// Current effective saved values (`this.values`).
     pub values: BTreeMap<String, SettingValue>,
     /// Transient session overrides (`this.overrides`, e.g. URL query params).
@@ -920,6 +934,19 @@ impl Default for Settings {
 }
 
 impl Settings {
+    pub(crate) fn set_swbf2_bindings(&mut self, context: crate::hotkeys::ControlContext, bindings: crate::hotkeys::BindingMap) {
+        if bindings.is_empty() {
+            if self.swbf2_bindings.remove(&context).is_none() { return; }
+        } else {
+            if self.swbf2_bindings.get(&context) == Some(&bindings) { return; }
+            self.swbf2_bindings.insert(context, bindings);
+        }
+        // Keep every effective 2004 setting even if a released client later resaves this file.
+        self.complete = true;
+        self.fresh = false;
+        self.revision = self.revision.wrapping_add(1);
+    }
+
     /// Creates a fresh [`Settings`] initialized to [`DEFAULTS`] with no saved entries.
     pub fn new() -> Self {
         let mut values = BTreeMap::new();
@@ -928,6 +955,7 @@ impl Settings {
         }
         Self {
             values,
+            swbf2_bindings: BTreeMap::new(),
             overrides: BTreeMap::new(),
             saved: BTreeMap::new(),
             changed: BTreeMap::new(),
@@ -970,7 +998,7 @@ impl Settings {
             }
             // Fall back to `localStorage` (`bfe_setting_<key>`) when not present in `desktop`.
             if let Some(raw) = raw_storage {
-                if let Ok(jv) = serde_json::from_str::<Value>(raw) {
+                if let Ok(jv) = bfe_storage::settings_json::from_str(raw) {
                     if let Some(parsed) = SettingValue::from_json_typed(&jv, entry.value) {
                         settings.values.insert(key.to_string(), parsed);
                     }
@@ -1000,7 +1028,7 @@ impl Settings {
 
     /// Parses [`Settings`] from a JSON string (supporting both `{ complete, values }` and flat objects).
     pub fn from_json_str(raw: &str) -> Self {
-        let Ok(val) = serde_json::from_str::<Value>(raw) else {
+        let Ok(val) = bfe_storage::settings_json::from_str(raw) else {
             return Self::new();
         };
         let Some(obj) = val.as_object() else {
@@ -1030,6 +1058,9 @@ impl Settings {
         if self.complete {
             for entry in DEFAULTS {
                 if let Some(v) = self.values.get(entry.key) {
+                    if UNWRITTEN_AT_DEFAULT.contains(&entry.key) && default_for(entry.key).is_some_and(|d| v.same_value(&d.to_setting_value())) {
+                        continue;
+                    }
                     values.insert(entry.key.to_string(), v.to_json());
                 }
             }
@@ -1061,7 +1092,7 @@ impl Settings {
     /// Parses [`Settings`] from a JSON string, returning an error naming `source` and any
     /// invalid top-level or `values` field.
     pub fn try_from_json_str(raw: &str, source: &str) -> Result<Self, String> {
-        let val = serde_json::from_str::<Value>(raw)
+        let val = bfe_storage::settings_json::from_str(raw)
             .map_err(|e| format!("{source}: invalid settings JSON: {e}"))?;
         let obj = val
             .as_object()
@@ -1097,7 +1128,10 @@ impl Settings {
                     .map_err(|e| format!("{}: {e}", parent.display()))?;
             }
         }
-        fs::write(path_ref, json).map_err(|e| format!("{}: {e}", path_ref.display()))
+        bfe_storage::write_text_record(path_ref, json.as_bytes(), |text| {
+            bfe_storage::settings_json::from_str(text).is_ok_and(|value| value.is_object())
+        })
+        .map_err(|e| format!("{}: {e}", path_ref.display()))
     }
 
     fn persist_if_backed(&self) {
@@ -1325,6 +1359,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn light_bloom_starts_on_and_no_quality_preset_turns_it_off() {
+        // The 2005 game starts with Light Bloom on on every computer that runs it.
+        assert!(Settings::new().get_bool("bloomSwbf2"));
+        assert!(!PRESET_KEYS.contains(&"bloomSwbf2"));
+        for preset in ["minimum", "performance", "balanced", "quality"] {
+            let mut store = Settings::new();
+            store.set("performancePreset", preset);
+            assert!(store.get_bool("bloomSwbf2"), "{preset}");
+        }
+        // A file written before the setting existed reads it as on; the player's own choice stays.
+        assert!(Settings::from_json_str(r#"{"complete":true,"values":{"bloom":false}}"#).get_bool("bloomSwbf2"));
+        let off = Settings::from_json_str(r#"{"complete":true,"values":{"bloomSwbf2":false}}"#);
+        assert!(!off.get_bool("bloomSwbf2"));
+        assert!(off.get_bool("bloom"));
+        // Saved only once changed: a complete record at the default leaves it out, off is written.
+        let mut store = Settings::from_json_str(r#"{"complete":true,"values":{"bloom":true}}"#);
+        assert!(!store.to_desktop_snapshot().values.contains_key("bloomSwbf2"));
+        store.set("bloomSwbf2", false);
+        assert_eq!(store.to_desktop_snapshot().values.get("bloomSwbf2"), Some(&serde_json::Value::Bool(false)));
+    }
+
+    #[test]
     fn a_new_profile_fields_enhanced_bots_and_a_saved_choice_stays() {
         assert_eq!(Settings::new().get_string("aiMode"), "enhanced");
         let saved = Settings::from_json_str(r#"{"complete":true,"values":{"aiMode":"off"}}"#);
@@ -1337,7 +1393,7 @@ mod tests {
     // Verifies all 59 DEFAULTS keys, preset cascading, `physicsRate` lock, `mouseScale`, and `adoptHardwareDefaults`.
     #[test]
     fn settings_defaults_presets_and_hardware_rules_match_js() {
-        assert_eq!(DEFAULTS.len(), 60);
+        assert_eq!(DEFAULTS.len(), 61);
         let mut s = Settings::new();
         assert!(s.fresh);
         assert_eq!(s.get_string("physicsRate"), "60");

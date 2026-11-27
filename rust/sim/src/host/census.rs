@@ -23,6 +23,7 @@ pub struct Census {
     shots: u32,
     damage: u32,
     behaviour: Behaviour,
+    motion: MotionCensus,
     deka: Deka,
     classes: Classes,
     decisions: Decisions,
@@ -190,6 +191,66 @@ struct Team {
     posts: u32,
 }
 
+/// Count episodes on the same ten-tick clock as the bot position trace.
+#[derive(Default)]
+struct MotionCensus {
+    by_controller: HashMap<usize, MotionSample>,
+    samples: u32,
+    recovering: u32,
+    stationary: u32,
+    wedges: u32,
+    longest_wedge: u32,
+}
+
+struct MotionSample {
+    life: (u64, u64),
+    last_tick: u32,
+    still: (u32, [f64; 3]),
+    recovery: Option<(u32, [f64; 3])>,
+}
+
+impl MotionCensus {
+    fn sample(
+        &mut self,
+        tick: u32,
+        controller: usize,
+        life: (u64, u64),
+        p: [f64; 3],
+        recovering: bool,
+    ) {
+        self.samples = self.samples.saturating_add(1);
+        self.recovering = self.recovering.saturating_add(u32::from(recovering));
+        let fresh = || MotionSample {
+            life,
+            last_tick: tick,
+            still: (tick, p),
+            recovery: None,
+        };
+        let s = self.by_controller.entry(controller).or_insert_with(fresh);
+        if s.life != life || s.last_tick.checked_add(10) != Some(tick) {
+            *s = fresh();
+        }
+        s.last_tick = tick;
+        let elapsed = |anchor: &mut (u32, [f64; 3])| {
+            let [x, y, z] = anchor.1;
+            if (p[0] - x).powi(2) + (p[1] - y).powi(2) + (p[2] - z).powi(2) >= 1. {
+                *anchor = (tick, p);
+            }
+            tick.saturating_sub(anchor.0)
+        };
+        self.stationary = self.stationary.saturating_add(u32::from(elapsed(&mut s.still) == 300));
+        if recovering {
+            let age = elapsed(s.recovery.get_or_insert((tick, p)));
+            if age >= 300 {
+                self.wedges = self.wedges.saturating_add(u32::from(age == 300));
+                self.longest_wedge = self.longest_wedge.max(age);
+            }
+        } else {
+            s.recovery = None;
+        }
+    }
+}
+
 impl Census {
     /// Reads the world once a second; answers a line every `every` ticks
     /// (and the behaviour summary every minute), else None.
@@ -221,6 +282,7 @@ impl Census {
             }
         })?;
         let decisions = &mut self.decisions;
+        let motion = &mut self.motion;
         context.owned(|w| {
             use crate::ai::owned::entities::Entity;
             if tick == 60 {
@@ -243,6 +305,11 @@ impl Census {
                 if !(0.0..TEAMS as f64).contains(&unit.team) { continue; }
                 let t = decisions.teams.entry(unit.team as u32).or_default();
                 if unit.seat.is_some() { decisions.last.insert(ci, None); continue; }
+                if tick % 10 == 0 && battle.state.navigation.nav.swbf2.is_some() {
+                    let p = unit.position();
+                    motion.sample(u32::try_from(tick).unwrap_or(u32::MAX), ci, (c.unit.unwrap(),unit.generation.to_bits()), [p.x,p.y,p.z],
+                        c.fsm.state == crate::ai::control::controller::state::RANDOM);
+                }
                 t.ticks += 1;
                 if c.fsm.state == 10.0 { squad[0] += 1; } else if c.fsm.state == 11.0 { squad[1] += 1; }
                 *t.state.entry(format!("{}", c.fsm.state)).or_default() += 1;
@@ -605,6 +672,13 @@ impl Census {
                 "ghostCaptureSeconds": b.ghost_seconds, "deathsInRegions": b.deaths_in_regions, "bodySecondsInRegions": b.body_seconds_in_regions,
                 "removedSecondsInRegions": b.removed_seconds_in_regions, "corpseMaxSeconds": b.corpse_max, "corpseSecondsOver5": b.corpses_over_5s,
             });
+            if self.motion.samples != 0 {
+                v["footSamples"] = self.motion.samples.into();
+                v["recoverySamples"] = self.motion.recovering.into();
+                v["stationary5sEpisodes"] = self.motion.stationary.into();
+                v["recoveryWedges5s"] = self.motion.wedges.into();
+                v["longestRecoveryWedgeTicks"] = self.motion.longest_wedge.into();
+            }
             v["causes"] = serde_json::json!(b.causes);
             v["classTicks"] = map(&cl.alive);
             v["classJetTicks"] = map(&cl.jet);
@@ -628,5 +702,33 @@ impl Census {
             v["spawns"] = serde_json::Value::Object(b.spawns.iter().map(|((t, p), n)| (format!("t{t}:{}", if *p == 0 { "?".into() } else { name(p) }), (*n).into())).collect());
             v.to_string()
         })
+    }
+}
+
+#[cfg(test)]
+mod motion_tests {
+    use super::MotionCensus;
+    #[test]
+    fn unpressed_recovery_and_stationary_episodes_end_on_movement_or_new_life() {
+        let mut census = MotionCensus::default();
+        for tick in (0..=360).step_by(10) {
+            census.sample(tick, 1, (7, 1), [0.; 3], true);
+        }
+        assert_eq!(
+            (census.wedges, census.longest_wedge, census.stationary),
+            (1, 360, 1)
+        );
+        for tick in (370..=660).step_by(10) {
+            census.sample(tick, 1, (7, 1), [0., 1., 0.], true);
+        }
+        for tick in (670..=970).step_by(10) {
+            census.sample(tick, 1, (7, 2), [0., 1., 0.], false);
+        }
+        assert_eq!(
+            (census.wedges, census.longest_wedge, census.stationary),
+            (1, 360, 2)
+        );
+        census.sample(1300, 1, (7, 2), [0., 1., 0.], true);
+        assert_eq!(census.wedges, 1);
     }
 }

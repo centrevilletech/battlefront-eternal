@@ -11,8 +11,8 @@ use crate::layers::Layers;
 use crate::layout::{class as c, emitter as e, turret as t};
 
 #[derive(Clone, Copy)]
-struct Axis { q: Option<f64>, rest: f64, rate: f64, gain: f64, voice: u64 }
-impl Default for Axis { fn default() -> Self { Self { q: None, rest: 0.0, rate: 0.0, gain: 0.0, voice: SILENT } } }
+struct Axis { q: Option<f64>, rest: f64, rate: f64, gain: f64, voice: u64, was_turning: bool, retry: crate::swbf2::LoopRetry }
+impl Default for Axis { fn default() -> Self { Self { q: None, rest: 0.0, rate: 0.0, gain: 0.0, voice: SILENT, was_turning: false, retry: crate::swbf2::LoopRetry::default() } } }
 #[derive(Clone, Copy, Default)]
 pub struct Turret { initialized: bool, held: bool, axes: [Axis; 2], generation: f64 }
 impl Phase {
@@ -88,7 +88,7 @@ impl Phase {
     fn quiet_hull_turrets(&mut self, owner: usize) {
         for id in 0..self.turret_count { if index(self.turrets[id][t::OWNER]) == owner { let mut s = self.turret_state[id]; self.quiet_turret(&mut s); s.initialized = false; self.turret_state[id] = s; } }
     }
-    fn quiet_turret(&mut self, s: &mut Turret) { for a in &mut s.axes { self.stop(a.voice, 0.05); a.voice = SILENT; a.q = None; } }
+    fn quiet_turret(&mut self, s: &mut Turret) { for a in &mut s.axes { self.stop(a.voice, 0.05); a.voice = SILENT; a.q = None; a.was_turning = false; a.retry.reset(); } }
     /// ports VehicleSounds.turret/whir. Quantised angles retain the rest
     /// interval across replicated frames, and stopped gain decays per frame,
     /// rather than being converted into a different time-based envelope.
@@ -111,10 +111,41 @@ impl Phase {
                 let base = sound.gain.max(0.000001); let pitch = sound.pitch; let low = self.number(class, if axis == 0 { c::YAW_PITCH } else { c::PITCH_PITCH }, 0.8);
                 if turning {
                     let top = row[if axis == 0 { t::YAW_TOP } else { t::PITCH_TOP }]; let fraction = (a.rate / top.max(0.001)).min(1.0);
-                    if !self.playing(a.voice) { a.voice = self.play_class(class, key, FOLEY, self.turret_emitter_base + id, None, Some(true)); a.gain = base; } else { a.gain = (a.gain + 0.1 * base).min(base); }
+                    if self.family() == bfe_family::GameFamily::Swbf2 {
+                        if self.playing(a.voice) {
+                            a.gain = (a.gain + 0.1 * base).min(base);
+                            a.retry.note_live();
+                        } else {
+                            a.voice = SILENT;
+                            let want_start = if !a.was_turning {
+                                true
+                            } else {
+                                self.swbf2_loop_should_retry(&mut a.retry, dt, sound_id, self.turret_emitter_base + id, None, false)
+                            };
+                            if want_start {
+                                let had_room = self.swbf2_loop_has_room(sound_id, false);
+                                let voice = self.play_class(class, key, FOLEY, self.turret_emitter_base + id, None, Some(true));
+                                let live = self.playing(voice);
+                                a.voice = if live { voice } else { SILENT };
+                                a.gain = base;
+                                a.retry.record(live, had_room);
+                            } else {
+                                a.gain = (a.gain + 0.1 * base).min(base);
+                            }
+                        }
+                        a.was_turning = true;
+                    } else if !self.playing(a.voice) {
+                        a.voice = self.play_class(class, key, FOLEY, self.turret_emitter_base + id, None, Some(true)); a.gain = base;
+                    } else {
+                        a.gain = (a.gain + 0.1 * base).min(base);
+                    }
                     self.gain(a.voice, (a.gain * fraction / base).clamp(0.0, 1.0 / base));
                     self.pitch(a.voice, ((low + (1.0 - low) * fraction) * pitch).max(low).min(pitch), true);
-                } else if a.voice != SILENT { a.gain *= 0.6; self.gain(a.voice, a.gain / base); if a.gain < 0.0001 { self.stop(a.voice, 0.01); a.voice = SILENT; a.rate = 0.0; } }
+                } else {
+                    a.was_turning = false;
+                    a.retry.reset();
+                    if a.voice != SILENT { a.gain *= 0.6; self.gain(a.voice, a.gain / base); if a.gain < 0.0001 { self.stop(a.voice, 0.01); a.voice = SILENT; a.rate = 0.0; } }
+                }
             }
             s.axes[axis] = a;
         }

@@ -87,6 +87,15 @@ impl ActionQueue {
         false
     }
 
+    /// The oldest queued edge of any of `names`, taken: edges of several
+    /// names come out in the order they were queued.
+    pub fn delete_first(&mut self, names: &[StrId]) -> Option<StrId> {
+        if !names.iter().any(|&name| self.has(name)) { return None; }
+        let name = (self.read..self.write).find_map(|i| self.items[Self::slot(i)].filter(|name| names.contains(name)))?;
+        // The oldest edge of that name is the one found.
+        self.delete(name).then_some(name)
+    }
+
     pub fn clear(&mut self) {
         self.read = 0;
         self.write = 0;
@@ -138,6 +147,8 @@ impl Controls {
     pub fn held(&self, codes: &[StrId]) -> bool { codes.iter().any(|code| self.has(*code)) }
     /// CommandControls.take: one queued press of the action, if any.
     pub fn take(&mut self, name: StrId) -> bool { self.queued.delete(name) }
+    /// The oldest queued press of any of these actions, if any.
+    pub fn take_first(&mut self, names: &[StrId]) -> Option<StrId> { self.queued.delete_first(names) }
     /// CommandControls.axis: the plus keys' count less the minus keys',
     /// each side one when any of its codes is down.
     pub fn axis(&self, plus: &[StrId], minus: &[StrId]) -> f64 {
@@ -165,6 +176,17 @@ mod tests {
         assert!(q.delete(id(5)));
         assert!(!q.delete(id(5)));
         assert!(q.is_empty());
+    }
+
+    #[test]
+    fn edges_of_several_names_come_out_in_queue_order() {
+        let mut q = ActionQueue::new();
+        for n in [5, 9, 6, 5] { assert!(q.add(id(n))); }
+        assert_eq!(q.delete_first(&[id(6), id(5)]), Some(id(5)));
+        assert_eq!(q.delete_first(&[id(6), id(5)]), Some(id(6)));
+        assert_eq!(q.delete_first(&[id(6), id(5)]), Some(id(5)));
+        assert_eq!(q.delete_first(&[id(6), id(5)]), None);
+        assert!(q.has(id(9)) && q.len() == 1);
     }
 
     #[test]

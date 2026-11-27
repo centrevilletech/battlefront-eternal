@@ -14,6 +14,11 @@ pub trait Callbacks {
     fn weapon_hint_in(&self,w:&mut crate::world::owner::World,unit:crate::store::Ref<Unit>,control:Option<crate::store::Ref<SeatUnit>>)->crate::gen::F2TurretHint;
     fn lease_created(&mut self,lease:Ref<SeatLease>);
     fn controllable(&mut self,w:&mut crate::world::owner::World,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>>;
+    /// One tick of the goal bots, for event rules with a goal table only.
+    fn goal_pass(&mut self,_w:&mut crate::world::owner::World,_recon:&mut Authority,_queries:&mut Queries,
+        _bots:&mut crate::ai::goals::GoalController,_table:&dyn crate::ai::goals::GoalTable,_dt:f64) {}
+    fn soldier_inputs(&mut self,_w:&mut crate::world::owner::World,_recon:&mut Authority,_queries:&mut Queries,
+        _inputs:&mut crate::ai::goals::SoldierInputs,_dt:f64) {}
 
 }
 
@@ -105,6 +110,34 @@ impl<F:Factory> Callbacks for Scope<'_,F> {
     }
     fn controllable(&mut self,w:&mut crate::world::owner::World,lease:Ref<SeatLease>)->Option<Ref<SeatUnit>> {
         self.state.construct_control_in(w,lease)
+    }
+    fn goal_pass(&mut self,w:&mut crate::world::owner::World,recon:&mut Authority,queries:&mut Queries,
+        bots:&mut crate::ai::goals::GoalController,table:&dyn crate::ai::goals::GoalTable,dt:f64) {
+        self.event_bots(w, recon, queries, EventBots::Goals(bots, table), dt);
+    }
+    fn soldier_inputs(&mut self,w:&mut crate::world::owner::World,recon:&mut Authority,queries:&mut Queries,
+        inputs:&mut crate::ai::goals::SoldierInputs,dt:f64) {
+        self.event_bots(w, recon, queries, EventBots::Soldiers(inputs), dt);
+    }
+}
+
+enum EventBots<'a> {
+    Goals(&'a mut crate::ai::goals::GoalController, &'a dyn crate::ai::goals::GoalTable),
+    Soldiers(&'a mut crate::ai::goals::SoldierInputs),
+}
+
+impl<F:Factory> Scope<'_,F> {
+    fn event_bots(&mut self,w:&mut crate::world::owner::World,recon:&mut Authority,queries:&mut Queries,
+        bots:EventBots<'_>,dt:f64) {
+        let mut services=self.factory.services(recon,queries);let mut random=self.random.share();
+        super::live::with_rows(w,self.state,|rows| {
+            let mut world=super::world::World {rows,random:&mut random,combat:self.combat,services:&mut services,settings:self.settings,facts:self.facts};
+            let core = crate::ai::control::goal_orders::GoalCore::new(self.core);
+            match bots {
+                EventBots::Goals(bots, table) => bots.pass(core, &mut world, table, dt),
+                EventBots::Soldiers(inputs) => inputs.pass(core, &mut world, dt),
+            }
+        });
     }
 }
 

@@ -3,7 +3,6 @@
 
 use bfe_content_native::setup::BattleOptions;
 use serde::{Deserialize, Serialize};
-use std::fmt;
 
 /// The original's mission queue limit (`ScriptCB_GetMaxMissionQueue`).
 /// Mirrors `MAX_PLAYLIST`.
@@ -15,54 +14,29 @@ pub const ERAS: [&str; 2] = ["cw", "gcw"];
 
 /// Default game mode for 2004 content (`"conquest"`).
 /// Mirrors the mode field in `MULTIPLAYER.md` ("Two games from day one").
-pub const DEFAULT_MODE: &str = "conquest";
+pub use bfe_family::DEFAULT_MODE;
 
-/// Which game a map, its rules, and its interface belong to: `swbf1` (2004) or
-/// `swbf2` (2005).
-///
-/// Defined by `MULTIPLAYER.md` ("Two games from day one").
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub enum GameFamily {
-    /// Star Wars: Battlefront (2004) (`"swbf1"`).
-    #[default]
-    #[serde(rename = "swbf1")]
-    Swbf1,
-    /// Star Wars: Battlefront II (2005) (`"swbf2"`).
-    #[serde(rename = "swbf2")]
-    Swbf2,
-}
+pub use bfe_family::GameFamily;
 
-impl GameFamily {
-    /// Canonical lowercase prefix (`"swbf1"` or `"swbf2"`).
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Swbf1 => "swbf1",
-            Self::Swbf2 => "swbf2",
-        }
-    }
-
+/// The shell's names for a [`GameFamily`].
+pub trait GameFamilyExt {
     /// Display label in the Instant Action game picker (`src/shell/index.js`
     /// `gamePicker`).
-    pub fn picker_label(self) -> &'static str {
-        match self {
-            Self::Swbf1 => "BATTLEFRONT (2004)",
-            Self::Swbf2 => "BATTLEFRONT II (2005), PLANNED",
-        }
-    }
+    fn picker_label(self) -> &'static str;
+}
 
-    /// Parses `"swbf1"` or `"swbf2"` (case-insensitive).
-    pub fn parse(text: &str) -> Option<Self> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "swbf1" => Some(Self::Swbf1),
-            "swbf2" => Some(Self::Swbf2),
-            _ => None,
-        }
+impl GameFamilyExt for GameFamily {
+    fn picker_label(self) -> &'static str {
+        picker_label(self)
     }
 }
 
-impl fmt::Display for GameFamily {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
+/// Display label in the Instant Action game picker (`src/shell/index.js`
+/// `gamePicker`).
+pub const fn picker_label(family: GameFamily) -> &'static str {
+    match family {
+        GameFamily::Swbf1 => "BATTLEFRONT (2004)",
+        GameFamily::Swbf2 => "BATTLEFRONT II (2005), PLANNED",
     }
 }
 
@@ -117,14 +91,22 @@ impl PlaylistEntry {
 
     /// Formats this entry in the full family-prefixed form used by server
     /// configs and `MULTIPLAYER.md`: `"swbf1/geo1:cw:conquest"` (or
-    /// `"swbf1/geo1::conquest"` when `era` is `None`).
+    /// `"swbf1/geo1:conquest"` when `era` is `None`). A 2005 entry with no era
+    /// keeps the empty era field (`"swbf2/tat2::eli"`), so the text reads back as
+    /// the same entry.
     pub fn format_prefixed(&self) -> String {
-        let era = self.era.as_deref().unwrap_or("");
-        if era.is_empty() {
-            format!("{}/{}:{}", self.family, self.map, self.mode)
-        } else {
-            format!("{}/{}:{era}:{}", self.family, self.map, self.mode)
-        }
+        format_entry(self.family, &self.map, self.era.as_deref(), &self.mode)
+    }
+}
+
+// The released spelling for both families, except that a 2005 entry with no
+// era keeps its empty era field (the 2004 spelling reads its mode as an era).
+fn format_entry(family: GameFamily, map: &str, era: Option<&str>, mode: &str) -> String {
+    let era = era.unwrap_or("");
+    if era.is_empty() && family != GameFamily::Swbf2 {
+        format!("{family}/{map}:{mode}")
+    } else {
+        format!("{family}/{map}:{era}:{mode}")
     }
 }
 
@@ -242,7 +224,10 @@ impl BattleRequest {
         let resolved_map = override_map
             .or_else(|| entry.map(|e| e.map.clone()))
             .ok_or_else(|| "battle request needs a map or a rotation".to_string())?;
-        let matching_entry = entry.filter(|e| e.map == resolved_map);
+        // An override that names a family matches the entry only in that family,
+        // so it never takes the era and mode of the other game's map.
+        let matching_entry = entry
+            .filter(|e| e.map == resolved_map && override_family.is_none_or(|f| f == e.family));
         let resolved_family = override_family
             .or_else(|| matching_entry.map(|e| e.family))
             .unwrap_or(GameFamily::Swbf1);
@@ -320,12 +305,7 @@ impl BattleRequest {
 
     /// Formats this battle request in the family-prefixed form (`"swbf1/nab2:cw:conquest"`).
     pub fn format_prefixed(&self) -> String {
-        let era = self.era.as_deref().unwrap_or("");
-        if era.is_empty() {
-            format!("{}/{}:{}", self.family, self.map, self.mode)
-        } else {
-            format!("{}/{}:{era}:{}", self.family, self.map, self.mode)
-        }
+        format_entry(self.family, &self.map, self.era.as_deref(), &self.mode)
     }
 
     /// Converts this battle request into [`BattleOptions`] for native battle
@@ -339,9 +319,43 @@ impl BattleRequest {
                 _ => "rep".to_string(),
             });
         BattleOptions {
+            family: self.family,
             map: self.map.clone(),
             side,
+            mode: self.mode.clone(),
             ..BattleOptions::default()
+        }
+    }
+}
+
+/// The battle a [`BattleRequest`] plays at one playlist index: the one reading
+/// that the battle preparation and its loading screen share.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlannedBattle<'a> {
+    /// The game the battle belongs to.
+    pub family: GameFamily,
+    /// The map id, bare.
+    pub map: &'a str,
+    /// The era the entry names, if any.
+    pub era: Option<&'a str>,
+    /// The mode.
+    pub mode: &'a str,
+}
+
+impl BattleRequest {
+    /// The battle played at `playlist_index`. A playlist's entry decides it, as
+    /// it always did (its map and era win over the request's), unless the
+    /// request overrides the current round with a map of the other game; then
+    /// the request is the battle.
+    pub fn battle_at(&self, playlist_index: usize) -> PlannedBattle<'_> {
+        let playlist = self.playlist.as_ref();
+        match playlist.and_then(|p| p.entries.get(playlist_index)) {
+            Some(entry)
+                if !(playlist.is_some_and(|p| p.round == playlist_index) && entry.family != self.family) =>
+            {
+                PlannedBattle { family: entry.family, map: &entry.map, era: entry.era.as_deref(), mode: &entry.mode }
+            }
+            _ => PlannedBattle { family: self.family, map: &self.map, era: self.era.as_deref(), mode: &self.mode },
         }
     }
 }
@@ -396,6 +410,10 @@ pub fn parse_rotation(text: Option<&str>) -> Vec<PlaylistEntry> {
             && mode.is_some()
             && !era.is_some_and(|e| matches!(e, "cw" | "gcw" | "rep" | "cis" | "all" | "imp"))
         {
+            continue;
+        }
+        // A 2005 entry also follows the shared 2005 field rules (short form).
+        if family == GameFamily::Swbf2 && bfe_family::swbf2::Entry::from_fields(map, era, mode).is_none() {
             continue;
         }
         let era = era.filter(|e| !e.is_empty()).map(str::to_string);

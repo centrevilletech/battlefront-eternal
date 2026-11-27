@@ -1,10 +1,10 @@
 //! encodeEntities with retained work storage. Each record is encoded once;
 //! riders stay grouped with their mounts and parts retain ascending slots.
 use super::codec::{self, Result, Writer, MAX_DATAGRAM};
+use bfe_presentation::network::position::PositionWidth;
 use crate::gen::{WireClass as Class, WireEntry, WireSnapshot};
 
 const SLOTS: usize = 512;
-const PARTS: usize = 32;
 const PAYLOAD: usize = 900;
 struct Part { slots: Vec<usize>, fields: Vec<usize>, bytes: usize }
 impl Part {
@@ -24,12 +24,14 @@ pub struct Encoder {
 impl Encoder {
     /// Reserve from the loaded world's field bound before publication. A
     /// candidate and baseline can have disjoint fields, hence the double bank.
-    pub fn new(max_fields: usize) -> Self {
+    pub fn new(max_fields: usize) -> Self { Self::with_capacity(max_fields, super::bounds::Capacity::LEGACY) }
+    /// An encoder whose field banks hold `capacity`'s world fields.
+    pub fn with_capacity(max_fields: usize, capacity: super::bounds::Capacity) -> Self {
         let writers = |count| (0..count).map(|_| Writer(Vec::with_capacity(MAX_DATAGRAM))).collect();
-        Self { records: (0..SLOTS).map(|_| Writer(Vec::with_capacity(256))).collect(), fields: writers(max_fields.min(192).saturating_mul(2)), field_count: 0,
+        Self { records: (0..SLOTS).map(|_| Writer(Vec::with_capacity(256))).collect(), fields: writers(max_fields.min(capacity.fields).saturating_mul(2)), field_count: 0,
             touched: Vec::with_capacity(SLOTS), group: Vec::with_capacity(SLOTS), grouped: Vec::with_capacity(SLOTS),
-            groups: Vec::with_capacity(SLOTS), parts: (0..PARTS).map(|_| Part::new()).collect(),
-            output: (0..PARTS).map(|_| Vec::with_capacity(MAX_DATAGRAM)).collect(), world: Writer(Vec::with_capacity(MAX_DATAGRAM)) }
+            groups: Vec::with_capacity(SLOTS), parts: (0..capacity.parts).map(|_| Part::new()).collect(),
+            output: (0..capacity.parts).map(|_| Vec::with_capacity(MAX_DATAGRAM)).collect(), world: Writer(Vec::with_capacity(MAX_DATAGRAM)) }
     }
 
     /// World records precede entity records in a datagram, but pack after
@@ -43,7 +45,7 @@ impl Encoder {
             let size: usize = slots.iter().map(|&slot| self.records[slot].0.len() + 2).sum();
             if overhead + size > MAX_DATAGRAM { return Err("snapshot record exceeds datagram"); }
             if self.parts[count - 1].bytes + size > MAX_DATAGRAM {
-                if count == PARTS { return Err("snapshot needs too many parts"); }
+                if count == self.parts.len() { return Err("snapshot needs too many parts"); }
                 self.parts[count].clear(overhead); count += 1;
             }
             let part = &mut self.parts[count - 1]; part.bytes += size; part.slots.extend_from_slice(slots);
@@ -52,7 +54,7 @@ impl Encoder {
             let size = self.fields[index].0.len();
             if overhead + size > MAX_DATAGRAM { return Err("snapshot record exceeds datagram"); }
             if self.parts[count - 1].bytes + size > MAX_DATAGRAM {
-                if count == PARTS { return Err("snapshot needs too many parts"); }
+                if count == self.parts.len() { return Err("snapshot needs too many parts"); }
                 self.parts[count].clear(overhead); count += 1;
             }
             let part = &mut self.parts[count - 1]; part.bytes += size; part.fields.push(index);
@@ -63,7 +65,7 @@ impl Encoder {
     /// Returned buffers belong to this encoder until its next invocation.
     /// The host consumes them while building its publication arena, before
     /// another baseline encode can replace this scratch result.
-    pub fn encode(&mut self, current: &WireSnapshot, baseline: Option<&WireSnapshot>, interval: f64) -> Result<&[Vec<u8>]> {
+    pub fn encode(&mut self, current: &WireSnapshot, baseline: Option<&WireSnapshot>, interval: f64, width: PositionWidth) -> Result<&[Vec<u8>]> {
         let mut entries: [Option<&WireEntry>; SLOTS] = [None; SLOTS];
         let mut bases = [None; SLOTS];
         for row in &current.slots { entries[codec::slot(row.slot)?] = Some(&row.entry); }
@@ -74,7 +76,7 @@ impl Encoder {
             match entries[slot] {
                 Some(entry) => {
                     if entry.mount.seats.len() > 32 { record.0.try_reserve(MAX_DATAGRAM).map_err(|_| "snapshot record exceeds datagram")?; }
-                    codec::record_into(record, entry, bases[slot])?;
+                    codec::record_into(record, entry, bases[slot], width)?;
                 },
                 None if bases[slot].is_some() => record.0.push(2),
                 _ => {}

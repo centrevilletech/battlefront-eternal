@@ -2,27 +2,31 @@
 //! tick still delivers foreign presentation facts; canonical packet metadata,
 //! compact bytes, recipient selection and retention belong to this owner.
 use std::rc::Rc;
-use super::{codec::{Result, Writer}, cosmetics::{self, Compact, Event, Kind, Metadata, Record, View}};
+use super::{codec::{Result, Writer}, cosmetics::{self, Compact, Event, Kind, Metadata, Record, View}, PositionBounds};
 const BATCH: usize = 4096;
 fn empty_event() -> Rc<Event> { Rc::new(Event { identity: 0, schema: 0., meta: Metadata { key: Vec::with_capacity(11), kind: Kind::Presentation,
     projectile: None, must: false, expires: 0. }, view: View::default(), bytes: Vec::with_capacity(512) }) }
 fn empty_record() -> Record { Record { id: 0., generation: 0., tick: 0., schema: 0., combat: true, payload: Vec::with_capacity(78) } }
 
 pub struct Events {
+    bounds: PositionBounds,
     pool: Vec<Rc<Event>>, free: Vec<usize>, busy: Vec<usize>, cosmetics: Vec<Rc<Event>>, expiry: Vec<f64>,
     gameplay: Vec<Record>, records: Vec<Record>, compact: Compact, writer: Writer, payload: Vec<u8>, serial: u64,
     pub malformed: u64, pub saturated: u64,
 }
 impl Default for Events {
     fn default() -> Self {
-        let mut out = Self { pool: Vec::new(), free: Vec::new(), busy: Vec::new(), cosmetics: Vec::with_capacity(BATCH), expiry: Vec::with_capacity(BATCH),
+        Self::with_bounds(PositionBounds::LEGACY)
+    }
+}
+impl Events {
+    pub(super) fn with_bounds(bounds: PositionBounds) -> Self {
+        let mut out = Self { bounds, pool: Vec::new(), free: Vec::new(), busy: Vec::new(), cosmetics: Vec::with_capacity(BATCH), expiry: Vec::with_capacity(BATCH),
             gameplay: Vec::with_capacity(BATCH), records: (0..BATCH).map(|_| empty_record()).collect(),
             compact: Compact { offset: Vec::with_capacity(3), ..Default::default() }, writer: Writer(Vec::with_capacity(512)),
             payload: Vec::with_capacity(900), serial: 0, malformed: 0, saturated: 0 };
         out.reserve(0); out
     }
-}
-impl Events {
     // CombatCapture.drain retains shared event bytes once across recipients.
     // The measured 32-client peak is 351 entries; admission leaves headroom.
     // Only owed entries hold payloads after their source batch is released.
@@ -100,7 +104,7 @@ impl Events {
         let bytes = if compact { 256 } else { record.payload.len() + 32 };
         if bytes > self.writer.0.capacity() { self.writer.0.try_reserve(bytes.saturating_sub(self.writer.0.len()))
             .map_err(|_| "publication event capacity exceeded")?; }
-        cosmetics::encode_cosmetic_event_into(record, &super::records::default_bounds(), compact.then_some(&self.compact), &mut self.writer)?;
+        cosmetics::encode_cosmetic_event_into(record, &self.bounds, compact.then_some(&self.compact), &mut self.writer)?;
         let Some(at) = self.free.pop() else { self.saturated += 1; return Ok(()) };
         let event = Rc::get_mut(&mut self.pool[at]).ok_or("publication event bank still borrowed")?;
         self.serial = self.serial.wrapping_add(1); event.identity = self.serial; event.schema = record.schema;

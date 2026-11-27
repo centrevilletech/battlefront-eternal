@@ -54,7 +54,8 @@
         "blend": 1,
         "bloomStrength": 1,
         "speedBlur": 1,
-        "speedTurn": 1
+        "speedTurn": 1,
+        "glowAdd": 1
       }
     },
     {
@@ -187,6 +188,33 @@
         "map": 32,
         "mask": 32,
         "masked": 5
+      }
+    },
+    {
+      "key": "post-hud/hdr-extract",
+      "vertex": "hdr-extract.vert",
+      "fragment": "hdr-extract.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "threshold": 1
+      }
+    },
+    {
+      "key": "post-hud/hdr-blur",
+      "vertex": "hdr-blur.vert",
+      "fragment": "hdr-blur.frag",
+      "attributes": {
+        "position": 0,
+        "uv": 1
+      },
+      "uniforms": {
+        "map": 32,
+        "offset": 2,
+        "weight": 1
       }
     }
   ]

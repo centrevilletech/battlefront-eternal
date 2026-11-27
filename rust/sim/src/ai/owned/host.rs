@@ -11,19 +11,20 @@ use three::Vector3;
 pub trait Voice {
     fn emit(&self,time:f64,rows:&mut Rows<'_,F3,Live>,unit:Obj,event:&str,property:&str,command:f64,context:Option<f64>,positional:Option<bool>,notice:Option<bool>);
 }
-pub trait OwnedItems {fn count(&self,rows:&mut Rows<'_,F3,Live>,unit:Obj,weapon:(crate::store::DefId,u32))->usize;}
+pub trait OwnedItems {const SWBF2: bool = false; fn count(&self,rows:&mut Rows<'_,F3,Live>,unit:Obj,weapon:(crate::store::DefId,u32))->usize;}
 pub struct Context<V:Voice,I:OwnedItems> {
     pub time:f64,pub follow_far:f64,pub stream_a:u32,
     pub vehicles:super::vehicles::Binding,pub voice:V,pub items:I,
 }
-pub struct Scope<'a,V:Voice,I:OwnedItems> {
+pub struct Scope<'a,V:Voice,I:OwnedItems,const GOALS:bool=false> {
     pub context:&'a Context<V,I>,pub recon:&'a mut Authority,pub queries:&'a mut Queries,
 }
 impl<V:Voice,I:OwnedItems> super::callbacks::Factory for Context<V,I> {
     type Services<'a>=Scope<'a,V,I> where Self:'a;
     fn services<'a>(&'a self,recon:&'a mut Authority,queries:&'a mut Queries)->Self::Services<'a> {Scope {context:self,recon,queries}}
 }
-impl<V:Voice,I:OwnedItems> super::navigation::Environment for Scope<'_,V,I> {
+impl<V:Voice,I:OwnedItems,const GOALS:bool> super::navigation::Environment for Scope<'_,V,I,GOALS> {
+    fn uses_swbf2() -> bool { I::SWBF2 }
     fn time(&self)->f64 {self.context.time}
     fn building_target(&mut self,w:&crate::world::owner::World,handle:&crate::gen::F4Handle)->Option<super::navigation::FollowView> {
         let rows=&crate::battle::f4::live_ref(&w.battle).buildings;let current=rows.current(handle)?;let building=rows.get(&current)?;
@@ -40,6 +41,8 @@ impl<V:Voice,I:OwnedItems> super::navigation::Environment for Scope<'_,V,I> {
     fn remembered(&mut self,_:super::navigation::Actor)->Option<Vec3> {None}
     fn follow_far(&mut self)->f64 {self.context.follow_far}
     fn clear_above(&mut self,w:&mut crate::world::owner::World,from:Vec3,unit:&crate::gen::AiLifeHandle)->bool {super::live::clear_above(w,from,unit)}
+    fn line_of_walk(&mut self,w:&mut crate::world::owner::World,from:Vec3,to:Vec3)->bool {super::live::crosses(w,from,to,0)}
+    fn try_line_of_walk(&mut self,w:&mut crate::world::owner::World,from:Vec3,to:Vec3,kind:crate::ai::nav::swbf2::ProbeKind)->Option<bool> {super::live::try_crosses(w,from,to,0,kind)}
     fn seat_frame(&mut self,w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(Vec3,Vec3)> {super::live::seat_frame(w,hull,index)}
 }
 // The shared algorithm traits also describe agent actions. A passive query
@@ -65,7 +68,7 @@ fn mount_origin(rows:&mut Rows<'_,F3,Live>,origin:crate::ai::vehicles::world::Or
 }
 
 #[allow(unused_variables)]
-impl<V:Voice,I:OwnedItems> Hooks<F3,Live> for Scope<'_,V,I> {
+impl<V:Voice,I:OwnedItems,const GOALS:bool> Hooks<F3,Live> for Scope<'_,V,I,GOALS> {
 fn vehicle_binding(&self)->super::vehicles::Binding { self.context.vehicles.clone() }
 fn fire_primary(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,controller:Obj) { active() }
 fn flight_path(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool) { active() }
@@ -102,7 +105,7 @@ mod vehicle {
 use super::*;
 use crate::ai::vehicles::world::{Origin,ExitOptions,Request,PilotEnv,Stick,Ref};
 #[allow(unused_variables)]
-impl<V:Voice,I:OwnedItems> super::super::vehicle_frame::Hooks<F3,Live> for Scope<'_,V,I> {
+impl<V:Voice,I:OwnedItems,const GOALS:bool> super::super::vehicle_frame::Hooks<F3,Live> for Scope<'_,V,I,GOALS> {
 fn support_holds(&self,rows:&Rows<'_,F3,Live>, agent: Obj) -> Option<f64> { active() }
 fn cast(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: &Vector3, direction: &Vector3, far: f64, ignore: Option<BodyId>) -> Option<Hit> { crate::vehicles::module::collision_owner(&mut rows.w.fleet).expect("native AI collision world").cast_in(&mut rows.w.collision.state,&*rows.w.movement.flags_mut(),origin,direction,far,ignore)? }
 fn mount_origin(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,combat:&mut CombatAi, origin: Origin) -> Option<Vector3> { mount_origin(rows,origin) }
@@ -135,7 +138,8 @@ fn helper_land(&mut self,rows:&mut Rows<'_,F3,Live>,random:&mut RandomState,comb
 }
 }
 
-impl<V:Voice,I:OwnedItems> super::world::Services<F3,Live> for Scope<'_,V,I> {
+impl<V:Voice,I:OwnedItems,const GOALS:bool> super::world::Services<F3,Live> for Scope<'_,V,I,GOALS> {
+    const GOAL_BOTS: bool = GOALS;
     fn owned_item_count(&self,rows:&mut Rows<'_,F3,Live>,unit:UKey,weapon:(crate::store::DefId,u32))->usize {self.context.items.count(rows,unit,weapon)}
     fn mine_ground_height(&mut self,rows:&mut Rows<'_,F3,Live>,_random:&mut RandomState,_combat:&mut CombatAi,_facts:&Facts,_settings:&Settings,point:Vec3)->f64 {
         crate::vehicles::module::collision_owner(&mut rows.w.fleet).expect("native AI ground world").ground(&mut rows.w.collision.state,point.x,point.z,point.y+100.).map_or(point.y,|hit|hit.height)

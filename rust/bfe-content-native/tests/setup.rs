@@ -39,8 +39,30 @@ fn options_compose_the_harness_query_and_refuse_stray_names() {
     let options = BattleOptions::from_args(&["--map", "tat1", "--side", "all", "--seed", "2", "--ticks", "2400", "--view", "2.5", "--ai", "enhanced"]).unwrap();
     assert_eq!(options.query(), "?map=tat1&side=all&era=gcw&ai=enhanced&seed=2");
     assert_eq!(BattleOptions::default().query(), "?map=nab2&side=rep&era=cw&ai=classic&seed=1");
-    let heroes = BattleOptions { map: "geo1".into(), side: "cis".into(), seed: 2, ai: Ai::Classic, heroes: true, unit: Some("cis_inf_droideka".into()) };
+    let heroes = BattleOptions { map: "geo1".into(), side: "cis".into(), seed: 2, ai: Ai::Classic, heroes: true, unit: Some("cis_inf_droideka".into()), ..BattleOptions::default() };
     assert_eq!(heroes.query(), "?map=geo1&side=cis&era=cw&ai=classic&seed=2&heroes=1&unit=cis_inf_droideka");
+    // A 2004 battle carries a mode it never checks or writes, and a qualified
+    // 2004 map stays the error it always was.
+    for mode in ["duel", "ConQuest", "../bad", &"m".repeat(65)] {
+        let options = BattleOptions::from_args(&["--map", "nab2", "--mode", mode]).unwrap();
+        assert_eq!((options.family, options.query().as_str()), (bfe_family::GameFamily::Swbf1, "?map=nab2&side=rep&era=cw&ai=classic&seed=1"));
+    }
+    assert_eq!(BattleOptions::from_args(&["--map", "swbf1/nab2"]).unwrap_err(), "invalid map name \"swbf1/nab2\"");
+    // The 2005 game is named by a qualified map or by --family, in any order.
+    let later = BattleOptions::from_args(&["--mode", "hunt", "--map", "swbf2/kam9", "--side", "all"]).unwrap();
+    assert_eq!((later.family, later.map.as_str()), (bfe_family::GameFamily::Swbf2, "kam9"));
+    assert_eq!(later.query(), "?map=kam9&side=all&era=gcw&ai=classic&seed=1&family=swbf2&mode=hunt");
+    assert_eq!(BattleOptions::from_args(&["--family", "swbf2", "--map", "kam9"]).unwrap().family, bfe_family::GameFamily::Swbf2);
+    for disagreeing in [
+        &["--map", "swbf2/kam9", "--family", "swbf1"][..],
+        &["--family", "swbf1", "--map", "swbf2/kam9"],
+        &["--family", "swbf2", "--family", "swbf1", "--map", "kam9"],
+    ] {
+        assert!(BattleOptions::from_args(disagreeing).unwrap_err().contains("name different games"), "{disagreeing:?}");
+    }
+    assert!(BattleOptions::from_args(&["--family", "mods"]).is_err());
+    assert!(BattleOptions::from_args(&["--map", &format!("swbf2/{}", "a".repeat(33))]).is_err());
+    assert!(BattleOptions::from_args(&["--map", "swbf2/kam9", "--mode", "hu-nt"]).is_err());
     assert!(BattleOptions::from_args(&["--map", "../nab2"]).is_err());
     assert!(BattleOptions::from_args(&["--ai", "off"]).is_err());
     assert!(BattleOptions::from_args(&["--seed", "x"]).is_err());

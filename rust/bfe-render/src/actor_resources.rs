@@ -166,6 +166,10 @@ pub struct Selector {pub key:String,pub defines:Vec<(String,String)>,pub skin:bo
 fn selectors()->&'static[Selector]{static TABLE:std::sync::OnceLock<Vec<Selector>>=std::sync::OnceLock::new();TABLE.get_or_init(||serde_json::from_str(include_str!("actor-selectors.json")).expect("generated actor selectors"))}
 pub fn variant(key:&str,cascades:u32,lamps:bool)->Option<String>{
     let from=selectors().iter().find(|s|s.key==key)?;
+    // Authored baked colour does not receive cascaded shadows or moving lamps.
+    if key.ends_with("-baked") && from.defines.iter().any(|(d, _)| d == "BAKED") {
+        return Some(from.key.clone());
+    }
     let cascades=if from.mode=="plain"{0}else{cascades};
     let lamps=lamps&&from.mode!="plain"&&from.defines.iter().any(|(n,_)|n=="DYNAMIC");
     selectors().iter().find(|s|s.defines==from.defines&&s.skin==from.skin&&s.mode==from.mode&&s.cascades==cascades&&s.lamps==lamps).map(|s|s.key.clone())

@@ -286,8 +286,9 @@ pub struct ShellApp {
     pub ia_entries: Vec<PlaylistEntry>,
     /// Instant Action `RANDOM ORDER` toggle (`false` = `PLAY IN ORDER`, `true` = `RANDOM ORDER`).
     pub ia_random: bool,
-    /// Map id and era choices (`["cw", "gcw"]`) for the `InstantActionEra` popup.
-    pub ia_era_choices: Option<(String, String, Vec<String>, usize)>,
+    /// Map family, map id, display name, era choices (`["cw", "gcw"]`) and
+    /// cursor for the `InstantActionEra` popup.
+    pub ia_era_choices: Option<(GameFamily, String, String, Vec<String>, usize)>,
     /// Current options sub-page cursor.
     pub options_page_cursor: usize,
     /// Visible server entries synchronized from [`ServerBrowserService`].
@@ -504,7 +505,7 @@ impl ShellApp {
             ScreenId::InstantActionEra => self
                 .ia_era_choices
                 .as_ref()
-                .map(|(_, name, _, _)| name.as_str())
+                .map(|(_, _, name, _, _)| name.as_str())
                 .unwrap_or("SELECT ERA"),
             ScreenId::Options => "OPTIONS",
             ScreenId::OptionsPage(p) => p.title(),
@@ -603,7 +604,7 @@ impl ShellApp {
             }
             ScreenId::InstantActionEra => {
                 // Era picker rows (`"cw"` -> `"CLONE WARS"`, `"gcw"` -> `"GALACTIC CIVIL WAR"`).
-                if let Some((_, _, eras, _)) = &self.ia_era_choices {
+                if let Some((_, _, _, eras, _)) = &self.ia_era_choices {
                     eras.iter()
                         .map(|era| {
                             let label = if era == "cw" {

@@ -10,10 +10,12 @@ use bfe_content::{
     content::Content,
     files::{DirFiles, Files},
     install::BvhTree,
-    Value as Authored,
+    layout::family_dir,
+    GameFamily, Value as Authored,
 };
+use bfe_render::static_world::{ExtendedBlend, ExtendedRecord, ExtendedSurface};
 use serde_json::Value;
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, path::{Path, PathBuf}};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MaterialKind {
@@ -32,6 +34,7 @@ pub enum Blend {
 }
 pub struct Material {
     pub kind: MaterialKind,
+    pub extended: Option<ExtendedSurface>,
     pub blend: Blend,
     pub cutout: bool,
     pub double_sided: bool,
@@ -54,7 +57,10 @@ pub struct ActorMesh {
     pub textures: Vec<Option<usize>>,
 }
 pub struct BattleContent {
+    pub family: crate::GameFamily,
     pub content: Content,
+    pub static_inspection: bool,
+    pub(crate) prop_attributes: Vec<u8>,
     pub map: Value,
     pub world: Vec<Mesh>,
     pub models: Vec<Mesh>,
@@ -67,6 +73,8 @@ pub struct BattleContent {
     pub textures: Library,
     pub texture_paths:BTreeMap<String,String>,
     pub effects: Vec<(String, crate::effects::Effects)>,
+    /// The mission's visual resources are held outside the content used for network definitions.
+    mission_effects: Option<Authored>,
     /// The map's placed effects: each plays its (prefixed) effect group.
     pub environment_instances: Vec<EnvironmentInstance>,
     /// The fountains' basins: centre and radius.
@@ -77,8 +85,14 @@ pub struct BattleContent {
     pub terrain_bvh: Option<BvhTree>,
     /// The definitions derived from `content`, built once on first use.
     defs: std::cell::OnceCell<std::rc::Rc<bfe_content::defs::Defs>>,
+    /// Each 2005 craft class's model as a rig with its takeoff clip (empty for
+    /// 2004 and for prepared copies without `craftrigs.json`).
+    pub craft_rigs: Vec<bfe_content::content::CraftRig>,
 }
 impl BattleContent {
+    pub fn visual_effects(&self) -> &Authored {
+        self.mission_effects.as_ref().unwrap_or(&self.content.battle.effects)
+    }
     /// `Defs::build(&self.content)`, built once: a dozen owners read it while
     /// a battle loads, each costing tens of milliseconds on a slow PC.
     pub fn defs(&self) -> Result<std::rc::Rc<bfe_content::defs::Defs>, String> {
@@ -99,33 +113,110 @@ pub struct EnvironmentInstance {
 }
 pub struct Loader {
     root: PathBuf,
+    family: crate::GameFamily,
     pub compressed: bool,
     pub max_texture_size: u32,
     pub texture_capabilities: u32,
+    /// For a 2005 battle, the generation of the content folder an earlier
+    /// reading saw (a join's offered fingerprint): its files are read as that
+    /// reading saw them, found or not, and every other file from the folder.
+    pub pinned: Option<std::sync::Arc<bfe_content::files::Pinned>>,
 }
 impl Loader {
-    pub fn new(root: impl Into<PathBuf>) -> Self {
+    /// Opens the family's own folder beneath a shared content root.
+    pub fn new(root: impl Into<PathBuf>, family: crate::GameFamily) -> Self {
+        Self::from_resolved_root(family_dir(&root.into(), family), family)
+    }
+
+    /// A root that already is one prepared folder: the family is read from the
+    /// folder itself (a marked `swbf2/.content` is the 2005 game).
+    pub fn detect(root: impl Into<PathBuf>) -> Self {
+        let root = root.into();
+        let family = if root.ends_with("swbf2/.content") && root.join(".prepare-swbf2.json").is_file() {
+            crate::GameFamily::Swbf2
+        } else {
+            crate::GameFamily::Swbf1
+        };
+        Self::from_resolved_root(root, family)
+    }
+
+    /// A qualified session or scenery selection names its family explicitly.
+    /// A bare id belongs to the selected preparation root.
+    pub fn for_map<'a>(root: &Path, id: &'a str) -> (Self, &'a str) {
+        let (family, name) = crate::GameFamily::split_id(id);
+        let loader = if name == id { Self::detect(root) } else { Self::from_resolved_root(root, family) };
+        (loader, name)
+    }
+
+    /// Opens a single prepared folder whose physical location is already known.
+    /// The caller selects the family together with the content root; map
+    /// metadata is interpreted only after that choice.
+    pub fn from_resolved_root(root: impl Into<PathBuf>, family: crate::GameFamily) -> Self {
         Self {
             root: root.into(),
+            family,
             compressed: true,
             max_texture_size: 16384,
             texture_capabilities: 0,
+            pinned: None,
         }
     }
-    pub fn load(&self, map: &str, query: &str) -> Result<BattleContent, String> {
+    /// The prepared folder this loader reads, opened for `family`.
+    pub(crate) fn files(&self, family: GameFamily) -> DirFiles {
+        DirFiles::from_resolved_root(&self.root, family)
+    }
+    pub(crate) fn root(&self) -> &std::path::Path {
+        &self.root
+    }
+    /// The family selected together with the content root.
+    pub fn family(&self) -> crate::GameFamily {
+        self.family
+    }
+    pub fn load_for_family(
+        &self,
+        family: GameFamily,
+        map: &str,
+        query: &str,
+    ) -> Result<BattleContent, String> {
+        match family {
+            GameFamily::Swbf1 => self.load(map, query),
+            GameFamily::Swbf2 => self.load_swbf2(map, query, None),
+        }
+    }
+    fn library(&self, map: &str) -> Result<Library, String> {
         if map.is_empty() || !map.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
             return Err("invalid map name".into());
         }
-        let mut textures = Library::new(
-            &self.root,
-            self.compressed,
-            self.max_texture_size,
-            self.texture_capabilities,
-        )?;
+        Library::new(&self.root, self.compressed, self.max_texture_size, self.texture_capabilities)
+    }
+
+    /// Admit the base world and optional visual layer for a developer capture.
+    pub fn inspect(&self, map: &str, layer_name: Option<&str>) -> Result<BattleContent, String> {
+        if self.family == crate::GameFamily::Swbf1 {
+            if layer_name.is_some() { return Err("world has no selectable layer".into()); }
+            return self.load(map, &format!("map={map}&seed=1"));
+        }
+        let textures = self.library(map)?;
+        let dir = format!("maps/{map}");
+        let mut metadata: Value = serde_json::from_slice(&textures.read(&format!("{dir}/map.json"))?)
+            .map_err(|e| e.to_string())?;
+        let layer = layer_name.map(|name| metadata["layers"].get(name).cloned()
+            .ok_or_else(|| format!("unknown world layer {name}"))).transpose()?;
+        let mut vertices = textures.read(&format!("{dir}/geom.bin"))?;
+        let mut indices = textures.read(&format!("{dir}/index.bin"))?;
+        if let Some(layer) = &layer {
+            crate::inspection::append_layer(&mut metadata, layer, &textures, &dir, &mut vertices, &mut indices)?;
+        }
+        let battle = crate::inspection::scenery(&textures, map, &metadata, layer.as_ref())?;
+        self.visuals(Content::build(battle)?, metadata, dir, vertices, indices, textures, true)
+    }
+
+    pub fn load(&self, map: &str, query: &str) -> Result<BattleContent, String> {
+        let textures = self.library(map)?;
+        let files = self.files(self.family);
         // Shared native loaders preserve the game's mission/side precedence,
         // model rebasing, clip remaps and collision arithmetic. Do not duplicate
         // those algorithms in a window-specific resource construction path.
-        let files = DirFiles::new(&self.root);
         let source = CheckedFiles {
             files: &files,
             library: &textures,
@@ -137,6 +228,11 @@ impl Loader {
                 .map_err(|e| e.to_string())?;
         let vertices = textures.read(&format!("{map_path}/geom.bin"))?;
         let indices = textures.read(&format!("{map_path}/index.bin"))?;
+        self.visuals(content, metadata, map_path, vertices, indices, textures, false)
+    }
+
+    fn visuals(&self, content: Content, metadata: Value, map_path: String, vertices: Vec<u8>,
+        indices: Vec<u8>, mut textures: Library, static_inspection: bool) -> Result<BattleContent, String> {
         let map_table = table(&map_path, content.battle.world.get("textures"));
         let mut any = Vec::new();
         if let Some(side) = content.battle.sides.first() {
@@ -186,10 +282,17 @@ impl Loader {
             } else {
                 MaterialKind::Lit
             };
+            let mut material = material(record.clone(), kind, flags, texture, bump);
+            if self.family == crate::GameFamily::Swbf2 {
+                material.resolve_extended()?;
+                if let Some(name) = material.extended.as_ref().and_then(|s| s.bump.as_deref()) {
+                    material.bump = image(&mut textures, &map_table, Some(name))?;
+                }
+            }
             world.push(Mesh {
                 name: record["texture"].as_str().unwrap_or("").into(),
                 geometry,
-                material: material(record.clone(), kind, flags, texture, bump),
+                material,
             });
             // Painted terrain weights are byte-normalized attributes, not PNG
             // images. Admitting them here avoids a hidden browser fetch later.
@@ -401,12 +504,12 @@ impl Loader {
         packs.extend(content.props_models.iter());
         packs.extend(visible_packs.iter());
         for pack in packs {
-            append_pack(&mut models, pack, "", &resolve, &mut textures)?;
+            append_pack_for_family(self.family, &mut models, pack, "", &resolve, &mut textures)?;
         }
         for (family, pack, table) in scoped_packs {
             let scoped = |name: &str| table.get(&name.to_lowercase()).cloned();
-            append_pack(
-                &mut models,
+            append_pack_for_family(
+                self.family, &mut models,
                 &pack,
                 &format!("{family}/"),
                 &scoped,
@@ -415,52 +518,7 @@ impl Loader {
         }
         // a class's textures come from its own side first
         // (`side.texture(name) || anyTexture(name)`).
-        let side_tables: Vec<(String, BTreeMap<String, String>)> = content
-            .battle
-            .sides
-            .iter()
-            .map(|side| (side.name.clone(), table(&side.dir, side.units_file.get("textures"))))
-            .collect();
-        let side_resolve = |side: &str, name: &str| {
-            side_tables
-                .iter()
-                .find(|(n, _)| n == side)
-                .and_then(|(_, t)| t.get(&name.to_lowercase()).cloned())
-                .or_else(|| resolve(name))
-        };
-        let mut actors = Vec::new();
-        for (name, body) in &content.battle.bodies {
-            let side = name.split_once('/').map_or("", |(side, _)| side);
-            actors.push(actor_mesh(name, body, &|t: &str| side_resolve(side, t), &mut textures)?);
-        }
-        let mut skins = Vec::new();
-        for side in &content.battle.sides {
-            for (class, def) in side.units.as_object().into_iter().flat_map(|u| u.entries()) {
-                let wanted = ["OverrideTexture", "OverrideTexture2"]
-                    .map(|key| def.get(key).and_then(Authored::as_str).filter(|s| !s.is_empty()));
-                if wanted.iter().all(Option::is_none) {
-                    continue;
-                }
-                let model = def.get("model").and_then(Authored::as_str).unwrap_or("");
-                let key = format!("{}/{model}", side.name);
-                let (Some((_, body)), Some(mesh)) = (
-                    content.battle.bodies.iter().find(|(n, _)| *n == key),
-                    actors.iter().find(|a| a.name == key),
-                ) else {
-                    continue;
-                };
-                let mut skin = mesh.textures.clone();
-                for (slot, name) in override_slots(&body.def, wanted) {
-                    match side_resolve(&side.name, name) {
-                        Some(path) => skin[slot] = Some(textures.load(&path)?),
-                        None => eprintln!("native unit admission: class {}/{class} skin {name} has no texture; it keeps its body's", side.name),
-                    }
-                }
-                if skin != mesh.textures {
-                    skins.push((format!("{}/{class}", side.name), skin));
-                }
-            }
-        }
+        let (actors, skins) = load_actors_and_skins(&content, &resolve, &mut textures, true)?;
         let mut units: Vec<(String, bfe_presentation::unit_content::Input)> = content
             .actors
             .iter()
@@ -587,21 +645,19 @@ impl Loader {
             "battle".into(),
             crate::effects::Effects::compile(&crate::effects::merge(libraries))?,
         )];
-        let collision = &content.collision;
-        validate_triangles(&collision.positions, &collision.indices)?;
-        validate_triangles(&collision.terrain_positions, &collision.terrain_indices)?;
-        let buildings_bvh = bfe_content::bvh::build(
-            bfe_content::bvh::Positions::F32(&collision.positions),
-            &collision.indices,
-        );
-        let terrain_bvh = (!collision.terrain_indices.is_empty()).then(|| {
-            bfe_content::bvh::build(
-                bfe_content::bvh::Positions::F32(&collision.terrain_positions),
-                &collision.terrain_indices,
-            )
-        });
-        let mut texture_paths=BTreeMap::new();for table in any{for(name,path)in table{texture_paths.entry(name).or_insert(path);}}
+        let (buildings_bvh, terrain_bvh) = build_collision_bvhs(&content.collision)?;
+        let texture_paths = collect_texture_paths(any);
+        let prop_attributes = if self.family == crate::GameFamily::Swbf2 {
+            content.battle.props.as_ref().and_then(|p| p.get("attributesFile"))
+                .map(|file| {
+                    let name = file.as_str().ok_or("invalid placed attribute filename")?;
+                    textures.read(&format!("{map_path}/{name}"))
+                }).transpose()?.unwrap_or_default()
+        } else { Vec::new() };
         Ok(BattleContent {
+            prop_attributes,
+            family: self.family,
+            static_inspection,
             content,
             map: metadata,
             world,
@@ -614,15 +670,346 @@ impl Loader {
             units,
             first_person,
             effects,
+            mission_effects: None,
             environment_instances,
             environment_basins,
             buildings_bvh,
             terrain_bvh,
             defs: Default::default(),
+            craft_rigs: Vec::new(),
+        })
+    }
+    /// Load display resources with the team, class and spawn policy resolved by the mission authority.
+    pub fn load_scripted_mission(&self, map: &str, query: &str, mission: &str) -> Result<BattleContent, String> {
+        let resolved = bfe_content::json::parse_bytes(mission.as_bytes()).map_err(|e| e.to_string())?;
+        self.load_swbf2(map, query, Some(resolved))
+    }
+
+    fn load_swbf2(&self, map: &str, query: &str, mission: Option<bfe_content::Value>) -> Result<BattleContent, String> {
+        if map.is_empty() || !map.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') {
+            return Err("invalid map name".into());
+        }
+        let mut textures = Library::new(
+            &self.root,
+            self.compressed,
+            self.max_texture_size,
+            self.texture_capabilities,
+        )?;
+        let files = self.files(GameFamily::Swbf2);
+        let files = bfe_content::files::PinnedFiles::new(self.pinned.as_deref(), &files);
+        let source = CheckedFiles {
+            files: &files,
+            library: &textures,
+        };
+        let mut battle =
+            Battle::load_for_family(&BattleLoader::new(&source), GameFamily::Swbf2, map, query)?;
+        if let Some(mission) = mission {
+            battle.policy = bfe_content::mission::spawn_policy(&battle.query, Some(&mission));
+            if battle.policy.class_name != battle.unit {
+                return Err("mission scene class differs from the authority".into());
+            }
+            let mut world = battle.world.as_object().cloned().ok_or("invalid mission world")?;
+            world.set("mission".into(), mission);
+            battle.world = bfe_content::Value::Object(world.into());
+        }
+        let content = Content::build(battle)?;
+        let admission = &content
+            .battle
+            .swbf2
+            .as_ref()
+            .ok_or("2005 battle payload missing")?
+            .map_admission;
+        let map_path = format!("maps/{map}");
+        let mission = admission.mission_name.as_deref().ok_or("missing effect mission id")?;
+        if !mission.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-')) {
+            return Err("invalid effect mission id".into());
+        }
+        let directory = format!("{map_path}/effects/{mission}");
+        let (mission_effects, library) = match crate::effects::swbf2::read(&textures, &directory) {
+            Some((pack, library)) => (Some(pack), library),
+            None => (None, crate::effects::swbf2::compile(&crate::effects::merge([
+                content.battle.effects.get("effects"),
+            ]))?),
+        };
+        let pack = mission_effects.as_ref().unwrap_or(&content.battle.effects);
+        let environment_instances = crate::effects::swbf2::instances(pack);
+        let effect_models = crate::effects::swbf2::models(&textures, &directory, pack).unwrap_or_else(|e| {
+            eprintln!("Skipping mission effect meshes: {e}");
+            Default::default()
+        });
+        let mut effect_textures = table(&directory, pack.get("textures"));
+        effect_textures.retain(|name, path| match textures.load(path) {
+            Ok(_) => true,
+            Err(e) => {
+                eprintln!("Skipping mission effect texture {name}: {e}");
+                false
+            }
+        });
+        let mut metadata = authored_json(&content.battle.world);
+        if let Some(path) = pack.get("spaceDust").and_then(|d| d.get("Texture")).and_then(Authored::as_str).and_then(|name| effect_textures.get(name)) {
+            match textures.load(path) {
+                Ok(image) => metadata["spaceDustImage"] = image.into(),
+                Err(e) => eprintln!("Skipping mission space dust image: {e}"),
+            }
+        }
+        if pack.get("beams").and_then(Authored::as_object).is_some_and(|beams| !beams.is_empty()) {
+            match textures.load(&format!("{directory}/beam.png")) {
+                Ok(image) => metadata["lightBeamImage"] = image.into(),
+                Err(e) => eprintln!("Skipping mission beam image: {e}"),
+            }
+        }
+        let map_table = table(&map_path, content.battle.world.get("textures"));
+        let mut any = Vec::new();
+        if let Some(side) = content.battle.sides.first() {
+            any.push(table(&side.dir, side.units_file.get("textures")));
+        }
+        any.push(table("common", content.battle.common.get("textures")));
+        any.push(map_table.clone());
+        for side in content.battle.sides.iter().skip(1) {
+            any.push(table(&side.dir, side.units_file.get("textures")));
+        }
+        let resolve = |name: &str| {
+            any.iter()
+                .find_map(|t| t.get(&name.to_lowercase()).cloned())
+        };
+        let world =
+            crate::map::build_world_meshes(admission, &metadata, &mut textures, &map_table)?;
+
+        let mut models = Vec::new();
+        let mut packs = content
+            .weapon_packs
+            .iter()
+            .map(|(_, pack)| pack)
+            .collect::<Vec<_>>();
+        packs.extend(content.props_models.iter());
+        for pack in packs {
+            append_pack_swbf2(&mut models, pack, "", &resolve, &mut textures)?;
+        }
+        // The craft rigs (presentation only, read here and never by a battle's
+        // admission) and their parts, one model a bone (the fleet draws them posed).
+        let mut craft_rigs = Vec::new();
+        for side in &content.battle.sides {
+            let file = |name: &str| textures.read(&format!("sides/{}/{name}", side.name));
+            if let (Ok(rigs), Ok(buf), Ok(index)) = (file("craftrigs.json"), file("craftrigs.bin"), file("craftrigs_index.bin")) {
+                let rigs = bfe_content::json::parse_bytes(&rigs).map_err(|e| format!("sides/{}/craftrigs.json: {e}", side.name))?;
+                craft_rigs.extend(bfe_content::content::craft_rigs(&content.battle, &side.name, &rigs, &buf, &index)?);
+            }
+        }
+        let mut rigs = bfe_content::models::ModelMap::default();
+        for rig in &craft_rigs {
+            for (bone, parts) in rig.groups() {
+                let name = rig.group_name(bone);
+                if !rigs.has(&name) {
+                    rigs.set(&name, std::rc::Rc::new(parts.into_iter().cloned().collect()));
+                }
+            }
+        }
+        append_pack_swbf2(&mut models, &rigs, "", &resolve, &mut textures)?;
+
+        append_pack_swbf2(&mut models, &effect_models, "effects/", &|name| {
+            effect_textures.get(&name.to_lowercase()).cloned()
+        }, &mut textures)?;
+
+        let (actors, skins) = load_actors_and_skins(&content, &resolve, &mut textures, false)?;
+
+        let swbf2_battle = content
+            .battle
+            .swbf2
+            .as_ref()
+            .ok_or("2005 battle payload missing")?;
+        let mut units: Vec<(String, bfe_presentation::unit_content::Input)> = content
+            .actors
+            .iter()
+            .filter_map(|(name, actor)| {
+                let matching_unit = content.battle.sides.iter().find_map(|side| {
+                    let (sname, model) = name.split_once('/')?;
+                    if side.name != sname {
+                        return None;
+                    }
+                    side.units.as_object()?.entries().find_map(|(cls, def)| {
+                        (def.get("model").and_then(Authored::as_str) == Some(model))
+                            .then(|| (format!("{sname}/{cls}"), def))
+                    })
+                });
+                let prefixes = match matching_unit {
+                    Some((unit_key, def)) => {
+                        let unit_banks = swbf2_battle
+                            .unit_anim_banks
+                            .iter()
+                            .find(|(k, _)| *k == unit_key)
+                            .map(|(_, list)| list.as_slice())
+                            .unwrap_or(&[]);
+                        crate::units::swbf2_slot_prefixes(Some(def), unit_banks)
+                    }
+                    None => crate::units::swbf2_slot_prefixes(None, &[]),
+                };
+                content
+                    .body_clips
+                    .iter()
+                    .find(|(n, _)| n == name)
+                    .map(|(_, clips)| {
+                        (
+                            name.clone(),
+                            crate::units::soldier_swbf2(actor, clips, None, &prefixes),
+                        )
+                    })
+            })
+            .collect();
+        for (unit_key, clips) in &content.unit_clips {
+            let Some((side_name, class_name)) = unit_key.split_once('/') else {
+                continue;
+            };
+            let Some(side) = content.battle.sides.iter().find(|s| s.name == side_name) else {
+                continue;
+            };
+            let Some(def) = side.units.get(class_name) else {
+                continue;
+            };
+            let model = def.get("model").and_then(Authored::as_str).unwrap_or("");
+            let actor_key = format!("{side_name}/{model}");
+            let unit_banks = swbf2_battle
+                .unit_anim_banks
+                .iter()
+                .find(|(k, _)| k == unit_key)
+                .map(|(_, list)| list.as_slice())
+                .unwrap_or(&[]);
+            let prefixes = crate::units::swbf2_slot_prefixes(Some(def), unit_banks);
+            if let Some((_, actor)) = content.actors.iter().find(|(n, _)| n == &actor_key) {
+                units.push((
+                    unit_key.clone(),
+                    crate::units::soldier_swbf2(actor, clips, None, &prefixes),
+                ));
+            }
+        }
+
+        let effects = vec![("battle".into(), library)];
+
+        let (buildings_bvh, terrain_bvh) = build_collision_bvhs(&content.collision)?;
+        any.push(effect_textures);
+        let texture_paths = collect_texture_paths(any);
+        let prop_attributes = swbf2_battle.map_admission.props_attributes_buf.as_deref()
+            .map(<[u8]>::to_vec).unwrap_or_default();
+        Ok(BattleContent {
+            prop_attributes,
+            family: GameFamily::Swbf2,
+            static_inspection: false,
+            content,
+            map: metadata,
+            world,
+            models,
+            sky_flyers: None,
+            actors,
+            skins,
+            textures,
+            texture_paths,
+            units,
+            first_person: None,
+            effects,
+            mission_effects,
+            environment_instances,
+            environment_basins: Vec::new(),
+            buildings_bvh,
+            terrain_bvh,
+            defs: Default::default(),
+            craft_rigs,
         })
     }
 }
-fn material(
+type SkinOverrides = Vec<(String, Vec<Option<usize>>)>;
+
+fn load_actors_and_skins(
+    content: &Content,
+    resolve: &impl Fn(&str) -> Option<String>,
+    textures: &mut Library,
+    warn_missing_skin: bool,
+) -> Result<(Vec<ActorMesh>, SkinOverrides), String> {
+    let side_tables: Vec<(String, BTreeMap<String, String>)> = content
+        .battle
+        .sides
+        .iter()
+        .map(|side| (side.name.clone(), table(&side.dir, side.units_file.get("textures"))))
+        .collect();
+    let side_resolve = |side: &str, name: &str| {
+        side_tables
+            .iter()
+            .find(|(n, _)| n == side)
+            .and_then(|(_, t)| t.get(&name.to_lowercase()).cloned())
+            .or_else(|| resolve(name))
+    };
+    let mut actors = Vec::new();
+    for (name, body) in &content.battle.bodies {
+        let side = name.split_once('/').map_or("", |(side, _)| side);
+        actors.push(actor_mesh(
+            name,
+            body,
+            &|t: &str| side_resolve(side, t),
+            textures,
+        )?);
+    }
+    let mut skins = Vec::new();
+    for side in &content.battle.sides {
+        for (class, def) in side.units.as_object().into_iter().flat_map(|u| u.entries()) {
+            let wanted = ["OverrideTexture", "OverrideTexture2"].map(|key| {
+                def.get(key)
+                    .and_then(Authored::as_str)
+                    .filter(|s| !s.is_empty())
+            });
+            if wanted.iter().all(Option::is_none) {
+                continue;
+            }
+            let model = def.get("model").and_then(Authored::as_str).unwrap_or("");
+            let key = format!("{}/{model}", side.name);
+            let (Some((_, body)), Some(mesh)) = (
+                content.battle.bodies.iter().find(|(n, _)| *n == key),
+                actors.iter().find(|a| a.name == key),
+            ) else {
+                continue;
+            };
+            let mut skin = mesh.textures.clone();
+            for (slot, name) in override_slots(&body.def, wanted) {
+                match side_resolve(&side.name, name) {
+                    Some(path) => skin[slot] = Some(textures.load(&path)?),
+                    None if warn_missing_skin => eprintln!(
+                        "native unit admission: class {}/{class} skin {name} has no texture; it keeps its body's",
+                        side.name
+                    ),
+                    None => {}
+                }
+            }
+            if skin != mesh.textures {
+                skins.push((format!("{}/{class}", side.name), skin));
+            }
+        }
+    }
+    Ok((actors, skins))
+}
+pub(crate) fn build_collision_bvhs(
+    collision: &bfe_content::collision::MapCollision,
+) -> Result<(BvhTree, Option<BvhTree>), String> {
+    validate_triangles(&collision.positions, &collision.indices)?;
+    validate_triangles(&collision.terrain_positions, &collision.terrain_indices)?;
+    let buildings_bvh = bfe_content::bvh::build(
+        bfe_content::bvh::Positions::F32(&collision.positions),
+        &collision.indices,
+    );
+    let terrain_bvh = (!collision.terrain_indices.is_empty()).then(|| {
+        bfe_content::bvh::build(
+            bfe_content::bvh::Positions::F32(&collision.terrain_positions),
+            &collision.terrain_indices,
+        )
+    });
+    Ok((buildings_bvh, terrain_bvh))
+}
+fn collect_texture_paths(tables: Vec<BTreeMap<String, String>>) -> BTreeMap<String, String> {
+    let mut texture_paths = BTreeMap::new();
+    for table in tables {
+        for (name, path) in table {
+            texture_paths.entry(name).or_insert(path);
+        }
+    }
+    texture_paths
+}
+pub(crate) fn material(
     record: Value,
     kind: MaterialKind,
     flags: u32,
@@ -631,6 +1018,7 @@ fn material(
 ) -> Material {
     Material {
         kind,
+        extended: None,
         blend: if flags & 0x80 != 0 {
             Blend::Additive
         } else if flags & 4 != 0 && flags & 2 == 0 {
@@ -647,10 +1035,152 @@ fn material(
         record,
     }
 }
-fn truth(value: &Value) -> bool {
+/// 2005 material builder: reads explicit `material.{blendMode, alphaCutout,
+/// doubleSided, textureMode, sourceTexture}` authoritatively when present
+/// (falling back to legacy flag promotion only when explicit blend/cutout
+/// fields are absent) and promotes top-level fields binders inspect.
+pub fn material_swbf2(
+    mut record: Value,
+    kind: MaterialKind,
+    mut flags: u32,
+    texture: Option<usize>,
+    bump: Option<usize>,
+) -> Material {
+    let mut double_sided_legacy = record.get("doubleSided").is_some_and(truth);
+    let mut explicit_blend: Option<Blend> = None;
+    let mut explicit_cutout: Option<bool> = None;
+    let mut explicit_double_sided: Option<bool> = None;
+    if let Some(mat) = record.get("material").and_then(Value::as_object).cloned() {
+        if let Some(v) = mat.get("doubleSided") {
+            let ds = truth(v);
+            explicit_double_sided = Some(ds);
+            if ds {
+                double_sided_legacy = true;
+            }
+        }
+        if let Some(v) = mat.get("alphaCutout") {
+            explicit_cutout = Some(match v {
+                Value::Null => false,
+                Value::Bool(b) => *b,
+                Value::Number(n) => n.as_f64().is_some_and(|x| x.is_finite() && x > 0.0),
+                _ => false,
+            });
+        }
+        if let Some(b) = mat.get("blendMode").and_then(Value::as_str) {
+            explicit_blend = match b.to_ascii_lowercase().as_str() {
+                "opaque" => Some(Blend::Opaque),
+                "alpha" => Some(Blend::Alpha),
+                "additive" => Some(Blend::Additive),
+                _ => None,
+            };
+        }
+        if let Some(obj) = record.as_object_mut() {
+            for key in [
+                "scroll",
+                "diffuse",
+                "specular",
+                "glow",
+                "attachedLight",
+                "missingTexture",
+                "missingBump",
+                "swbf2Flags",
+                "doubleSided",
+                "blendMode",
+                "alphaCutout",
+                "textureMode",
+                "sourceTexture",
+            ] {
+                if !obj.contains_key(key) {
+                    if let Some(val) = mat.get(key) {
+                        obj.insert(key.into(), val.clone());
+                    }
+                }
+            }
+        }
+    }
+    if explicit_blend.is_none()
+        && explicit_cutout.is_none()
+        && double_sided_legacy
+        && flags & (2 | 0x80) == 0
+    {
+        flags |= 4;
+    }
+    let cutout = explicit_cutout.unwrap_or(flags & 2 != 0);
+    let blend = explicit_blend.unwrap_or(if flags & 0x80 != 0 {
+        Blend::Additive
+    } else if flags & 4 != 0 && !cutout {
+        Blend::Alpha
+    } else {
+        Blend::Opaque
+    });
+    // When 2005 prepared data provides an explicit `material.doubleSided`
+    // boolean, treat it as authoritative rather than OR-ing legacy flags.
+    let double_sided = explicit_double_sided.unwrap_or(flags & 0x86 != 0);
+    Material {
+        kind,
+        extended: None,
+        blend,
+        cutout,
+        double_sided,
+        far: truth(&record["far"]),
+        flags,
+        texture,
+        bump,
+        record,
+    }
+}
+impl Material {
+    fn resolve_extended(&mut self) -> Result<(), String> {
+        let surface = extended_surface(&self.record, self.flags)?;
+        self.apply_extended(surface);
+        Ok(())
+    }
+    /// The resolved 2005 surface decides flags, blending, cutout and culling.
+    pub(crate) fn apply_extended(&mut self, surface: ExtendedSurface) {
+        self.flags = surface.flags;
+        self.blend = match surface.blend_mode {
+            ExtendedBlend::Opaque => Blend::Opaque,
+            ExtendedBlend::Alpha => Blend::Alpha,
+            ExtendedBlend::Additive => Blend::Additive,
+        };
+        self.cutout = surface.cutout;
+        self.double_sided = surface.double_sided;
+        self.extended = Some(surface);
+    }
+}
+
+/// Resolve a 2005 surface from a material record as it was prepared.
+/// Geometry counts in model packs use the content reader's f64 numbers.
+/// Read only the material's original fields before interpreting any flag.
+pub(crate) fn extended_surface(record: &Value, flags: u32) -> Result<ExtendedSurface, String> {
+    let mut fields = serde_json::Map::new();
+    fields.insert("flags".into(), flags.into());
+    for key in ["material", "terrain", "glow", "bump", "scroll", "specular"] {
+        if let Some(v) = record.get(key) { fields.insert(key.into(), v.clone()); }
+    }
+    let descriptor: ExtendedRecord = serde_json::from_value(Value::Object(fields)).map_err(|e| e.to_string())?;
+    ExtendedSurface::resolve(&descriptor)
+}
+
+/// The 2005 world, prop and effect packs keep the field promotions of
+/// [`material_swbf2`] and take their surface from the record as prepared.
+pub(crate) fn material_swbf2_extended(
+    record: Value,
+    kind: MaterialKind,
+    flags: u32,
+    texture: Option<usize>,
+    bump: Option<usize>,
+) -> Result<Material, String> {
+    let surface = extended_surface(&record, flags)?;
+    let mut material = material_swbf2(record, kind, flags, texture, bump);
+    material.apply_extended(surface);
+    Ok(material)
+}
+
+pub(crate) fn truth(value: &Value) -> bool {
     !matches!(value, Value::Null | Value::Bool(false)) && value.as_f64() != Some(0.0)
 }
-fn table(directory: &str, value: Option<&Authored>) -> BTreeMap<String, String> {
+pub(crate) fn table(directory: &str, value: Option<&Authored>) -> BTreeMap<String, String> {
     value
         .and_then(Authored::as_object)
         .map(|v| {
@@ -667,7 +1197,7 @@ fn table(directory: &str, value: Option<&Authored>) -> BTreeMap<String, String> 
         })
         .unwrap_or_default()
 }
-fn image(
+pub(crate) fn image(
     library: &mut Library,
     table: &BTreeMap<String, String>,
     name: Option<&str>,
@@ -676,7 +1206,7 @@ fn image(
         .map(|p| library.load(p))
         .transpose()
 }
-fn validate_triangles(positions: &[f32], indices: &[u32]) -> Result<(), String> {
+pub(crate) fn validate_triangles(positions: &[f32], indices: &[u32]) -> Result<(), String> {
     if !positions.len().is_multiple_of(3)
         || !indices.len().is_multiple_of(3)
         || indices.iter().any(|&i| i as usize >= positions.len() / 3)
@@ -687,9 +1217,9 @@ fn validate_triangles(positions: &[f32], indices: &[u32]) -> Result<(), String> 
 }
 // The canonical Files trait intentionally accepts a URL-shaped path. Keep the
 // native directory trust boundary outside it, including symlink resolution.
-struct CheckedFiles<'a> {
-    files: &'a DirFiles,
-    library: &'a Library,
+pub(crate) struct CheckedFiles<'a> {
+    pub(crate) files: &'a dyn Files,
+    pub(crate) library: &'a Library,
 }
 impl Files for CheckedFiles<'_> {
     fn read(&self, path: &str) -> Option<std::rc::Rc<[u8]>> {
@@ -923,9 +1453,100 @@ pub fn append_pack(
     Ok(())
 }
 
+/// 2005 variant of [`append_pack`]: resolves optional prop bump maps and builds
+/// materials via [`material_swbf2`], leaving the 2004 [`append_pack`] untouched.
+pub(crate) fn append_pack_swbf2(
+    out: &mut Vec<Mesh>,
+    pack: &bfe_content::models::ModelMap,
+    prefix: &str,
+    resolve: &impl Fn(&str) -> Option<String>,
+    textures: &mut Library,
+) -> Result<(), String> {
+    for (name, parts) in pack.iter() {
+        for (part, source) in parts.iter().enumerate() {
+            let texture_name = source.field("texture").and_then(Authored::as_str);
+            let texture = texture_name
+                .and_then(resolve)
+                .map(|p| textures.load(&p))
+                .transpose()?;
+            let bump_name = source
+                .field("bump")
+                .and_then(Authored::as_str)
+                .or_else(|| {
+                    source
+                        .field("material")
+                        .and_then(|m| m.get("bump"))
+                        .and_then(Authored::as_str)
+                });
+            let bump = bump_name
+                .and_then(resolve)
+                .map(|p| textures.load(&p))
+                .transpose()?;
+            let flags = source
+                .field("flags")
+                .and_then(Authored::as_f64)
+                .unwrap_or(1.0) as u32;
+            let record = authored_json(&source.record);
+            let geometry = Geometry {
+                buffers: vec![source.data.iter().flat_map(|f| f.to_le_bytes()).collect()],
+                attributes: [("position", 3, 0), ("normal", 3, 12), ("uv", 2, 24)]
+                    .into_iter()
+                    .map(|(name, size, offset)| Attribute {
+                        name: name.into(),
+                        buffer: 0,
+                        size,
+                        scalar: Scalar::Float,
+                        normalized: false,
+                        stride: 32,
+                        offset,
+                    })
+                    .collect(),
+                indices: source.index.clone(),
+                vertices: source.data.len() / 8,
+                groups: vec![Group {
+                    first: 0,
+                    count: source.index.len(),
+                    material: 0,
+                }],
+            };
+            geometry.validate()?;
+            out.push(Mesh {
+                name: format!("{prefix}{name}/{part}"),
+                geometry,
+                material: material_swbf2_extended(
+                    record,
+                    if flags & 1 != 0 {
+                        MaterialKind::Dynamic
+                    } else {
+                        MaterialKind::Unlit
+                    },
+                    flags,
+                    texture,
+                    bump,
+                )?,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// A 2005 model part retains its original nested descriptor even when its
+/// geometry came through the shared held, prop, or first-person model pack.
+pub fn append_pack_for_family(
+    family: crate::GameFamily, out: &mut Vec<Mesh>, pack: &bfe_content::models::ModelMap,
+    prefix: &str, resolve: &impl Fn(&str) -> Option<String>, textures: &mut Library,
+) -> Result<(), String> {
+    let first = out.len();
+    append_pack(out, pack, prefix, resolve, textures)?;
+    if family == crate::GameFamily::Swbf2 {
+        for mesh in &mut out[first..] { mesh.material.resolve_extended()?; }
+    }
+    Ok(())
+}
+
 // The far view keeps authored geometry and baked colour but replaces the
 // near layer maps; retaining them would overwrite the low-resolution sampler.
-fn far_terrain(near: &Mesh, name: &str, scale: &Value, texture: Option<usize>) -> Mesh {
+pub(crate) fn far_terrain(near: &Mesh, name: &str, scale: &Value, texture: Option<usize>) -> Mesh {
     let mut record = near.material.record.clone();
     record["far"] = Value::Bool(true);
     record["texture"] = Value::String(name.into());
@@ -935,17 +1556,9 @@ fn far_terrain(near: &Mesh, name: &str, scale: &Value, texture: Option<usize>) -
             fields.remove(key);
         }
     }
-    Mesh {
-        name: "far-terrain".into(),
-        geometry: near.geometry.clone(),
-        material: material(
-            record,
-            MaterialKind::Terrain,
-            near.material.flags,
-            texture,
-            None,
-        ),
-    }
+    let mut material = material(record, MaterialKind::Terrain, near.material.flags, texture, None);
+    material.extended = near.material.extended.clone();
+    Mesh { name: "far-terrain".into(), geometry: near.geometry.clone(), material }
 }
 
 #[cfg(test)]

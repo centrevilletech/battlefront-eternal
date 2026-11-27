@@ -1,11 +1,17 @@
-//! Where each front-end movie is: its Bink file inside the player's game archives. Built once when the
-//! menus start, from the first game folder candidate that holds `GameData/Data/_LVL_PC/Movies/shell.mvs`
-//! (letter case ignored), plus every add-on's `GameData/AddOn/<name>/Data/_lvl_pc/Movies/*.mvs`.
+//! Where each front-end movie is: its Bink file inside the player's game archives. Built once per
+//! game family when the menus start:
+//! - `swbf1` (2004): `GameData/Data/_LVL_PC/Movies/shell.mvs` (letter case ignored), plus every
+//!   add-on's `GameData/AddOn/<name>/Data/_lvl_pc/Movies/*.mvs`.
+//! - `swbf2` (2005): `GameData/data/_lvl_pc/movies/*.mvs` (letter case ignored).
+//!
 //! Movies are named as in shell.json (`/common/shell/movies/<name>.bik`; `.webm` in content prepared by
-//! earlier versions, the same name); a name maps to its archive
-//! entry through the prepared content's `common/shell/movies/manifest.json` (`hash`), else through the
-//! name's own hash. Without a game folder the library is empty and every movie fails at once.
+//! earlier versions, the same name); a name maps to its archive entry through the prepared content's
+//! `common/shell/movies/manifest.json` (for `swbf1`) or `swbf2/.content/common/shell/movies/manifest.json`
+//! (for `swbf2`) (`hash`), else through the name's own hash. Without a game folder the library is empty
+//! and every movie fails at once.
 use crate::archive::{self, Entry};
+use bfe_content::layout::family_dir;
+use bfe_family::GameFamily;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -21,6 +27,7 @@ pub struct Source {
 
 #[derive(Default)]
 pub struct MovieLibrary {
+    family: GameFamily,
     game: Option<PathBuf>,
     archives: usize,
     by_hash: HashMap<u32, Source>,
@@ -59,66 +66,166 @@ fn name_of(url: &str) -> String {
     stem.to_ascii_lowercase()
 }
 
+/// Lists `*.mvs` files in `dir`, sorted case-insensitively so base archives
+/// (`shell.mvs`) precede localized variants (`shellfr.mvs`).
+fn mvs_files_in(dir: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.is_file()
+                && p.extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("mvs"))
+        })
+        .collect();
+    files.sort_by(|a, b| {
+        let an = a
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let bn = b
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        an.cmp(&bn).then_with(|| a.cmp(b))
+    });
+    files
+}
+
+fn looks_like_swbf2_install(folder: &Path) -> bool {
+    find_ignoring_case(folder, &["GameData", "BattlefrontII.exe"]).is_some_and(|p| p.is_file())
+}
+
+fn looks_like_swbf1_only_install(folder: &Path) -> bool {
+    if looks_like_swbf2_install(folder) {
+        return false;
+    }
+    let Some(common) = find_ignoring_case(folder, &["GameData", "Data", "_LVL_PC", "Common"])
+    else {
+        return false;
+    };
+    std::fs::read_dir(common)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| {
+            e.file_type().is_ok_and(|ft| ft.is_dir())
+                && find_ignoring_case(&e.path(), &["common.lvl"]).is_some_and(|p| p.is_file())
+        })
+}
+
 impl MovieLibrary {
-    /// Indexes the movie archives of the first candidate folder that has them. A candidate may be the
-    /// game's folder or a folder inside it (the preparation record names `GameData/Data/_LVL_PC`).
-    pub fn open(content: Option<&Path>, candidates: &[PathBuf]) -> Self {
-        let mut library = Self::default();
-        'search: for candidate in candidates {
-            for folder in candidate.ancestors().take(4) {
-                let Some(shell) = find_ignoring_case(
-                    folder,
-                    &["GameData", "Data", "_LVL_PC", "Movies", "shell.mvs"],
-                ) else {
-                    continue;
-                };
-                match archive::read_index(&shell) {
-                    Ok(entries) => {
-                        library.game = Some(folder.to_path_buf());
-                        library.add(&shell, entries);
-                        break 'search;
+    /// Indexes the movie archives of the highest-priority candidate folder for `family` that has them.
+    /// A candidate may be the game's folder or a folder inside it (the preparation record names
+    /// `GameData/Data/_LVL_PC` or `GameData/data/_lvl_pc`).
+    pub fn open(family: GameFamily, content: Option<&Path>, candidates: &[PathBuf]) -> Self {
+        let mut library = Self {
+            family,
+            ..Self::default()
+        };
+        match family {
+            GameFamily::Swbf1 => {
+                // Exact released 2004 behavior: no BattlefrontII.exe veto and exact path sort order.
+                'search_swbf1: for candidate in candidates {
+                    for folder in candidate.ancestors().take(4) {
+                        let Some(shell) = find_ignoring_case(
+                            folder,
+                            &["GameData", "Data", "_LVL_PC", "Movies", "shell.mvs"],
+                        ) else {
+                            continue;
+                        };
+                        match archive::read_index(&shell) {
+                            Ok(entries) => {
+                                library.game = Some(folder.to_path_buf());
+                                library.add(&shell, entries);
+                                break 'search_swbf1;
+                            }
+                            Err(error) => eprintln!("Movies: {error}"),
+                        }
                     }
-                    Err(error) => eprintln!("Movies: {error}"),
+                }
+                if let Some(game) = library.game.clone() {
+                    if let Some(addons) = find_ignoring_case(&game, &["GameData", "AddOn"]) {
+                        let mut dirs: Vec<_> = std::fs::read_dir(addons)
+                            .into_iter()
+                            .flatten()
+                            .flatten()
+                            .map(|e| e.path())
+                            .collect();
+                        dirs.sort();
+                        for dir in dirs {
+                            let Some(movies) =
+                                find_ignoring_case(&dir, &["Data", "_lvl_pc", "Movies"])
+                            else {
+                                continue;
+                            };
+                            let mut files: Vec<_> = std::fs::read_dir(movies)
+                                .into_iter()
+                                .flatten()
+                                .flatten()
+                                .map(|e| e.path())
+                                .filter(|p| {
+                                    p.extension()
+                                        .and_then(|e| e.to_str())
+                                        .is_some_and(|e| e.eq_ignore_ascii_case("mvs"))
+                                })
+                                .collect();
+                            files.sort();
+                            for file in files {
+                                match archive::read_index(&file) {
+                                    Ok(entries) => library.add(&file, entries),
+                                    Err(error) => eprintln!("Movies: {error}"),
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        }
-        if let Some(game) = library.game.clone() {
-            if let Some(addons) = find_ignoring_case(&game, &["GameData", "AddOn"]) {
-                let mut dirs: Vec<_> = std::fs::read_dir(addons)
-                    .into_iter()
-                    .flatten()
-                    .flatten()
-                    .map(|e| e.path())
-                    .collect();
-                dirs.sort();
-                for dir in dirs {
-                    let Some(movies) = find_ignoring_case(&dir, &["Data", "_lvl_pc", "Movies"])
-                    else {
-                        continue;
-                    };
-                    let mut files: Vec<_> = std::fs::read_dir(movies)
-                        .into_iter()
-                        .flatten()
-                        .flatten()
-                        .map(|e| e.path())
-                        .filter(|p| {
-                            p.extension()
-                                .and_then(|e| e.to_str())
-                                .is_some_and(|e| e.eq_ignore_ascii_case("mvs"))
-                        })
-                        .collect();
-                    files.sort();
-                    for file in files {
-                        match archive::read_index(&file) {
-                            Ok(entries) => library.add(&file, entries),
-                            Err(error) => eprintln!("Movies: {error}"),
+            GameFamily::Swbf2 => {
+                'search_swbf2: for candidate in candidates {
+                    for folder in candidate.ancestors().take(4) {
+                        if looks_like_swbf1_only_install(folder) {
+                            continue;
+                        }
+                        let Some(movies) =
+                            find_ignoring_case(folder, &["GameData", "data", "_lvl_pc", "movies"])
+                        else {
+                            continue;
+                        };
+                        let files = mvs_files_in(&movies);
+                        if files.is_empty() {
+                            continue;
+                        }
+                        let mut added_any = false;
+                        for file in files {
+                            match archive::read_index(&file) {
+                                Ok(entries) => {
+                                    library.add(&file, entries);
+                                    added_any = true;
+                                }
+                                Err(error) => eprintln!("Movies: {error}"),
+                            }
+                        }
+                        if added_any {
+                            library.game = Some(folder.to_path_buf());
+                            break 'search_swbf2;
                         }
                     }
                 }
             }
         }
-        if let Some(manifest) = content
-            .map(|c| c.join("common/shell/movies/manifest.json"))
+        let manifest_path = match family {
+            GameFamily::Swbf1 => content.map(|c| c.join("common/shell/movies/manifest.json")),
+            GameFamily::Swbf2 => content
+                .map(|c| family_dir(c, GameFamily::Swbf2).join("common/shell/movies/manifest.json"))
+                .filter(|p| p.is_file()),
+        };
+        if let Some(manifest) = manifest_path
             .and_then(|p| std::fs::read(p).ok())
             .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
         {
@@ -137,6 +244,11 @@ impl MovieLibrary {
             }
         }
         library
+    }
+
+    /// Game family this library indexes.
+    pub fn family(&self) -> GameFamily {
+        self.family
     }
 
     fn add(&mut self, path: &Path, entries: Vec<Entry>) {
@@ -253,7 +365,8 @@ mod tests {
         // The preparation record's path (inside the game) works as well as the game folder; a missing
         // candidate is passed over.
         let candidates = [root.join("moved away"), game.join("GameData/Data/_LVL_PC")];
-        let library = MovieLibrary::open(Some(&content), &candidates);
+        let library = MovieLibrary::open(GameFamily::Swbf1, Some(&content), &candidates);
+        assert_eq!(library.family(), GameFamily::Swbf1);
         assert_eq!(library.game_dir(), Some(game.as_path()));
         assert_eq!(library.archive_count(), 2);
         let main = library.resolve("/common/shell/movies/main.bik").unwrap();
@@ -284,7 +397,7 @@ mod tests {
         drop(movie);
 
         // No game folder: nothing resolves.
-        let empty = MovieLibrary::open(Some(&content), &[root.join("moved away")]);
+        let empty = MovieLibrary::open(GameFamily::Swbf1, Some(&content), &[root.join("moved away")]);
         assert_eq!(empty.archive_count(), 0);
         assert!(empty.resolve("/common/shell/movies/main.bik").is_none());
 
@@ -297,11 +410,79 @@ mod tests {
             .join("movies");
         std::fs::create_dir_all(&movies).unwrap();
         std::fs::write(movies.join("SHELL.MVS"), archive(&["main"])).unwrap();
-        let library = MovieLibrary::open(None, std::slice::from_ref(&other));
+        let library = MovieLibrary::open(GameFamily::Swbf1, None, std::slice::from_ref(&other));
         assert_eq!(library.game_dir(), Some(other.as_path()));
         let main = library.resolve("/common/shell/movies/main.bik").unwrap();
         assert_eq!(main.path, movies.join("SHELL.MVS"));
         // A decoder thread may still hold a file for a moment; Windows does not remove an open file.
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn indexes_swbf2_movies_and_keeps_families_separate() {
+        let root = std::env::temp_dir().join(format!("bfe-movielib-bf2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+
+        let bf1 = root.join("SWBF1");
+        std::fs::create_dir_all(bf1.join("GameData/Data/_LVL_PC/Common/ENG")).unwrap();
+        std::fs::write(bf1.join("GameData/Data/_LVL_PC/Common/ENG/common.lvl"), b"lvl").unwrap();
+        std::fs::create_dir_all(bf1.join("GameData/Data/_LVL_PC/Movies")).unwrap();
+        std::fs::write(
+            bf1.join("GameData/Data/_LVL_PC/Movies/shell.mvs"),
+            archive(&["intro_a"]),
+        )
+        .unwrap();
+
+        let bf2 = root.join("SWBF2");
+        let bf2_movies = bf2.join("GameData/data/_lvl_pc/movies");
+        std::fs::create_dir_all(&bf2_movies).unwrap();
+        std::fs::write(bf2.join("GameData/BattlefrontII.exe"), b"exe").unwrap();
+        std::fs::write(bf2_movies.join("shell.mvs"), archive(&["intro_a", "flyover_a"])).unwrap();
+        std::fs::write(bf2_movies.join("shellfr.mvs"), archive(&["intro_a"])).unwrap();
+        std::fs::write(bf2_movies.join("crawl.mvs"), archive(&["crawl_a"])).unwrap();
+
+        let content = root.join("content");
+        let bf2_movies_manifest =
+            family_dir(&content, GameFamily::Swbf2).join("common/shell/movies");
+        std::fs::create_dir_all(&bf2_movies_manifest).unwrap();
+        std::fs::write(
+            bf2_movies_manifest.join("manifest.json"),
+            format!(
+                r#"{{"version":1,"movies":{{"intro_crawl":{{"hash":"0x{:08x}"}}}}}}"#,
+                hash("crawl_a")
+            ),
+        )
+        .unwrap();
+
+        // Both candidates in one list: each family opens only its own game's archives.
+        let candidates = [bf1.clone(), bf2.clone()];
+        let lib2 = MovieLibrary::open(GameFamily::Swbf2, Some(&content), &candidates);
+        assert_eq!(lib2.family(), GameFamily::Swbf2);
+        assert_eq!(lib2.game_dir(), Some(bf2.as_path()));
+        assert_eq!(lib2.archive_count(), 3);
+        // Base `shell.mvs` sorts before `shellfr.mvs`, so base wins.
+        assert_eq!(
+            lib2.resolve("/common/shell/movies/intro_a.bik").unwrap().path,
+            bf2_movies.join("shell.mvs")
+        );
+        assert_eq!(
+            lib2.resolve("/common/shell/movies/crawl_a.bik").unwrap().path,
+            bf2_movies.join("crawl.mvs")
+        );
+        assert_eq!(
+            lib2.resolve("/common/shell/movies/intro_crawl.bik")
+                .unwrap()
+                .path,
+            bf2_movies.join("crawl.mvs")
+        );
+
+        let lib1 = MovieLibrary::open(GameFamily::Swbf1, Some(&content), std::slice::from_ref(&bf1));
+        assert_eq!(lib1.family(), GameFamily::Swbf1);
+        assert_eq!(lib1.game_dir(), Some(bf1.as_path()));
+        assert_eq!(lib1.archive_count(), 1);
+        assert!(lib1.resolve("/common/shell/movies/crawl_a.bik").is_none());
+        assert!(lib1.resolve("/common/shell/movies/intro_crawl.bik").is_none());
+
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -255,6 +255,13 @@ impl Geometry {
         }
         for &(name, location) in spec.attributes {
             let Some(a) = self.attributes.iter().find(|a| a.name == name) else {
+                if name == NEUTRAL_TINT {
+                    // A mesh without authored tint draws with a multiplier of one.
+                    // Disabled generic attribute values are shared by every VAO.
+                    renderer.core.geometry_buffer(id, &neutral_tint(self.vertices));
+                    renderer.core.geometry_pointer(id, self.buffers.len() as u32, location, 4,
+                        Scalar::U8.gl(), true, 0, 0);
+                }
                 continue;
             };
             renderer.core.geometry_pointer(
@@ -277,6 +284,12 @@ impl Geometry {
         }
         Ok(id)
     }
+}
+/// The per-vertex tint the extended actor programs read.
+pub const NEUTRAL_TINT: &str = "vertexTint";
+/// A tint of one for each vertex, as normalized bytes.
+pub fn neutral_tint(vertices: usize) -> Vec<u8> {
+    vec![255; vertices * 4]
 }
 fn interleaved(stride: usize) -> Vec<Attribute> {
     [("position", 3, 0), ("normal", 3, 3), ("uv", 2, 6)]

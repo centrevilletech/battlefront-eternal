@@ -6,5 +6,7 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
+bfe-family = { path = "../bfe-family" }
 bink-decoder = { git = "https://github.com/centrevilletech/bink-decoder", rev = "e4adde43667875328c5afa61f3b3aed61bac70b7" }
+content = { path = "../content" }
 serde_json = "1"

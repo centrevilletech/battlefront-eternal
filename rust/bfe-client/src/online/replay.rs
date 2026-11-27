@@ -35,11 +35,22 @@ impl Loose {
     /// replay will turn his body: divided by the weapon's zoom, through
     /// Soldier.lookRaw with its posture rate and pitch limits.
     pub fn turn(&self, body: &mut Soldier, zoom: f64) {
+        self.turn_scaled(body, zoom, None);
+    }
+
+    /// `turn` with an explicit yaw multiplier for 2005 infantry.
+    pub fn turn_scaled(&self, body: &mut Soldier, zoom: f64, turn_scale: Option<f64>) {
         if self.x == 0. && self.y == 0. {
             return;
         }
         let zoom = zoom.max(1.);
-        body.look_raw(self.x.clamp(-10000., 10000.) / zoom, self.y.clamp(-10000., 10000.) / zoom, self.scale.min(2.), self.invert);
+        let dx = self.x.clamp(-10000., 10000.) / zoom;
+        let dy = self.y.clamp(-10000., 10000.) / zoom;
+        let scale = self.scale.min(2.);
+        match turn_scale {
+            Some(ts) => body.look_raw_scaled(dx, dy, scale, self.invert, ts),
+            None => body.look_raw(dx, dy, scale, self.invert),
+        }
     }
 }
 
@@ -51,6 +62,8 @@ pub struct History {
     rows: [ClientCommand; COMMANDS],
     looks: [ClientLook; COMMANDS],
     flights: [ClientFlightCommand; COMMANDS],
+    use_held: [bool; COMMANDS],
+    space_sent: [bool; COMMANDS],
     at: usize,
     count: usize,
     pub refused: u64,
@@ -60,6 +73,8 @@ pub struct History {
     held_generation: f64,
     // The same for a flyer's controls (throttle, brake, roll, boost).
     flight_held: u32,
+    // The last acknowledged Space pilot controls for `held_generation`.
+    held_pilot: bfe_sim::space::local::PilotControls,
     // The newest command sent had the primary trigger down, and its life.
     firing: bool,
     firing_generation: f64,
@@ -71,12 +86,15 @@ impl Default for History {
             rows: std::array::from_fn(|_| ClientCommand::default()),
             looks: std::array::from_fn(|_| ClientLook::default()),
             flights: std::array::from_fn(|_| ClientFlightCommand::default()),
+            use_held: [false; COMMANDS],
+            space_sent: [false; COMMANDS],
             at: 0,
             count: 0,
             refused: 0,
             held: 0,
             held_generation: -1.,
             flight_held: 0,
+            held_pilot: bfe_sim::space::local::PilotControls::default(),
             firing: false,
             firing_generation: -1.,
         }
@@ -90,14 +108,26 @@ impl History {
         self.held = 0;
         self.held_generation = -1.;
         self.flight_held = 0;
+        self.held_pilot = bfe_sim::space::local::PilotControls::default();
         self.firing = false;
         self.firing_generation = -1.;
     }
     pub fn acknowledge(&mut self, sequence: f64) {
         while self.count != 0 && self.rows[self.at].sequence <= sequence {
             self.held = self.rows[self.at].held;
+            if self.held_generation != self.rows[self.at].generation {
+                self.held_pilot = bfe_sim::space::local::PilotControls::default();
+            }
             self.held_generation = self.rows[self.at].generation;
             self.flight_held = self.flights[self.at].held;
+            if self.space_sent[self.at] {
+                self.held_pilot = crate::local::space::controls(
+                    &self.rows[self.at],
+                    &self.looks[self.at],
+                    &self.flights[self.at],
+                    self.use_held[self.at],
+                );
+            }
             self.at = (self.at + 1) % COMMANDS;
             self.count -= 1;
         }
@@ -110,11 +140,55 @@ impl History {
     pub fn flight_held(&self, generation: f64) -> u32 {
         if self.held_generation == generation { self.flight_held } else { 0 }
     }
+    /// Marks a command as transmitted on the wire with a `PILOT` record so
+    /// Space prediction replays only commands the server can actually receive.
+    pub fn mark_space_sent(&mut self, sequence: u32) {
+        for n in 0..self.count {
+            let idx = (self.at + n) % COMMANDS;
+            if self.rows[idx].sequence as u32 == sequence {
+                self.space_sent[idx] = true;
+                return;
+            }
+        }
+    }
+    /// Returns the last sent Space pilot controls acknowledged at or before
+    /// `ack_sequence` for `generation`, matching `Mailbox::take_command`.
+    pub fn held_pilot(
+        &self,
+        ack_sequence: u32,
+        generation: f64,
+    ) -> bfe_sim::space::local::PilotControls {
+        let mut held = if self.held_generation == generation {
+            self.held_pilot
+        } else {
+            bfe_sim::space::local::PilotControls::default()
+        };
+        for n in 0..self.count {
+            let idx = (self.at + n) % COMMANDS;
+            let row = &self.rows[idx];
+            let seq = row.sequence as u32;
+            if seq > ack_sequence {
+                break;
+            }
+            if row.generation == generation && self.space_sent[idx] {
+                held = crate::local::space::controls(
+                    row,
+                    &self.looks[idx],
+                    &self.flights[idx],
+                    self.use_held[idx],
+                );
+            }
+        }
+        held
+    }
     /// The primary trigger is down in the newest command of this life.
     pub fn firing(&self, generation: f64) -> bool {
         self.firing && self.firing_generation == generation
     }
     pub fn push(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, tick: f64, generation: f64, sequence: f64) {
+        self.push_with_use(c, look, flight, false, tick, generation, sequence);
+    }
+    pub fn push_with_use(&mut self, c: &ClientCommand, look: &ClientLook, flight: &ClientFlightCommand, use_held: bool, tick: f64, generation: f64, sequence: f64) {
         // The command took every count there was: none is loose until the
         // frame says so again, and none can be applied twice.
         self.loose.x = 0.;
@@ -134,7 +208,39 @@ impl History {
         self.rows[at].sent = true;
         self.looks[at] = look.clone();
         self.flights[at] = flight.clone();
+        self.use_held[at] = use_held;
+        self.space_sent[at] = false;
         self.count += 1;
+    }
+    pub fn newest_sequence(&self) -> u32 {
+        if self.count == 0 {
+            return 0;
+        }
+        let last = (self.at + self.count - 1) % COMMANDS;
+        self.rows[last].sequence as u32
+    }
+    pub fn space_pending(
+        &self,
+        ack_sequence: u32,
+    ) -> impl Iterator<Item = (u32, u32, u32, bfe_sim::space::local::PilotControls)> + '_ {
+        (0..self.count).filter_map(move |n| {
+            let idx = (self.at + n) % COMMANDS;
+            let row = &self.rows[idx];
+            let seq = row.sequence as u32;
+            (seq > ack_sequence && self.space_sent[idx]).then(|| {
+                (
+                    row.tick.max(0.0) as u32,
+                    seq,
+                    row.generation.max(0.0) as u32,
+                    crate::local::space::controls(
+                        row,
+                        &self.looks[idx],
+                        &self.flights[idx],
+                        self.use_held[idx],
+                    ),
+                )
+            })
+        })
     }
     /// The look no command has yet, alone: for a view whose commands the
     /// prediction has already replayed (a pilot's seat). It goes in the last
@@ -266,11 +372,20 @@ pub struct Replay {
     pub world: u32,
     owner: Box<ClientPrediction>,
     classes: Vec<Option<[f64; Soldier::WORDS]>>,
+    /// A 2005 battle's class tuning by class id, read from this client's
+    /// copy of the matched content by the rule the server's admission uses.
+    pub swbf2_classes: Vec<Option<bfe_sim::movement::soldier::swbf2::Tuning>>,
+    /// A soldier class of a 2005 battle whose numbers this client's content
+    /// does not give (the earliest in the class list), and why: such a client
+    /// cannot take part.
+    pub swbf2_refused: Option<(String, String)>,
     words: Vec<f64>,
     class: usize,
     pub body: Option<Soldier>,
     pub displayed: Option<Soldier>,
     before: Option<Soldier>,
+    // How far the last displayed frame was into its tick.
+    alpha: f64,
     look_yaw: f64,
     // The last tick shown and where the body was at it. When newer authority
     // moves that tick, the difference is eased out of the picture, not popped.
@@ -291,6 +406,7 @@ pub struct Replay {
     predicted_zoom: Option<f64>,
     life: [f64; 3],
     pub fleet: Box<super::hull_replay::Fleet>,
+    pub space: Option<Box<super::space_receiver::SpacePredictor>>,
     props: super::props::Props,
     pub ticks: u64,
     weapon_at: usize,
@@ -310,8 +426,29 @@ pub struct Replay {
     walker_guns: WalkerGuns,
     // The reason and life whose prediction last failed, logged once.
     failed: Option<(&'static str, [f64; 3])>,
+    // The flight ceiling last applied via `set_flight_ceiling`, so repeated
+    // calls with the same value do not reset `self.class`.
+    flight_ceiling: Option<f64>,
 }
 impl Replay {
+    /// A 2005 match's flight ceiling, as its welcome names it, in place of the
+    /// one this client's files give: every class's soldier constants and
+    /// every hull's flight environment take it, before any predicted tick.
+    pub fn set_flight_ceiling(&mut self, ceiling: f64) {
+        if self.flight_ceiling == Some(ceiling) {
+            return;
+        }
+        self.flight_ceiling = Some(ceiling);
+        for row in self.classes.iter_mut().flatten() {
+            let mut soldier = Soldier::take(row, &[]);
+            soldier.max_fly_height = ceiling;
+            soldier.put(row, &mut Vec::new());
+        }
+        // The mover takes its class's constants again at the next step.
+        self.class = usize::MAX;
+        self.fleet.set_flight_ceiling(ceiling);
+    }
+
     /// The gun counter the player's droideka's next round will take: the
     /// world's at its last correction, moved on by the rounds shown since.
     pub fn walker_next_gun(&self, r: &Receiver) -> f64 {
@@ -360,12 +497,16 @@ impl Replay {
             if c.walker_clips.is_some() {
                 continue;
             }
-            let s = bfe_sim::units::class::soldier_body(&c.record, height, c.getup_time, c.dive_time);
+            // A 2005 class's body by the rule its authority builds it with.
+            let s = match content.content.battle.family {
+                bfe_family::GameFamily::Swbf2 => bfe_sim::movement::soldier::swbf2::classes::soldier_body(&c.record, height, c.getup_time, c.dive_time),
+                bfe_family::GameFamily::Swbf1 => bfe_sim::units::class::soldier_body(&c.record, height, c.getup_time, c.dive_time),
+            };
             let mut row = [0.; Soldier::WORDS];
             s.put(&mut row, &mut Vec::new());
             classes[id as usize] = Some(row);
         }
-        let props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
+        let mut props = super::props::Props::new(&mut collision.borrow_mut(), installed.world, &content.content)?;
         let mut owner = Box::new(ClientPrediction::default());
         owner.configure_actor(&[0.]).map_err(str::to_string)?;
         let fleet = Box::new(super::hull_replay::Fleet::new(content, &mut collision.borrow_mut(), installed.world)?);
@@ -375,18 +516,51 @@ impl Replay {
         let buildings = bfe_sim::world::admit::rows::props::live_sources(&content.content.battle);
         let mounted = Box::new(super::checkpoint::Mounted::new(&defs, &mut owner, None, &buildings)?);
         owner.reserve_native(4096, 32);
+        // A 2005 battle's soldier classes, by the rule its admission reads them.
+        let (mut swbf2_classes, mut swbf2_refused) = (Vec::new(), None);
+        if content.content.battle.family == bfe_family::GameFamily::Swbf2 {
+            swbf2_classes = vec![None; defs.registry.classes.len() + 1];
+            for c in &defs.classes {
+                match bfe_sim::movement::soldier::swbf2::classes::of_class(&content.content, &defs, c) {
+                    Some(Ok(tuning)) => if let Some(slot) = c.registry_id.and_then(|id| swbf2_classes.get_mut(id as usize)) { *slot = Some(tuning) },
+                    Some(Err(why)) if swbf2_refused.is_none() => swbf2_refused = Some((defs.names.text(c.name).to_string(), why)),
+                    _ => {}
+                }
+            }
+        }
+        let space_meta = super::space_receiver::SpaceClientMeta::build(
+            &content.content.battle,
+            Some(&defs),
+            &mut collision.borrow_mut(),
+            installed.world as usize,
+        );
+        let space = space_meta.map(|meta| {
+            let mut space = Box::new(super::space_receiver::SpacePredictor::new(
+                meta,
+                collision.clone(),
+                installed.world as usize,
+            ));
+            space.attach_animated_bodies(&props.animated_bodies());
+            space
+        });
+        if let Some(space) = &space {
+            props.bind_space_buildings(space.building_instances());
+        }
         Ok(Self {
             props,
             fleet,
+            space,
             arsenal,
             mounted,
             collision,
             world: installed.world,
             owner,
             classes,
+            swbf2_classes,
+            swbf2_refused,
             words: Vec::with_capacity(16384),
             class: usize::MAX,
-            body: None, displayed: None, before: None, look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
+            body: None, displayed: None, before: None, alpha: 0., look_yaw: 0., shown_tick: 0., shown_position: [0.; 3],
             smoother: Default::default(), snaps: 0, correction_metres: 0., display: Default::default(),
             walker_view: Default::default(), walker: None, view: [0.; 2], predicted_zoom: None, life: [0.; 3],
             ticks: 0,
@@ -398,6 +572,7 @@ impl Replay {
             walker_ahead: false,
             walker_guns: WalkerGuns::new(),
             failed: None,
+            flight_ceiling: None,
         })
     }
     // HUD, arms and audio borrow the same completed arsenal. Iteration
@@ -414,6 +589,20 @@ impl Replay {
             .map(|row| bfe_sim::gen::Weapon::take(row, &[]))
             .chain(self.fleet.weapons())
     }
+    /// The tick the predicted body stands at.
+    pub fn predicted_tick(&self) -> f64 { self.shown_tick }
+    /// The tick it is displayed at, with the part of it a frame between two
+    /// ticks shows.
+    pub fn displayed_tick(&self) -> f64 { if self.before.is_some() { self.shown_tick - 1. + self.alpha } else { self.shown_tick } }
+    /// The predicted energy of a 2005 soldier of `class`, as a share of what he
+    /// can hold; none while his body is not predicted.
+    pub fn swbf2_energy(&self, class: usize) -> Option<f64> {
+        let tuning = self.swbf2_classes.get(class)?.as_ref().filter(|tuning| tuning.energy_capacity > 0.)?;
+        self.body.as_ref()?;
+        Some((self.swbf2_state()?.energy / tuning.energy_capacity).clamp(0., 1.))
+    }
+    /// A 2005 soldier's predicted energy, sprint and roll.
+    pub fn swbf2_state(&self) -> Option<&bfe_sim::movement::soldier::swbf2::State> { self.owner.swbf2_state() }
     /// The player's own shots are shown from this client's own firing (the
     /// replayed arsenal, or a droideka's held trigger), so the world's
     /// record of each is not shown again.
@@ -432,6 +621,10 @@ impl Replay {
         let at = self.weapon_at + 1 + self.weapon_count * bfe_sim::gen::Weapon::WORDS;
         self.owner.output.get(at..at + 2).map_or([0.; 2], |v| [v[0], v[1]])
     }
+    /// Tick of the latest predicted soldier body stored in `self.body`.
+    pub fn shown_tick(&self) -> f64 {
+        self.shown_tick
+    }
     /// The body as this frame draws it: between its last two ticks at
     /// `alpha`, and turned by the mouse motion no command has taken yet
     /// (`loose`, at the weapon's zoom), so the view follows the mouse at
@@ -440,6 +633,7 @@ impl Replay {
     /// corrections of `own`.
     pub fn present(&mut self, alpha: f64, dt: f64, loose: &Loose, own: &super::receiver::Own) {
         let zoom = look_zoom(self.predicted_zoom, own.zoom);
+        self.alpha = alpha;
         self.walker = None;
         if own.alive && own.walker && own.mount.is_none() && self.body.is_none() {
             self.walker = Some(self.walker_view.sample(own, self.life, dt));
@@ -448,6 +642,9 @@ impl Replay {
         }
         self.fleet.alpha = alpha;
         self.fleet.decay(dt);
+        if let Some(space) = &mut self.space {
+            space.present(alpha, dt);
+        }
         self.displayed = self.body.as_ref().map(|body| self.display.sample(body, self.before.as_ref(), self.look_yaw, self.life, alpha, dt));
         if self.smoother.decay(0.05, dt) || self.displayed.is_none() {
             self.smoother.reset();
@@ -456,9 +653,32 @@ impl Replay {
             for axis in 0..3 {
                 shown.position[axis] += self.smoother.offset[axis];
             }
-            loose.turn(shown, zoom);
+            turn_by_loose(&self.owner, loose, shown, zoom);
         }
     }
+    pub(crate) fn present_local_infantry(&mut self, r: &Receiver, sender: &Sender) {
+        self.weapon_count = 0;
+        if r.own.alive && r.checkpoint_length != 0 && r.own.remote.is_none() {
+            if self.arsenal.restore(&r.checkpoint[..r.checkpoint_length]).is_ok() {
+                self.owner.output.clear();
+                let (at, _) = self.arsenal.write(&mut self.owner.output);
+                self.weapon_at = at as usize;
+                self.weapon_count = self.arsenal.rows.len();
+            }
+        }
+        self.body = r.infantry_view.as_ref().and_then(|view| view.sample(r.clock.shown));
+        self.displayed = self.body.clone();
+        if let Some(shown) = &mut self.displayed {
+            if let Some(constants) = self.classes.get(r.own.class).and_then(Option::as_ref) {
+                let class = Soldier::take(constants, &[]);
+                shown.max_turn = class.max_turn;
+                shown.max_pitch = class.max_pitch;
+                shown.pitch_limits = class.pitch_limits;
+            }
+            apply_local_infantry_aim(shown, r, sender);
+        }
+    }
+
     /// Predicts the player's own body and seat. Prediction only runs ahead of
     /// the server: when it cannot run, the player plays on with the server's
     /// state, and the reason is logged once per reason and life.
@@ -497,6 +717,12 @@ impl Replay {
         self.weapon_count = 0;
         self.props.frame(r, &mut collision_mut(&self.collision));
         self.fleet.frame(r, sender, &mut self.words, &mut collision_mut(&self.collision));
+        if let Some(space) = &mut self.space {
+            space.frame(r, sender);
+            if r.own.body_schema == bfe_sim::wire::space::OWN_BODY_SCHEMA {
+                return Ok(());
+            }
+        }
         if r.own.remote.is_some() {
             return Ok(());
         }
@@ -578,17 +804,18 @@ impl Replay {
             }
             return Ok(());
         }
-        if !r.own.alive || r.own.body_schema != 6 || r.own.vehicle != 0. {
+        let ready = if self.swbf2_classes.is_empty() {
+            self.released_prepare_infantry(r)?
+        } else {
+            self.swbf2_prepare_infantry(r)?
+        };
+        if !ready {
             return Ok(());
         }
         let Some(constants) = self.classes.get(r.own.class).and_then(Option::as_ref) else {
             return Err("own class has no prepared infantry continuation");
         };
         let mut collision = self.collision.borrow_mut();
-        if self.class != r.own.class {
-            self.owner.configure_actor(&[0.])?;
-            self.class = r.own.class;
-        }
         let x = &mut self.words;
         x.clear();
         x.resize(ClientFrame::WORDS, 0.);
@@ -744,6 +971,43 @@ impl Replay {
         }
         Ok(())
     }
+
+    fn released_prepare_infantry(&mut self, r: &Receiver) -> Result<bool, &'static str> {
+        if !r.own.alive || r.own.body_schema != 6 || r.own.vehicle != 0. {
+            return Ok(false);
+        }
+        if self.classes.get(r.own.class).and_then(Option::as_ref).is_none() {
+            return Err("own class has no prepared infantry continuation");
+        }
+        if self.class != r.own.class {
+            self.owner.configure_actor(&[0.])?;
+            self.class = r.own.class;
+        }
+        Ok(true)
+    }
+
+    fn swbf2_prepare_infantry(&mut self, r: &Receiver) -> Result<bool, &'static str> {
+        // The soldier body 0x82 is a 2005 soldier, predicted with its class's tuning.
+        let swbf2 = (r.own.body_schema == bfe_sim::movement::soldier::swbf2::body::SCHEMA)
+            .then(|| self.swbf2_classes.get(r.own.class).copied().flatten());
+        if !r.own.alive || (r.own.body_schema != 6 && swbf2.flatten().is_none()) || r.own.vehicle != 0. {
+            return Ok(false);
+        }
+        if self.classes.get(r.own.class).and_then(Option::as_ref).is_none() {
+            return Err("own class has no prepared infantry continuation");
+        }
+        if self.class != r.own.class || swbf2.is_some() != self.owner.swbf2_state().is_some() {
+            match swbf2.flatten() {
+                Some(tuning) => {
+                    self.owner.configure_actor_for_family(&[0.], bfe_family::GameFamily::Swbf2)?;
+                    self.owner.configure_swbf2(tuning)?;
+                }
+                None => self.owner.configure_actor_for_family(&[0.], bfe_family::GameFamily::Swbf1)?,
+            }
+            self.class = r.own.class;
+        }
+        Ok(true)
+    }
 }
 
 /// The zoom the drawn body's loose look is divided by. The next tick's replay divides the same
@@ -836,6 +1100,26 @@ mod history_tests {
     }
 }
 
+/// Keep the local 2005 infantry camera aligned with `Sender`'s lag-free
+/// pointer preview instead of adding `loose` on top of the delayed playout
+/// sample (`clock.shown`), which double-counts velocity between ticks and snaps
+/// backward whenever a 60 Hz step drains `loose`.
+pub(crate) fn apply_local_infantry_aim(shown: &mut Soldier, r: &Receiver, sender: &Sender) {
+    if r.own.mount.is_none() && r.own.remote.is_none() {
+        shown.aim_yaw = sender.yaw;
+        shown.aim_pitch = sender.pitch;
+    } else {
+        sender.history.loose.turn(shown, r.own.zoom);
+    }
+}
+
+/// The counts no command has taken yet turn the shown body as the next tick's replay will turn it: by
+/// the replayed 2005 soldier's row for the state he is in, and not at all in the stand-up (the lock is
+/// the replayed body's, which the shown body copies).
+fn turn_by_loose(prediction: &ClientPrediction, loose: &Loose, shown: &mut Soldier, zoom: f64) {
+    loose.turn_scaled(shown, zoom, prediction.swbf2_look_scale());
+}
+
 #[cfg(test)]
 mod loose_tests {
 
@@ -866,6 +1150,79 @@ mod loose_tests {
         let mut still = Soldier { aim_pitch: 5., ..body() };
         Loose { scale: 1., ..Default::default() }.turn(&mut still, 1.);
         assert_eq!((still.aim_yaw, still.aim_pitch), (0.3, 5.));
+    }
+
+    // The frames between two ticks of a replayed 2005 soldier turn the counts by the row of the state he
+    // is in, the scale the next tick's replay gives the same counts: the tumble row while he is thrown,
+    // tumbling or sliding, none in the stand-up lock, the standing row otherwise.
+    #[test]
+    fn the_loose_look_turns_a_replayed_2005_soldier_by_the_row_of_his_state() {
+        use bfe_sim::gen::{Air, Posture, UnitBody};
+        use bfe_sim::movement::soldier::swbf2::{ControlSpeed, State, Tumble, TumblePhase, Tuning};
+        use bfe_sim::movement::soldier::V3;
+        let row = |turn| ControlSpeed { forward: 1., strafe: 1., turn };
+        let tuning = Tuning {
+            stand: row(1.), crouch: row(0.7), sprint: row(0.4), jump: row(0.55), jet: row(0.9), jetpack: None,
+            roll: row(0.3), tumble: row(0.1), sprint_accelerate_time: 0.3, energy_capacity: 50., energy_floor: 0.,
+            energy_restore: 5., energy_restore_idle: 7.5, energy_drain_sprint: 40., energy_min_sprint: 10.,
+            energy_cost_jump: 1.5, energy_cost_jump_sprint: None, energy_cost_roll: 10., jump_height: 1.6,
+            jump_forward_speed_factor: 1.2, jump_strafe_speed_factor: 0.8, roll_speed_factor: 1.8, roll_frames: 19,
+            recover_from_tumble: false, getup_front_seconds: 1., getup_back_seconds: 1.,
+        };
+        let loose = Loose { x: 40., y: 0., scale: 1., invert: false, alpha: 0.5 };
+        let mut collision = CollisionOwner::new();
+        let world = collision.world_new(0, -1, -1);
+        let mut standing_turn = 0.;
+        // (phase, the body he is in, the share of the standing turn)
+        for (phase, posture, air, grounded, lock, share) in [
+            (None, Posture::Stand, None, true, 0., 1.),
+            (Some(TumblePhase::Thrown), Posture::Stand, Some(Air::Thrown), false, 0., 0.1),
+            (Some(TumblePhase::Tumble), Posture::Crouch, None, true, 0., 0.1),
+            (Some(TumblePhase::Landed), Posture::Crouch, None, true, 0., 0.1),
+            (Some(TumblePhase::GetUp), Posture::Stand, None, true, 0.8, 0.),
+        ] {
+            let mut state = State::new(&tuning);
+            state.tumble = phase.map(|p| {
+                let mut t = Tumble::enter(V3::ZERO, 0., 1);
+                t.phase = p;
+                t
+            });
+            let soldier = Soldier {
+                max_turn: 2., pitch_limits: [-0.8, 1.1], position: [1., 2., 3.], settled: [1., 2., 3.], normal: [0., 1., 0.],
+                posture, air, grounded, lock, aim_yaw: 0.3, ..Default::default()
+            };
+            let defs = bfe_sim::combat::defs::WeaponDefs::default();
+            let mut capture = bfe_sim::wire::store_own::Capture::new(&defs);
+            capture.foot_swbf2(&UnitBody::Soldier(soldier.clone()), &state, None).unwrap();
+            let bytes = capture.body.value.clone();
+            let mut words = vec![0.; ClientFrame::WORDS + Soldier::WORDS];
+            soldier.put(&mut words[ClientFrame::WORDS..], &mut Vec::new());
+            let correction_at = words.len() as u32;
+            for chunk in bytes.chunks(4) {
+                let mut padded = [0; 4];
+                padded[..chunk.len()].copy_from_slice(chunk);
+                words.push(u32::from_le_bytes(padded).into());
+            }
+            let weapons_at = words.len() as u32;
+            words.extend([0., 0., 0., 0., 0.]);
+            let frame = ClientFrame { epoch: 1., identity: 1., generation: 1., source: 1., movement: true, world,
+                ignored: -1., authority_tick: 10., actor_at: ClientFrame::WORDS as u32, actor_words: Soldier::WORDS as u32,
+                correction_at, correction_bytes: bytes.len() as u32, weapons_at, weapons_words: 5, mouse_scale: 1.,
+                ..Default::default() };
+            frame.put(&mut words, &mut Vec::new());
+            let mut prediction = ClientPrediction::default();
+            prediction.configure_actor_for_family(&[0.], bfe_family::GameFamily::Swbf2).unwrap();
+            prediction.configure_swbf2(tuning).unwrap();
+            prediction.predict_session(&words, &mut collision.state).unwrap();
+            let mut shown = soldier.clone();
+            turn_by_loose(&prediction, &loose, &mut shown, 1.);
+            let turn = shown.aim_yaw - 0.3;
+            if phase.is_none() {
+                standing_turn = turn;
+                assert!(standing_turn < 0.);
+            }
+            assert!((turn - standing_turn * share).abs() < 1e-12, "{phase:?}: turned {turn} against {}", standing_turn * share);
+        }
     }
 
     // Raising a 4x scope: the prediction is zoomed at once, the server's answer is still 1x.
@@ -1022,6 +1379,96 @@ mod loose_tests {
         assert!(frames.windows(2).all(|pair| pair[1] < pair[0]), "{frames:?}");
         let next_tick = shown(&[30., 24.], 0., 0.);
         assert!((frames[3] - next_tick).abs() < 1e-12, "{} {next_tick}", frames[3]);
+    }
+
+    // Local 2005 infantry runs without client-side body prediction: body
+    // position interpolates on `clock.shown` while look angles come from
+    // `Sender`'s lag-free pointer preview so mouse turns stay monotonic across
+    // 60 Hz step drains and server acknowledgements at high frame rates.
+    #[test]
+    fn local_infantry_aim_tracks_mouse_monotonically_without_tick_snapback() {
+        let max_turn = 3.25;
+        let pitch_limits = [-0.75, 0.95];
+        let mouse_scale = 1.1;
+        let mut receiver = Receiver::new(serde_json::Value::Null);
+        receiver.enable_local_infantry_view();
+        receiver.welcomed = true;
+        receiver.complete = true;
+        receiver.corrections = 1;
+        receiver.own.id = 7.;
+        receiver.own.generation = 1.;
+        receiver.own.alive = true;
+        receiver.own.class = 1;
+        receiver.own.zoom = 1.;
+        let mut sender = Sender::new(&[
+            crate::online::input::ClassTurn::classic(2.0, [-0.8, 1.1]),
+            crate::online::input::ClassTurn::classic(max_turn, pitch_limits),
+        ]);
+        let mut auth = Soldier { max_turn, pitch_limits, ..Default::default() };
+        let mut pending: std::collections::VecDeque<(u32, f64, f64, f64)> = Default::default();
+        let command = ClientCommand { mouse_scale, has_mouse_scale: true, invert: Some(false), ..Default::default() };
+        let mut expected = Soldier { max_turn, pitch_limits, ..Default::default() };
+        let mut loose_x = 0.;
+        let mut loose_y = 0.;
+        let mut world_tick = 0.;
+
+        // 4 rendered frames per 60 Hz tick (240 Hz), 12 ticks, 2-tick ack latency,
+        // and display clock trailing 2.5 ticks behind the newest published tick.
+        for frame in 0..48 {
+            let (dx, dy) = (3.0, -1.0);
+            loose_x += dx;
+            loose_y += dy;
+            expected.look_raw(dx, dy, mouse_scale, false);
+
+            if frame % 4 == 0 {
+                world_tick += 1.;
+                // Acknowledge commands sent 2 ticks ago on the authoritative body.
+                if let Some((seq, px, py, pscale)) = pending.front().copied() {
+                    if world_tick >= f64::from(seq) + 2. {
+                        pending.pop_front();
+                        auth.look_raw(px, py, pscale, false);
+                        receiver.corrected_sequence = f64::from(seq);
+                    }
+                }
+                receiver.latest = world_tick;
+                receiver.own.tick = world_tick;
+                receiver.own.yaw = auth.aim_yaw;
+                receiver.own.pitch = auth.aim_pitch;
+                receiver.own.position[2] = world_tick * 0.1;
+                if let Some(view) = &mut receiver.infantry_view {
+                    view.publish(&receiver.own);
+                }
+                sender.feedback(&mut receiver);
+                sender.local_next_tick(world_tick + 1.);
+                let sent_look = ClientLook { x: loose_x, y: loose_y };
+                sender.tick(&command, &sent_look, &ClientFlightCommand::default(), &receiver, 0., frame as f64);
+                pending.push_back((sender.command_sequence() as u32, loose_x, loose_y, mouse_scale));
+                loose_x = 0.;
+                loose_y = 0.;
+            }
+
+            receiver.clock.shown = (world_tick - 2.5).max(1.);
+            sender.set_loose(&ClientLook { x: loose_x, y: loose_y }, mouse_scale, false, (frame % 4) as f64 / 4.);
+            sender.preview(&receiver);
+            sender.ease_walker_turn(&receiver, 1. / 240.);
+            let mut shown = receiver.infantry_view.as_ref().unwrap().sample(receiver.clock.shown).unwrap();
+            shown.max_turn = max_turn;
+            shown.pitch_limits = pitch_limits;
+            apply_local_infantry_aim(&mut shown, &receiver, &sender);
+
+            assert!(
+                (shown.aim_yaw - expected.aim_yaw).abs() < 1e-12,
+                "frame {frame}: yaw {} != expected {}",
+                shown.aim_yaw,
+                expected.aim_yaw,
+            );
+            assert!(
+                (shown.aim_pitch - expected.aim_pitch).abs() < 1e-12,
+                "frame {frame}: pitch {} != expected {}",
+                shown.aim_pitch,
+                expected.aim_pitch,
+            );
+        }
     }
 }
 

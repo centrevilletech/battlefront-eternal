@@ -131,7 +131,8 @@
       "lookBrightness": 1,
       "lookLightRadius": 1,
       "flight": 1,
-      "gravity": 1
+      "gravity": 1,
+      "beamGlowWidth": 1
     },
     "NetCommand": {
       "kind": 1,

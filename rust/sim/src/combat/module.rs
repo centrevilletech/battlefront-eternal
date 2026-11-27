@@ -24,9 +24,19 @@ struct Content {
 
 /// Combat definitions and the lent-body marker have one lifetime. The marker
 /// is a disjoint scalar loan: holding an Rc definition never borrows it.
-pub(crate) struct CombatOwner { content: Option<Content>, taken: Option<u32> }
+pub(crate) struct CombatOwner {
+    content: Option<Content>,
+    taken: Option<u32>,
+    /// A 2005 battle's hero powers; absent in every other battle.
+    pub(crate) powers: Option<Box<super::powers::world::Powers>>,
+    /// What powers left on each life. It stays here while a power pass runs,
+    /// so every hit in the pass sees it; empty in every other battle.
+    pub(crate) power_effects: super::powers::effects::EffectTable,
+}
 impl CombatOwner {
-    pub(crate) const fn new() -> Self { Self { content: None, taken: None } }
+    pub(crate) const fn new() -> Self {
+        Self { content: None, taken: None, powers: None, power_effects: super::powers::effects::EffectTable::new() }
+    }
 }
 
 fn content(owner: &mut CombatOwner) -> &mut Content {
@@ -122,7 +132,7 @@ fn obj_of(v: Js) -> Rc<JsObj> {
 
 /// Weapon class `id` (the battle's weapon table), its definition in the
 /// call block.
-pub(crate) fn cmb_weapon_in(w: &mut crate::world::owner::World, id: u32) { let value = call_value(&w.sim); content(&mut w.combat).weapon(id, value); }
+pub(crate) fn cmb_weapon_in(w: &mut crate::world::owner::World, id: u32) { let family = w.movement.family(); let value = call_value(&w.sim); content(&mut w.combat).weapon_for_family(family, id, value); }
 
 /// Unit class `id` (the battle's unitClass table): what combat reads of it
 /// (AddHealth, base, its loadout, its cameras, its model's box), in the
@@ -313,6 +323,7 @@ pub(crate) struct JsWorld<'w, 'a> {
     // Game.arcTargets snapshots one acquisition. Nested blasts can mutate
     // its victims, but cannot replace which index each later link names.
     arc: Option<Vec<super::live::ArcVictim>>,
+    arc_weapon: Option<DefId>,
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
 
@@ -327,6 +338,7 @@ impl<'w, 'a> JsWorld<'w, 'a> {
             character: unit.character,
             human: unit.human,
             arc: None,
+            arc_weapon: None,
             recon,
         }
     }
@@ -426,6 +438,10 @@ impl WeaponDraws for JsWorld<'_, '_> {
 }
 
 impl CombatWorld for JsWorld<'_, '_> {
+    fn fire_permitted(&self) -> bool {
+        self.w.movement.family() == bfe_family::GameFamily::Swbf1 || self.w.movement.swbf2.fire_permitted(self.r.slot)
+    }
+
     fn cast(&mut self, origin: &Vector3, direction: &Vector3, far: f64, static_only: bool) -> Option<CastHit> {
         return crate::units::native::cast_static_in(self.w, crate::units::f3::collision_world_in(&self.w.units), origin, direction, far, static_only).map(|h| CastHit {
             distance: h.distance,
@@ -537,6 +553,13 @@ impl CombatWorld for JsWorld<'_, '_> {
     fn fire_round(&mut self, from: &Vector3, dir: &Vector3, shot: &Shot, _bind: bool, _selected: Option<(f64, f64)>, unit: &mut Unit, combat: &mut Combat) {
         let weapon = &combat.weapons[shot.weapon as usize];
         let service = crate::units::f3::weapon_service_in(&self.w.units, weapon.def, weapon.level);
+        let secondary = crate::units::f3::secondary_ordnance_for_shot_in(
+            &mut self.w.units,
+            self.r.slot,
+            shot.weapon as usize,
+            weapon.def,
+            weapon.level,
+        );
         let ShotKind::Round { target_id, target_generation, .. } = shot.kind else { return };
         let (from, direction, owner) = (a3(from), a3(dir), OrdnanceOwner::Unit(self.r));
         self.changing(unit, combat, |w, recon| {
@@ -546,6 +569,20 @@ impl CombatWorld for JsWorld<'_, '_> {
             let mut cx = crate::ordnance::Cx::new(&mut world);
             {
                 service.fire(&mut cx, from, direction, owner, target_id, target_generation);
+                if let Some(sec_def) = secondary {
+                    cx.fire_round(
+                        sec_def,
+                        from,
+                        direction,
+                        owner,
+                        None,
+                        None,
+                        BeamSource::Null,
+                        service.channel,
+                        Some(target_id),
+                        Some(target_generation),
+                    );
+                }
             }
             world.finish();
         });
@@ -570,6 +607,45 @@ impl CombatWorld for JsWorld<'_, '_> {
         return made;
     }
 
+    fn detonator_deployed(&mut self, weapon: u32, combat: &Combat) -> bool {
+        if self.w.movement.family() != bfe_family::GameFamily::Swbf2 {
+            return false;
+        }
+        let w = &combat.weapons[weapon as usize];
+        let Some(key) = crate::units::f3::items_in(&mut self.w.units).owned_key(self.r.slot, self.life, w.def, w.level as u32) else {
+            return false;
+        };
+        let store = &self.w.sim.store;
+        store
+            .items
+            .owned
+            .get(key)
+            .is_some_and(|list| list.iter().any(|&r| store.item.get(r).is_some_and(|i| i.mine && i.gone != Some(true))))
+    }
+
+    fn detonator_trigger(&mut self, weapon: u32, unit: &mut Unit, combat: &mut Combat) -> bool {
+        if self.w.movement.family() != bfe_family::GameFamily::Swbf2 {
+            return false;
+        }
+        let w = &combat.weapons[weapon as usize];
+        if crate::units::f3::items_in(&mut self.w.units)
+            .owned_key(self.r.slot, self.life, w.def, w.level as u32)
+            .is_none()
+        {
+            return false;
+        }
+        let mut frame = crate::units::f3::items_in(&mut self.w.units).take(self.r.slot, self.life, w.def, w.level as u32);
+        let mut count = 0usize;
+        self.changing(unit, combat, |w, recon| {
+            let mut world = crate::ordnance::module::JsWorld::with_services(w, recon);
+            let mut cx = crate::ordnance::Cx::new(&mut world);
+            count = cx.trigger_all_prepared(frame.key, &mut frame.work);
+            world.finish();
+        });
+        crate::units::f3::items_in(&mut self.w.units).restore(frame);
+        count > 0
+    }
+
     fn melee_strike(&mut self, unit: &mut Unit, combat: &mut Combat) {
         // Commit the attacker before a defender's damage can recursively
         // explode. The candidate buffer belongs to this invocation's Unit.
@@ -578,8 +654,19 @@ impl CombatWorld for JsWorld<'_, '_> {
         return;
     }
 
+    fn observe_arc_weapon(&mut self, weapon: DefId) {
+        self.arc_weapon = self.w.units.infantry.as_ref().map(|_| weapon);
+    }
     fn arc_targets(&mut self) -> Vec<ArcTarget> {
         unreachable!("native arc acquisition requires retained scratch");
+    }
+
+    fn damage_scale(&mut self, attacker: Attacker) -> Option<f64> {
+        super::powers::world::damage_scale_in(self.w, attacker, super::powers::LifeKey::from(&self.key()))
+    }
+
+    fn battle_family(&self) -> bfe_family::GameFamily {
+        self.w.movement.family()
     }
 
     fn arc_targets_into(&mut self, out: &mut Vec<ArcTarget>) {
@@ -597,10 +684,61 @@ impl CombatWorld for JsWorld<'_, '_> {
     fn hurt_arc_target(&mut self, index: usize, amount: f64, from: &Vector3, unit: &mut Unit, combat: &mut Combat) {
         let victim = self.arc.as_ref().expect("acquired arc targets")[index];
         let (owner, from) = (self.r, *from);
+        if let (Some(weapon), super::live::ArcVictim::Unit(target)) = (self.arc_weapon, victim) {
+            self.changing(unit, combat, |w, recon| {
+                use crate::units::infantry::contact::Impact;
+                let observed = Impact::power(w, target, owner, weapon, [from.x, from.y, from.z]);
+                let previous = observed.and_then(|hit| hit.enter(w));
+                super::live::arc_hit_in(w, victim, amount, from, owner, recon);
+                if let Some(hit) = observed {
+                    hit.finish(w, previous);
+                }
+            });
+            return;
+        }
         // Commit the shooter before a link can kill a mine or start a
         // class blast that reaches back into this same combat.
         self.changing(unit, combat, |w, recon| super::live::arc_hit_in(w, victim, amount, from, owner, recon));
         return;
+    }
+
+    fn apply_burn_arc_target(&mut self, index: usize, dps: f64, seconds: f64, effect: Option<&str>) {
+        if self.w.movement.family() != bfe_family::GameFamily::Swbf2 {
+            return;
+        }
+        let Some(super::live::ArcVictim::Unit(target)) = self.arc.as_ref().and_then(|a| a.get(index).copied()) else {
+            return;
+        };
+        let Some((victim_life, victim_team, victim_human)) = self
+            .w
+            .sim
+            .store
+            .unit
+            .get(target)
+            .filter(|u| u.alive && !u.dead && !u.removed)
+            .map(|u| (super::powers::LifeKey::of(target, u), u.team, u.human))
+        else {
+            return;
+        };
+        let ff = crate::units::f3::friendly_fire_in(&self.w.units);
+        if super::impacts::team_damage(self.team, self.human, victim_team, victim_human, ff) <= 0.0 {
+            return;
+        }
+        let fx_id = effect.filter(|s| !s.is_empty()).map(|s| self.w.sim.strings.intern_str(s));
+        self.w.combat.power_effects.reserve(target.slot as usize + 1);
+        let attacker_life = super::powers::LifeKey::from(&self.key());
+        self.w.combat.power_effects.ignite(victim_life, attacker_life, dps, seconds, fx_id);
+    }
+
+    fn emit_swbf2_effect(&mut self, name: &str, position: &Vector3, forward: Option<&Vector3>, duration: Option<f64>) {
+        crate::units::f3::push_swbf2_effect_in(
+            self.w,
+            name,
+            a3(position),
+            forward.map(a3),
+            duration,
+            None,
+        );
     }
 
     fn has_lightning(&mut self, _name: &str) -> bool {
@@ -962,8 +1100,8 @@ impl Content {
             .copied()
             .unwrap_or_else(|| super::impacts::BlastPacket::read(&Js::Undefined))
     }
-    fn weapon(&mut self, id: u32, value: Js) {
-        let class = WeaponClass::new(obj_of(value));
+    fn weapon_for_family(&mut self, family: bfe_family::GameFamily, id: u32, value: Js) {
+        let class = WeaponClass::new_for_family(family, obj_of(value));
         Rc::make_mut(&mut self.defs).weapons.set(DefId(id), class);
     }
     fn class(&mut self, id: u32, value: Js) {
@@ -983,3 +1121,94 @@ impl Content {
 
 
 pub(crate) fn defs_ref(owner:&CombatOwner)->&CombatDefs { &owner.content.as_ref().expect("prepared combat content").defs }
+
+#[cfg(test)]
+#[test]
+fn a_lethal_arc_keeps_the_casting_weapon_in_the_mission_journal() {
+    use crate::{
+        battle::script::tests::{combat_arena, tick_world},
+        units::infantry::contact::{Cause, Weapon},
+    };
+
+    let mut world = combat_arena();
+    let member = |team| {
+        world.sim.store.unit.iter()
+            .find(|(_, u)| u.team == team && u.alive && !u.dead && !u.removed)
+            .unwrap().0
+    };
+    let caster = member(1.);
+    let victim = member(2.);
+    world.sim.store.unit.get_mut(victim).unwrap().combat.health = 1.;
+    let definition = world.sim.store.unit.get(caster).unwrap().combat.weapons[0].def;
+    crate::units::f3::with_services_in(&mut world, |world, services| {
+        let (mut unit, mut combat) = take_in(world, caster);
+        let from = unit.position();
+        let mut scene = JsWorld::with_services_in(world, caster, &unit, &combat, services);
+        scene.observe_arc_weapon(definition);
+        scene.arc_targets_into(&mut Vec::new());
+        let index = scene.arc.as_ref().unwrap().iter().position(|v|
+            matches!(v, super::live::ArcVictim::Unit(r) if *r == victim)
+        ).expect("the arc acquired the opposing soldier");
+        scene.hurt_arc_target(index, 10., &from, &mut unit, &mut combat);
+        scene.finish();
+        put_in(world, caster, unit, combat);
+    });
+    tick_world(&mut world, 1. / 60.);
+    let (death, rest) = world.mission_view().unwrap().host.deaths.split_first().unwrap();
+    assert!(rest.is_empty());
+    assert_eq!(death.killer.map(|life| life.slot), Some(caster.slot));
+    assert_eq!(death.victim.slot, victim.slot);
+    assert_eq!(death.cause, Some(Cause::Power { definition: definition.0 }));
+    assert_eq!(death.weapon, Some(Weapon::RangedClass(definition)));
+}
+
+#[cfg(test)]
+#[test]
+fn swbf2_burn_arc_target_respects_friendly_fire_policy() {
+    use crate::battle::script::tests::combat_arena;
+
+    let mut world = combat_arena();
+    world.movement.select_family(bfe_family::GameFamily::Swbf2).unwrap();
+    let team1: Vec<Ref<Unit>> = world
+        .sim
+        .store
+        .unit
+        .iter()
+        .filter(|(_, u)| u.team == 1.0 && u.alive && !u.dead && !u.removed)
+        .map(|(r, _)| r)
+        .collect();
+    assert!(team1.len() >= 2, "arena needs at least two team-1 soldiers");
+    let caster = team1[0];
+    let ally = team1[1];
+    let ally_life = super::powers::LifeKey::of(ally, world.sim.store.unit.get(ally).unwrap());
+
+    // Friendly fire OFF: igniting a teammate must do nothing.
+    crate::units::f3::set_friendly_fire_for_test_in(&mut world.units, false);
+    crate::units::f3::with_services_in(&mut world, |world, services| {
+        let (unit, combat) = take_in(world, caster);
+        let mut scene = JsWorld::with_services_in(world, caster, &unit, &combat, services);
+        scene.arc = Some(vec![super::live::ArcVictim::Unit(ally)]);
+        scene.apply_burn_arc_target(0, 25.0, 2.0, None);
+        scene.finish();
+        put_in(world, caster, unit, combat);
+    });
+    assert!(
+        world.combat.power_effects.burning(ally_life).is_none(),
+        "teammate must not be ignited when friendly fire is off"
+    );
+
+    // Friendly fire ON: igniting a teammate applies burn.
+    crate::units::f3::set_friendly_fire_for_test_in(&mut world.units, true);
+    crate::units::f3::with_services_in(&mut world, |world, services| {
+        let (unit, combat) = take_in(world, caster);
+        let mut scene = JsWorld::with_services_in(world, caster, &unit, &combat, services);
+        scene.arc = Some(vec![super::live::ArcVictim::Unit(ally)]);
+        scene.apply_burn_arc_target(0, 25.0, 2.0, None);
+        scene.finish();
+        put_in(world, caster, unit, combat);
+    });
+    assert!(
+        world.combat.power_effects.burning(ally_life).is_some(),
+        "teammate should ignite when friendly fire is on"
+    );
+}

@@ -433,6 +433,15 @@ impl BarrierSet {
     }
 
     /// barriers.js:235. Push p out of the barrier that blocks it.
+    /// A 2005 bot's leap probe: each end that stands inside a barrier first moves out to
+    /// that barrier's nearest free edge (`correct`), then the segment between them is tested.
+    pub fn leap_clear(&mut self, from: Vec3, to: Vec3, r: f64, mask: u32) -> bool {
+        let (mut a, mut b) = (from, to);
+        self.correct(&mut a, r, mask);
+        self.correct(&mut b, r, mask);
+        !self.segment_blocked(a, b, r, mask, None)
+    }
+
     pub fn correct(&mut self, p: &mut Vec3, r: f64, mask: u32) -> bool {
         let (clear, barrier) = self.point_clear(*p, r, mask);
         if clear {
@@ -495,6 +504,108 @@ impl BarrierSet {
                 *n = hit.normal;
             }
             any = true;
+        }
+        any
+    }
+
+    /// True if segment `s -> e` crosses the uninflated body (`r = 0`) of any
+    /// solid barrier matching `mask` that does not contain `s`. Unreachable from
+    /// 2004 paths; used by 2005 local correction legs.
+    pub(crate) fn segment_crosses_solid_body_outside_start(
+        &mut self,
+        s: Vec3,
+        e: Vec3,
+        mask: u32,
+    ) -> bool {
+        let (dx, dy, dz) = (e.x - s.x, e.y - s.y, e.z - s.z);
+        let span_sq = dx * dx + dy * dy + dz * dz;
+        if span_sq < tiny() {
+            return false;
+        }
+        let span = v8math::sqrt(span_sq);
+        let eps = v8math::min(1e-4, span * 0.25);
+        let step_p = Vec3::new(
+            s.x + dx / span * eps,
+            s.y + dy / span * eps,
+            s.z + dz / span * eps,
+        );
+        self.seg = segment(s, e);
+        self.gather_cached(
+            v8math::min(s.x, e.x),
+            v8math::min(s.z, e.z),
+            v8math::max(s.x, e.x),
+            v8math::max(s.z, e.z),
+        );
+        for at in 0..self.found.len() {
+            let bi = self.found[at];
+            let b = &self.list[bi];
+            if (b.flags & mask) == 0 || inside(b, s.x, s.y, s.z, 0.0) {
+                continue;
+            }
+            let seg = self.seg;
+            let mut hit = CrossingHit::default();
+            if !crossing(b, &seg, 0.0, None, Some(&mut hit)) {
+                continue;
+            }
+            if hit.distance_sq <= 1e-12 && !inside(b, step_p.x, step_p.y, step_p.z, 0.0) {
+                continue;
+            }
+            return true;
+        }
+        false
+    }
+
+    /// Shortens `e` strictly before the nearest uninflated solid barrier body
+    /// (`r = 0`, matching `mask`) that does not contain `s`. Unreachable from
+    /// 2004 paths; used by 2005 local correction legs starting inside a margin.
+    pub(crate) fn obstruct_solid_body_outside_start(
+        &mut self,
+        s: Vec3,
+        e: &mut Vec3,
+        mask: u32,
+    ) -> bool {
+        let (dx, dy, dz) = (e.x - s.x, e.y - s.y, e.z - s.z);
+        let span_sq = dx * dx + dy * dy + dz * dz;
+        if span_sq < tiny() {
+            return false;
+        }
+        let span = v8math::sqrt(span_sq);
+        let (ux, uy, uz) = (dx / span, dy / span, dz / span);
+        let eps = v8math::min(1e-4, span * 0.25);
+        let step_p = Vec3::new(s.x + ux * eps, s.y + uy * eps, s.z + uz * eps);
+        self.seg = segment(s, *e);
+        self.gather_cached(
+            v8math::min(s.x, e.x),
+            v8math::min(s.z, e.z),
+            v8math::max(s.x, e.x),
+            v8math::max(s.z, e.z),
+        );
+        let mut best_sq = FLT_MAX;
+        let mut any = false;
+        for at in 0..self.found.len() {
+            let bi = self.found[at];
+            let b = &self.list[bi];
+            if (b.flags & mask) == 0 || inside(b, s.x, s.y, s.z, 0.0) {
+                continue;
+            }
+            let seg = self.seg;
+            let mut hit = CrossingHit::default();
+            if !crossing(b, &seg, 0.0, None, Some(&mut hit)) {
+                continue;
+            }
+            if hit.distance_sq <= 1e-12 && !inside(b, step_p.x, step_p.y, step_p.z, 0.0) {
+                continue;
+            }
+            if hit.distance_sq < best_sq {
+                best_sq = hit.distance_sq;
+                any = true;
+            }
+        }
+        if any {
+            let d = v8math::max(0.0, v8math::sqrt(best_sq) - 0.05);
+            e.x = s.x + ux * d;
+            e.y = s.y + uy * d;
+            e.z = s.z + uz * d;
         }
         any
     }

@@ -53,6 +53,17 @@ fn one_barrier_set() -> BarrierSet {
 }
 
 #[test]
+fn a_leap_probe_from_inside_a_barrier_starts_at_its_nearest_free_edge() {
+    let mut set = one_barrier_set();
+    let inside = Vec3::new(0.5, 0.0, 0.0);
+    let away = Vec3::new(25.0, 0.0, 0.0);
+    assert!(set.segment_blocked(inside, away, 0.5, 1, None), "the bare segment test refuses any probe from inside");
+    assert!(set.leap_clear(inside, away, 0.5, 1), "the start moves to the near edge, the way out is free");
+    assert!(!set.leap_clear(Vec3::new(-10.0, 0.0, 0.0), Vec3::new(15.0, 0.0, 0.0), 0.5, 1), "a probe across it stays blocked");
+    assert!(!set.leap_clear(inside, Vec3::new(-25.0, 0.0, 0.0), 0.5, 1), "from the near edge back across the barrier is blocked");
+}
+
+#[test]
 fn barrier_search_finds_the_javascripts_path() {
     let mut barriers = one_barrier_set();
     let mut store = PathStore::new(900.0, 7200.0);
@@ -93,4 +104,24 @@ fn graph_attach_and_select_follow_the_tables() {
     // Flyer-only masks have no table and are reported, not routed.
     assert_eq!(graph.select(None, 0, 1, 32, &mut random), None);
     assert_eq!(graph.reports.len(), 1);
+}
+
+#[test]
+fn a_four_times_turn_rate_asks_a_quarter_of_the_turn_and_saturates_at_the_same_limit() {
+    use super::analogs::{analogs, analogs_with_turn};
+    use super::units::{kind, NavUnit, SoldierView};
+    let mut unit = NavUnit::new(0, kind::SOLDIER, Vec3::default());
+    unit.soldier = Some(SoldierView { aim_yaw: Some(0.0), max_turn: Some(2.0), ..Default::default() });
+    let dt = 1.0 / 60.0;
+    let small = Vec3::new(-0.01, 0.0, 1.0);
+    let once = analogs(&unit, None, Some(small), dt, false, None);
+    assert_eq!(once.turn.to_bits(), analogs_with_turn(&unit, None, Some(small), dt, false, None, 1.0).turn.to_bits());
+    let four = analogs_with_turn(&unit, None, Some(small), dt, false, None, 4.0);
+    assert!(once.turn.abs() < 1.0 && once.turn != 0.0, "{}", once.turn);
+    assert!((four.turn - once.turn / 4.0).abs() < 1e-12, "{} {}", four.turn, once.turn);
+    let behind = Vec3::new(-1.0, 0.0, -1.0);
+    for (scale, facing, limit) in [(1.0, false, 1.0), (4.0, false, 1.0), (4.0, true, 2.0)] {
+        let wide = analogs_with_turn(&unit, None, Some(behind), dt, facing, None, scale);
+        assert_eq!(wide.turn.abs(), limit);
+    }
 }

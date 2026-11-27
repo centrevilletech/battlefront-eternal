@@ -13,10 +13,13 @@ name = "bfe_content"
 crate-type = ["rlib"]
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 # V8's Math, bit for bit (hypot, min, max, atan2).
 v8math = { path = "../v8math" }
 # V8's stable Array.sort, including NaN comparator results in team keys.
 jsrt = { path = "../jsrt" }
+bfe-family = { path = "../bfe-family" }
 
 [dev-dependencies]
 # Only tests/collision.rs, which installs a world in the simulation module's

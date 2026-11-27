@@ -1,7 +1,7 @@
 //! Ports snapshot-codec.js and snapshot-records.js readers.
 //! The numeric algorithms retain the original packet order and errors. Object
 //! assembly and ACK publication stay in the adjoining native session.
-use super::{Output, Result, Words, EXCHANGE};
+use super::{position::{PositionBounds, PositionWidth}, Output, Result, Words, EXCHANGE};
 use crate::network_layout::net_op as ops;
 use std::f64::consts::{FRAC_1_SQRT_2, PI};
 const ENTITIES: u32 = 0x31534e42;
@@ -34,6 +34,15 @@ impl<'a> Reader<'a> {
     fn u16(&mut self) -> Result<u16> { Ok(u16::from_le_bytes(self.take(2)?.try_into().unwrap())) }
     fn i16(&mut self) -> Result<f64> { Ok(self.u16()? as i16 as f64) }
     fn u32(&mut self) -> Result<u32> { Ok(u32::from_le_bytes(self.take(4)?.try_into().unwrap())) }
+    fn position_code(&mut self, width: PositionWidth) -> Result<f64> {
+        match width {
+            PositionWidth::Narrow => Ok(self.u16()? as f64),
+            PositionWidth::Wide => {
+                let bytes = self.take(3)?;
+                Ok(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], 0]) as f64)
+            }
+        }
+    }
     // SnapshotReader.f32 rejects nonfinite animation and projectile values.
     // Widen after decoding the f32 bits, exactly like DataView.getFloat32.
     fn f32(&mut self) -> Result<f64> { let n = f32::from_bits(self.u32()?) as f64;
@@ -156,14 +165,29 @@ struct BaselineSlot { exists: bool, class: u8, position: Option<[f64; 3]>, }
 const SLOTS: usize = crate::network_layout::net_limits::SLOTS;
 // posGroup.read decodes small deltas against baseline integer codes.
 // Dequantizing first would introduce rounding and break snapshot equality.
-fn position(r: &mut Reader<'_>, base: Option<&BaselineSlot>, out: &mut Output) -> Result<()> { let mode = r.u8()?;
+fn position(r: &mut Reader<'_>, base: Option<&BaselineSlot>, width: PositionWidth, out: &mut Output) -> Result<()> {
+    let mode = r.u8()?;
+    // Protocol 3 ignored bit 1, even in malformed narrow groups.
+    if width == PositionWidth::Wide && mode & 2 == 0 {
+        return Err("snapshot position width does not match map");
+    }
     out.push((mode & 128 != 0) as u8 as f64)?;
-    // The high bit is discontinuity, independently of the absolute/small bit.
-    // An absolute group can therefore retain the source new-life snap flag.
-    if mode & 1 != 0 { for _ in 0..3 { out.push(r.u16()? as f64)?; } } else {
+    if mode & 1 != 0 {
+        for _ in 0..3 {
+            out.push(r.position_code(width)?)?;
+        }
+    } else {
         let position = base.ok_or("snapshot small delta without baseline")?.position.as_ref().ok_or(EXCHANGE)?;
-        for code in position { out.push(*code + r.i8()?)?; } }
-    Ok(()) }
+        for code in position {
+            let updated = *code + r.i8()?;
+            if width == PositionWidth::Wide && !(0. ..=width.max_code()).contains(&updated) {
+                return Err("snapshot position delta out of range");
+            }
+            out.push(updated)?;
+        }
+    }
+    Ok(())
+}
 // velGroup.read retains the wide flag beside its integer velocity.
 // Reverse conversion later applies the matching quarter or thirty-second unit.
 fn velocity(r: &mut Reader<'_>, out: &mut Output) -> Result<()> { let wide = r.u8()? != 0;
@@ -179,8 +203,8 @@ fn seat(r: &mut Reader<'_>) -> Result<f64> { let n = r.u16()?;
     Ok(if n == 65535 { -1.0 } else { n as f64 }) }
 // SNAPSHOT_GROUPS defines these class-specific wire positions. The bounded
 // output writer carries selected groups directly, without a zeroed temporary row.
-fn group(r: &mut Reader<'_>, class: u8, index: u8, base: Option<&BaselineSlot>, out: &mut Output) -> Result<()> {
-    match (class, index) { (0 | 1 | 2 | 4 | 5, 0) => position(r, base, out), (0 | 1 | 2 | 4 | 5, 1) => velocity(r, out),
+fn group(r: &mut Reader<'_>, class: u8, index: u8, base: Option<&BaselineSlot>, width: PositionWidth, out: &mut Output) -> Result<()> {
+    match (class, index) { (0 | 1 | 2 | 4 | 5, 0) => position(r, base, width, out), (0 | 1 | 2 | 4 | 5, 1) => velocity(r, out),
         (0 | 1 | 5, 2) => aim(r, out), (0, 3) => out.extend(&[r.u16()? as f64]),
         // soldierStatus packs posture and charge in its first byte. State,
         // weapon and seat identity retain their following read order.
@@ -232,7 +256,7 @@ fn group(r: &mut Reader<'_>, class: u8, index: u8, base: Option<&BaselineSlot>, 
 // cold inspection. A reused stack row carries only selected wire groups;
 // neither adapter performs its own class, mask or identity decoding.
 struct EntityChange{slot:usize,op:u8,class:u8,identity:Option<[f64;4]>,groups:[(u8,usize,usize);6],count:usize,values:[f64;64]}
-fn entity_records(r:&mut Reader,base:impl Fn(usize)->BaselineSlot,mut visit:impl FnMut(&EntityChange)->Result<()>)->Result<usize>{
+fn entity_records(r:&mut Reader,width:PositionWidth,base:impl Fn(usize)->BaselineSlot,mut visit:impl FnMut(&EntityChange)->Result<()>)->Result<usize>{
     let count=r.varint()?;if count>512.{return Err("snapshot record count");}
     let mut slot=-1.;let mut row=EntityChange{slot:0,op:0,class:0,identity:None,groups:[(0,0,0);6],count:0,values:[0.;64]};
     for i in 0..count as usize{
@@ -248,7 +272,7 @@ fn entity_records(r:&mut Reader,base:impl Fn(usize)->BaselineSlot,mut visit:impl
         if row.op==1&&mask!=(1<<groups)-1{return Err("snapshot new record mask");}
         let mut out=Output{values:&mut row.values,at:0};
         for index in 0..groups{if mask&(1<<index)!=0{
-            let start=out.at;group(r,row.class,index,if row.op==1{None}else{Some(&baseline)},&mut out)?;
+            let start=out.at;group(r,row.class,index,if row.op==1{None}else{Some(&baseline)},width,&mut out)?;
             row.groups[row.count]=(index,start,out.at);row.count+=1;
         }}visit(&row)?;
     }
@@ -256,7 +280,7 @@ fn entity_records(r:&mut Reader,base:impl Fn(usize)->BaselineSlot,mut visit:impl
 }
 // Baseline input is an inspection transport, not a second datagram decoder.
 // It supplies the same immutable class and integer position used by Session.
-fn entities(input:&mut Words,out:&mut Output)->Result<()>{
+fn entities(input:&mut Words,out:&mut Output,width:PositionWidth)->Result<()>{
     let bytes=input.bytes()?;let h=header(bytes)?;
     if h.words[0]!=ENTITIES as f64{return Err("not an entities datagram");}
     let present=input.uint(1)?!=0;let tick=input.number()?;let epoch=input.number()?;let count=input.uint(SLOTS)?;
@@ -272,7 +296,7 @@ fn entities(input:&mut Words,out:&mut Output)->Result<()>{
     let n=r.u16()?as usize;let start=r.at;world(&mut r,base_world,out)?;
     if r.at-start!=n{return Err("snapshot world section size");}
     let count_at=out.at;out.push(0.)?;
-    let count=entity_records(&mut r,|slot|if h.words[4]==0.{BaselineSlot::default()}else{slots[slot]},|row|{
+    let count=entity_records(&mut r,width,|slot|if h.words[4]==0.{BaselineSlot::default()}else{slots[slot]},|row|{
         out.extend(&[row.slot as f64,row.op as f64])?;if row.op==2{return Ok(());}
         out.push(row.class as f64)?;if let Some(identity)=row.identity{out.extend(&identity)?;}
         out.push(row.count as f64)?;
@@ -307,10 +331,6 @@ fn own(input:&mut Words,out:&mut Output)->Result<()>{
     if h.words[0]!=OWN as f64{return Err("not an own datagram");}out.extend(&h.words)?;
     own_sections(bytes,&mut OwnInspection{base,world,out})
 }
-// dequantizePosition follows the source x/y/z expression order. Bounds are
-// supplied in x, z, y order to match the counted receive stream.
-fn position_values(codes: [f64; 3], b: &[f64; 6]) -> [f64; 3] {
-    [b[0] + codes[0] / 65535. * b[1], b[4] + codes[1] / 65535. * b[5], b[2] + codes[2] / 65535. * b[3]] }
 // dequantizeQuaternion restores the omitted positive component, then uses
 // V8-compatible hypot normalization. Neither step may be fused with the other.
 fn quaternion(index: usize, values: [f64; 3]) -> [f64; 4] { let mut q = [0.; 4];
@@ -324,14 +344,20 @@ fn quaternion(index: usize, values: [f64; 3]) -> [f64; 4] { let mut q = [0.; 4];
     let length = if length == 0. || length.is_nan() { 1. } else { length };
     for n in &mut q { *n /= length; }
     q }
+// Check the box repeated in the historical X, Z, Y exchange order.
+fn check_bounds(input: &mut Words, bounds: &PositionBounds) -> Result<()> {
+    let [x, dx, z, dz, y, dy] = input.span(6)?.try_into().unwrap();
+    bounds.check_box([x, y, z], [dx, dy, dz])
+}
+
 // recordFromEntry dequantizes numeric fields here. Its page wrapper copies
 // identity and gameplay scalars without re-running any conversion arithmetic.
-fn record(input: &mut Words, out: &mut Output) -> Result<()> { let class = input.uint(5)?;
+fn record(input: &mut Words, out: &mut Output, bounds: &PositionBounds) -> Result<()> { let class = input.uint(5)?;
     if class == 3 { for _ in 0..4 { out.push(input.number()? * PI / 32767.)?; }
         return Ok(()); }
-    let bounds: [f64; 6] = input.span(6)?.try_into().unwrap();
+    check_bounds(input, bounds)?;
     let position: [f64; 3] = input.span(3)?.try_into().unwrap();
-    out.extend(&position_values(position, &bounds))?;
+    out.extend(&bounds.decode(position))?;
     let wide = input.uint(1)? != 0;
     for _ in 0..3 { let n = input.number()?;
         out.push(if wide { n / 32. } else { n * 0.25 })?; }
@@ -353,7 +379,7 @@ impl ByteWriter<'_> {
         self.at = end; } }
 // decodeCosmeticEvent rebuilds the existing combat byte payload directly in
 // the retained window; raw events continue to name source byte ranges.
-fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { let id = r.u32()?;
+fn cosmetic(mut r: Reader, bounds: &PositionBounds, out: &mut Output) -> Result<()> { let id = r.u32()?;
     let generation = r.u32()?;
     let tick = r.u32()?;
     let schema = r.u16()?;
@@ -362,7 +388,16 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     if tag == 0 { let n = r.u16()? as usize;
         r.source(n, out)?;
         return r.finish("cosmetic event trailing bytes"); }
-    if tag != 1 && tag != 2 { return Err("cosmetic event tag"); }
+    let (launch_event, width) = match tag {
+        1 => (true, PositionWidth::Narrow),
+        2 => (false, PositionWidth::Narrow),
+        3 if bounds.width() == PositionWidth::Wide => (true, PositionWidth::Wide),
+        4 if bounds.width() == PositionWidth::Wide => (false, PositionWidth::Wide),
+        _ => return Err("cosmetic event tag"),
+    };
+    if bounds.width() != width {
+        return Err("cosmetic position width does not match map");
+    }
     let expiry = r.u32()?;
     let def = r.u32()?;
     let owner = r.u32()?;
@@ -372,7 +407,7 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     let execution = r.u32()?;
     let channel = r.u8()?;
     let surface = r.u8()?;
-    let position = position_values([r.u16()? as f64, r.u16()? as f64, r.u16()? as f64], bounds);
+    let position = bounds.decode([r.position_code(width)?, r.position_code(width)?, r.position_code(width)?]);
     let yaw = r.u16()? as f64 / ANGLE;
     let pitch = r.i16()? / ANGLE;
     let c = jsrt::v8math::cos(pitch);
@@ -381,7 +416,7 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     // requires those fields, the source combat encoder supplies zeroes.
     let mut offset = [0.; 3];
     let mut values = [0.; 3];
-    if tag == 1 { for n in &mut offset { *n = r.i16()? / 256.; }
+    if launch_event { for n in &mut offset { *n = r.i16()? / 256.; }
         for n in &mut values { *n = r.f32()?; } }
     r.finish("cosmetic event trailing bytes")?;
     // Preserve decodeCosmeticEvent error order: packet shape first, combat
@@ -400,7 +435,7 @@ fn cosmetic(mut r: Reader, bounds: &[f64; 6], out: &mut Output) -> Result<()> { 
     Ok(()) }
 /// Protocol operations are named by PageNetOp, and stream sections retain the
 /// counted format. Every result is consumed before any client callback.
-pub fn run(op: u32, input: &mut Words, out: &mut Output) -> Result<()> { match op { ops::HEADER => {
+pub fn run(op: u32, input: &mut Words, out: &mut Output, bounds: &PositionBounds) -> Result<()> { match op { ops::HEADER => {
             let bytes = input.bytes()?;
             let h = header(bytes)?;
             out.extend(&h.words)?;
@@ -416,25 +451,25 @@ pub fn run(op: u32, input: &mut Words, out: &mut Output) -> Result<()> { match o
             let mut r = Reader::new(bytes);
             world(&mut r, base, out)?;
             r.finish("snapshot world section trailing bytes")?; }
-        ops::ENTITIES => entities(input, out)?, ops::OWN => own(input, out)?,
+        ops::ENTITIES => entities(input, out, bounds.width())?, ops::OWN => own(input, out)?,
         // The cosmetic bundle is a sequence of independently length-prefixed
         // events. Their source offsets remain relative to this same bundle.
         ops::COSMETIC | ops::COSMETICS => { let bytes = input.bytes()?;
-            let bounds = input.span(6)?.try_into().unwrap();
+            check_bounds(input, bounds)?;
             let mut r = Reader::new(bytes);
-            if op == ops::COSMETIC { cosmetic(r, &bounds, out)?; } else { let count_at = out.at;
+            if op == ops::COSMETIC { cosmetic(r, bounds, out)?; } else { let count_at = out.at;
                 out.push(0.)?;
                 let mut count = 0;
-                while r.at < bytes.len() { cosmetic(r.counted_section()?, &bounds, out)?;
+                while r.at < bytes.len() { cosmetic(r.counted_section()?, bounds, out)?;
                     count += 1; }
                 out.values[count_at] = count as f64; } }
-        ops::REQUESTS => requests(input, out)?, ops::RECORD => record(input, out)?,
+        ops::REQUESTS => requests(input, out)?, ops::RECORD => record(input, out, bounds)?,
         // Reverse every changed entry in one phase. The leading result count
         // lets the client retain the numeric values without per-field calls.
         ops::RECORDS => { let count = input.uint(512)?;
             for _ in 0..count { let at = out.at;
                 out.push(0.)?;
-                record(input, out)?;
+                record(input, out, bounds)?;
                 out.values[at] = (out.at - at - 1) as f64;
                 if input.uint(1)? != 0 { mount(input, out)?; } } }
         ops::MOUNT => mount(input, out)?, _ => return Err(EXCHANGE), }

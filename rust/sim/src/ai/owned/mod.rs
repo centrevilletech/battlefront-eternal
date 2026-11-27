@@ -59,6 +59,7 @@ pub mod seats;
 pub mod scene;
 
 pub mod live;
+pub(crate) mod walk;
 
 pub mod active;
 
@@ -101,5 +102,10 @@ pub mod initial;
 // Cold policy readback for player, seat and HUD resource hosts.
 pub mod policies;
 
+// The loan of the controller to the goal bots outside an AI tick.
+pub mod goal_loan;
+
 #[cfg(test)]
 pub(crate) mod tests;
+
+mod scopes;

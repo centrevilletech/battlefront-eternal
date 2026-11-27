@@ -40,6 +40,8 @@ const LOGOS: [&str; 2] = ["rep_icon", "cis_icon"];
 
 #[derive(Clone, Debug)]
 pub struct HudClassMeta {
+    /// The prepared class inherits the Battlefront II Jedi controls.
+    pub jedi_controls: bool,
     pub registry_id: usize,
     pub team: u8,
     pub roster_order: usize,
@@ -192,10 +194,21 @@ impl Asset {
 // weapons. Their immutable reticle, label and ammunition metadata resolve
 // before load completes; a frame supplies only the completed mutable row.
 // HUD code cannot tick, reload or otherwise advance the weapon it displays.
+fn json_num(value: &Value) -> f64 {
+    match value {
+        Value::Number(n) => n.as_f64().unwrap_or(0.),
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::String(s) => s.trim().parse::<f64>().ok().filter(|n| n.is_finite()).unwrap_or(0.),
+        _ => 0.,
+    }
+}
+
 struct Weapon {
     row: [f64; W::WORDS],
     channel: usize,
     scope: u32,
+    scope_name: String,
+    sniper_scope: bool,
     zoom_first_person: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -269,6 +282,7 @@ pub struct Prepared {
     shield_icon: u32,
     buildings: Vec<(f64, u32)>,
     repair_icon: u32,
+    loadouts: Vec<super::mission::Loadout>,
 }
 #[derive(Clone, Copy)]
 pub struct Aim {
@@ -276,6 +290,9 @@ pub struct Aim {
     pub project_x: bool,
 }
 pub struct Hud {
+    // What a 2005 battle's screens call each weapon, by definition; empty in a
+    // 2004 battle.
+    loadouts: Vec<super::mission::Loadout>,
     weapons: Vec<Weapon>,
     mounts: Vec<MountHud>,
     remotes: Vec<RemoteHud>,
@@ -303,8 +320,13 @@ pub struct Hud {
     pub auto_build: bool,
     flight_key: String,
     pub scope: u32,
+    pub scope_weapon: Option<usize>,
     pub zoom_first_person: bool,
     pub scoped: bool,
+    pub reticle_at: [f64; 2],
+    pub reticle_visible: bool,
+    pub reticle_relation: f64,
+    pub hover_target: Option<super::hud_target::Hovered>,
     feed: super::hud_feed::Feed,
     team_names: [String; 8],
     // The reticle's target: each admitted weapon's reticle facts, the two
@@ -368,6 +390,7 @@ impl Prepared {
             shield_icon: 0,
             buildings: vec![],
             repair_icon: 0,
+            loadouts: vec![],
             // Battle.names: each mission team's label, else
             // its name; a team the mission does not list has none.
             team_names: std::array::from_fn(|team| {
@@ -494,6 +517,8 @@ impl Prepared {
                     }
                 }
                 result.class_meta.push(HudClassMeta {
+                    jedi_controls: c.record.get("parents").and_then(bfe_content::Value::as_array)
+                        .is_some_and(|parents| parents.iter().any(|parent| parent.as_str() == Some("com_jedi_default"))),
                     registry_id: reg_id as usize,
                     team,
                     roster_order,
@@ -692,6 +717,10 @@ impl Prepared {
                     .filter(|p| p.base.map(|n| defs.names.text(n)) == Some("armedbuilding"))
                     .filter_map(|p| p.record.get("weapon").map(|def| (def, Some(0)))),
             );
+        let family = content.content.battle.family;
+        if family == bfe_family::GameFamily::Swbf2 {
+            result.loadouts = defs.weapons.iter().map(|w| super::mission::Loadout::of(&w.record)).collect();
+        }
         // Vehicle.current indexes its seat weapons by trigger channel; the
         // nested weapon definition only supplies the common firing constants.
         for (index, (weapon, mounted_channel)) in definitions.enumerate() {
@@ -703,39 +732,21 @@ impl Prepared {
             row[W::ICON] = asset(d["IconTexture"].as_str().unwrap_or(""), &mut result)? as f64;
             row[W::RETICLE] = asset(d["ReticuleTexture"].as_str().unwrap_or(""), &mut result)? as f64;
             row[W::LOCK] = (d["base"].as_str() == Some("launcher") && d["ordnance"]["base"].as_str() == Some("missile")) as u8 as f64;
-            let scope = asset(d["ScopeTexture"].as_str().unwrap_or(""), &mut result)?;
-            let zoom_first_person = d["ZoomFirstPerson"]
-                .as_bool()
-                .unwrap_or_else(|| d["ZoomFirstPerson"].as_f64().unwrap_or(0.) != 0.);
+            let fields = read_hud_weapon_fields_for_family(family, &d, mounted_channel);
+            let scope = asset(&fields.scope_asset, &mut result)?;
             row[W::LABEL] = result.labels.len() as f64;
             result.labels.push(d["label"].as_str().unwrap_or("").into());
-            for (at, key) in [
-                (W::LOCK_TIME, "LockTime"),
-                (W::MAX_PRESSED, "MaxPressedTime"),
-                (W::RELOAD_TIME, "ReloadTime"),
-                (W::HEAT_PER_SHOT, "HeatPerShot"),
-                (W::ROUNDS_PER_CLIP, "RoundsPerClip"),
-                (W::SHOT_DELAY, "ShotDelay"),
-                (W::LOCK_OFF_ANGLE, "LockOffAngle"),
-                (W::STILL_SPREAD, "StandStillSpread"),
-                (W::YAW_SPREAD, "YawSpread"),
-                (W::PITCH_SPREAD, "PitchSpread"),
-            ] {
-                row[at] = d[key].as_f64().unwrap_or(0.);
+            for (at, value) in fields.stats {
+                row[at] = value;
             }
-            result.reticles.push(super::hud_target::Reticle::new(weapon));
+            result.reticles.push(super::hud_target::Reticle::new_for_family(family, weapon));
             result.weapons.push(Weapon {
                 row,
-                channel: mounted_channel
-                    .unwrap_or_else(|| {
-                        d["channel"]
-                            .as_u64()
-                            .or_else(|| d["channel"].as_f64().map(|n| n as u64))
-                            .unwrap_or(0) as usize
-                    })
-                    .min(1),
+                channel: fields.channel,
                 scope,
-                zoom_first_person,
+                scope_name: fields.scope_name,
+                sniper_scope: fields.sniper_scope,
+                zoom_first_person: fields.zoom_first_person,
             });
         }
         for (i, (_, def)) in defs.registry.combat.iter().enumerate() {
@@ -757,31 +768,20 @@ impl Prepared {
                     row[W::ID] = (index + 1) as f64;
                     row[W::ICON] = asset(d["IconTexture"].as_str().unwrap_or(""), &mut result)? as f64;
                     row[W::RETICLE] = asset(d["ReticuleTexture"].as_str().unwrap_or(""), &mut result)? as f64;
-                    let scope = asset(d["ScopeTexture"].as_str().unwrap_or(""), &mut result)?;
-                    let zoom_first_person = d["ZoomFirstPerson"]
-                        .as_bool()
-                        .unwrap_or_else(|| d["ZoomFirstPerson"].as_f64().unwrap_or(0.) != 0.);
+                    let fields = read_hud_weapon_fields_for_family(family, &d, Some(slot));
+                    let scope = asset(&fields.scope_asset, &mut result)?;
                     row[W::LABEL] = result.labels.len() as f64;
                     result.labels.push(d["label"].as_str().unwrap_or("").into());
-                    for (at, key) in [
-                        (W::LOCK_TIME, "LockTime"),
-                        (W::MAX_PRESSED, "MaxPressedTime"),
-                        (W::RELOAD_TIME, "ReloadTime"),
-                        (W::HEAT_PER_SHOT, "HeatPerShot"),
-                        (W::ROUNDS_PER_CLIP, "RoundsPerClip"),
-                        (W::SHOT_DELAY, "ShotDelay"),
-                        (W::LOCK_OFF_ANGLE, "LockOffAngle"),
-                        (W::STILL_SPREAD, "StandStillSpread"),
-                        (W::YAW_SPREAD, "YawSpread"),
-                        (W::PITCH_SPREAD, "PitchSpread"),
-                    ] {
-                        row[at] = d[key].as_f64().unwrap_or(0.);
+                    for (at, value) in fields.stats {
+                        row[at] = value;
                     }
                     result.weapons.push(Weapon {
                         row,
                         channel: slot,
                         scope,
-                        zoom_first_person,
+                        scope_name: fields.scope_name,
+                        sniper_scope: fields.sniper_scope,
+                        zoom_first_person: fields.zoom_first_person,
                     });
                     rem_weapons[slot] = Some(index);
                 }
@@ -901,6 +901,7 @@ impl Prepared {
             bridge.hud_model_text("DEFEAT", false),
         ];
         let mut hud = Hud {
+            loadouts: self.loadouts,
             weapons,
             mounts,
             remotes: self.remotes,
@@ -923,8 +924,13 @@ impl Prepared {
             auto_build: true,
             flight_key: String::new(),
             scope: 0,
+            scope_weapon: None,
             zoom_first_person: false,
             scoped: false,
+            reticle_at: [0.5, 0.5],
+            reticle_visible: true,
+            reticle_relation: 4.,
+            hover_target: None,
             feed: super::hud_feed::Feed::new(self.feed),
             team_names: self.team_names,
             targets: super::hud_target::Targets::new(self.target_classes, self.turrets),
@@ -964,6 +970,20 @@ fn heading(own: &super::receiver::Own, piloting: bool, view_yaw: f64) -> f64 {
     }
 }
 impl Hud {
+    /// A 2005 weapon's loadout and the trigger it answers to, by definition.
+    pub(super) fn weapon_loadout(&self, definition: u32) -> Option<(super::mission::Loadout, usize)> {
+        let at = (definition as usize).checked_sub(1)?;
+        Some((*self.loadouts.get(at)?, self.weapons.get(at)?.channel))
+    }
+    /// The roster slot of a unit life's character, from the unit summaries.
+    pub(super) fn feed_unit_slot(&self, id: u32, generation: u32) -> Option<usize> {
+        self.feed.unit_slot(id, generation)
+    }
+
+    /// A class's health, by registry id.
+    pub(super) fn class_health(&self, class: usize) -> f64 {
+        self.max_health.get(class).copied().unwrap_or(300.)
+    }
     /// How a team looks to the viewer's: 0 neutral, 1 friendly, 2 enemy, 3
     /// locals (radarRelation).
     /// A post's capture as the world summary last gave it, by name: owner,
@@ -1388,14 +1408,17 @@ impl Hud {
         self.locks = [None; 2];
         let mut any = false;
         self.scope = 0;
+        self.scope_weapon = None;
         self.zoom_first_person = false;
         if let Some(rem) = remote_hud {
             for (slot, w_idx) in rem.weapons.iter().enumerate() {
-                let Some(def) = w_idx.and_then(|idx| self.weapons.get(idx)) else {
+                let Some(idx) = *w_idx else { continue };
+                let Some(def) = self.weapons.get(idx) else {
                     continue;
                 };
                 if slot == 0 {
                     self.scope = def.scope;
+                    self.scope_weapon = Some(idx);
                     self.zoom_first_person = false;
                 }
                 let mut row = def.row;
@@ -1445,7 +1468,8 @@ impl Hud {
             let mut counts = [0usize; 2];
             let selected = prediction.selected();
             for weapon in prediction.weapons() {
-                let Some(def) = self.weapons.get(weapon.def.0.saturating_sub(1) as usize) else {
+                let idx = weapon.def.0.saturating_sub(1) as usize;
+                let Some(def) = self.weapons.get(idx) else {
                     continue;
                 };
                 let channel = def.channel;
@@ -1454,10 +1478,11 @@ impl Hud {
                 if !chosen {
                     continue;
                 }
-                let reticle = self.reticles.get(weapon.def.0.saturating_sub(1) as usize).copied().unwrap_or_default();
+                let reticle = self.reticles.get(idx).copied().unwrap_or_default();
                 self.aimed[channel] = Some(super::hud_target::Aimed { reticle, lock: (weapon.lock_target_id, weapon.lock_generation) });
                 if channel == 0 {
                     self.scope = def.scope;
+                    self.scope_weapon = Some(idx);
                     self.zoom_first_person = def.zoom_first_person;
                 }
                 let mut row = def.row;
@@ -1545,6 +1570,8 @@ impl Hud {
         let x = &mut bridge.hud_model.input;
         x[H::TARGET_RELATION] = found.as_ref().map_or(4., |found| found.relations[0]);
         x[H::SECOND_RELATION] = found.as_ref().map_or(4., |found| found.relations[1]);
+        self.reticle_relation = x[H::TARGET_RELATION];
+        self.hover_target = found.as_ref().and_then(|found| found.hover);
         if let Some((kind, source, health)) = found.and_then(|found| found.enemy) {
             // enemyHealth: his health over his class's maximum,
             // by the class's HealthTexture, or hud_health without one.
@@ -1578,6 +1605,8 @@ impl Hud {
                 x[H::RETICLE] = 0.;
             }
         }
+        self.reticle_at = [x[H::RETICLE_X], x[H::RETICLE_Y]];
+        self.reticle_visible = x[H::RETICLE] != 0.;
         // presentWeaponLock follows the target's drawn pose and this frame's
         // camera. Acquisition remains the weapon simulation's clock.
         x[H::MARKER] = 0.;
@@ -1622,6 +1651,28 @@ impl Hud {
             self.quads = bridge.hud_model.batch.count;
             self.frames += 1;
         }
+    }
+
+    pub fn active_scope(&self) -> Option<&str> {
+        if !self.scoped || !self.zoom_first_person {
+            return None;
+        }
+        let weapon = self.weapons.get(self.scope_weapon?)?;
+        resolve_scope_texture(&weapon.scope_name, weapon.sniper_scope)
+    }
+
+    pub fn max_health_of(&self, class_id: usize) -> f64 {
+        self.max_health.get(class_id).copied().unwrap_or(300.)
+    }
+}
+
+fn resolve_scope_texture(scope_name: &str, sniper_scope: bool) -> Option<&str> {
+    if !scope_name.is_empty() {
+        Some(scope_name)
+    } else if sniper_scope {
+        Some("weapon_scope2")
+    } else {
+        None
     }
 }
 
@@ -1822,7 +1873,7 @@ mod tests {
         let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else {
             return;
         };
-        let mut loader = bfe_content_native::loader::Loader::new(root);
+        let mut loader = bfe_content_native::loader::Loader::new(root, bfe_family::GameFamily::Swbf1);
         loader.compressed = false;
         let mut content = loader.load("nab2", "map=nab2&side=rep&seed=1").unwrap();
         let defs = content.defs().unwrap();
@@ -1861,6 +1912,81 @@ mod tests {
     }
 }
 
+struct HudWeaponFields {
+    scope_asset: String,
+    scope_name: String,
+    sniper_scope: bool,
+    zoom_first_person: bool,
+    stats: [(usize, f64); 10],
+    channel: usize,
+}
+
+const HUD_WEAPON_STAT_KEYS: [(usize, &str); 10] = [
+    (W::LOCK_TIME, "LockTime"),
+    (W::MAX_PRESSED, "MaxPressedTime"),
+    (W::RELOAD_TIME, "ReloadTime"),
+    (W::HEAT_PER_SHOT, "HeatPerShot"),
+    (W::ROUNDS_PER_CLIP, "RoundsPerClip"),
+    (W::SHOT_DELAY, "ShotDelay"),
+    (W::LOCK_OFF_ANGLE, "LockOffAngle"),
+    (W::STILL_SPREAD, "StandStillSpread"),
+    (W::YAW_SPREAD, "YawSpread"),
+    (W::PITCH_SPREAD, "PitchSpread"),
+];
+
+fn read_hud_weapon_fields_released(d: &serde_json::Value, mounted_channel: Option<usize>) -> HudWeaponFields {
+    let scope_asset = d["ScopeTexture"].as_str().unwrap_or("").to_string();
+    let zoom_first_person = d["ZoomFirstPerson"]
+        .as_bool()
+        .unwrap_or_else(|| d["ZoomFirstPerson"].as_f64().unwrap_or(0.) != 0.);
+    let stats = HUD_WEAPON_STAT_KEYS.map(|(at, key)| (at, d[key].as_f64().unwrap_or(0.)));
+    let channel = mounted_channel
+        .unwrap_or_else(|| {
+            d["channel"]
+                .as_u64()
+                .or_else(|| d["channel"].as_f64().map(|n| n as u64))
+                .unwrap_or(0) as usize
+        })
+        .min(1);
+    HudWeaponFields {
+        scope_asset,
+        scope_name: String::new(),
+        sniper_scope: false,
+        zoom_first_person,
+        stats,
+        channel,
+    }
+}
+
+fn read_hud_weapon_fields_swbf2(d: &serde_json::Value, mounted_channel: Option<usize>) -> HudWeaponFields {
+    let scope_name = d["ScopeTexture"].as_str().unwrap_or("").to_ascii_lowercase();
+    let sniper_scope = json_num(&d["SniperScope"]) != 0.;
+    let zoom_first_person = json_num(&d["ZoomFirstPerson"]) != 0.;
+    let stats = HUD_WEAPON_STAT_KEYS.map(|(at, key)| (at, json_num(&d[key])));
+    let channel = mounted_channel
+        .unwrap_or_else(|| json_num(&d["channel"]).max(0.) as usize)
+        .min(1);
+    HudWeaponFields {
+        scope_asset: scope_name.clone(),
+        scope_name,
+        sniper_scope,
+        zoom_first_person,
+        stats,
+        channel,
+    }
+}
+
+fn read_hud_weapon_fields_for_family(
+    family: bfe_family::GameFamily,
+    d: &serde_json::Value,
+    mounted_channel: Option<usize>,
+) -> HudWeaponFields {
+    match family {
+        bfe_family::GameFamily::Swbf1 => read_hud_weapon_fields_released(d, mounted_channel),
+        bfe_family::GameFamily::Swbf2 => read_hud_weapon_fields_swbf2(d, mounted_channel),
+    }
+}
+
 #[cfg(test)]
 mod heading_tests {
     use super::heading;
@@ -1877,5 +2003,51 @@ mod heading_tests {
         let seat = Own { yaw: 0.5, mount: Some((8, 1, 1)), ..Default::default() };
         assert_eq!(heading(&seat, false, 0.7), 0.5);
         assert_eq!(heading(&seat, true, 0.7), 0.7);
+    }
+
+    #[test]
+    fn numeric_weapon_fields_parse_from_json_strings_and_booleans() {
+        use super::json_num;
+        assert_eq!(json_num(&serde_json::json!("1")), 1.);
+        assert_eq!(json_num(&serde_json::json!("0")), 0.);
+        assert_eq!(json_num(&serde_json::json!("0.65")), 0.65);
+        assert_eq!(json_num(&serde_json::json!(true)), 1.);
+        assert_eq!(json_num(&serde_json::json!(false)), 0.);
+        assert_eq!(json_num(&serde_json::json!(42.5)), 42.5);
+        assert_eq!(json_num(&serde_json::json!("invalid")), 0.);
+    }
+
+    #[test]
+    fn sniper_scope_falls_back_to_default_texture_when_scope_texture_omitted() {
+        use super::resolve_scope_texture;
+        assert_eq!(resolve_scope_texture("weapon_scope3", true), Some("weapon_scope3"));
+        assert_eq!(resolve_scope_texture("weapon_scope4", false), Some("weapon_scope4"));
+        assert_eq!(resolve_scope_texture("", true), Some("weapon_scope2"));
+        assert_eq!(resolve_scope_texture("", false), None);
+    }
+
+    #[test]
+    fn hud_weapon_readers_keep_released_2004_rules_on_odd_inputs() {
+        use super::read_hud_weapon_fields_for_family;
+        let odd = serde_json::json!({
+            "ScopeTexture": "Scope_Upper",
+            "SniperScope": "1",
+            "ZoomFirstPerson": "1",
+            "ShotDelay": "0.75",
+            "channel": "1"
+        });
+        let swbf1 = read_hud_weapon_fields_for_family(bfe_family::GameFamily::Swbf1, &odd, None);
+        assert_eq!(swbf1.scope_asset, "Scope_Upper");
+        assert!(!swbf1.zoom_first_person);
+        assert!(!swbf1.sniper_scope);
+        assert_eq!(swbf1.stats[5].1, 0.);
+        assert_eq!(swbf1.channel, 0);
+
+        let swbf2 = read_hud_weapon_fields_for_family(bfe_family::GameFamily::Swbf2, &odd, None);
+        assert_eq!(swbf2.scope_asset, "scope_upper");
+        assert!(swbf2.zoom_first_person);
+        assert!(swbf2.sniper_scope);
+        assert_eq!(swbf2.stats[5].1, 0.75);
+        assert_eq!(swbf2.channel, 1);
     }
 }

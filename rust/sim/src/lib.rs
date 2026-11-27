@@ -32,6 +32,7 @@ pub mod prediction;
 pub mod recon;
 pub mod rig;
 pub mod seats;
+pub mod space;
 pub mod store;
 pub mod units;
 pub mod vehicles;

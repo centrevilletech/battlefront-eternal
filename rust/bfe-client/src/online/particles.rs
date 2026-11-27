@@ -5,7 +5,13 @@ use bfe_content_native::BattleContent;
 use bfe_render::effects as render;
 use serde_json::json;
 use std::collections::BTreeMap;
+mod refraction;
+mod trails;
+#[cfg(all(test, target_os = "linux"))]
+mod gl_tests;
 const CAPACITY: usize = 1024;
+// All particles in a Battlefront II mission may share one material.
+const MISSION_CAPACITY: usize = 4096;
 // The 2004 game's drop shadow under a soldier: a blurred standing figure, head at the image's top row.
 const DROP_SHADOW_TEXTURE: &str = "player_shadow";
 // The figure fills the image from about 12% to 88% of its height; its feet are at 88%.
@@ -36,6 +42,13 @@ pub struct Prepared {
 }
 impl Prepared {
     pub fn new(content: &mut BattleContent) -> Result<Self, String> {
+        let mut prepared = Self::new_shared(content)?;
+        if content.content.battle.family == bfe_content::GameFamily::Swbf2 {
+            super::combat::swbf2::load_round_textures(content, &mut prepared)?;
+        }
+        Ok(prepared)
+    }
+    fn new_shared(content: &mut BattleContent) -> Result<Self, String> {
         let defs = content.defs()?;
         let mut names = vec!["lightglow".to_string()];
         for (_, d) in &defs.registry.combat {
@@ -122,6 +135,34 @@ impl Prepared {
         textures: &[u32],
         resources: &mut Resources,
     ) -> Result<Particles, String> {
+        let materials = (content.content.battle.family == bfe_content::GameFamily::Swbf2)
+            .then(|| refraction::materials(content, &self));
+        let mut particles = self.admit_shared(content, bridge, textures, resources)?;
+        if let Some(materials) = materials.filter(|v| !v.is_empty()) {
+            particles.refraction = Some(refraction::Refraction::new(&materials, &mut particles, textures, resources, bridge)?);
+        }
+        if content.content.battle.family == bfe_content::GameFamily::Swbf2 {
+            if let Some((_, library)) = content.effects.iter().find(|(name, _)| name == "battle") {
+                let defs = library.descriptor["definitions"].as_array().unwrap();
+                if defs.iter().any(|d| d["geometry"]["type"] == "trail") {
+                    particles.trails = defs.iter().map(|d| d["geometry"]["type"] == "trail").collect();
+                }
+            }
+        }
+        Ok(particles)
+    }
+    fn admit_shared(
+        self,
+        content: &BattleContent,
+        bridge: &mut Bridge,
+        textures: &[u32],
+        resources: &mut Resources,
+    ) -> Result<Particles, String> {
+        let capacity = if content.content.battle.family == bfe_content::GameFamily::Swbf2 {
+            MISSION_CAPACITY
+        } else {
+            CAPACITY
+        };
         let shadow_cascades = bridge.shadow_cascades();
         let effects = content.effects.iter().find(|(n, _)| n == "battle").map(|(_, e)| e).ok_or("missing effect library")?;
         let bytes = effects.gpu_tracks.iter().flat_map(|n| n.to_le_bytes()).collect::<Vec<_>>();
@@ -135,6 +176,8 @@ impl Prepared {
         bridge.r.effects.prepare_owner(&mut bridge.r.core, owner, 1024);
         let mut batches = Vec::new();
         let mut words = 1024 * 12;
+        let swbf2 = content.content.battle.family == bfe_content::GameFamily::Swbf2;
+        let (mut swbf2_cpu, mut swbf2_analytic) = (None, None);
         for recipe in self.recipes {
             let key = if recipe.analytic {
                 "effects/particle-analytic"
@@ -143,8 +186,20 @@ impl Prepared {
             } else {
                 "effects/particle-cpu"
             };
-            let program = bridge.add_owned_program(key)?;
             let spec = bfe_render::programs::spec(key)?;
+            let program = if swbf2 && !recipe.bolt {
+                let slot = if recipe.analytic { &mut swbf2_analytic } else { &mut swbf2_cpu };
+                match *slot {
+                    Some(id) => id,
+                    None => {
+                        let id = swbf2_particle_program(bridge, spec)?;
+                        *slot = Some(id);
+                        id
+                    }
+                }
+            } else {
+                bridge.add_owned_program(key)?
+            };
             let fields = if recipe.analytic {
                 vec![("spawnPosition", 3), ("spawnVelocity", 3), ("spawnColor", 4), ("spawnShape", 4), ("spawnMeta", 4)]
             } else {
@@ -173,11 +228,11 @@ impl Prepared {
                 if recipe.analytic { owner as i32 } else { -1 },
             );
             bridge.fx_batch_interleaved(handle);
-            bridge.r.effects.prepare_batch(&bridge.r.core, handle, CAPACITY);
+            bridge.r.effects.prepare_batch(&bridge.r.core, handle, capacity);
             let stride = if recipe.analytic { 18 } else { 21 };
             let at = words;
-            words += CAPACITY * stride;
-            batches.push(Batch { handle, analytic: recipe.analytic, at, stride, count: 0, order: 0 });
+            words += capacity * stride;
+            batches.push(Batch { handle, analytic: recipe.analytic, at, stride, capacity, count: 0, order: 0 });
         }
         // glowModel: each model a GEOMETRY definition names, drawn
         // additive and double-sided with its first part's texture, tinted
@@ -198,7 +253,11 @@ impl Prepared {
         let mut effect_glows = Vec::new();
         // hands combat `glowModel("muzzleflash")` for the flash at a
         // held gun's muzzle: the same kind of model, listed last here.
-        let flash = Some(FLASH.to_string());
+        let flash = match content.content.battle.family {
+            bfe_content::GameFamily::Swbf2 => content.visual_effects().get("muzzleModel")
+                .and_then(bfe_content::Value::as_str).map(str::to_owned),
+            bfe_content::GameFamily::Swbf1 => Some(FLASH.to_string()),
+        };
         for name in self.effect_models.iter().chain([&flash]) {
             let Some(name) = name else {
                 effect_glows.push(None);
@@ -242,6 +301,8 @@ impl Prepared {
         words += MODEL_DRAWS * fields.length;
         bridge.fx_reserve(words as u32);
         Ok(Particles {
+            refraction: None,
+            trails: Vec::new(),
             batches,
             sequence: 0,
             effect_batches: self.effect_batches,
@@ -298,11 +359,21 @@ struct Batch {
     analytic: bool,
     at: usize,
     stride: usize,
+    capacity: usize,
     count: usize,
     // Its place among the batches by first use, from one; zero until then.
     order: u32,
 }
 impl Batch {
+    fn full(&self, dropped: &mut u32) -> bool {
+        if self.count < self.capacity {
+            return false;
+        }
+        if self.capacity == MISSION_CAPACITY {
+            *dropped = dropped.saturating_add(1);
+        }
+        true
+    }
     // ParticleRenderer.batch makes a batch the first time a
     // particle asks for it, and three draws transparent meshes that tie on
     // render order and depth in the order they were made. So a batch first
@@ -317,7 +388,9 @@ impl Batch {
     }
 }
 pub struct Particles {
+    pub(in crate::online) refraction: Option<refraction::Refraction>,
     batches: Vec<Batch>,
+    trails: Vec<bool>,
     sequence: u32,
     pub effect_batches: Vec<Option<usize>>,
     drop_shadow: Option<usize>,
@@ -335,6 +408,20 @@ pub struct Particles {
     epochs: Vec<f64>,
 }
 impl Particles {
+    pub(crate) async fn warm_mission(&self, bridge: &mut Bridge, target: glow::Framebuffer, second_queue: bool) -> Result<(), String> {
+        if self.batches.is_empty() { return Ok(()); }
+        // The scene may have spent this display frame admitting models and shadows.
+        crate::loading_work::idle().await;
+        // The second driver queue (a context sharing the window's) only for a Battlefront II battle: once one has
+        // existed the NVIDIA driver runs the window context's calls through its multi-context layer for the rest of
+        // the battle, about 0.1 ms a frame on a Kamino battle, and a 2004 battle had none before.
+        if second_queue {
+            crate::particle_worker::precache(bridge, self.batches.iter().map(|b| b.handle)).await?;
+        }
+        let batches = self.batches.iter().map(|b| (b.handle, b.at));
+        bridge.r.effects.warm_particle_batches(&mut bridge.r.core, target, batches, crate::loading_work::idle).await
+    }
+
     pub fn begin(&mut self, bridge: &mut Bridge) {
         for b in &mut self.batches {
             b.count = 0;
@@ -362,7 +449,7 @@ impl Particles {
     }
     pub fn quad(&mut self, bridge: &mut Bridge, batch: usize, values: &[f32]) {
         let Some(b) = self.batches.get_mut(batch) else { return };
-        if b.analytic || b.count == CAPACITY {
+        if b.analytic || b.full(&mut bridge.r.effects.dropped_particle_rows) {
             return;
         }
         let at = b.at + b.count * b.stride;
@@ -370,6 +457,13 @@ impl Particles {
         b.add(&mut self.sequence);
     }
     pub fn effects(&mut self, bridge: &mut Bridge, owner: &bfe_presentation::Presentation, indices: &[Option<usize>]) {
+        if self.trails.is_empty() {
+            self.write_effects::<false>(bridge, owner, indices);
+        } else {
+            self.write_effects::<true>(bridge, owner, indices);
+        }
+    }
+    fn write_effects<const TRAILS: bool>(&mut self, bridge: &mut Bridge, owner: &bfe_presentation::Presentation, indices: &[Option<usize>]) {
         use bfe_presentation::layout::{draw as d, draw_kind as kind, effect as e, header as h};
         let count = (owner.header[h::EFFECTS] as usize).min(1024);
         for (i, row) in owner.effect_output.chunks_exact(e::STRIDE).take(count).enumerate() {
@@ -391,8 +485,21 @@ impl Particles {
             bridge.r.effects.input[render::IN_OWNERS] = 1.;
             bridge.r.effects.input[render::OWNER_AT..render::OWNER_AT + 4].copy_from_slice(&[self.owner as f64, 1024., count as f64, 0.]);
         }
+        let mut previous = None;
         for row in owner.draws.chunks_exact(d::STRIDE).take(owner.header[h::DRAWS] as usize) {
             let definition = row[d::DEFINITION] as usize;
+            if TRAILS {
+                if self.trails.get(definition) == Some(&true) {
+                    let point = trails::Point::read(row);
+                    if let (Some(tail), Some(batch)) = (previous.replace(point), self.effect_batches[definition]) {
+                        if let Some(quad) = point.connect(tail, row) {
+                            self.quad(bridge, batch, &quad);
+                        }
+                    }
+                    continue;
+                }
+                previous = None;
+            }
             // drawModel: the model at the particle, turned by its
             // quaternion (the owner has already spun it about its own up),
             // scaled by its size, in its colour and opacity.
@@ -413,7 +520,7 @@ impl Particles {
                 continue;
             };
             let b = &mut self.batches[batch];
-            if b.count == CAPACITY {
+            if b.full(&mut bridge.r.effects.dropped_particle_rows) {
                 continue;
             }
             let at = b.at + b.count * b.stride;
@@ -625,5 +732,187 @@ mod drop_shadow_tests {
         // A sun overhead still leaves a short shadow, and no direction is NaN.
         let q: Vec<_> = super::drop_shadow_quads(&[[0., 0., 0.]], [0., -1., 0.]).collect();
         assert!(q[0].iter().all(|v| v.is_finite()));
+    }
+}
+
+// Battlefront II culls camera-facing particle sprites inside 1 m of the eye
+// and fades their opacity linearly across one full sprite width past that
+// plane (`2.0 * size`, since `size` is the quad's half-extent in the shader).
+pub(super) fn swbf2_near_fade_vertex(vertex: &str) -> Result<String, String> {
+    const ANCHOR: &str = "      mv = modelViewMatrix * vec4(iPosition, 1.0);";
+    if vertex.matches(ANCHOR).count() != 1 {
+        return Err("particle vertex shader missing camera-facing billboard anchor".into());
+    }
+    Ok(vertex.replacen(
+        ANCHOR,
+        "      mv = modelViewMatrix * vec4(iPosition, 1.0);\n\
+         float nearDepth = -mv.z - 1.0;\n\
+         if (nearDepth <= 0.0) {\n\
+           gl_Position = vec4(2.0, 2.0, 2.0, 1.0);\n\
+           return;\n\
+         }\n\
+         float nearSpan = 2.0 * size;\n\
+         if (nearSpan > 0.0 && nearDepth < nearSpan) {\n\
+           vColor.a *= nearDepth / nearSpan;\n\
+         }",
+        1,
+    ))
+}
+
+fn swbf2_particle_program(
+    bridge: &mut Bridge,
+    spec: &bfe_render::programs::Spec,
+) -> Result<u32, String> {
+    let (vertex, fragment) = bfe_render::programs::sources(spec);
+    let vertex = swbf2_near_fade_vertex(&vertex)?;
+    let attributes: Vec<_> = spec.attributes.iter().map(|(n, l)| ((*n).to_owned(), *l)).collect();
+    let uniforms: Vec<_> = spec.uniforms.iter().map(|(n, _)| (*n).to_owned()).collect();
+    bridge.r.core.add_program_lamps(spec.kind, &vertex, &fragment, &attributes, &uniforms, spec.lamps)
+}
+
+#[cfg(test)]
+fn near_eye_alpha(depth: f32, half_size: f32) -> f32 {
+    let near = depth - 1.0;
+    if near <= 0.0 {
+        0.0
+    } else {
+        let span = 2.0 * half_size;
+        if span > 0.0 && near < span {
+            near / span
+        } else {
+            1.0
+        }
+    }
+}
+
+#[cfg(test)]
+mod batch_capacity_tests {
+    use super::*;
+
+    #[test]
+    fn one_material_accepts_the_whole_mission_pool_and_counts_excess_rows() {
+        let mut batch = Batch { handle: 0, analytic: false, at: 0, stride: 21,
+            capacity: MISSION_CAPACITY, count: 0, order: 0 };
+        let (mut sequence, mut dropped) = (0, 0);
+        for _ in 0..MISSION_CAPACITY + 3 {
+            if !batch.full(&mut dropped) {
+                batch.add(&mut sequence);
+            }
+        }
+        assert_eq!(batch.count, 4096);
+        assert_eq!(dropped, 3);
+        assert_eq!(sequence, 1);
+    }
+
+    #[test]
+    fn swbf2_near_fade_rewrites_cpu_and_analytic_particle_shaders() {
+        for key in ["effects/particle-cpu", "effects/particle-analytic"] {
+            let spec = bfe_render::programs::spec(key).unwrap();
+            let (vertex, _) = bfe_render::programs::sources(spec);
+            let rewritten = swbf2_near_fade_vertex(&vertex).unwrap();
+            assert!(rewritten.contains("float nearDepth = -mv.z - 1.0;"), "{key}");
+            assert!(rewritten.contains("float nearSpan = 2.0 * size;"), "{key}");
+            bfe_render::shader::rewrite_lamps(&rewritten, bfe_render::shader::Stage::Vertex, spec.kind, spec.lamps)
+                .unwrap();
+        }
+        assert_eq!(near_eye_alpha(0.4, 3.5), 0.0);
+        assert_eq!(near_eye_alpha(1.0, 3.5), 0.0);
+        assert!((near_eye_alpha(4.5, 3.5) - 0.5).abs() < 1e-6);
+        assert_eq!(near_eye_alpha(8.0, 3.5), 1.0);
+        assert_eq!(near_eye_alpha(15.0, 3.5), 1.0);
+    }
+
+    /// What a lowered stage declares: (inputs, outputs, uniforms) as (type, name) pairs. Lines of
+    /// the form `[flat] [precision] type name;` after the qualifier; `varying` is an output in
+    /// the vertex stage and an input in the fragment stage, as the shader prefixes define it.
+    fn interface(glsl: &str, vertex: bool) -> (Vec<(String, String)>, Vec<(String, String)>, Vec<(String, String)>) {
+        let (mut ins, mut outs, mut uniforms) = (Vec::new(), Vec::new(), Vec::new());
+        for line in glsl.lines() {
+            let line = line.trim().trim_end_matches(';');
+            let mut words = line.split_whitespace().filter(|w| !matches!(*w, "flat" | "smooth" | "highp" | "mediump" | "lowp"));
+            let (Some(qualifier), Some(ty), Some(name), None) = (words.next(), words.next(), words.next(), words.next()) else {
+                continue;
+            };
+            let pair = (ty.to_string(), name.to_string());
+            match qualifier {
+                "in" => ins.push(pair),
+                "out" => outs.push(pair),
+                "varying" if vertex => outs.push(pair),
+                "varying" => ins.push(pair),
+                "uniform" => uniforms.push(pair),
+                _ => {}
+            }
+        }
+        (ins, outs, uniforms)
+    }
+
+    /// Lower one stage the way the shader loader does and check what a driver would refuse at
+    /// once: the header, a `main`, balanced delimiters, no uniform declared twice.
+    fn lower_stage(label: &str, src: &str, vertex: bool, kind: bfe_render::shader::Kind, lamps: bool) -> String {
+        use bfe_render::shader::{rewrite_lamps, to_desktop_glsl, Stage};
+        let stage = if vertex { Stage::Vertex } else { Stage::Fragment };
+        let rewritten = rewrite_lamps(src, stage, kind, lamps).unwrap_or_else(|e| panic!("{label}: rewrite_lamps failed: {e}"));
+        let glsl = to_desktop_glsl(&rewritten, false);
+        assert!(glsl.starts_with("#version 330 core\n"), "{label}: missing desktop GLSL header");
+        assert!(glsl.contains("void main()"), "{label}: missing main entry point");
+        let (mut braces, mut parens) = (0i32, 0i32);
+        for ch in glsl.chars() {
+            match ch {
+                '{' => braces += 1,
+                '}' => braces -= 1,
+                '(' => parens += 1,
+                ')' => parens -= 1,
+                _ => {}
+            }
+            assert!(braces >= 0 && parens >= 0, "{label}: unbalanced delimiter");
+        }
+        assert_eq!((braces, parens), (0, 0), "{label}: unclosed delimiter");
+        let (_, _, uniforms) = interface(&glsl, vertex);
+        for (i, (_, name)) in uniforms.iter().enumerate() {
+            assert!(uniforms[..i].iter().all(|(_, n)| n != name), "{label}: uniform {name} declared twice");
+        }
+        glsl
+    }
+
+    /// A shader program links only when every input of the fragment stage is an output of the vertex
+    /// stage with the same type and a uniform both stages name has one type.
+    fn assert_stages_link(label: &str, vertex: &str, fragment: &str) {
+        let (_, vertex_outs, vertex_uniforms) = interface(vertex, true);
+        let (fragment_ins, _, fragment_uniforms) = interface(fragment, false);
+        assert!(!fragment_ins.is_empty(), "{label}: the fragment stage reads nothing from the vertex stage");
+        for (ty, name) in &fragment_ins {
+            assert!(vertex_outs.contains(&(ty.clone(), name.clone())), "{label}: fragment input {ty} {name} has no matching vertex output");
+        }
+        for (ty, name) in &fragment_uniforms {
+            if let Some((other, _)) = vertex_uniforms.iter().find(|(_, n)| n == name) {
+                assert_eq!(other, ty, "{label}: uniform {name} has two types");
+            }
+        }
+    }
+
+    #[test]
+    fn pixel_tested_shader_sources_lower_and_link_without_gl() {
+        use bfe_render::shader::Kind;
+        let cpu_spec = bfe_render::programs::spec("effects/particle-cpu").unwrap();
+        let (cpu_vs, _) = bfe_render::programs::sources(cpu_spec);
+        let refract_vs = refraction::refraction_vertex(&cpu_vs).unwrap();
+        let refract_vs_glsl = lower_stage("refraction/vs", &refract_vs, true, Kind::Effect, false);
+        // The refraction fragment stage is a source of its own, without the catalog's prefix.
+        let refract_fs_glsl = lower_stage("refraction/fs", include_str!("particles/refraction.frag"), false, Kind::Effect, false);
+        assert_stages_link("refraction", &refract_vs_glsl, &refract_fs_glsl);
+        assert!(refract_vs_glsl.contains("uniform vec2 blurSettings;"));
+        assert!(refract_vs_glsl.contains("refractShift = offset * (2.0 * blurSettings.x);"));
+        assert!(refract_fs_glsl.contains("uniform sampler2D sceneColor;"));
+
+        for key in ["effects/particle-cpu", "effects/particle-analytic"] {
+            let spec = bfe_render::programs::spec(key).unwrap();
+            let (vs_src, fs_src) = bfe_render::programs::sources(spec);
+            let near_vs = swbf2_near_fade_vertex(&vs_src).unwrap();
+            let vs = lower_stage(&format!("{key}/vs"), &near_vs, true, spec.kind, spec.lamps);
+            let fs = lower_stage(&format!("{key}/fs"), &fs_src, false, spec.kind, spec.lamps);
+            assert_stages_link(key, &vs, &fs);
+            assert!(vs.contains("float nearDepth = -mv.z - 1.0;"), "{key}");
+            assert!(vs.contains("float nearSpan = 2.0 * size;"), "{key}");
+        }
     }
 }

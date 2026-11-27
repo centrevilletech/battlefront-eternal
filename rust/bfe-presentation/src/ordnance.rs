@@ -102,6 +102,8 @@ struct Style {
     // class's gravity for a shell.
     flight: u32,
     gravity: f64,
+    // The width of a beam's second pass; 0 for a beam that draws only its core.
+    beam_glow_width: f64,
     set: bool,
 }
 
@@ -653,8 +655,38 @@ impl Ordnance {
             look_light_radius: s[st::LOOK_LIGHT_RADIUS],
             flight: s[st::FLIGHT] as u32,
             gravity: s[st::GRAVITY],
+            beam_glow_width: s[st::BEAM_GLOW_WIDTH],
             set: true,
         };
+    }
+
+    /// The style-input row a set style was made from, for a client deriving
+    /// another style from it. None for a style never set.
+    pub fn style_row(&self, index: usize) -> Option<[f64; st::STRIDE]> {
+        let s = self.styles.get(index).filter(|s| s.set)?;
+        let mut row = [0.0; st::STRIDE];
+        row[st::CORE_BATCH] = s.core as f64;
+        row[st::GLOW_BATCH] = s.glow as f64;
+        row[st::BEAM_BATCH] = s.beam as f64;
+        row[st::LASER_WIDTH] = s.laser_width;
+        row[st::LASER_LENGTH] = s.laser_length;
+        row[st::GLOW_LENGTH] = s.glow_length;
+        row[st::GLOW_RAW] = s.glow_raw;
+        row[st::BLUR_LENGTH] = s.blur_length;
+        row[st::FADE_OUT_TIME] = s.fade_out;
+        row[st::LIGHT_RADIUS] = s.light_radius;
+        row[st::LIGHT_COLOR..st::LIGHT_COLOR + 3].copy_from_slice(&s.light_color);
+        row[st::GLOW_COLOR..st::GLOW_COLOR + 3].copy_from_slice(&s.glow_color);
+        row[st::LOOK_COLOR..st::LOOK_COLOR + 3].copy_from_slice(&s.look_color);
+        row[st::LOOK_GLOW] = s.look_glow;
+        row[st::LOOK_CORE] = s.look_core;
+        row[st::LOOK_LENGTH] = s.look_length;
+        row[st::LOOK_BRIGHTNESS] = s.look_brightness;
+        row[st::LOOK_LIGHT_RADIUS] = s.look_light_radius;
+        row[st::FLIGHT] = f64::from(s.flight);
+        row[st::GRAVITY] = s.gravity;
+        row[st::BEAM_GLOW_WIDTH] = s.beam_glow_width;
+        Some(row)
     }
 
     /// The frame: net commands, then every record in order (Ordnance.present's
@@ -816,11 +848,16 @@ impl Ordnance {
 
     /// drawBeam.
     // A beam is a straight fat ray from its source to where it struck; it
-    // fades over its last 0.08 s. Classic draws one textured streak at the
-    // far end back along the ray; Enhanced draws a capsule from end to source.
+    // fades over its last 0.08 s (or over FadeOutTime after its end when set).
+    // Classic draws one textured streak at the far end back along the ray;
+    // Enhanced draws a capsule from end to source.
     fn draw_beam(&mut self, s: &Style, position: &Vector3, end: &Vector3, direction: &Vector3, life: f64, enhanced: bool) {
-        let length = position.distance_to(end);
         let fade = min(1.0, max(0.0, life) / 0.08);
+        self.draw_beam_fade(s, position, end, direction, fade, enhanced);
+    }
+
+    fn draw_beam_fade(&mut self, s: &Style, position: &Vector3, end: &Vector3, direction: &Vector3, fade: f64, enhanced: bool) {
+        let length = position.distance_to(end);
         if enhanced {
             let c = s.look_color;
             self.out
@@ -839,7 +876,29 @@ impl Ordnance {
             [direction.x, direction.y, direction.z],
             None,
         );
+        self.draw_beam_glow(s, end, length, direction, fade);
         self.out.light(position, s.glow_color, or(s.light_radius, 3.0));
+    }
+
+    /// The second pass of a 2005 beam in the Classic look, drawn over the core pass for a beam of
+    /// the battle's own rounds and for a replicated one alike: a strip of the shared glow texture
+    /// along the same ray, as wide as the class's glow width, in its glow colour (which already
+    /// holds the colour's own alpha), fading with the core. A style that names no glow width,
+    /// which is every 2004 beam, draws nothing here.
+    fn draw_beam_glow(&mut self, s: &Style, end: &Vector3, length: f64, direction: &Vector3, fade: f64) {
+        if s.glow < 0 || s.beam_glow_width.is_nan() || s.beam_glow_width <= 0.0 {
+            return;
+        }
+        let [r, g, b] = s.glow_color;
+        self.out.quad(
+            s.glow,
+            end,
+            [r, g, b, fade],
+            s.beam_glow_width / 2.0,
+            length,
+            [direction.x, direction.y, direction.z],
+            None,
+        );
     }
 
     /// drawProjectileView (and, for a network projectile, the
@@ -1233,10 +1292,15 @@ impl Ordnance {
         // Rockets and fat rays fly dead straight past their last sample for
         // the life it carried, shells fall; everything else coasts briefly.
         let followed = if n.kind == nt::ROUND { style.flight } else { flight::NONE };
+        let fade_ticks = if n.kind == nt::BEAM && style.fade_out > 0.0 {
+            style.fade_out * 60.0
+        } else {
+            0.0
+        };
         let expires = if followed != flight::NONE { last.tick + last.life * 60.0 + 18.0 } else { last.expiry };
-        // Gone once the clock reaches its terminal, or passes the time its
-        // last sample said it would last (plus the playout slack of 18 ticks).
-        if tick >= n.end_tick || tick > expires {
+        // Gone once the clock reaches its terminal (+ FadeOutTime for beams),
+        // or passes the time its last sample said it would last (plus slack).
+        if tick >= n.end_tick + fade_ticks || tick > expires + fade_ticks {
             // The client frees the slot, its mesh and its trail on this call.
             self.out.call(ck::NET_REMOVE, slot as f64);
             self.unlink(slot);
@@ -1310,7 +1374,22 @@ impl Ordnance {
         let mut direction = Vector3::default();
         direction.sub_vectors(&end, &position).normalize();
         if n.kind == nt::BEAM {
-            self.draw_beam(&style, &position, &end, &direction, last.life, enhanced);
+            if fade_ticks > 0.0 {
+                let fade_start = min(n.end_tick, last.tick + last.life * 60.0);
+                let fade = if tick <= fade_start {
+                    1.0
+                } else {
+                    max(0.0, 1.0 - (tick - fade_start) / fade_ticks)
+                };
+                if fade > 0.0 {
+                    self.draw_beam_fade(&style, &position, &end, &direction, fade, enhanced);
+                } else {
+                    self.out.call(ck::NET_REMOVE, slot as f64);
+                    self.unlink(slot);
+                }
+            } else {
+                self.draw_beam(&style, &position, &end, &direction, last.life, enhanced);
+            }
         } else {
             self.draw_net_view(&style, slot, &previous, &position, &q, &velocity, n.flags);
         }
@@ -1414,3 +1493,196 @@ fn changed_flight(a: &Vector3, b: &Vector3) -> bool {
 }
 
 pub mod events;
+
+#[cfg(test)]
+mod beam_fade_tests {
+    use super::*;
+
+    #[test]
+    fn net_beam_persists_and_fades_over_fade_out_time() {
+        let mut ord = Ordnance::new();
+        let s = &mut ord.style_input[..st::STRIDE];
+        s.fill(0.0);
+        s[st::BEAM_BATCH] = 0.0;
+        s[st::LASER_WIDTH] = 0.35;
+        s[st::FADE_OUT_TIME] = 0.40; // 24 ticks at 60 Hz
+        s[st::LOOK_COLOR] = 0.8;
+        s[st::LOOK_COLOR + 1] = 0.5;
+        s[st::LOOK_COLOR + 2] = 1.0;
+        s[st::LOOK_BRIGHTNESS] = 1.6;
+        s[st::LOOK_CORE] = 0.12;
+        s[st::LOOK_GLOW] = 0.28;
+        ord.set_style(0);
+
+        // Send beam sample at tick 10 (life 0.20s = 12 ticks -> active through tick 22)
+        // and terminal END at tick 22.
+        let sample = &mut ord.net_input[..nc::STRIDE];
+        sample.fill(0.0);
+        sample[nc::KIND] = nk::SAMPLE as f64;
+        sample[nc::SLOT] = 0.0;
+        sample[nc::GENERATION] = 1.0;
+        sample[nc::SCHEMA] = 6.0;
+        sample[nc::TICK] = 10.0;
+        sample[nc::EXPIRY_TICK] = 32.0;
+        sample[nc::STYLE] = 0.0;
+        sample[nc::TYPE] = nt::BEAM as f64;
+        sample[nc::POSITION + 2] = 0.0;
+        sample[nc::END + 2] = 35.0;
+        sample[nc::LIFE] = 0.20;
+
+        let end = &mut ord.net_input[nc::STRIDE..2 * nc::STRIDE];
+        end.fill(0.0);
+        end[nc::KIND] = nk::END as f64;
+        end[nc::SLOT] = 0.0;
+        end[nc::GENERATION] = 1.0;
+        end[nc::SCHEMA] = 7.0;
+        end[nc::TICK] = 22.0;
+        end[nc::EXPIRY_TICK] = 44.0;
+        ord.net_flush(2);
+
+        let present_at = |ord: &mut Ordnance, tick: f64| -> (usize, f32) {
+            ord.input[fr::VERSION] = VERSION as f64;
+            ord.input[fr::FRAME] = tick;
+            ord.input[fr::RECORDS] = 1.0;
+            ord.input[fr::NET_COMMANDS] = 0.0;
+            ord.input[fr::ENHANCED_BOLTS] = 1.0;
+            let r = &mut ord.input[fr::STRIDE..fr::STRIDE + rc::STRIDE];
+            r.fill(0.0);
+            r[rc::KIND] = kind::NET as f64;
+            r[rc::CLOCK_TICK] = tick;
+            ord.present();
+            let count = ord.header[hd::BLASTERS] as usize;
+            let brightness = if count > 0 { ord.blaster_arrays()[2][3] } else { 0.0 };
+            (count, brightness)
+        };
+
+        // During active LifeSpan (tick 16): full brightness (1.6).
+        let (n, b) = present_at(&mut ord, 16.0);
+        assert_eq!(n, 1);
+        assert!((b - 1.6).abs() < 1e-4, "active brightness {b}");
+
+        // Halfway through 24-tick fade (tick 22 + 12 = 34.0): half brightness (0.8).
+        let (n, b) = present_at(&mut ord, 34.0);
+        assert_eq!(n, 1);
+        assert!((b - 0.8).abs() < 1e-4, "mid-fade brightness {b}");
+
+        // Past end_tick + fade_ticks (tick 47.0): removed and no longer drawn.
+        let (n, _) = present_at(&mut ord, 47.0);
+        assert_eq!(n, 0);
+    }
+
+    /// A replicated beam, which the presenter draws from its samples, gets the glow strip of a
+    /// 2005 beam in the Classic look too, and it fades with the core.
+    #[test]
+    fn net_beam_draws_its_glow_strip_in_the_classic_look_and_fades_with_the_core() {
+        let mut ord = Ordnance::new();
+        let s = &mut ord.style_input[..st::STRIDE];
+        s.fill(0.0);
+        s[st::CORE_BATCH] = 0.0;
+        s[st::GLOW_BATCH] = 1.0;
+        s[st::BEAM_BATCH] = 2.0;
+        s[st::LASER_WIDTH] = 0.2;
+        s[st::FADE_OUT_TIME] = 0.40; // 24 ticks at 60 Hz
+        s[st::GLOW_COLOR..st::GLOW_COLOR + 3].copy_from_slice(&[0.5, 0.25, 0.125]);
+        s[st::BEAM_GLOW_WIDTH] = 0.5;
+        ord.set_style(0);
+        let sample = &mut ord.net_input[..nc::STRIDE];
+        sample.fill(0.0);
+        sample[nc::KIND] = nk::SAMPLE as f64;
+        sample[nc::GENERATION] = 1.0;
+        sample[nc::SCHEMA] = 6.0;
+        sample[nc::TICK] = 10.0;
+        sample[nc::EXPIRY_TICK] = 32.0;
+        sample[nc::TYPE] = nt::BEAM as f64;
+        sample[nc::END + 2] = 35.0;
+        sample[nc::LIFE] = 0.20;
+        let end = &mut ord.net_input[nc::STRIDE..2 * nc::STRIDE];
+        end.fill(0.0);
+        end[nc::KIND] = nk::END as f64;
+        end[nc::GENERATION] = 1.0;
+        end[nc::SCHEMA] = 7.0;
+        end[nc::TICK] = 22.0;
+        end[nc::EXPIRY_TICK] = 44.0;
+        ord.net_flush(2);
+        let present_at = |ord: &mut Ordnance, tick: f64, enhanced: bool| {
+            ord.input[fr::VERSION] = VERSION as f64;
+            ord.input[fr::FRAME] = tick;
+            ord.input[fr::RECORDS] = 1.0;
+            ord.input[fr::NET_COMMANDS] = 0.0;
+            ord.input[fr::ENHANCED_BOLTS] = if enhanced { 1.0 } else { 0.0 };
+            let r = &mut ord.input[fr::STRIDE..fr::STRIDE + rc::STRIDE];
+            r.fill(0.0);
+            r[rc::KIND] = kind::NET as f64;
+            r[rc::CLOCK_TICK] = tick;
+            ord.present();
+        };
+        let glow = lim::QUADS_PER_HANDLE;
+        present_at(&mut ord, 16.0, false);
+        assert_eq!((ord.counts()[1], ord.counts()[2]), (1, 1), "one glow strip over one core strip");
+        let [_, color, shape, _, _, _] = ord.quad_arrays();
+        assert!((shape[glow * 4] - 0.25).abs() < 1e-6, "half of the glow width");
+        assert!((shape[glow * 4 + 2] - 35.0).abs() < 1e-6, "the beam's whole length");
+        assert_eq!(&color[glow * 4..glow * 4 + 3], &[0.5, 0.25, 0.125]);
+        assert!((color[glow * 4 + 3] - 1.0).abs() < 1e-6);
+        // Halfway through its 24-tick fade (tick 34): both strips at half strength.
+        present_at(&mut ord, 34.0, false);
+        let [_, color, _, _, _, _] = ord.quad_arrays();
+        assert!((color[glow * 4 + 3] - 0.5).abs() < 1e-6, "glow alpha {}", color[glow * 4 + 3]);
+        assert!((color[2 * glow * 4 + 3] - 0.5).abs() < 1e-6, "core alpha");
+        // The Enhanced look draws its capsule and no strip.
+        present_at(&mut ord, 16.0, true);
+        assert_eq!((ord.counts()[1], ord.counts()[2]), (0, 0));
+    }
+}
+
+#[cfg(test)]
+mod style_row_tests {
+    use super::*;
+
+    #[test]
+    fn a_set_style_reads_back_as_the_row_it_was_made_from() {
+        let mut ord = Ordnance::new();
+        assert!(ord.style_row(3).is_none(), "an unset style has no row");
+        let row: Vec<f64> = (0..st::STRIDE).map(|i| match i {
+            st::CORE_BATCH | st::GLOW_BATCH | st::BEAM_BATCH => i as f64 - 1.0,
+            st::FLIGHT => 2.0,
+            _ => 0.25 * i as f64 + 0.5,
+        }).collect();
+        ord.style_input[..st::STRIDE].copy_from_slice(&row);
+        ord.set_style(3);
+        assert_eq!(ord.style_row(3).unwrap().to_vec(), row);
+    }
+
+    /// A style made from another style's row, as a fading class's steps are, keeps the beam's
+    /// glow strip: it draws the second pass at the width of the style it was made from.
+    #[test]
+    fn a_style_made_from_a_beams_row_still_draws_the_beams_glow_strip() {
+        let mut ord = Ordnance::new();
+        ord.style_input[..st::STRIDE].fill(0.0);
+        ord.style_input[st::CORE_BATCH] = 0.0;
+        ord.style_input[st::GLOW_BATCH] = 1.0;
+        ord.style_input[st::BEAM_BATCH] = 2.0;
+        ord.style_input[st::LASER_WIDTH] = 0.5;
+        ord.style_input[st::GLOW_COLOR..st::GLOW_COLOR + 3].copy_from_slice(&[0.5, 0.25, 0.125]);
+        ord.style_input[st::BEAM_GLOW_WIDTH] = 1.25;
+        ord.set_style(0);
+        let row = ord.style_row(0).unwrap();
+        ord.style_input[..st::STRIDE].copy_from_slice(&row);
+        ord.set_style(5);
+        ord.input[fr::VERSION] = VERSION as f64;
+        ord.input[fr::RECORDS] = 1.0;
+        let at = fr::STRIDE;
+        ord.input[at..at + rc::STRIDE].fill(0.0);
+        ord.input[at + rc::KIND] = kind::BEAM as f64;
+        ord.input[at + rc::STYLE] = 5.0;
+        ord.input[at + rc::LIFE] = 1.0;
+        ord.input[at + rc::END + 2] = 10.0;
+        ord.input[at + rc::DIRECTION + 2] = 1.0;
+        ord.present();
+        assert_eq!(ord.counts()[1], 1, "the derived style draws one glow strip");
+        let [_, color, shape, _, _, _] = ord.quad_arrays();
+        let glow = lim::QUADS_PER_HANDLE;
+        assert!((shape[glow * 4] - 0.625).abs() < 1e-6, "half of the glow width");
+        assert_eq!(&color[glow * 4..glow * 4 + 3], &[0.5, 0.25, 0.125]);
+    }
+}

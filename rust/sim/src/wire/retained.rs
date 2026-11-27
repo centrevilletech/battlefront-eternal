@@ -2,28 +2,31 @@
 //! A frame owns its entry and field banks until eviction; readers never alias
 //! a producer's scratch or a later publication that reused its numeric slot.
 use crate::{gen::*, store::Strings};
-use super::{codec::Result, records::{self, SnapshotSlotTable}, ring::SnapshotRing};
+use super::{codec::Result, records::{self, SnapshotSlotTable}, ring::SnapshotRing, PositionBounds};
 use jsrt::{same_value_zero, num_truthy, JsMap};
 
-const WORKING_SLOTS: usize = 256;
 
 struct Frame {
     // A decoded view belongs to one retained frame revision, not merely its
     // tick. Replacement at the same tick must invalidate every older view.
     held: Option<(usize, u64)>,
+    working: usize,
     snapshot: WireSnapshot,
     slots: Vec<WireSlot>, fields: Vec<WireField>, by_id: Vec<(f64, f64)>, hints: JsMap<f64, [usize; 2]>,
 }
 impl Frame {
-    fn new(seats: usize, fields: usize) -> Self {
+    #[cfg(test)]
+    fn new(seats: usize, fields: usize) -> Self { Self::with_capacity(seats, fields, super::bounds::Capacity::LEGACY) }
+    fn with_capacity(seats: usize, fields: usize, capacity: super::bounds::Capacity) -> Self {
+        let (working, fields) = (capacity.slots, fields.min(capacity.fields));
         // A slot can change class after retirement. Keep both optional banks
         // ready, rather than allocating when its first droideka or hull arrives.
-        let slots = (0..WORKING_SLOTS).map(|_| WireSlot { slot: 0., entry: WireEntry {
+        let slots = (0..working).map(|_| WireSlot { slot: 0., entry: WireEntry {
             anim: Vec::with_capacity(5), mount: WireMount { seats: Vec::with_capacity(seats), ..Default::default() },
             ..Default::default() } }).collect();
-        let mut hints = JsMap::new(); hints.reserve(WORKING_SLOTS);
-        Self { held: None, snapshot: WireSnapshot { slots: Vec::with_capacity(WORKING_SLOTS), world: Vec::with_capacity(fields.min(192)), ..Default::default() },
-            slots, fields: (0..fields.min(192)).map(|_| WireField { payload: Vec::with_capacity(900), ..Default::default() }).collect(),
+        let mut hints = JsMap::new(); hints.reserve(working);
+        Self { held: None, working, snapshot: WireSnapshot { slots: Vec::with_capacity(working), world: Vec::with_capacity(fields), ..Default::default() },
+            slots, fields: (0..fields).map(|_| WireField { payload: Vec::with_capacity(900), ..Default::default() }).collect(),
             by_id: Vec::with_capacity(records::SLOT_COUNT), hints }
     }
     // snapshotFromRecords can reuse a numeric slot for a different class.
@@ -37,7 +40,7 @@ impl Frame {
         self.snapshot.tick = tick; self.snapshot.epoch = epoch; self.by_id.clear();
     }
     fn capture<'a>(&mut self, tick: f64, epoch: f64, records: &[WireRecord], world: impl Iterator<Item = &'a WireField>,
-        slots: &mut SnapshotSlotTable, bounds: &WireBounds, previous: Option<&WireSnapshot>, strings: &Strings) -> Result<()> {
+        slots: &mut SnapshotSlotTable, bounds: &PositionBounds, previous: Option<&WireSnapshot>, strings: &Strings) -> Result<()> {
         self.begin(tick, epoch);
         // World insertion order is stagger order. Byte copies retain exact
         // Unicode/JSON payloads without depending on a facade's object identity.
@@ -57,7 +60,7 @@ impl Frame {
             let hint = match record.kind { WireRecordKind::Seat => 0, WireRecordKind::Mount => 1, _ => continue };
             if let Some(indices) = self.hints.get_mut(&record.id) { indices[hint] = at; }
             else {
-                if self.hints.size() == WORKING_SLOTS { return Err("snapshot slot table full"); }
+                if self.hints.size() == self.working { return Err("snapshot slot table full"); }
                 let mut indices = [usize::MAX; 2]; indices[hint] = at; self.hints.set(record.id, indices);
             }
         }
@@ -173,7 +176,7 @@ mod tests {
     use super::*;
     #[test]
     fn indexed_hints_keep_last_records_and_first_previous_slot() {
-        let strings = Strings::default(); let bounds = records::default_bounds();
+        let strings = Strings::default(); let bounds = PositionBounds::LEGACY;
         let soldier = WireRecord { kind: WireRecordKind::Soldier, id: 0., generation: 1., class_id: Some(1.),
             team: Some(1.), health: Some(100.), yaw: Some(0.), pitch: Some(0.), ..Default::default() };
         let vehicle = WireRecord { kind: WireRecordKind::Vehicle, id: 10., generation: 1., class_id: Some(2.),
@@ -197,8 +200,8 @@ mod tests {
         duplicate.entry.pos = [65535.; 3]; previous.slots.push(duplicate);
         let expected = records::snapshot_from_records(2., 1., &rows, vec![], &mut reference_slots, &bounds, Some(&previous), &strings).unwrap();
         frame.capture(2., 1., &rows, [].iter(), &mut actual_slots, &bounds, Some(&previous), &strings).unwrap();
-        assert_eq!(super::super::codec::encode_entities(&frame.snapshot, None, 1.).unwrap(),
-            super::super::codec::encode_entities(&expected, None, 1.).unwrap());
+        assert_eq!(super::super::codec::encode_entities(&frame.snapshot, None, 1., bounds.width()).unwrap(),
+            super::super::codec::encode_entities(&expected, None, 1., bounds.width()).unwrap());
     }
 }
 
@@ -208,13 +211,19 @@ pub struct Ring {
 }
 impl Ring {
     pub fn new(seats: usize, fields: usize, depth: usize) -> Result<Self> {
-        if seats > 255 || fields > 1024 || depth == 0 || depth > 128 { return Err("invalid retained snapshot capacity"); }
+        Self::with_capacity(seats, fields, depth, super::bounds::Capacity::LEGACY)
+    }
+    /// A ring whose frames hold `capacity`'s working entries and fields.
+    pub fn with_capacity(seats: usize, fields: usize, depth: usize, capacity: super::bounds::Capacity) -> Result<Self> {
+        if seats > 255 || fields > 1024 || depth == 0 || depth > 128 || capacity.slots > records::SLOT_COUNT || capacity.fields > 1024 {
+            return Err("invalid retained snapshot capacity");
+        }
         // The measured 32-client envelope fits a 32 KiB packed frame. Only
         // three full working snapshots retain per-slot and per-field banks.
         // The extra packed row makes failed capture transactional at eviction.
         Ok(Self { ring: SnapshotRing::new(depth)?, frames: (0..=depth).map(|_| Packed::new()).collect(), free: (0..=depth).rev().collect(),
-            current: Frame::new(seats, fields), stage: Frame::new(seats, fields), baseline: Frame::new(seats, fields),
-            heap: Vec::with_capacity(5 + seats * 2), present: false })
+            current: Frame::with_capacity(seats, fields, capacity), stage: Frame::with_capacity(seats, fields, capacity),
+            baseline: Frame::with_capacity(seats, fields, capacity), heap: Vec::with_capacity(5 + seats * 2), present: false })
     }
     pub fn latest(&self) -> Option<&WireSnapshot> { self.present.then_some(&self.current.snapshot) }
     // encodeEntities normally reads the current working snapshot directly.
@@ -247,7 +256,7 @@ impl Ring {
     // snapshotFromRecords stages the complete capture before replacing ring
     // metadata. A rejected snapshot leaves all retained baselines readable.
     pub fn capture<'a>(&mut self, tick: f64, epoch: f64, records: &[WireRecord], world: impl Iterator<Item = &'a WireField>,
-        slots: &mut SnapshotSlotTable, bounds: &WireBounds, strings: &Strings) -> Result<()> {
+        slots: &mut SnapshotSlotTable, bounds: &PositionBounds, strings: &Strings) -> Result<()> {
         if !tick.is_finite() || tick.fract() != 0. || tick.abs() > 9007199254740991. { return Err("invalid snapshot ring tick"); }
         if self.ring.len() == self.ring.capacity() && tick < self.ring.oldest_tick() as f64 { return Err("snapshot not held"); }
         self.stage.capture(tick, epoch, records, world, slots, bounds, self.present.then_some(&self.current.snapshot), strings)?;

@@ -110,6 +110,11 @@ pub(crate) fn wire_animation_in(battle: &BattleOwner, index: usize) -> Option<[f
 }
 /// LogTrap.stateRecord refreshes on any phase/start/direction change, with
 /// the authored trap order independent of its position in buildings.
+/// The battle's animated props and traps for the admission census, zero for
+/// a battle whose live phase is not prepared yet.
+pub(crate) fn census_counts_in(battle: &BattleOwner) -> (usize, usize) {
+    (battle.metadata.as_ref().map_or(0, |m| m.animations.len()), battle.live_phase.as_ref().map_or(0, |p| p.traps.len()))
+}
 pub(crate) fn wire_trap_count_in(battle: &BattleOwner) -> usize { battle.live_phase.as_ref().expect("prepared live phase").traps.len() }
 pub(crate) fn wire_trap_in(battle: &BattleOwner, index: usize) -> Option<[f64; 3]> {
     let handle = battle.live_phase.as_ref().expect("prepared live phase").traps.get(index)?.1.clone(); let value = f4::trap_in(battle, &handle)?;
@@ -224,7 +229,7 @@ impl animated::World for Animator<'_, '_, '_> {
     }
 }
 struct Logs<'w, 'a, 'b> { w: &'w mut Root, store: &'a mut Store, handle: F4Handle, index: usize,  services: WorldServices<'b> }
-impl Logs<'_, '_, '_> { fn commit(&mut self, t: &traps::Trap) { f4::put_trap_in(&mut self.w.battle, &self.handle, *t); } }
+impl Logs<'_, '_, '_> { fn commit(&mut self, t: &traps::Trap) { crate::units::f3_props::commit_live_trap(self.w,self.store,self.index,&self.handle,*t); } }
 impl traps::World for Logs<'_, '_, '_> {
     type Vehicle = Ref<Vehicle>;
     fn alive(&mut self, r: Self::Vehicle) -> bool { self.store.vehicle.get(r).is_some_and(|v| v.alive) }
@@ -392,7 +397,7 @@ impl State {
             let (mut trap, settings, mut victims) = f4::take_trap(&mut w.battle, handle);
             trap.step_with_scratch(input.dt, input.tick, &settings, &Text, &self.hulls,
                 &mut Logs { w, store: store, handle: handle.clone(), index: *index, services: services.reborrow() }, &mut victims);
-            f4::put_trap_in(&mut w.battle, handle, trap); f4::return_victims(&mut w.battle, handle, victims);
+            crate::units::f3_props::commit_live_trap(w,store,*index,handle,trap); f4::return_victims(&mut w.battle, handle, victims);
         }
     }
 }

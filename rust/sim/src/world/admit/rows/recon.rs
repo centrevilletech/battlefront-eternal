@@ -96,6 +96,12 @@ impl Classes {
                 let encoded = call(F3ReconClass::WORDS,|r,h| row.put(r,h));
                 definitions.emit("f3_recon_class", &encoded);
                 calls.push((Stage::Units,"f3_recon_class",encoded));
+                if let Some(exp_crit) = def.get("explosionCritical").filter(|v| v.truthy()) {
+                    let crit_id = definitions.explosion(exp_crit)?;
+                    let crit_call = Call { args: vec![id as f64, crit_id as f64], ..Default::default() };
+                    definitions.emit(crate::recon::module::SWBF2_RECON_GUIDED_CRITICAL_EXPORT, &crit_call);
+                    calls.push((Stage::Units, crate::recon::module::SWBF2_RECON_GUIDED_CRITICAL_EXPORT, crit_call));
+                }
                 id
             }
         };

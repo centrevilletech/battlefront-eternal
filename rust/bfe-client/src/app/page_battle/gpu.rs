@@ -24,7 +24,8 @@ struct Logo {
 pub(super) struct Gpu {
     pub target: glow::Framebuffer,
     vignette: Appearance,
-    room: Appearance,
+    /// The 2004 look's hologram room; absent where the content has no grid texture.
+    room: Option<Appearance>,
     floor: Appearance,
     ring: Appearance,
     inner: Appearance,
@@ -148,11 +149,51 @@ fn depth_tested(mut s: bfe_render::interface_resources::Style) -> bfe_render::in
     s
 }
 
+/// The command post hologram that stands for a side.
+pub(super) fn logo_for(side: &str) -> &'static str {
+    match side {
+        "cis" => "com_icon_cis",
+        "imp" => "com_icon_imperial",
+        "all" => "com_icon_alliance",
+        _ => "com_icon_republic",
+    }
+}
+
 impl Gpu {
+    /// A side's emblem as a flat picture, for content without the hologram
+    /// models (a 2005 battle): it turns and takes the team's colour as they do.
+    pub fn add_flat_logo(&mut self, bridge: &mut Bridge, side: &str, texture: i32) -> Result<(), String> {
+        let name = logo_for(side);
+        if self.logos.iter().any(|l| l.name == name) {
+            return Ok(());
+        }
+        let mut vertices = Vec::with_capacity(48);
+        for (x, y, u, v) in [
+            (-0.5, -0.5, 0., 1.),
+            (0.5, -0.5, 1., 1.),
+            (0.5, 0.5, 1., 0.),
+            (-0.5, -0.5, 0., 1.),
+            (0.5, 0.5, 1., 0.),
+            (-0.5, 0.5, 0., 0.),
+        ] {
+            vertices.extend([x, y, 0., 0., 0., 1., u, v]);
+        }
+        let mut style = appearance::style("model");
+        style.transparent = Some(true);
+        style.depth_test = Some(true);
+        style.depth_write = Some(false);
+        let appearance = Appearance::mesh(bridge, &vertices, style, &[texture])?;
+        self.logos.push(Logo {
+            name: name.into(),
+            appearance,
+        });
+        Ok(())
+    }
+
     pub fn new(
         bridge: &mut Bridge,
         models: &[crate::menu_models::Model],
-        grid: u32,
+        grid: Option<u32>,
     ) -> Result<Self, String> {
         // Plane, CircleGeometry(96), the six-sided projector, the open beam
         // and column, and GridRoom's box use the metre dimensions.
@@ -287,7 +328,9 @@ impl Gpu {
             },
             &[],
         )?;
-        let room = mesh(room, appearance::style("room"), &[grid as i32])?;
+        let room = grid
+            .map(|grid| mesh(room, appearance::style("room"), &[grid as i32]))
+            .transpose()?;
         let floor = mesh(circle, additive("floor"), &[])?;
         let ring = mesh(plane, additive("basic"), &[ring_texture])?;
         let inner = ring.clone();
@@ -400,14 +443,14 @@ impl Gpu {
     ) {
         let mut count = 0;
         let identity = Matrix4::default();
-        if look == 0 {
-            let mut l = self.room.look;
+        if let (0, Some(room)) = (look, &self.room) {
+            let mut l = room.look;
             l[L::TIME] = rig.time;
             l[L::SCROLL] = 0.0625;
             l[L::STRENGTH] = strength;
             l[L::TINT..L::TINT + 3].fill(1.);
             l[L::PULSE..L::PULSE + 3].copy_from_slice(&[130. / 255., 205. / 255., 1.]);
-            self.room.simple(
+            room.simple(
                 bridge,
                 &mut count,
                 &identity,
@@ -760,12 +803,7 @@ impl Gpu {
             bridge.r.core.gl.clear(glow::DEPTH_BUFFER_BIT);
         }
         for (i, side) in sides.iter().enumerate() {
-            let name = match *side {
-                "cis" => "com_icon_cis",
-                "imp" => "com_icon_imperial",
-                "all" => "com_icon_alliance",
-                _ => "com_icon_republic",
-            };
+            let name = logo_for(side);
             let picked = i as u8 + 1 == own;
             let plate = l.teams[i];
             // The emblem's box beside its plate; the model fills it, the other team's smaller, and both grow

@@ -124,6 +124,9 @@ pub struct Session {
     pub(crate) weapons: Vec<Weapon>,
     pub(crate) selected: [f64; 2],
     pub(crate) zoom: f64,
+    /// A 2005 soldier's melee, thrown blade and powers answer his triggers
+    /// themselves: the arsenal holding them does not.
+    pub(crate) soldier_abilities: bool,
     barrels: Vec<f64>,
     barrel_writes: Vec<bool>,
     pub(crate) shots: Vec<Shot>,
@@ -292,19 +295,10 @@ impl Session {
                 {
                     self.zoom = 0.0;
                 }
-                for (channel, trigger) in [&mut input.primary, &mut input.secondary]
-                    .into_iter()
-                    .enumerate()
-                {
-                    if let Some(index) = arsenal.current(&self.defs, channel) {
-                        let weapon = &arsenal.weapons[index];
-                        let def = weapon.level(self.defs.class(weapon.def));
-                        if (weapon.deployed && def.get(K::Droid).truthy())
-                            || def.get(K::Base).is_str("shield")
-                        {
-                            *trigger = Trigger::default();
-                        }
-                    }
+                if self.soldier_abilities {
+                    Self::swbf2_filter_triggers(&self.defs, &arsenal, &mut input);
+                } else {
+                    Self::released_filter_triggers(&self.defs, &arsenal, &mut input);
                 }
                 let aim = Aim {
                     stick,
@@ -390,6 +384,41 @@ impl Session {
         }
         self.write();
         Ok(())
+    }
+
+    fn released_filter_triggers(defs: &WeaponDefs, arsenal: &Arsenal<'_>, input: &mut ArsenalInput) {
+        for (channel, trigger) in [&mut input.primary, &mut input.secondary]
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(index) = arsenal.current(defs, channel) {
+                let weapon = &arsenal.weapons[index];
+                let def = weapon.level(defs.class(weapon.def));
+                if (weapon.deployed && def.get(K::Droid).truthy())
+                    || def.get(K::Base).is_str("shield")
+                {
+                    *trigger = Trigger::default();
+                }
+            }
+        }
+    }
+
+    fn swbf2_filter_triggers(defs: &WeaponDefs, arsenal: &Arsenal<'_>, input: &mut ArsenalInput) {
+        for (channel, trigger) in [&mut input.primary, &mut input.secondary]
+            .into_iter()
+            .enumerate()
+        {
+            if let Some(index) = arsenal.current(defs, channel) {
+                let weapon = &arsenal.weapons[index];
+                let def = weapon.level(defs.class(weapon.def));
+                if (weapon.deployed && def.get(K::Droid).truthy())
+                    || def.get(K::Base).is_str("shield")
+                    || crate::units::infantry::special_action(defs.class(weapon.def))
+                {
+                    *trigger = Trigger::default();
+                }
+            }
+        }
     }
 
     fn write(&mut self) {

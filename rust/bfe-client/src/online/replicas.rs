@@ -3,6 +3,7 @@
 //! receiver, animation phase and renderer's existing instance/bone banks.
 pub mod presented;
 mod preview;
+mod mission_flashes;
 use super::index::Index;
 use crate::{online::receiver::Receiver, render_bridge::Bridge};
 use bfe_content_native::{
@@ -17,13 +18,11 @@ use bfe_presentation::{
     units::Units,
 };
 use bfe_render::instances as draw;
-use bfe_transport::layout::INPUT_CODES;
 use three::Matrix4;
 use crate::app::page_battle::appearance::{self,Appearance};
-use bfe_render::interface_resource_layout::look as UI;
 const POOL: usize = lim::ACTORS;
 // FLASH_SCALE: the flash model's size at a muzzle.
-const FLASH_SCALE: f64 = 0.6;
+pub(super) const FLASH_SCALE: f64 = 0.6;
 
 /// A drawn droideka's muzzle flash: on the barrel tip, of all its guns' tips
 /// as drawn (`guns`: each gun's bone and its tips in that bone's frame),
@@ -145,10 +144,18 @@ pub struct Looks {
     pub destruction: bool,
 }
 pub struct Replicas {
+    /// A Space battle's rounds, hits, explosions, thrust and damage
+    /// (`combat::swbf2::space`), local or online.
+    pub(crate) space_effects: Option<super::combat::swbf2::space::SpaceEffects>,
+    /// A Space battle's craft (`local::flight_view`).
+    pub(crate) space_fleet: Option<crate::local::flight_view::Fleet>,
+    pub(crate) hidden_crew: Vec<(u32, u32)>,
     pub shot_aim: super::shot_aim::Shared,
     pub first_person: super::first_person::Views,
     pub descriptor: serde_json::Value,
-    pub turns: Vec<(f64, [f64; 2])>,
+    pub(crate) wire_bounds: bfe_sim::wire::PositionBounds,
+    pub turns: Vec<super::input::ClassTurn>,
+    pub swbf2_turn_models: Vec<Option<bfe_sim::units::infantry::TurnModel>>,
     pub units: Box<Units>,
     pub hud: Box<super::hud::Hud>,
     pub cameras: Box<super::cameras::Cameras>,
@@ -214,6 +221,7 @@ pub struct Replicas {
     // unit's state summary named it for: whose droideka is a human's.
     characters: std::collections::HashMap<u32, (u32, u16)>,
     preview_weapons: Vec<Option<usize>>,
+    family: bfe_family::GameFamily,
     preview_banks: Vec<usize>,
     preview_class: usize,
     preview_rng: jsrt::rng::ClassicRandom,
@@ -235,9 +243,21 @@ pub struct Replicas {
     pub refused: u64,
     frame: u64,
 }
+/// The entity registry a battle's client expects the server to name, from its
+/// own copy of the content.
+pub(crate) fn registry_descriptor(registry: &bfe_content::registry::EntityRegistry, family: bfe_family::GameFamily) -> serde_json::Value {
+    let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
+    serde_json::json!({"contentEpoch":1,"combatDefinitions":registry.combat.iter().map(|(p,_)|p).collect::<Vec<_>>(),"classes":table(&registry.classes),"weapons":table(&registry.weapons),"posts":table(&registry.posts),"inputCodes":crate::input_family::WireInputs::new(family).codes(),"bindingProfiles":[[0,{}]]})
+}
 impl Replicas {
+    pub(crate) fn reserve_space_fleet(&mut self, slots: usize) {
+        if let Some(fleet) = &mut self.space_fleet { fleet.reserve(slots); }
+        if let Some(effects) = &mut self.space_effects { effects.reserve_fleet(slots); }
+    }
+
     pub async fn new(
         content: &mut BattleContent,
+        family: bfe_family::GameFamily,
         bridge: &mut Bridge,
         textures: &[u32],
         views: super::first_person::Prepared,
@@ -248,6 +268,7 @@ impl Replicas {
         solid: u32,
         size: [i32; 2],
     ) -> Result<Self, String> {
+        let wire_bounds = bfe_sim::wire::bounds::for_battle(family, &content.content.battle.map_data)?;
         let shadow_cascades = bridge.shadow_cascades();
         // entityRegistryDescriptor derives ordered names from the same native
         // definitions as the server. Numeric handles resolve before frames.
@@ -270,14 +291,14 @@ impl Replicas {
             aim_classes[id as usize]=super::shot_aim::Class {track,scale:class.record.get("CollisionRootScale").and_then(bfe_content::Value::as_f64).unwrap_or(1.),walker,sections};
         }
 
-        let table = |names: &[String]| names.iter().enumerate().map(|(i, n)| serde_json::json!([i + 1, n])).collect::<Vec<_>>();
-        let descriptor = serde_json::json!({"contentEpoch":1,"combatDefinitions":registry.combat.iter().map(|(p,_)|p).collect::<Vec<_>>(),"classes":table(&registry.classes),"weapons":table(&registry.weapons),"posts":table(&registry.posts),"inputCodes":&INPUT_CODES[..],"bindingProfiles":[[0,{}]]});
+        let descriptor = registry_descriptor(registry, family);
         let mut units = Box::new(Units::new());
         let mut models = Vec::new();
         let mut names = Vec::new();
         // Actor geometry and programs are immutable resources. Model variants
         // share them across every prepared skeleton in the retained pool.
         let material = Material {
+            extended: None,
             kind: MaterialKind::Dynamic,
             blend: Blend::Opaque,
             cutout: false,
@@ -401,7 +422,12 @@ impl Replicas {
         }
         // Soldier look limits are authored class constants, not a second
         // controller. Class registry ids are sparse and cannot index models.
-        let mut turns = vec![(2., [-0.8, 1.1]); registry.classes.len() + 1];
+        let mut turns = vec![super::input::ClassTurn::classic(2., [-0.8, 1.1]); registry.classes.len() + 1];
+        let mut swbf2_turn_models = if family == bfe_family::GameFamily::Swbf2 {
+            vec![None; registry.classes.len() + 1]
+        } else {
+            Vec::new()
+        };
         // SoldierAnimator.die defaults to backward, then its generic fallback.
         // Clip names are resolved once, outside the live animation batch.
         for model in &mut models {
@@ -430,7 +456,35 @@ impl Replicas {
                 continue;
             };
             let body_constants = bfe_sim::units::class::soldier_body(&class.record, 1e6, class.getup_time, class.dive_time);
-            turns[id as usize] = (body_constants.max_turn, body_constants.pitch_limits);
+            let is_swbf2_soldier = family == bfe_family::GameFamily::Swbf2
+                && class.record.get("base").and_then(bfe_content::Value::as_str) == Some("soldier");
+            let swbf2 = is_swbf2_soldier
+                .then(|| bfe_sim::units::infantry::turn_scales(&class.record).ok())
+                .flatten();
+            if is_swbf2_soldier {
+                let name = defs.names.text(class.name);
+                let side = defs.names.text(class.side);
+                // The roll and the stand-up lock last as long as the class's
+                // clips, by the rule the simulation's class table reads them.
+                use bfe_sim::movement::soldier::swbf2::classes;
+                let roll_frames = classes::roll_frames(&content.content, side, name, class.clips);
+                let (getup_front, getup_back) = classes::getup_seconds(&content.content, side, name, class.clips);
+                swbf2_turn_models[id as usize] = bfe_sim::units::infantry::turn_model(
+                    &class.record,
+                    side,
+                    |path| content.textures.read(path).ok(),
+                    roll_frames,
+                    getup_front,
+                    getup_back,
+                    body_constants.max_speed,
+                )
+                .ok();
+            }
+            turns[id as usize] = super::input::ClassTurn {
+                max_turn: body_constants.max_turn,
+                pitch_limits: body_constants.pitch_limits,
+                swbf2,
+            };
             dive_times[id as usize] = class.dive_time;
             walker_rates[id as usize] = bfe_sim::units::class::droideka_body(&class.record, -1., 0.).speed;
             can_repair[id as usize] = class.weapons.iter().any(|w|defs.weapons[*w].record.get("base").and_then(bfe_content::Value::as_str)==Some("repair"));
@@ -467,7 +521,11 @@ impl Replicas {
         let world = &content.content.battle.world;
         let lumi = world.get("lumi").and_then(|l| l.get("file")).and_then(bfe_content::Value::as_str)
             .and_then(|file| content.textures.read(&format!("maps/{}/{file}", content.content.battle.map)).ok());
-        let light = super::unit_light::UnitLight::new(world, lumi);
+        let light = if content.family == bfe_content_native::GameFamily::Swbf2 {
+            super::unit_light::UnitLight::new_swbf2(world, lumi)
+        } else {
+            super::unit_light::UnitLight::new(world, lumi)
+        };
         let sun = serde_json::from_value::<[f64; 3]>(content.map["lighting"]["sunDirection"].clone()).unwrap_or([0., -1., 0.]);
         let sun = { let n = (sun[0] * sun[0] + sun[1] * sun[1] + sun[2] * sun[2]).sqrt().max(1e-9); [sun[0] / n, sun[1] / n, sun[2] / n] };
         let mut skins: Vec<Option<([f64; 4], Vec<Appearance>)>> = (0..classes.len()).map(|_| None).collect();
@@ -630,7 +688,7 @@ impl Replicas {
         ));
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
-        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world).await?);
+        let items = Box::new(super::items::Views::new(content, bridge, textures, resources.collision.clone(), resources.world, wire_bounds).await?);
         crate::loading_work::frame().await;
         bridge.r.core.state.reset();
         let turrets = Box::new(super::turrets::Turrets::new(content, bridge, textures, &combat.effect_names, registry.classes.len() + 1)?);
@@ -664,6 +722,14 @@ impl Replicas {
             .collect();
         sound.ahead = (guns.ahead.clone(), guns.ids.clone());
         let (collision, world) = (resources.collision.clone(), resources.world);
+        let space_fleet = crate::local::flight_view::Fleet::load(
+            content,
+            bridge,
+            textures,
+            shadow_cascades,
+            collision.clone(),
+            world,
+        )?;
         bridge.r.core.state.reset();
         let shields = Box::new(super::shields::Shields::new(
             content,
@@ -734,9 +800,14 @@ impl Replicas {
         eprintln!("native unit admission: models={} classes={} slots={} nodes={nodes}", models.len(), classes.iter().flatten().count(), slots.len());
         Ok(Self {
             shot_aim: super::shot_aim::Scene::new(collision.clone(),world,aim_classes),
+            family: content.content.battle.family,
             first_person,
             descriptor,
+            space_effects: if space_fleet.is_some() { super::combat::swbf2::space::SpaceEffects::new(content, &mut combat)? } else { None },
+            space_fleet,
+            wire_bounds,
             turns,
+            swbf2_turn_models,
             units,
             hud,
             cameras,
@@ -751,6 +822,7 @@ impl Replicas {
             fountains,
             trails,
             rollers: Vec::with_capacity(16),
+            hidden_crew: Vec::with_capacity(64),
             own: (0, 0),
             guns,
             // The defaults, until the player's settings arrive.
@@ -820,6 +892,9 @@ impl Replicas {
         self.dt = dt;
         self.own_feet = None;
         self.hud.frame(bridge, receiver, prediction, dt);
+        if let (Some(effects), Some(history)) = (&mut self.space_effects, &receiver.space) {
+            effects.frame(history, receiver.clock.shown, &mut self.combat);
+        }
         self.combat.frame(receiver, tick, dt);
         // The player's own rounds fired in this frame's replay are drawn
         // from now on, from the gun origin beside his head as he fired.
@@ -866,6 +941,9 @@ impl Replicas {
         receiver.network.borrow_mut().present(tick, -1., prediction.fleet.identity.map_or(-1., |p| p.0));
         self.hulls.frame(receiver, tick, dt, &prediction.fleet, history, &mut self.combat.hull_fx);
         self.turrets.frame(receiver, history, dt, &mut self.combat.hull_fx);
+        if let (Some(effects), Some(space_history)) = (&mut self.space_effects, &receiver.space) {
+            effects.repose_beams(space_history, receiver.clock.shown, Some(&self.turrets), &mut *self.combat);
+        }
         // In a seat the minimap's heading is the seat's or the turret's aim as this frame shows it.
         if let Some(yaw) = self.hulls.seat_yaw.or(self.turrets.gunner_yaw) {
             bridge.hud_model.input[bfe_render::hud_model::layout::HudFrame::PLAYER_YAW] = yaw;
@@ -874,6 +952,7 @@ impl Replicas {
         self.items.frame(receiver, tick);
         self.items.ride(receiver, &self.hulls, dt);
         self.items.light(&mut self.lights);
+        self.items.sync_effects(receiver, &mut self.combat);
         let own = (receiver.own.alive && receiver.own.mount.is_none()).then_some(receiver.own.position);
         self.combat.map_effects.wake(dt, own);
         self.frame = self.frame.wrapping_add(1);
@@ -1390,7 +1469,8 @@ impl Replicas {
                     + self.units.input[at + 2] * out[o::POSITION + 2]
                     + self.units.input[at + 3] >= -2.2
             });
-            if visible && slot.mount.is_none() && !slot.dead && slot.gone.is_none() && out[o::DEAD] == 0. && out[o::SHADOW_NEAR] != 0. {
+            let hidden_in_space = slot.identity.is_some_and(|id| self.hidden_crew.contains(&id));
+            if visible && !hidden_in_space && slot.mount.is_none() && !slot.dead && slot.gone.is_none() && out[o::DEAD] == 0. && out[o::SHADOW_NEAR] != 0. {
                 self.combat.drop_feet.push([out[o::POSITION], out[o::POSITION + 1], out[o::POSITION + 2]]);
             }
             if visible || input[i::OWN] != 0. || slot.mount.is_some() || slot.identity == killer {
@@ -1493,7 +1573,7 @@ impl Replicas {
     /// arc caster, where guns and shields are, and the bones of the ones
     /// a bolt strikes. `camera` is the view's world matrix, `projection`
     /// its projection matrix and `height` the frame's height in pixels.
-    pub fn present_arcs(
+    pub(crate) fn present_arcs(
         &mut self,
         receiver: &Receiver,
         prediction: &super::replay::Replay,
@@ -1501,6 +1581,7 @@ impl Replicas {
         camera: &Matrix4,
         projection: &[f64],
         height: f64,
+        characters: Option<&mut crate::characters::Characters>,
         bridge: &mut Bridge,
     ) {
         let mut turn = three::Quaternion::default();
@@ -1604,14 +1685,100 @@ impl Replicas {
         self.combat.present_sniper(camera, projection, height, bridge);
         self.presented.shown[12] = self.combat.total_streaks;
         self.present_flashes(receiver, dt, bridge);
-        self.present_jets(dt, bridge);
+        self.present_jets(dt, characters, bridge);
+    }
+    /// Step 2005 emitter power bursts, bone smolders, and queued lightning bolts after
+    /// 2005 characters are posed and before the frame's particle pass steps.
+    pub(crate) fn present_swbf2_powers(
+        &mut self,
+        receiver: &Receiver,
+        characters: &mut crate::characters::Characters,
+        dt: f64,
+    ) {
+        let collision = &self.collision;
+        let world = self.world;
+        let mut cast = |from: [f64; 3], dir: [f64; 3], length: f64| {
+            let ray = bfe_sim::collision::Ray {
+                ox: from[0],
+                oy: from[1],
+                oz: from[2],
+                dx: dir[0],
+                dy: dir[1],
+                dz: dir[2],
+            };
+            collision
+                .borrow_mut()
+                .ray_hit(world, ray, length, -1)
+                .map(|(_, hit)| hit.distance)
+        };
+        self.combat
+            .present_swbf2_powers(receiver, characters, dt, &mut cast);
+        let lights = &mut self.lights;
+        if let Some(mission) = &mut self.combat.mission_effects {
+            mission.flash_blast_lights(self.tick, |position, rgb, radius, duration| lights.flash(position, rgb, radius, duration));
+        }
+    }
+    /// Lightning arcs for a 2005 battle whose soldiers live in `Characters` rather than `Units`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn present_swbf2_arcs(
+        &mut self,
+        receiver: &Receiver,
+        characters: &mut crate::characters::Characters,
+        dt: f64,
+        camera: &Matrix4,
+        projection: &[f64],
+        height: f64,
+        bridge: &mut Bridge,
+    ) {
+        self.arcs.sync_epoch(receiver.epoch);
+        let mut turn = three::Quaternion::default();
+        turn.set_from_rotation_matrix(camera);
+        let eye = [camera.elements[12], camera.elements[13], camera.elements[14]];
+        self.arcs.begin(dt, eye, [turn.x, turn.y, turn.z, turn.w], false);
+        if self.arcs.reads_units() {
+            let own = (receiver.own.id as u32, receiver.own.generation as u32);
+            let mission = self.combat.mission_effects.as_deref();
+            characters.list_for_arcs(
+                own,
+                |class| mission.and_then(|m| m.powers.class_lightning_cone(class)),
+                &mut self.arcs,
+            );
+        }
+        let mut casts = super::lightning::Casts {
+            collision: &self.collision,
+            world: self.world,
+        };
+        if let Some(mission) = &mut self.combat.mission_effects {
+            mission.powers.drain_bolts(&mut self.arcs, &mut casts);
+        }
+        self.presented.shown[5] = self.arcs.shown;
+        self.arcs.prepare(|shooter| {
+            characters
+                .is_alive(shooter)
+                .then(|| characters.hand_world(shooter))
+                .flatten()
+        });
+        characters.pose_for_arcs(&mut self.arcs);
+        self.arcs.finish(&mut casts, projection, height, bridge);
+        self.combat.present_sniper(camera, projection, height, bridge);
+        self.presented.shown[12] = self.combat.total_streaks;
+        self.present_flashes(receiver, dt, bridge);
+        self.present_jets(dt, Some(characters), bridge);
     }
     // updateJetFlame for every body drawn: a soldier jetting and
     // alive (`soldier.air === "jet"`) burns at his ribcage as posed this
     // frame, with the Enhanced flame and wake or, in Classic, his class's
     // JetExhaust effect.
-    fn present_jets(&mut self, dt: f64, bridge: &mut Bridge) {
+    fn present_jets(
+        &mut self,
+        dt: f64,
+        characters: Option<&mut crate::characters::Characters>,
+        bridge: &mut Bridge,
+    ) {
         self.jets.begin();
+        if let Some(characters) = characters {
+            characters.present_jets(&mut self.jets, &mut self.combat, dt);
+        }
         for at in 0..self.slots.len() {
             let slot = &self.slots[at];
             let (true, false, Some(unit), Some(chest)) = (slot.active, slot.walker, slot.identity, self.models[slot.model].chest) else {
@@ -1651,7 +1818,7 @@ impl Replicas {
     // for one tick however fast frames are drawn; the time left here is
     // counted from the ticks gone by the same way. The earlier build also lights
     // the scene from it; there are no such lights here.
-    fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+    fn present_rig_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
         let own = (receiver.own.id as u32, receiver.own.generation as u32);
         let tick = self.tick.floor();
         for at in 0..self.slots.len() {
@@ -1733,6 +1900,20 @@ impl Replicas {
             if shown {
                 self.presented.shown[10] += 1;
             }
+        }
+    }
+    fn present_flashes(&mut self, receiver: &Receiver, dt: f64, bridge: &mut Bridge) {
+        if self.combat.mission_effects.is_none() {
+            self.present_rig_flashes(receiver, dt, bridge);
+            return;
+        }
+        self.present_mission_rig_flashes(receiver, bridge);
+        let combat = &mut *self.combat;
+        if let Some(mission) = &combat.mission_effects {
+            let slots = &self.slots;
+            self.presented.shown[10] += mission.draw_barrel_flashes(self.tick, &mut combat.particles, bridge, |owner| {
+                slots.iter().any(|s| s.active && s.identity == Some(owner) && s.flash.1 >= 0. && s.flash_lit == s.flash.1)
+            });
         }
     }
     /// The looks the player's settings choose them.
@@ -1845,6 +2026,12 @@ impl Replicas {
         self.combat.destruction.draw(bridge);
     }
     pub fn present_weather(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
+        if let Some(material) = &mut self.combat.particles.refraction {
+            material.frame(screen, gpu, bridge);
+        }
+        self.present_weather_shared(dt, eye, camera, screen, gpu, bridge);
+    }
+    fn present_weather_shared(&mut self, dt: f64, eye: [f64; 3], camera: &[f64], screen: [i32; 2], gpu: &mut crate::resources::Resources, bridge: &mut Bridge) {
         self.present_destruction(dt, eye, bridge);
         if let Some(steam) = &mut self.steam {
             steam.frame(dt, &self.combat.map_effects.volumes, &self.combat.map_effects.wakes, screen, true, gpu, bridge);
@@ -1941,6 +2128,11 @@ impl Replicas {
         let viewer = receiver.own.team;
         let can_repair = receiver.own.alive && self.bound.get(&(receiver.own.id as u32,receiver.own.generation as u32))
             .and_then(|slot|self.can_repair.get(self.slots[*slot].class)).copied().unwrap_or(false);
+        // A 2005 mission names its teams; their symbols follow the names.
+        if let Some(view) = receiver.mission_view.as_deref() {
+            let teams = &view.admission.teams;
+            self.holograms.name_teams(&[teams[0].name.as_str(), teams[1].name.as_str()]);
+        }
         self.holograms.present(
             dt,
             eye,
@@ -2074,33 +2266,60 @@ impl Replicas {
     /// The gun's origin and aim direction of the client's own soldier on foot
     /// (PlayerCombat.origin and aimDir), where the reticle's target search
     /// starts whichever view he is drawn in.
-    pub fn aim_ray(&self, receiver: &Receiver) -> Option<([f64; 3], [f64; 3])> {
+    pub fn aim_ray(&self, receiver: &Receiver, prediction: &super::replay::Replay) -> Option<([f64; 3], [f64; 3])> {
         if !receiver.own.alive || receiver.own.mount.is_some() {
             return None;
         }
         let identity = (receiver.own.id as u32, receiver.own.generation as u32);
-        let slot = self.slots.iter().find(|slot| slot.active && slot.identity == Some(identity))?;
-        let row = &self.units.output[slot.actor * o::STRIDE..];
-        Some((std::array::from_fn(|k| row[o::COMBAT_BASIS + k]), std::array::from_fn(|k| row[o::COMBAT_BASIS + 12 + k])))
+        if let Some(slot) = self.slots.iter().find(|slot| slot.active && slot.identity == Some(identity)) {
+            let row = &self.units.output[slot.actor * o::STRIDE..];
+            return Some((std::array::from_fn(|k| row[o::COMBAT_BASIS + k]), std::array::from_fn(|k| row[o::COMBAT_BASIS + 12 + k])));
+        }
+        // Soldiers rendered through the Battlefront II character bank carry their displayed pose on prediction.
+        let (pos, yaw, pitch, posture, air) = match &prediction.displayed {
+            Some(body) => (body.position, body.aim_yaw, body.aim_pitch, body.posture as usize, body.air.is_some()),
+            None => (receiver.own.position, receiver.own.yaw, receiver.own.pitch, receiver.own.posture, receiver.own.air != 0),
+        };
+        let feet = three::Vector3::new(pos[0], pos[1], pos[2]);
+        let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(feet, yaw, pitch, posture, air);
+        let eye = basis.eye(feet, feet, posture, air, receiver.own.zoom);
+        if !self.first_person.enabled {
+            let sections = self.shot_aim.borrow().classes.get(receiver.own.class).and_then(|c| c.sections);
+            if let Some(sections) = sections {
+                let p = if air { 0 } else { posture.min(2) };
+                let section = &sections[p + if receiver.own.zoom > 1. { 3 } else { 0 }];
+                let (origin, dir) = bfe_presentation::aim::camera_line::<bfe_presentation::cameras::math::V8>(feet, yaw, pitch, eye, Some(section));
+                return Some(([origin.x, origin.y, origin.z], [dir.x, dir.y, dir.z]));
+            }
+        }
+        let origin = if self.first_person.enabled { eye } else { basis.origin };
+        Some(([origin.x, origin.y, origin.z], [basis.direction.x, basis.direction.y, basis.direction.z]))
     }
-    pub fn reticle_point(&self, receiver: &Receiver) -> Option<[f64; 3]> {
+    pub fn reticle_point(&self, receiver: &Receiver, prediction: &super::replay::Replay) -> Option<[f64; 3]> {
         if !receiver.own.alive || receiver.own.mount.is_some() {
             return None;
         }
         let identity = (receiver.own.id as u32, receiver.own.generation as u32);
-        let slot = self
+        if let Some(slot) = self
             .slots
             .iter()
-            .find(|slot| slot.active && slot.identity == Some(identity))?;
-        let row = &self.units.output[slot.actor * o::STRIDE..];
-        let origin = if self.first_person.enabled {
-            o::COMBAT_EYE
-        } else {
-            o::COMBAT_BASIS
+            .find(|slot| slot.active && slot.identity == Some(identity))
+        {
+            let row = &self.units.output[slot.actor * o::STRIDE..];
+            let origin = if self.first_person.enabled {
+                o::COMBAT_EYE
+            } else {
+                o::COMBAT_BASIS
+            };
+            return Some(std::array::from_fn(|k| {
+                row[origin + k] + 1024. * row[o::COMBAT_BASIS + 12 + k]
+            }));
+        }
+        let (pos, yaw, pitch, posture, air) = match &prediction.displayed {
+            Some(body) => (body.position, body.aim_yaw, body.aim_pitch, body.posture as usize, body.air.is_some()),
+            None => (receiver.own.position, receiver.own.yaw, receiver.own.pitch, receiver.own.posture, receiver.own.air != 0),
         };
-        Some(std::array::from_fn(|k| {
-            row[origin + k] + 1024. * row[o::COMBAT_BASIS + 12 + k]
-        }))
+        Some(fallback_reticle_point(pos, yaw, pitch, posture, air, self.first_person.enabled, receiver.own.zoom))
     }
 
     // Static admission leaves room for every live recipe, including held
@@ -2137,7 +2356,7 @@ impl Replicas {
             .filter(|s| s.active)
             .map(|s| 1 + s.held.and_then(|id| self.held.get(id)).and_then(Option::as_ref).map_or(0, |m| m.rows.len()))
             .sum();
-        actors + self.animated.record_budget() + self.buildings.record_budget() + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
+        actors + self.space_fleet.as_ref().map_or(0, |f| f.budget()) + self.animated.record_budget() + self.buildings.record_budget() + self.hulls.record_budget() + self.turrets.record_budget() + self.items.record_budget() + self.combat.record_budget()
     }
     pub fn hidden_shadow_budget(&self) -> usize {
         self.hulls.hidden_shadow_budget() + self.turrets.hidden_shadow_budget()
@@ -2181,7 +2400,12 @@ impl Replicas {
             self.units.refresh_actor(slot.actor);
             let output = &self.units.output[slot.actor * o::STRIDE..];
             let count = output[o::SKIN_COUNT] as usize;
-            if records == draw::MAX_RECORDS || bones + count > draw::MAX_BONES {
+            if records == draw::MAX_RECORDS {
+                bridge.r.instances.overflow.note_record_drop(1);
+                continue;
+            }
+            if bones + count > draw::MAX_BONES {
+                bridge.r.instances.overflow.note_bone_drop(1);
                 continue;
             }
             // Bind inverses and skin bases belong to this prepared model.
@@ -2221,6 +2445,7 @@ impl Replicas {
             }
         }
         let first = records;
+        if let Some(fleet) = &self.space_fleet { (records, bones) = fleet.append(bridge, records, bones); }
         let (records, bones) = self.hulls.append(bridge, records, bones);
         crate::shadows::limit_distance(&mut bridge.r.core.input, first, records, 110.);
         let first = records;
@@ -2261,7 +2486,14 @@ impl Replicas {
         (Some([point.x, point.y, point.z]), Some(feet), Some([along.x, along.y, along.z]))
     }
 
-    pub fn capture_shot_scene(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {
+    pub fn capture_shot_scene(&self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &crate::scene::MapCamera) {
+        match self.family {
+            bfe_family::GameFamily::Swbf1 => self.capture_shot_scene_released(receiver, camera),
+            bfe_family::GameFamily::Swbf2 => self.capture_shot_scene_swbf2(receiver, prediction, camera),
+        }
+    }
+
+    fn capture_shot_scene_released(&self, receiver: &Receiver, camera: &crate::scene::MapCamera) {
         use bfe_sim::units::shapes::{soldier_shapes,HitPosture,HitShape,Half};
         let mut scene=self.shot_aim.borrow_mut();
         scene.camera=camera.position; scene.eye_view=self.cameras.scoped_eye;
@@ -2296,6 +2528,83 @@ impl Replicas {
                     center:[pos[0]+cos*x+sin*z,pos[1]+y,pos[2]-sin*x+cos*z],radius:part.radius,
                     half:if part.kind==bfe_sim::gen::ShapeType::Box {Half::Vec3(part.half_box)}else{Half::F64(part.half)},
                     half_size:part.half_box,yaw:row[o::YAW],..Default::default()}));
+            }
+        }
+    }
+
+    fn capture_shot_scene_swbf2(&self, receiver: &Receiver, prediction: &super::replay::Replay, camera: &crate::scene::MapCamera) {
+        use bfe_sim::units::shapes::{soldier_shapes,HitPosture,HitShape,Half};
+        let mut scene=self.shot_aim.borrow_mut();
+        scene.camera=camera.position; scene.eye_view=self.cameras.scoped_eye;
+        scene.view_projection.copy_from_slice(&camera.snapshot().values[..32]);
+        scene.position=prediction.displayed.as_ref().map_or(receiver.own.position, |b| b.position);
+        scene.targets.clear();
+        let mut any_slot = false;
+        for slot in &self.slots {
+            if !slot.active || slot.dead || slot.mount.is_some() {continue;}
+            any_slot = true;
+            let Some((id,_))=slot.identity else {continue};
+            let row=&self.units.output[slot.actor*o::STRIDE..];
+            let pos=[row[o::POSITION],row[o::POSITION+1],row[o::POSITION+2]];
+            if id==receiver.own.id as u32 {scene.position=pos;}
+            let scale=scene.classes.get(slot.class).map_or(1.,|c|c.scale);
+            let posture=if row[o::DIVE]!=0. {1}else if row[o::AIR]!=0. {0}else{row[o::POSTURE] as usize};
+            let posture=[HitPosture::Stand,HitPosture::Crouch,HitPosture::Prone][posture.min(2)];
+            let (sin,cos)=row[o::YAW].sin_cos();
+            if slot.walker {
+                use bfe_sim::gen::{ShapeType,ShapePart};
+                let rolled=slot.shield.2;
+                scene.targets.push((id,HitShape {r#type:ShapeType::Sphere,part:ShapePart::Body,
+                    center:[pos[0],pos[1]+0.65,pos[2]],radius:0.65,..Default::default()}));
+                if !rolled {
+                    scene.targets.push((id,HitShape {r#type:ShapeType::Cylinder,part:ShapePart::Body,
+                        center:[pos[0]+sin*0.506,pos[1]+1.,pos[2]+cos*0.506],radius:0.8,
+                        half:Half::F64(1.),..Default::default()}));
+                }
+                continue;
+            }
+            for part in soldier_shapes(posture,scale) {
+                let [x,y,z]=part.at;
+                if scene.targets.len()==scene.targets.capacity(){break;}
+                scene.targets.push((id,HitShape {r#type:part.kind,part:part.part,
+                    center:[pos[0]+cos*x+sin*z,pos[1]+y,pos[2]-sin*x+cos*z],radius:part.radius,
+                    half:if part.kind==bfe_sim::gen::ShapeType::Box {Half::Vec3(part.half_box)}else{Half::F64(part.half)},
+                    half_size:part.half_box,yaw:row[o::YAW],..Default::default()}));
+            }
+        }
+        if !any_slot {
+            for fact in receiver.active() {
+                if fact[r::KIND] as u32 != k::SOLDIER || fact[r::DEAD] != 0. || fact[r::HEALTH] <= 0. || fact[r::SEAT_PRESENT] != 0. {
+                    continue;
+                }
+                let id = fact[r::ID] as u32;
+                let state = fact[r::STATE] as u32;
+                if (7..=8).contains(&state) { continue; }
+                let pos = [fact[r::POSITION], fact[r::POSITION + 1], fact[r::POSITION + 2]];
+                let scale = scene.classes.get(fact[r::CLASS_ID] as usize).map_or(1., |c| c.scale);
+                let posture = if (5..=6).contains(&state) {
+                    HitPosture::Crouch
+                } else if (1..=4).contains(&state) {
+                    HitPosture::Stand
+                } else {
+                    [HitPosture::Stand, HitPosture::Crouch, HitPosture::Prone][(fact[r::POSTURE] as usize).min(2)]
+                };
+                let yaw = fact[r::YAW];
+                let (sin, cos) = yaw.sin_cos();
+                for part in soldier_shapes(posture, scale) {
+                    let [x, y, z] = part.at;
+                    if scene.targets.len() == scene.targets.capacity() { break; }
+                    scene.targets.push((id, HitShape {
+                        r#type: part.kind,
+                        part: part.part,
+                        center: [pos[0] + cos * x + sin * z, pos[1] + y, pos[2] - sin * x + cos * z],
+                        radius: part.radius,
+                        half: if part.kind == bfe_sim::gen::ShapeType::Box { Half::Vec3(part.half_box) } else { Half::F64(part.half) },
+                        half_size: part.half_box,
+                        yaw,
+                        ..Default::default()
+                    }));
+                }
             }
         }
     }
@@ -2426,9 +2735,61 @@ fn human(characters: &std::collections::HashMap<u32, (u32, u16)>, roster: &super
         .is_some_and(|(_, c)| c.human)
 }
 
+fn fallback_reticle_point(
+    pos: [f64; 3],
+    yaw: f64,
+    pitch: f64,
+    posture: usize,
+    air: bool,
+    first_person: bool,
+    zoom: f64,
+) -> [f64; 3] {
+    let feet = three::Vector3::new(pos[0], pos[1], pos[2]);
+    let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(feet, yaw, pitch, posture, air);
+    let origin = if first_person {
+        basis.eye(feet, feet, posture, air, zoom)
+    } else {
+        basis.origin
+    };
+    [
+        origin.x + 1024. * basis.direction.x,
+        origin.y + 1024. * basis.direction.y,
+        origin.z + 1024. * basis.direction.z,
+    ]
+}
+
 #[cfg(test)]
 mod walker_aim_tests {
     use super::*;
+
+    #[test]
+    fn fallback_reticle_point_projects_along_aim_direction_without_vertical_bias() {
+        let pos = [10.0, 3.0, -5.0];
+        let basis = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(
+            three::Vector3::new(pos[0], pos[1], pos[2]),
+            0.0,
+            0.0,
+            0,
+            false,
+        );
+        let pt = fallback_reticle_point(pos, 0.0, 0.0, 0, false, false, 1.0);
+        // Zero pitch along +Z must keep y equal to the aim basis origin (not shifted vertically).
+        assert!((pt[0] - basis.origin.x).abs() < 1e-6, "x={}", pt[0]);
+        assert!((pt[1] - basis.origin.y).abs() < 1e-6, "y={} vs origin.y={}", pt[1], basis.origin.y);
+        assert!((pt[2] - (basis.origin.z + 1024.0)).abs() < 1e-6, "z={}", pt[2]);
+
+        // Pitched aim (+0.25 rad) must land exactly at origin + 1024 * direction.
+        let pitched = bfe_presentation::aim::Basis::new::<bfe_presentation::cameras::math::V8>(
+            three::Vector3::new(pos[0], pos[1], pos[2]),
+            0.4,
+            0.25,
+            0,
+            false,
+        );
+        let pt2 = fallback_reticle_point(pos, 0.4, 0.25, 0, false, false, 1.0);
+        let expected_y = pitched.origin.y + 1024.0 * pitched.direction.y;
+        assert!((pt2[1] - expected_y).abs() < 1e-6, "pitched y={} vs {expected_y}", pt2[1]);
+    }
 
     // A droideka aims as a human's only for the life its state named a
     // human's Character: a bot's, another life's, a unit without a

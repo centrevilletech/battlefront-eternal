@@ -121,6 +121,11 @@ pub fn cast_static_in(world_ctx: &mut crate::world::owner::World, world: usize, 
 /// OrdnanceWorld.cast and castMoving use the same live collision tree as
 /// soldier movement, including the shooter's ignored body and moving mask.
 pub fn ordnance_cast_in(world_ctx: &mut crate::world::owner::World, world: usize, origin: [f64; 3], direction: [f64; 3], far: f64, ignore: Option<crate::store::Ref<crate::gen::Body>>, static_only: bool, moving: bool) -> Option<crate::ordnance::world::Hit> {
+    if !static_only && world_ctx.space.is_some() {
+        return crate::space::hulls_meet(world_ctx, crate::space::flight::HullMeets::Shots, |w| {
+            ordnance_cast_parts_in(&mut w.collision, &mut w.movement, &w.fleet, world, origin, direction, far, ignore, static_only, moving)
+        });
+    }
     ordnance_cast_parts_in(&mut world_ctx.collision, &mut world_ctx.movement, &world_ctx.fleet,
         world, origin, direction, far, ignore, static_only, moving)
 }

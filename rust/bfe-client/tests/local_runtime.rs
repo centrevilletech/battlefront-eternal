@@ -458,6 +458,7 @@ fn local_tick_publishes_only_after_completion_and_close_is_once() {
             reject,
         };
         let admission = setup::Admitted {
+            family: bfe_family::GameFamily::Swbf1,
             setup: Default::default(),
             tick: WorldTickInput {
                 clock: WorldClockState {
@@ -470,6 +471,7 @@ fn local_tick_publishes_only_after_completion_and_close_is_once() {
             handles: setup::Handles::default(),
             player_id: 1.,
             registry: serde_json::json!({}),
+            wire_bounds: Default::default(),
             query: String::new(),
             publication: Vec::new(),
             publication_output: Default::default(),
@@ -528,7 +530,7 @@ fn generated_desktop_input_uses_shared_look_and_trigger_transitions() {
         ClientAction, ClientCommand, ClientFlightCommand, ClientHeld, ClientLook,
     };
     let context = bfe_sim::abi::context::Context::new();
-    let names = commands::Names::new(&context).unwrap();
+    let names = commands::Names::new(&context, Default::default()).unwrap();
     let forward = names.held[ClientHeld::Forward as usize];
     let use_action = names.actions[bfe_transport::layout::INPUT_ACTIONS
         .iter()
@@ -604,8 +606,14 @@ fn generated_desktop_input_uses_shared_look_and_trigger_transitions() {
 /// - Repeatedly packs movement, action edges, and fire edges into retained `Arguments`
 ///   arenas without allocating on the heap.
 fn full_input_bursts_remain_bounded_without_allocating_after_admission() {
+    for family in bfe_family::GameFamily::ALL {
+        bursts_remain_bounded(bfe_client::input_family::WireInputs::new(family));
+    }
+}
+// A 2005 battle's extra holds and actions fit the same admitted capacities.
+fn bursts_remain_bounded(inputs: bfe_client::input_family::WireInputs) {
     let context = bfe_sim::abi::context::Context::new();
-    let mut input = commands::Commands::new(commands::Names::new(&context).unwrap());
+    let mut input = commands::Commands::new(commands::Names::new(&context, inputs).unwrap());
     let mut command = ClientCommand {
         mouse_scale: 1.,
         primary_count: u32::MAX,
@@ -625,8 +633,8 @@ fn full_input_bursts_remain_bounded_without_allocating_after_admission() {
     // the first capture must fit the capacities reserved at admission.
     for tick in 1..=36000 {
         command.sequence = tick as f64;
-        command.held = if tick % 2 == 0 { 0 } else { (1 << 9) - 1 };
-        command.actions = (1 << 11) - 1;
+        command.held = if tick % 2 == 0 { 0 } else { (1 << bfe_client::generated_input::ClientHeld::NAMES.len()) - 1 };
+        command.actions = if tick % 4 < 2 { (1 << 11) - 1 } else { (1 << bfe_client::generated_input::ClientAction::NAMES.len()) - 1 };
         flight.held = (1 << bfe_client::generated_input::ClientFlightHeld::NAMES.len()) - 1;
         flight.actions = (1 << bfe_client::generated_input::ClientFlightAction::NAMES.len()) - 1;
         if let Err(fault) = input.capture(
@@ -652,10 +660,12 @@ fn full_input_bursts_remain_bounded_without_allocating_after_admission() {
     assert!(input.fires.len() <= 128);
     assert!(input.mailbox.entry.as_ref().unwrap().codes.len() <= 11);
     context.dispose().unwrap();
+    MEASURE.with(|enabled| enabled.set(false));
+    ALLOCATIONS.with(|count| count.set(0));
 }
 
 fn battle_options() -> bfe_sim::world::admit::Options {
-    bfe_sim::world::admit::Options {
+    bfe_sim::world::admit::Options { family: bfe_family::GameFamily::Swbf1,
         map: "nab2".into(),
         side: "rep".into(),
         enhanced: false,
@@ -664,6 +674,7 @@ fn battle_options() -> bfe_sim::world::admit::Options {
         unit: Some("trooper".into()),
         name: None,
         bots: Default::default(),
+        ..Default::default()
     }
 }
 
@@ -1074,6 +1085,7 @@ fn submitted_commands_keep_their_tick_stamps() {
         block: published(&bfe_sim::gen::WirePublicationOutput::default()),
     };
     let admission = setup::Admitted {
+        family: bfe_family::GameFamily::Swbf1,
         setup: Default::default(),
         tick: WorldTickInput {
             clock: WorldClockState { hz: 60., dt: STEP, ..Default::default() },
@@ -1082,6 +1094,7 @@ fn submitted_commands_keep_their_tick_stamps() {
         handles: setup::Handles::default(),
         player_id: 1.,
         registry: serde_json::json!({}),
+        wire_bounds: Default::default(),
         query: String::new(),
         publication: Vec::new(),
         publication_output: Default::default(),
@@ -1117,6 +1130,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             block: published(&bfe_sim::gen::WirePublicationOutput::default()),
         };
         let admission = setup::Admitted {
+            family: bfe_family::GameFamily::Swbf1,
             setup: Default::default(),
             tick: WorldTickInput {
                 clock: WorldClockState {
@@ -1129,6 +1143,7 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             handles: setup::Handles::default(),
             player_id: 1.0,
             registry: serde_json::json!({}),
+            wire_bounds: Default::default(),
             query: String::new(),
             publication: Vec::new(),
             publication_output: Default::default(),
@@ -1168,6 +1183,8 @@ fn threaded_world_steps_at_60hz_without_blocking_or_allocating_on_render_thread(
             ..Default::default()
         };
         world.send(WorldMessage::Step {
+            infantry: None,
+            pilot: None,
             command: cmd,
             look: ClientLook { x: 1.0, y: 0.0 },
             flight: ClientFlightCommand::default(),

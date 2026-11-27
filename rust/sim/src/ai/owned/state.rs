@@ -48,8 +48,10 @@ pub struct State {
     pub journal:Journal,
     pub reader:Reader,
     pub dangers:super::danger::Dangers,
+    /// Per-identity 2005 aim-error sphere for human-controlled units (no bot controller).
+    pub human_miss:Vec<(Obj,f64,crate::ai::combat::aim::AimMiss)>,
     object_actors:Vec<Option<(Obj,Actor)>>,
-    nav_classes:Vec<Option<usize>>,
+    pub(crate) nav_classes:Vec<Option<usize>>,
     hull_controls:Vec<Option<(crate::store::Ref<crate::gen::Vehicle>,Vec<usize>)>>,
     scopes:usize,
     stationary_navigation:usize,
@@ -79,6 +81,7 @@ impl State {
             lod:Lod::new(c.cameras),reticle:Default::default(),buffers:Buffers::new(c.registry,c.posts,c.characters,hints,c.scopes),
             queries:Queries::new(c.registry,c.scopes),candidates:Candidates::new(c.registry+c.buildings,c.buildings,c.scopes),
             weapons:Definitions::new(),classes:Classes::new(),items:Items::new(),sight:Sight::new(identities),journal,reader,dangers:Default::default(),
+            human_miss:vec![(0,f64::NAN,Default::default());identities],
             object_actors:vec![None;identities],nav_classes:Vec::new(),hull_controls:Vec::new(),scopes:c.scopes,stationary_navigation,
             unit_limit:c.registry.saturating_sub(c.hulls),
         }

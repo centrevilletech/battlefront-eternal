@@ -24,7 +24,14 @@ impl<C:Changes+?Sized,M:Mounted,E:Environment> crate::ai::control::helpers::Worl
         let actor=self.helper.and_then(|key|self.rows.state.navigation.helper_actor(key)).or_else(||self.rows.state.actor(controller));
         if let Some(actor)=actor {if let Some(control)=self.rows.state.navigation.control_mut(actor) {control.request.valid=false;}}
     }
-    fn helper_goto(&mut self, controller: usize, point: Vec3, mode: GotoMode) -> HelperObs {self.command(controller,Command::Goto(point,match mode {GotoMode::Route=>crate::ai::nav::goto::GotoMode::Route,GotoMode::Direct=>crate::ai::nav::goto::GotoMode::Direct,GotoMode::Straight=>crate::ai::nav::goto::GotoMode::Straight}))}
+    fn helper_goto(&mut self, controller: usize, point: Vec3, mode: GotoMode) -> HelperObs {
+        if E::uses_swbf2() && mode == GotoMode::Route {
+            let key = self.helper.or_else(|| self.rows.state.navigation.helper_key(self.actor(controller)))
+                .expect("prepared combat helper");
+            return self.rows.state.navigation.combat_approach(self.rows.w, self.random, self.environment, key, point)
+                .expect("retained combat helper");
+        }
+        self.command(controller,Command::Goto(point,match mode {GotoMode::Route=>crate::ai::nav::goto::GotoMode::Route,GotoMode::Direct=>crate::ai::nav::goto::GotoMode::Direct,GotoMode::Straight=>crate::ai::nav::goto::GotoMode::Straight}))}
     fn helper_stop(&mut self, controller: usize) -> HelperObs {self.command(controller,Command::Stop)}
     fn helper_terminate(&mut self, controller: usize) -> HelperObs {self.command(controller,Command::Stop)}
     fn helper_tick(&mut self, controller: usize, dt: f64) -> HelperObs {self.command(controller,Command::Tick(dt))}

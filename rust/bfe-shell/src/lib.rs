@@ -10,6 +10,7 @@ pub mod data;
 pub mod gate;
 pub mod launch;
 pub mod loading;
+pub mod loading2;
 pub mod media;
 pub mod movies;
 pub mod movie_gpu;

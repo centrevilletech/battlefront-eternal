@@ -13,6 +13,11 @@ fn player(w: &mut World, handle: u32) -> Option<&mut Player> { w.input.players.p
 pub fn players_init_in(w: &mut World) {
     let units = w.sim.store.unit.slots() as usize;
     w.input.players.activate(&mut w.sim.strings, units.max(256));
+    if w.movement.family() == bfe_family::GameFamily::Swbf2 {
+        if let Some(names) = w.input.players.names.as_mut() {
+            names.swbf2.get_or_insert_with(|| super::owner::Swbf2Names::new(&mut w.sim.strings));
+        }
+    }
 }
 
 /// addPlayer's record of a connection, after its Character and body exist.

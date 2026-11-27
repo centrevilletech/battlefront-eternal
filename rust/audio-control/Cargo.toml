@@ -6,4 +6,8 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
+bfe-family = { path = "../bfe-family" }
 v8math = { path = "../v8math" }
+
+[dev-dependencies]
+bfe-test-alloc = { path = "../bfe-test-alloc" }

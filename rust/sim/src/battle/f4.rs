@@ -1,7 +1,7 @@
 //! Canonical LiveObjects rows shared by the live phase and native combat.
 //! Combat keeps only geometry/target indices; health and trap clocks live here.
 use super::owner::BattleOwner;
-use super::{live_phase::{Building, Live}, prepared, props, traps};
+use super::{live_phase::{Building, Live}, prepared, props, rules::events::{Event, ObjectHandle}, traps};
 use crate::gen::*;
 
 /// Observe committed building and trap rows without retaining a mutable loan.
@@ -58,26 +58,55 @@ pub(crate) fn set_attacker_in(battle: &mut BattleOwner, h: &F4Handle, attacker: 
         live_in(battle).buildings.command(&h, |e| e.attacker = attacker);
     }
 }
-pub(crate) fn put_frame_in(battle: &mut BattleOwner, h: &F4Handle, frame: &props::Building) {
+pub(crate) fn put_frame_in(battle: &mut BattleOwner, store: &Store, h: &F4Handle, frame: &props::Building) {
     if h.kind == F4ObjectKind::Trap {
         let h = live_in(battle).traps.current(h).expect("current trap row");
+        let mut killed = false;
         live_in(battle).traps.lifecycle_command(&h, |e| {
+            killed = e.state.built && !e.state.sprung && e.state.health > 0.0 && frame.health == 0.0;
             let was = e.state.built; e.state.built = frame.alive(); e.state.health = frame.health;
             if frame.last_attacker == props::Identity::Null { e.attacker = Attacker::Null; }
             !was && e.state.built
         });
+        prop_killed(battle, store, h, killed);
     } else {
         let h = live_in(battle).buildings.current(h).expect("current building row");
+        let collect_events = battle.rule_events.is_some();
+        let mission = battle.rule_events.as_ref().is_some_and(|q|q.mission_events());
+        let mut killed = false;
         live_in(battle).buildings.lifecycle_command(&h, |e| {
-            let was = e.state.building.alive(); e.state.building = *frame;
+            let before = e.state.building;
+            let was = before.alive();
+            killed = collect_events && was && before.health > 0.0 && frame.health == 0.0;
+            e.state.building = *frame;
             if frame.last_attacker == props::Identity::Null { e.attacker = Attacker::Null; }
-            !was && frame.alive()
+            (!was || mission && before.health <= 0.0 && frame.health > 0.0) && frame.alive()
         });
+        prop_killed(battle, store, h, killed);
     }
 }
-pub(crate) fn put_trap_in(battle: &mut BattleOwner, h: &F4Handle, trap: traps::Trap) {
+pub(crate) fn put_trap_in(battle: &mut BattleOwner, store: &Store, h: &F4Handle, trap: traps::Trap) {
     let h = live_in(battle).traps.current(h).expect("current trap row");
-    live_in(battle).traps.lifecycle_command(&h, |e| { let was = e.state.built; e.state = trap; !was && trap.built });
+    let track_kills = battle.rule_events.is_some();
+    let mut killed = false;
+    live_in(battle).traps.lifecycle_command(&h, |e| {
+        let before = e.state;
+        killed = before.built && !before.sprung && before.health > 0.0 && trap.health == 0.0;
+        if track_kills && killed && !trap.sprung {
+            // Vehicle proximity completed the swing without a lethal hit.
+            e.attacker = Attacker::Null;
+        }
+        e.state = trap;
+        !before.built && trap.built
+    });
+    prop_killed(battle, store, h, killed);
+}
+
+fn prop_killed(battle: &mut BattleOwner, store: &Store, handle: F4Handle, killed: bool) {
+    if killed && battle.rule_events.as_ref().is_some_and(|q| !q.mission_events()) {
+        let killer = super::native_actions::character(store, super::f4_core::local_unit(battle), attacker_in(battle, &handle));
+        battle.rule_events.as_mut().unwrap().push(Event::ObjectKilled { object: ObjectHandle::Prop(handle), killer });
+    }
 }
 fn identity(attacker: Attacker) -> props::Identity {
     match attacker { Attacker::Undefined => props::Identity::Undefined, Attacker::Null => props::Identity::Null,

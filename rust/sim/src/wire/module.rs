@@ -1,6 +1,6 @@
 //! The generated exchange owns all inputs before encoding. No callback is
 //! made while a runtime, the store or the exchange block is borrowed.
-use super::codec;
+use super::{codec, PositionBounds};
 use crate::gen::*;
 
 pub fn output(s: &mut crate::abi::Sim, result: codec::Result<Vec<Vec<u8>>>) -> Option<&[f64]> {
@@ -55,7 +55,8 @@ pub(crate) fn wire_encode_in(w: &mut crate::world::owner::World, op: u32) -> Opt
     let result = match op {
         0 => {
             let a = WireEncode::take(row, heap);
-            codec::encode_entities(&a.current, a.baseline.as_ref(), a.interval)
+            let bounds = w.wire.as_deref().expect("admitted wire owner").bounds();
+            codec::encode_entities(&a.current, a.baseline.as_ref(), a.interval, bounds.width())
         }
         1 => {
             let a = WireDelta::take(row, heap);
@@ -80,25 +81,31 @@ pub struct Runtime {
     pub ring: super::ring::SnapshotRing<WireSnapshot>,
     pub slots: super::records::SnapshotSlotTable,
     pub previous: Option<WireSnapshot>,
+    pub(super) bounds: PositionBounds,
+    pub(super) capacity: super::bounds::Capacity,
     encoder: super::buffered::Encoder,
     retained: Option<super::retained::Ring>,
 }
 impl Default for Runtime {
     fn default() -> Self {
-        Self { ring: Default::default(), slots: Default::default(), previous: None,
-            encoder: super::buffered::Encoder::new(1024), retained: None }
+        Self::with_bounds(PositionBounds::LEGACY)
     }
 }
 impl Runtime {
+    pub(super) fn with_bounds(bounds: PositionBounds) -> Self { Self::for_battle(bounds, super::bounds::Capacity::LEGACY) }
+    /// A runtime for a battle's position box and publication capacity.
+    pub fn for_battle(bounds: PositionBounds, capacity: super::bounds::Capacity) -> Self {
+        Self { ring: Default::default(), slots: Default::default(), previous: None,
+            bounds, capacity, encoder: super::buffered::Encoder::with_capacity(1024, capacity), retained: None }
+    }
     pub fn capture(
         &mut self,
         input: WireCapture,
         strings: &crate::store::Strings,
     ) -> codec::Result<()> {
-        self.capture_records(input.tick, input.epoch, &input.records, input.world, &input.bounds, strings)
-    }
-    fn capture_records(&mut self, tick: f64, epoch: f64, records: &[WireRecord], world: Vec<WireField>,
-        bounds: &WireBounds, strings: &crate::store::Strings) -> codec::Result<()> {
+        let b = input.bounds;
+        self.bounds.check_box([b.x_min, b.y_min, b.z_min], [b.x_extent, b.y_extent, b.z_extent])?;
+        let WireCapture { tick, epoch, records, world, .. } = input;
         if !tick.is_finite()
             || tick.fract() != 0.
             || tick.abs() > 9007199254740991.
@@ -108,10 +115,10 @@ impl Runtime {
         let snapshot = super::records::snapshot_from_records(
             tick,
             epoch,
-            records,
+            &records,
             world,
             &mut self.slots,
-            bounds,
+            &self.bounds,
             self.previous.as_ref(),
             strings,
         )?;
@@ -122,11 +129,11 @@ impl Runtime {
     }
     /// Reserve a canonical host's complete retention window at attachment.
     pub fn reserve_world(&mut self, seats: usize, fields: usize) -> codec::Result<()> {
-        if self.retained.is_none() { self.retained = Some(super::retained::Ring::new(seats, fields, 128)?); } Ok(())
+        if self.retained.is_none() { self.retained = Some(super::retained::Ring::with_capacity(seats, fields, 128, self.capacity)?); } Ok(())
     }
     pub fn capture_canonical<'a>(&mut self, tick: f64, epoch: f64, records: &[WireRecord], fields: impl Iterator<Item = &'a WireField>, strings: &crate::store::Strings) -> codec::Result<()> {
         self.retained.as_mut().ok_or("canonical snapshot ring not attached")?.capture(tick, epoch, records, fields,
-            &mut self.slots, &super::records::default_bounds(), strings)
+            &mut self.slots, &self.bounds, strings)
     }
     pub fn latest(&self) -> Option<&WireSnapshot> { self.retained.as_ref().and_then(|r| r.latest()).or(self.previous.as_ref()) }
     pub fn encode(
@@ -143,14 +150,35 @@ impl Runtime {
             let base = if baseline == 0. { None } else { Some(self.ring.get(baseline as i64, Some(epoch as u32)).ok_or("chosen snapshot baseline not held")?) };
             (current, base)
         };
-        self.encoder.encode(current, base, interval)
+        self.encoder.encode(current, base, interval, self.bounds.width())
     }
 }
-pub(crate) fn wire_create_in(w: &mut crate::world::owner::World) -> usize {
+pub(crate) fn wire_create_in(w: &mut crate::world::owner::World, args: &[f64]) -> usize {
+    let bounds = match args {
+        [] => w.wire.as_deref().expect("admitted wire owner").bounds(),
+        &[x, y, z, dx, dy, dz] => {
+            let Some(bounds) = PositionBounds::from_padded([x, y, z], [dx, dy, dz]) else { return 0 };
+            bounds
+        }
+        // A 2005 battle's creation also names its slot domain.
+        &[x, y, z, dx, dy, dz, slots] => {
+            let Some(bounds) = PositionBounds::from_padded([x, y, z], [dx, dy, dz]) else { return 0 };
+            if slots != super::bounds::Capacity::FULL.slots as f64 { return 0; }
+            return wire_create_for_battle_in(w, bounds, super::bounds::Capacity::FULL);
+        }
+        _ => return 0,
+    };
+    wire_create_with_bounds_in(w, bounds)
+}
+
+pub(crate) fn wire_create_with_bounds_in(w: &mut crate::world::owner::World, bounds: PositionBounds) -> usize {
+    wire_create_for_battle_in(w, bounds, super::bounds::Capacity::LEGACY)
+}
+/// A runtime with the battle's box and publication capacity.
+pub(crate) fn wire_create_for_battle_in(w: &mut crate::world::owner::World, bounds: PositionBounds, capacity: super::bounds::Capacity) -> usize {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
-
-    owner.runtimes.insert(Runtime::default()).unwrap_or(0)
-
+    if !owner.bind_bounds(bounds) { return 0; }
+    owner.runtimes.insert(Runtime::for_battle(bounds, capacity)).unwrap_or(0)
 }
 /// Bind the canonical producer before its first publication. Ring banks
 /// reserve the loaded content's maximum crew size at this cold boundary.
@@ -161,7 +189,7 @@ pub(crate) fn wire_bind_store_in(w: &mut crate::world::owner::World, runtime: us
     let Some(runtime) = owner.runtimes.get_mut(runtime) else { return 0 };
     let Some(capacity) = capacity else { return 0 };
     if runtime.retained.is_some() { return 1; }
-    let Ok(ring) = super::retained::Ring::new(capacity, 1024, 128) else { return 0 };
+    let Ok(ring) = super::retained::Ring::with_capacity(capacity, 1024, 128, runtime.capacity) else { return 0 };
     runtime.retained = Some(ring); 1
 }
 /// # Safety

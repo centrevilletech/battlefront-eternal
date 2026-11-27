@@ -62,6 +62,7 @@ pub struct Phase {
     last_turret: f64,
     pub director: spawn::Director,
     pub skipped: u64,
+    near_clearance: bool,
 }
 // Cold registration refuses a new class with -1. Float-to-usize saturation
 // would otherwise select row zero; rejected and malformed ids use the empty
@@ -164,7 +165,15 @@ impl Phase {
             last_turret: -1.0,
             director: spawn::Director::default(),
             skipped: skipped as u64,
+            near_clearance: false,
         }
+    }
+    /// Enable or disable the 2005 game's round-robin parallel chase pullback
+    /// for the own-soldier chase camera. Defaults to `false` (2004 behavior
+    /// unchanged).
+    pub fn set_near_clearance(&mut self, enabled: bool) {
+        self.near_clearance = enabled;
+        self.soldier.near_clearance = enabled;
     }
     // Cold preview/test lifecycle reset, with all linear buffers retained.
     // This mirrors recreating the old camera controllers on a fresh scene.
@@ -173,6 +182,7 @@ impl Phase {
     // Shot selection is separately controlled by explicit screen events.
     pub fn reset_cameras(&mut self) {
         self.soldier = soldier::Soldier::new();
+        self.soldier.near_clearance = self.near_clearance;
         self.remote = soldier::Soldier::new();
         self.motion = motion::Motion::new();
         self.vehicle = vehicle::Vehicle::new();

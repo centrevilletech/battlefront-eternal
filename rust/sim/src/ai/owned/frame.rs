@@ -42,6 +42,7 @@ pub struct Frame<'a,'b,C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> {
 /// Implementations loan the canonical owners and return before another query;
 /// they never retain a row borrow across a lifecycle callback.
 pub trait Hooks<C:Changes+?Sized,M:Mounted>:super::navigation::Environment {
+    const SABER_ENGAGEMENT: bool = false;
     fn vehicle_binding(&self)->super::vehicles::Binding;
     fn fire_primary(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller:Obj);
     fn flight_path(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent:Obj,points:&[[f64;3]],over:bool,altitude:bool);
@@ -68,6 +69,9 @@ pub trait Hooks<C:Changes+?Sized,M:Mounted>:super::navigation::Environment {
     fn helper_follow(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent: Obj,target: Obj);
     fn helper_terminate(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,agent: Obj);
     fn request_jet(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller: Obj,vector: &Vector3);
+    fn end_jet(&mut self,_rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_controller: Obj) {}
+    fn steer_jet(&mut self,_rows:&mut Rows<'_,C,M>,_random:&mut RandomState,_controller: Obj,_point: Option<&Vector3>) {}
+    fn request_leap(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,controller: Obj,vector: &Vector3) { self.request_jet(rows,random,controller,vector) }
     fn emit_vo(&mut self,rows:&mut Rows<'_,C,M>,random:&mut RandomState,unit: Obj,event: &str,property: &str);
 }
 impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> Draws for Frame<'_, '_,C,M,H> {
@@ -75,9 +79,103 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> Draws for Frame<'_, '_,C,M,H> {
     fn uniform_b(&mut self)->f64 {Draws::uniform_b(self.random)}
     fn uniform_c(&mut self)->f64 {Draws::uniform_c(self.random)}
 }
+use crate::ai::combat::agent::saber::approach::{Fighter, SaberWorld};
+
+impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> SaberWorld for Frame<'_, '_,C,M,H> {
+    fn fighter(&mut self, unit: Obj) -> Option<&mut Fighter> {
+        let super::entities::Entity::Unit(body) = self.rows.state.entities.get(unit)? else { return None };
+        let body = self.rows.w.sim.store.unit.get(body)?;
+        let slot = body.character?.slot as usize;
+        let life = Ref { obj: unit, generation: body.generation };
+        let soldiers = crate::battle::f4_tail::soldier_inputs(&mut self.rows.w.battle)?;
+        Some(soldiers.fighters.get_mut(slot)?.for_life(life))
+    }
+    fn order_failed(&self, agent: Obj) -> bool {
+        self.rows.state.agents.get(&self.rows.state.entities, agent).is_some_and(|row|
+            row.navigation.and_then(|key| self.rows.state.navigation.helper_observation_for(row_store!(self.rows), key))
+                .unwrap_or(row.helper.obs).failed)
+    }
+}
+
 impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
+    fn foot_engagement(&self, unit: Obj, choice: &mut Engagement) {
+        if H::SABER_ENGAGEMENT && !self.uses_swbf2() && crate::ai::combat::agent::saber::equipped(self, unit) {
+            choice.pattern = 6.0;
+            choice.probability = 0.0;
+        }
+    }
+    fn uses_swbf2(&self) -> bool { self.rows.state.navigation.nav.swbf2.is_some() }
+    fn team_skill(&self, team: f64) -> f64 { self.settings.difficulty.borrow().skill(team) }
+    fn opposing_team_skill(&self, team: f64) -> f64 { self.settings.difficulty.borrow().opposing_skill(team) }
+    fn melee_throw_reloading(&self, unit: Obj) -> bool {
+        let Some(super::entities::Entity::Unit(body)) = self.rows.state.entities.get(unit) else { return false };
+        let Some(soldier) = self.rows.w.sim.store.unit.get(body) else { return false };
+        self.rows.w.units.infantry.as_ref().is_some_and(|inf| inf.melee_throw_reloading(body.slot, soldier.generation))
+    }
+    fn unit_evasion_flags(&self, u: Obj) -> u8 {
+        let Some(super::entities::Entity::Unit(body)) = self.rows.state.entities.get(u) else { return 0 };
+        let Some(unit) = self.rows.w.sim.store.unit.get(body) else { return 0 };
+        let air_flags = match &unit.soldier {
+            crate::gen::UnitBody::Soldier(s) => match s.air {
+                Some(crate::gen::Air::Jump) => crate::ai::combat::aim::EVASION_JUMP,
+                Some(crate::gen::Air::Jet) => crate::ai::combat::aim::EVASION_JET,
+                _ => 0,
+            },
+            crate::gen::UnitBody::Droideka(_) => 0,
+        };
+        let move_flags = self
+            .rows
+            .w
+            .units
+            .infantry
+            .as_ref()
+            .map_or(0, |inf| inf.evasion_flags(body.slot, unit.generation));
+        air_flags | move_flags
+    }
+    fn target_aim_miss_radius(&self, target: Obj) -> Option<f64> {
+        if let Some(c) = self.unit_controller(target) {
+            return self.ctl(c).perception.as_ref().map(|p| p.miss.radius);
+        }
+        if !self.uses_swbf2() {
+            return None;
+        }
+        let gen = self.unit_scalars(target).generation;
+        self.rows
+            .state
+            .human_miss
+            .get((target as u32) as usize)
+            .filter(|(obj, g, _)| *obj == target && g.to_bits() == gen.to_bits())
+            .map(|(_, _, miss)| miss.radius)
+    }
+    fn unit_airborne(&self, u: Obj) -> bool {
+        let Some(super::entities::Entity::Unit(body)) = self.rows.state.entities.get(u) else { return false };
+        let Some(unit) = self.rows.w.sim.store.unit.get(body) else { return false };
+        matches!(
+            &unit.soldier,
+            crate::gen::UnitBody::Soldier(s) if matches!(s.air, Some(crate::gen::Air::Jump | crate::gen::Air::Jet))
+        )
+    }
+    fn swbf2_leap_clear(&mut self, unit: Obj, from: &Vector3, to: &Vector3) -> bool {
+        use crate::ai::nav::math::Vec3;
+        let radius = self
+            .rows
+            .state
+            .entities
+            .get(unit)
+            .and_then(|e| match e {
+                super::entities::Entity::Unit(body) => self.rows.w.sim.store.unit.get(body).and_then(|u| u.nav_radius),
+                _ => None,
+            })
+            .unwrap_or(0.5);
+        self.rows.state.navigation.nav.barriers.leap_clear(
+            Vec3::new(from.x, from.y, from.z),
+            Vec3::new(to.x, to.y, to.z),
+            radius,
+            crate::ai::goals::reach::SOLDIER_MASK,
+        )
+    }
     fn time(&self)-> f64 { self.time }
-    fn difficulty(&self)-> DifficultyView { {let d=self.settings.difficulty.borrow();let row=d.danger_row();DifficultyView {present:true,enemy_skill:Some(d.enemy_skill),hard:Some(d.hard()),tier:Some(d.tier),danger_row:Some((row[0],row[1]))}} }
+    fn difficulty(&self)-> DifficultyView { {let d=self.settings.difficulty.borrow();let row=d.danger_row();DifficultyView {present:true,enemy_skill:Some(d.effective().1),hard:Some(d.hard()),tier:Some(d.tier),danger_row:Some((row[0],row[1]))}} }
     fn mission_stay_in_turrets(&self)-> bool { self.settings.mission_stay_in_turrets }
     fn mission_no_jet_obstacle_test(&self)-> bool { self.settings.mission_no_jet_obstacle_test }
     fn ai_stay_in_turrets(&mut self)-> bool { self.settings.ai_stay_in_turrets }
@@ -118,7 +216,22 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     fn arsenal_select(&mut self, u: Obj, index: usize)-> bool { self.rows.select(u,index) }
     fn use_classic_random(&mut self, u: Obj) { self.hooks.use_classic_random(self.rows,self.random,u) }
     fn object_buffer(&self)-> List<Obj> { self.rows.state.buffers.units.take() }
-    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter)-> List<Obj> { self.hooks.query(self.rows,self.random,center,radius,filter) }
+    fn query(&mut self, center: &Vector3, radius: f64, filter: QueryFilter)-> List<Obj> {
+        let mut candidates = self.hooks.query(self.rows,self.random,center,radius,filter);
+        if H::SABER_ENGAGEMENT {
+            if let QueryFilter::Hostile { except, .. } = filter {
+                if self.fighter(except).is_some_and(|f| f.has_rejections()) && crate::ai::combat::agent::saber::equipped(self, except) {
+                    let from = self.unit_scalars(except).position;
+                    candidates.retain(|&obj| {
+                        let other = self.unit_scalars(obj);
+                        let target = Ref { obj, generation: other.generation };
+                        !self.fighter(except).is_some_and(|f| f.excludes(target, from, other.position))
+                    });
+                }
+            }
+        }
+        candidates
+    }
     fn relation(&mut self, a: f64, b: f64)-> f64 { self.hooks.relation(self.rows,self.random,a,b) }
     fn living(&mut self)-> List<Obj> { self.hooks.living(self.rows,self.random) }
     fn los(&mut self, from: &Vector3, to: &Vector3, a: Option<Obj>, b: Option<Obj>)-> bool { self.hooks.los(self.rows,self.random,from,to,a,b) }
@@ -233,6 +346,14 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     // ClassicNav has neither optional service. Presence affects combat's
     // fallback policy, so an empty region table must not create one here.
     fn nav_direct_clear(&mut self, _unit: Obj, _point: &Vector3)-> Option<bool> { None }
+    fn saber_walk_clear(&mut self, unit: Obj, target: &Vector3) -> Option<bool> {
+        use crate::ai::nav::math::Vec3;
+        self.rows.state.navigation.nav.swbf2.as_ref()?;
+        let feet = self.rows.combat_scalars(unit).position;
+        let from = Vec3::new(feet.x, feet.y, feet.z);
+        let to = Vec3::new(target.x, target.y, target.z);
+        Some(super::live::direct_walk_clear(self.rows.w, from, to))
+    }
     fn nav_in_danger_region(&mut self, _unit: Obj)-> Option<bool> { None }
     fn agent_sync(&mut self, agent: &crate::ai::combat::agent::CombatAgent) { {assert!(self.rows.state.agents.sync(&self.rows.state.entities,agent));} }
     fn agent_resync(&mut self, agent: &mut crate::ai::combat::agent::CombatAgent) { {*agent=self.rows.state.agents.combat(&self.rows.state.entities,agent.obj).expect("current native combat agent");} }
@@ -252,6 +373,9 @@ impl<C:Changes+?Sized,M:Mounted,H:Hooks<C,M>> World for Frame<'_, '_,C,M,H> {
     fn helper_follow(&mut self, agent: Obj, target: Obj) { self.hooks.helper_follow(self.rows,self.random,agent,target) }
     fn helper_terminate(&mut self, agent: Obj) { self.hooks.helper_terminate(self.rows,self.random,agent) }
     fn request_jet(&mut self, controller: Obj, vector: &Vector3) { self.hooks.request_jet(self.rows,self.random,controller,vector) }
+    fn end_jet(&mut self, controller: Obj) { self.hooks.end_jet(self.rows,self.random,controller) }
+    fn steer_jet(&mut self, controller: Obj, point: Option<&Vector3>) { self.hooks.steer_jet(self.rows,self.random,controller,point) }
+    fn request_leap(&mut self, controller: Obj, vector: &Vector3) { self.hooks.request_leap(self.rows,self.random,controller,vector) }
     fn emit_vo(&mut self, unit: Obj, event: &str, property: &str) { self.hooks.emit_vo(self.rows,self.random,unit,event,property) }
 }
 

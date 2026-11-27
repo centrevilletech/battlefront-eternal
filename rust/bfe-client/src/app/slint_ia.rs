@@ -19,6 +19,7 @@ pub(super) enum IaAction {
     Back,
     IaFocused(i32),
     GamePicked(usize),
+    OpeningPicked(usize),
     IaMapSelected(usize),
     IaMapActivated(usize),
     IaPlaylistSelected(usize),
@@ -104,6 +105,15 @@ pub(super) fn register_ia(root: &GameUi) -> IaActionQueue {
         ia.on_game_selected(move |idx| {
             if idx >= 0 {
                 q.borrow_mut().push(IaAction::GamePicked(idx as usize));
+            }
+        });
+    }
+    ia.set_developer_openings(super::instant::enabled());
+    {
+        let q = queue.clone();
+        ia.on_opening_selected(move |idx| {
+            if let Ok(index) = usize::try_from(idx) {
+                q.borrow_mut().push(IaAction::OpeningPicked(index));
             }
         });
     }
@@ -255,7 +265,21 @@ pub(super) fn sync_ia(root: &GameUi, queue: &IaActionQueue, shell: &mut ShellHos
     root.global::<Theme>().set_menu_theme(menu_theme.into());
 
     let ia = root.global::<IaModel>();
-    if let Some((planet, word)) = &shell.loading_overlay {
+    let backdrop = shell.map_load_text();
+    ia.set_map_loading(backdrop.is_some());
+    if let Some((place, title, tip, word)) = backdrop {
+        ia.set_loading_visible(!shell_visible);
+        if ia.get_loading_planet().as_str() != title { ia.set_loading_planet(title.into()); }
+        if ia.get_loading_tip().as_str() != tip { ia.set_loading_tip(tip.into()); }
+        if ia.get_loading_word().as_str() != word { ia.set_loading_word(word.into()); }
+        let mut pos = ia.get_map_placement();
+        pos.unit_width = place.unit_width;
+        [pos.title_x, pos.title_y] = place.title;
+        [pos.tip_x, pos.tip_y, pos.tip_width, pos.tip_height] = place.tip;
+        [pos.word_left, pos.word_bottom] = place.word;
+        pos.word_opacity = place.word_opacity;
+        ia.set_map_placement(pos);
+    } else if let Some((planet, word)) = &shell.loading_overlay {
         ia.set_loading_visible(!shell_visible);
         if ia.get_loading_planet().as_str() != planet {
             ia.set_loading_planet(planet.as_str().into());
@@ -267,6 +291,9 @@ pub(super) fn sync_ia(root: &GameUi, queue: &IaActionQueue, shell: &mut ShellHos
         ia.set_loading_visible(false);
     }
 
+    if ia.get_choosing_opening() && (!shell_visible || shell.app.current_screen() != ScreenId::InstantAction) {
+        ia.set_choosing_opening(false);
+    }
     if !shell_visible {
         return;
     }
@@ -290,9 +317,11 @@ pub(super) fn sync_ia(root: &GameUi, queue: &IaActionQueue, shell: &mut ShellHos
         }
         ScreenId::InstantAction => {
             let game_opts = shell.app.ia_game_picker_options();
-            let choices: Vec<SharedString> =
-                game_opts.iter().map(|(_, label, _)| (*label).into()).collect();
-            let disabled: Vec<bool> = game_opts.iter().map(|(_, _, enabled)| !*enabled).collect();
+            let available = |family| family == bfe_family::GameFamily::Swbf2 && super::instant::enabled();
+            let choices: Vec<SharedString> = game_opts.iter().map(|(family, label, _)| {
+                if available(*family) { "BATTLEFRONT II (2005)".into() } else { (*label).into() }
+            }).collect();
+            let disabled: Vec<bool> = game_opts.iter().map(|(family, _, enabled)| !*enabled && !available(*family)).collect();
             sync_rows(&models.game_choices, &choices);
             sync_rows(&models.game_disabled, &disabled);
             let game_idx = game_opts
@@ -330,14 +359,10 @@ pub(super) fn sync_ia(root: &GameUi, queue: &IaActionQueue, shell: &mut ShellHos
                         .data
                         .maps
                         .iter()
-                        .find(|m| m.id == entry.map)
+                        .find(|m| m.family == entry.family && m.id == entry.map)
                         .map(|m| m.name.as_str())
                         .unwrap_or(entry.map.as_str());
-                    let badge = if entry.era.as_deref() == Some("cw") {
-                        "REP|CIS"
-                    } else {
-                        "IMP|REB"
-                    };
+                    let badge = playlist_badge(entry.era.as_deref());
                     EntryKey { name: name.to_string(), badge, disabled: false }
                 })
                 .collect();
@@ -445,12 +470,20 @@ pub(super) fn drain_ia(
                 shell.flush_events(settings, audio_router)
             }
             IaAction::GamePicked(idx) => {
-                // A disabled (PLANNED) family is refused by `ia_select_family`; the picker shows the
-                // family the model holds on the next sync either way.
-                if let Some((family, _, _)) = shell.app.ia_game_picker_options().get(idx).copied() {
+                let options = shell.app.ia_game_picker_options();
+                if let Some((family, _, _)) = options.get(idx).copied() {
                     shell.app.ia_select_family(family);
                 }
                 shell.flush_events(settings, audio_router)
+            }
+            IaAction::OpeningPicked(idx) => {
+                let missions = ["swbf2/tat2:gcw:eli", "swbf2/spa6:cw:ass"];
+                if let Some(mission) = missions.get(idx).filter(|_| super::instant::enabled()) {
+                    if let Ok(request) = super::script::script_request(mission) {
+                        return Some(ShellTransition::StartInstantAction(request));
+                    }
+                }
+                None
             }
             IaAction::IaMapSelected(idx) => {
                 shell.app.ia_focus = IaFocus::Available;
@@ -533,4 +566,29 @@ pub(super) fn drain_ia(
         }
     }
     transition
+}
+
+/// The faction badge of an Instant Action playlist row, from the entry's era.
+/// A stored `rep` or `cis` names the Clone Wars factions as `cw` does.
+pub(super) fn playlist_badge(era: Option<&str>) -> &'static str {
+    if matches!(era, Some("cw" | "rep" | "cis")) {
+        "REP|CIS"
+    } else {
+        "IMP|REB"
+    }
+}
+
+#[cfg(test)]
+mod badge_tests {
+    use super::playlist_badge;
+
+    #[test]
+    fn a_playlist_row_shows_the_factions_of_its_era() {
+        for era in ["cw", "rep", "cis"] {
+            assert_eq!(playlist_badge(Some(era)), "REP|CIS", "{era}");
+        }
+        for era in [Some("gcw"), Some("all"), Some("imp"), Some("ewk"), Some("REP"), None] {
+            assert_eq!(playlist_badge(era), "IMP|REB", "{era:?}");
+        }
+    }
 }

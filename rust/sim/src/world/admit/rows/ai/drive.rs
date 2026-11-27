@@ -10,7 +10,19 @@ use crate::world::{
 fn dispatch_suffix(world: &mut World, cx: &mut Cx, calls: &Calls) -> Result<(), AdmitError> {
     for (stage, name, call) in calls {
         sequence::args(world, call)?;
-        let answer = dispatch::call(world, *stage, name, call)?;
+        let answer = if *name == "ai_world_begin" && cx.battle.family == bfe_content::GameFamily::Swbf2 {
+            let sectors = cx.battle.swbf2.as_ref().and_then(|s| s.map_admission.map_data.get("portals"))
+                .and_then(|portals| portals.get("sectors"));
+            let instances = cx.battle.props.as_ref().and_then(|props| props.get("instances"));
+            let doors = cx.ids.prop_kernels.iter().filter_map(|&(instance, _, body)| {
+                let base = instances?.at(instance)?.get("base")?.as_str()?;
+                (base == "door").then_some(body as usize)
+            }).collect::<Vec<_>>();
+            let value = crate::ai::owned::entry::ai_world_begin_swbf2(world, sectors, &doors, &cx.defs.classes).map_err(error)?;
+            dispatch::Returned::Scalar(value.into())
+        } else {
+            dispatch::call(world, *stage, name, call)?
+        };
         if matches!(
             *name,
             "ai_world_begin" | "ai_world_content" | "ai_world_roster" | "ai_world_activate"

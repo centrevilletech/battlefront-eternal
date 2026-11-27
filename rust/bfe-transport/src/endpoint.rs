@@ -105,6 +105,13 @@ impl Endpoint{
         }Ok(())
     }
     pub fn close(&mut self,code:u64,reason:&[u8]){if let Some(c)=&mut self.connection{c.close(code,reason);}}
+    /// An endpoint with no path, socket or connection: what a session keeps
+    /// once it has handed its connection to another. Closing, flushing and
+    /// sending do nothing; pumping fails.
+    pub fn detached()->Self{
+        Self{sockets:Vec::new(),candidates:Vec::new(),handshake:None,connection:None,start:Instant::now(),last_handshake:0.,chosen:None,ready:false,
+            server_hello:Vec::new(),identity:[0;32],rendezvous:None}
+    }
     pub fn pump(&mut self,messages:&mut impl FnMut(Lane,bool,&[u8],f64))->Result<()>{
         let now=self.now();let mut bytes=[0;1500];
         if self.chosen.is_none(){

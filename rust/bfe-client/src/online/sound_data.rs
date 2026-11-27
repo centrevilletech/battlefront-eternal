@@ -205,6 +205,95 @@ fn track(
     import(runtime, import::TRACK, &row)?;
     Ok(id as f64)
 }
+fn import_layer_bindings(
+    data: &Data,
+    o: &Value,
+    layer_name: &str,
+    runtime: &mut Runtime,
+    binding_count: &mut usize,
+    point_count: &mut usize,
+) -> Result<(), String> {
+    for child in o.get("Layer.children").and_then(Value::as_array).unwrap_or(&[]) {
+        if text(first(child.get("Name"))) != layer_name {
+            continue;
+        }
+        // Prefer the plural `ParameterGraphs` array when present (including an empty array);
+        // released manifests lack it and carry only the singular `ParameterGraph` triple.
+        let graphs: Vec<Option<&Value>> = if let Some(list) = child.get("ParameterGraphs").and_then(Value::as_array) {
+            list.iter().map(Some).collect()
+        } else {
+            vec![child.get("ParameterGraph")]
+        };
+        for graph in graphs {
+            let input = text(graph.and_then(|g| g.at(0)));
+            let mut b = [f64::NAN; binding::STRIDE];
+            b[binding::INPUT] = ["Speed", "Acceleration", "Health", "TurnOnTime", "TurnOffTime", "WindUpTime", "WindDownTime"]
+                .iter()
+                .position(|n| key(n) == input)
+                .map_or(-1., |i| i as f64);
+            let output = text(graph.and_then(|g| g.at(2)));
+            b[binding::OUTPUT] = if output == key("Gain") {
+                0.
+            } else if output == key("Pitch") {
+                1.
+            } else {
+                -1.
+            };
+            b[binding::FIRST] = *point_count as f64;
+            for point in data
+                .object("ParameterGraph", text(graph.and_then(|g| g.at(1))))
+                .and_then(|g| g.get("ControlPoint"))
+                .and_then(Value::as_array)
+                .unwrap_or(&[])
+            {
+                import(runtime, import::POINT, &[number(point.at(0)), number(point.at(1))])?;
+                *point_count += 1;
+            }
+            b[binding::COUNT] = *point_count as f64 - b[binding::FIRST];
+            import(runtime, import::BINDING, &b)?;
+            *binding_count += 1;
+        }
+    }
+    Ok(())
+}
+
+fn import_low_reinforcements_vo(
+    mission_cfg: Option<&Value>,
+    mission_name: &str,
+    names: &BTreeMap<String, usize>,
+    runtime: &mut Runtime,
+) {
+    let Some(mission_cfg) = mission_cfg else {
+        return;
+    };
+    let by_mission = mission_cfg
+        .get("lowReinforcementsVoByMission")
+        .and_then(Value::as_object)
+        .and_then(|o| {
+            o.get(mission_name)
+                .or_else(|| o.entries().find(|(k, _)| k.eq_ignore_ascii_case(mission_name)).map(|(_, v)| v))
+        })
+        .and_then(Value::as_array);
+    let rows = by_mission.or_else(|| mission_cfg.get("lowReinforcementsVo").and_then(Value::as_array));
+    for r in rows.unwrap_or(&[]) {
+        let watched = number(r.at(0)) as usize;
+        let threshold = number(r.at(1));
+        let sound_f = sound_id(names, r.at(2));
+        if sound_f < 0.0 {
+            continue;
+        }
+        let is_fraction = r.at(3).is_none_or(|v| match v {
+            Value::Bool(b) => *b,
+            _ => number(Some(v)) != 0.0,
+        });
+        let listener = r.at(4).map_or(watched, |v| {
+            let t = number(Some(v)) as usize;
+            if (1..=2).contains(&t) { t } else { watched }
+        });
+        runtime.phase.add_low_reinforcements_vo(watched, threshold, sound_f as usize, is_fraction, listener);
+    }
+}
+
 // ControlResources.prepare turns authored names into immutable numeric rows.
 // All string maps, bank reads, stream indices and sample allocations are
 // admission work. Runtime receives class ids and metadata; Output receives
@@ -254,14 +343,17 @@ impl SpaceBox {
 }
 impl Prepared {
     pub fn new(content: &BattleContent) -> Result<Self, String> {
+        if content.content.battle.family == bfe_family::GameFamily::Swbf2 {
+            return super::sound_data_swbf2::prepare(content);
+        }
         // Select the mission bank through the prepared audio index, just as
         // SoundData.load does. A server supplies a mission query, never an
         // audio path or code. Every byte below comes from installed content.
         // Missing mandatory bank data fails before a live socket is opened.
         let index: serde_json::Value = serde_json::from_slice(&content.textures.read("audio/index.json")?).map_err(|e| e.to_string())?;
-        let mission = content.content.battle.world.get("mission").and_then(|m| m.get("name")).and_then(Value::as_str).unwrap_or("");
+        let mission_name = content.content.battle.world.get("mission").and_then(|m| m.get("name")).and_then(Value::as_str).unwrap_or("");
         let map = content.content.battle.world.get("name").and_then(Value::as_str).unwrap_or("");
-        let level = index["missions"][mission].as_str().or_else(|| index["maps"][map].as_str()).ok_or("battle has no sound bank")?;
+        let level = index["missions"][mission_name].as_str().or_else(|| index["maps"][map].as_str()).ok_or("battle has no sound bank")?;
         // Ordered JSON retains the position of Inherit inside each object.
         // Sorting its properties would change which authored values survive.
         let manifest = content.textures.read(&format!("audio/{level}/sound.json"))?;
@@ -381,7 +473,7 @@ impl Prepared {
                         let Some(file) = file.as_str() else { continue };
                         let Ok(path) = content.textures.path(&format!("audio/enhanced/{level}/{file}")) else { continue };
                         let at = variants.len() as f64;
-                        variants.push(super::stream_assets::Variant { file: path, gain_db });
+                        variants.push(super::stream_assets::Variant::new(path, gain_db, layout, entry["kind"].as_str()));
                         if first < 0. {
                             first = at;
                         }
@@ -573,39 +665,7 @@ impl Prepared {
                 row[layer::DEVIATION] = source.at(3).map_or(0., |v| number(Some(v)));
                 row[layer::BINDING_FIRST] = binding_count as f64;
                 if kind == "SoundParameterized" {
-                    for child in o.get("Layer.children").and_then(Value::as_array).unwrap_or(&[]) {
-                        if text(first(child.get("Name"))) != text(source.at(0)) {
-                            continue;
-                        }
-                        let graph = child.get("ParameterGraph");
-                        let input = text(graph.and_then(|g| g.at(0)));
-                        let mut b = [f64::NAN; binding::STRIDE];
-                        b[binding::INPUT] = ["Speed", "Acceleration", "Health", "TurnOnTime", "TurnOffTime", "WindUpTime", "WindDownTime"]
-                            .iter()
-                            .position(|n| key(n) == input)
-                            .map_or(-1., |i| i as f64);
-                        let output = text(graph.and_then(|g| g.at(2)));
-                        b[binding::OUTPUT] = if output == key("Gain") {
-                            0.
-                        } else if output == key("Pitch") {
-                            1.
-                        } else {
-                            -1.
-                        };
-                        b[binding::FIRST] = point_count as f64;
-                        for point in data
-                            .object("ParameterGraph", text(graph.and_then(|g| g.at(1))))
-                            .and_then(|g| g.get("ControlPoint"))
-                            .and_then(Value::as_array)
-                            .unwrap_or(&[])
-                        {
-                            import(&mut runtime, import::POINT, &[number(point.at(0)), number(point.at(1))])?;
-                            point_count += 1;
-                        }
-                        b[binding::COUNT] = point_count as f64 - b[binding::FIRST];
-                        import(&mut runtime, import::BINDING, &b)?;
-                        binding_count += 1;
-                    }
+                    import_layer_bindings(&data, o, text(source.at(0)), &mut runtime, &mut binding_count, &mut point_count)?;
                 }
                 row[layer::BINDING_COUNT] = binding_count as f64 - row[layer::BINDING_FIRST];
                 import(&mut runtime, import::LAYER, &row)?;
@@ -912,6 +972,7 @@ impl Prepared {
                     resolve(found.and_then(|r| r.at(2)));
             }
         }
+        import_low_reinforcements_vo(mission, mission_name, &names, &mut runtime);
         // Each space of the sub-level: its reverb send (RoomGain) and its
         // I3DL2 preset as the reverb's parameters.
         let room_of = |space: Option<&Value>| -> (f64, [f64; room::STRIDE]) {
@@ -1082,6 +1143,7 @@ impl Prepared {
                 )
             })
             .collect();
+        let streams = super::stream_assets::Assets::prepare(&mut runtime.phase.streams, segments, variants);
         Ok(Self {
             runtime,
             output,
@@ -1095,7 +1157,7 @@ impl Prepared {
             prediction_weapons,
             actor_limits,
             music,
-            streams: super::stream_assets::Assets::new(segments, variants),
+            streams,
             enhanced,
             enhanced_base,
             headphones,
@@ -1126,5 +1188,159 @@ mod tests {
         set_property(&mut properties, 2, 4.);
         set_property(&mut properties, 1, 3.);
         assert_eq!(properties, vec![(1, 3.), (2, 4.)]);
+    }
+
+    #[test]
+    fn parameter_graphs_list_imports_all_engine_curves_and_keeps_released_single_graph() {
+        let speed = key("Speed");
+        let accel = key("Acceleration");
+        let health = key("Health");
+        let turn_off = key("TurnOffTime");
+        let gain = key("Gain");
+        let pitch = key("Pitch");
+        let json_text = format!(
+            r#"{{
+                "objects": [
+                    {{"type": "ParameterGraph", "Name": "0x11111111", "ControlPoint": [[0.0, 0.8], [1.0, 1.6]]}},
+                    {{"type": "ParameterGraph", "Name": "0x22222222", "ControlPoint": [[0.0, 0.5], [1.0, 1.0]]}},
+                    {{"type": "ParameterGraph", "Name": "0x33333333", "ControlPoint": [[0.0, 0.4], [1.0, 1.0]]}},
+                    {{"type": "ParameterGraph", "Name": "0x44444444", "ControlPoint": [[0.0, 1.0], [2.0, 0.4]]}},
+                    {{
+                        "type": "SoundParameterized",
+                        "Name": "0xaaaaaaaa",
+                        "Layer.children": [
+                            {{
+                                "Name": ["0x00000001"],
+                                "ParameterGraph": ["{turn_off}", "0x44444444", "{pitch}"],
+                                "ParameterGraphs": [
+                                    ["{speed}", "0x11111111", "{pitch}"],
+                                    ["{accel}", "0x22222222", "{gain}"],
+                                    ["{health}", "0x33333333", "{gain}"],
+                                    ["{turn_off}", "0x44444444", "{pitch}"]
+                                ]
+                            }},
+                            {{
+                                "Name": ["0x00000002"],
+                                "ParameterGraph": ["{turn_off}", "0x44444444", "{pitch}"],
+                                "ParameterGraphs": []
+                            }},
+                            {{
+                                "Name": ["0x00000003"],
+                                "ParameterGraph": ["{speed}", "0x11111111", "{pitch}"]
+                            }}
+                        ]
+                    }}
+                ]
+            }}"#
+        );
+        let manifest = bfe_content::json::parse(&json_text).unwrap();
+        let data = Data::new(manifest).unwrap();
+        let param_obj = data.object("SoundParameterized", "0xaaaaaaaa").unwrap();
+        let mut runtime = Runtime::new(1);
+        // Import sample 0 + child sound 0 (looping) + parameterized parent sound 1.
+        import(&mut runtime, import::SAMPLE, &[0.0, 1.0, 48000.0, 1.0, 1.0]).unwrap();
+        import(&mut runtime, import::ENTRY, &[0.0, 1.0, 0.0, 0.0]).unwrap();
+        let mut child_snd = [f64::NAN; sound::STRIDE];
+        child_snd[sound::KIND] = 1.0;
+        child_snd[sound::LOOP] = 1.0;
+        child_snd[sound::GAIN] = 1.0;
+        child_snd[sound::PITCH] = 1.0;
+        child_snd[sound::FIRST] = 0.0;
+        child_snd[sound::COUNT] = 1.0;
+        import(&mut runtime, import::SOUND, &child_snd).unwrap();
+        let mut parent_snd = [f64::NAN; sound::STRIDE];
+        parent_snd[sound::KIND] = 3.0;
+        parent_snd[sound::FIRST] = 0.0;
+        parent_snd[sound::COUNT] = 0.0;
+        import(&mut runtime, import::SOUND, &parent_snd).unwrap();
+
+        let mut binding_count = 0usize;
+        let mut point_count = 0usize;
+        for (layer_name, expected_bindings) in [("0x00000001", 4usize), ("0x00000002", 0), ("0x00000003", 1)] {
+            let mut lrow = [f64::NAN; layer::STRIDE];
+            lrow[layer::PARENT] = 1.0;
+            lrow[layer::SOUND] = 0.0;
+            lrow[layer::DELAY] = 0.0;
+            lrow[layer::DEVIATION] = 0.0;
+            lrow[layer::BINDING_FIRST] = binding_count as f64;
+            import_layer_bindings(&data, param_obj, layer_name, &mut runtime, &mut binding_count, &mut point_count)
+                .unwrap();
+            let got = binding_count - lrow[layer::BINDING_FIRST] as usize;
+            assert_eq!(got, expected_bindings, "layer {layer_name} binding count mismatch");
+            lrow[layer::BINDING_COUNT] = got as f64;
+            import(&mut runtime, import::LAYER, &lrow).unwrap();
+        }
+
+        // Verify live engine modulation on layer 0 follows Speed, Acceleration, and Health.
+        runtime.phase.started = true;
+        runtime.phase.engine.running = true;
+        let handle = runtime.phase.parameterized(audio_control::engine::Ask::new(1, 3));
+        let mut low = [(1.0, true, true); 7];
+        low[0] = (0.0, false, true); // Speed = 0 -> Pitch 0.8
+        low[1] = (0.0, false, true); // Acceleration = 0 -> Gain 0.5
+        low[2] = (0.0, false, true); // Health = 0 -> Gain 0.4 (total 0.2)
+        runtime.phase.inputs(handle, &low, false);
+        let v_low = runtime.phase.engine.voices.iter().find(|v| !v.done && v.sound == 0).unwrap();
+        assert!((v_low.pitch_scale - 0.8).abs() < 1e-6, "speed=0 pitch_scale {}", v_low.pitch_scale);
+        assert!((v_low.gain_scale - 0.2).abs() < 1e-6, "accel=0,health=0 gain_scale {}", v_low.gain_scale);
+
+        let mut high = [(1.0, true, true); 7];
+        high[0] = (1.0, false, true); // Speed = 1 -> Pitch 1.6
+        high[1] = (1.0, false, true); // Acceleration = 1 -> Gain 1.0
+        high[2] = (1.0, false, true); // Health = 1 -> Gain 1.0
+        runtime.phase.inputs(handle, &high, false);
+        let v_high = runtime.phase.engine.voices.iter().find(|v| !v.done && v.sound == 0).unwrap();
+        assert!((v_high.pitch_scale - 1.6).abs() < 1e-6, "speed=1 pitch_scale {}", v_high.pitch_scale);
+        assert!((v_high.gain_scale - 1.0).abs() < 1e-6, "accel=1,health=1 gain_scale {}", v_high.gain_scale);
+    }
+
+    #[test]
+    fn low_reinforcements_vo_reads_mission_override_and_default_rows() {
+        let mut names = BTreeMap::new();
+        names.insert(key("synth_t1_defeat"), 8);
+        names.insert(key("synth_t1_victory"), 9);
+        names.insert(key("synth_t2_defeat"), 10);
+        names.insert(key("synth_t2_victory"), 11);
+
+        let manifest = bfe_content::json::parse(
+            r#"{
+                "lowReinforcementsVo": [
+                    [1, 0.1, "synth_t1_defeat", true, 1],
+                    [2, 0.1, "synth_t1_victory", true, 1],
+                    [2, 0.1, "synth_t2_defeat", true, 2],
+                    [1, 0.1, "synth_t2_victory", true, 2]
+                ],
+                "lowReinforcementsVoByMission": {
+                    "alt_swapped": [
+                        [2, 15, "synth_t1_defeat", false, 2]
+                    ],
+                    "alt_empty": []
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let mut rt_default = Runtime::new(1);
+        import_low_reinforcements_vo(Some(&manifest), "base_mission", &names, &mut rt_default);
+        assert_eq!(rt_default.phase.director.low_reinforcements.len(), 4);
+        assert_eq!(rt_default.phase.director.low_reinforcements[1].watched_team, 2);
+        assert_eq!(rt_default.phase.director.low_reinforcements[1].listener_team, 1);
+        assert_eq!(rt_default.phase.director.low_reinforcements[1].sound, 9);
+
+        let mut rt_swapped = Runtime::new(1);
+        import_low_reinforcements_vo(Some(&manifest), "alt_swapped", &names, &mut rt_swapped);
+        assert_eq!(rt_swapped.phase.director.low_reinforcements.len(), 1);
+        assert!(!rt_swapped.phase.director.low_reinforcements[0].is_fraction);
+        assert_eq!(rt_swapped.phase.director.low_reinforcements[0].threshold, 15.0);
+        assert_eq!(rt_swapped.phase.director.low_reinforcements[0].listener_team, 2);
+
+        let mut rt_empty = Runtime::new(1);
+        import_low_reinforcements_vo(Some(&manifest), "alt_empty", &names, &mut rt_empty);
+        assert!(rt_empty.phase.director.low_reinforcements.is_empty(), "empty per-mission override must suppress default rules");
+
+        let legacy = bfe_content::json::parse(r#"{"bleeding": []}"#).unwrap();
+        let mut rt_legacy = Runtime::new(1);
+        import_low_reinforcements_vo(Some(&legacy), "base_mission", &names, &mut rt_legacy);
+        assert!(rt_legacy.phase.director.low_reinforcements.is_empty());
     }
 }

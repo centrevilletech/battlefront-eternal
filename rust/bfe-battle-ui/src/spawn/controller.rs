@@ -197,6 +197,7 @@ impl SpawnScreenController {
             }
         }
         self.model.check(port);
+        self.model.check_class(port);
         let view = &mut self.view;
         let port_ref: &dyn SpawnPort = &*port;
         let action = self.input.update(

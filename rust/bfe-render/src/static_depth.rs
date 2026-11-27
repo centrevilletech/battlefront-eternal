@@ -10,6 +10,41 @@ use three::{Matrix4,Vector3};
 // override instead of applying Three's default front/back shadow inversion.
 pub fn shadow_side(record:&crate::static_world::Record)->u32 {if record.flags&0x86!=0 {2} else {0}}
 
+/// Local bounds of one admitted directional light. The margin includes
+/// casters touching a doorway at the edge of the light.
+#[derive(Clone, Copy)]
+pub struct Region {
+    pub inverse: crate::math::Mat4,
+    pub half: [f64; 3],
+    pub radius: Option<f64>,
+}
+const CASTER_MARGIN: f64 = 4.;
+impl Region {
+    fn intersects(&self, lo: [f64; 3], hi: [f64; 3], margin: f64) -> bool {
+        if let Some(radius) = self.radius {
+            let gap = |k: usize| lo[k].max(-hi[k]).max(0.);
+            gap(0).powi(2) + gap(1).powi(2) + gap(2).powi(2) <= (radius + margin).powi(2)
+        } else {
+            (0..3).all(|k| lo[k] <= self.half[k] + margin && hi[k] >= -self.half[k] - margin)
+        }
+    }
+
+    pub fn instance(&self, row: &[f64]) -> bool {
+        use crate::instances as I;
+        let world = row[I::REC_WORLD..I::REC_WORLD + 16].try_into().unwrap();
+        let local = crate::math::mul(&self.inverse, world);
+        let lo = &row[I::REC_BOX..I::REC_BOX + 3];
+        let hi = &row[I::REC_BOX + 3..I::REC_BOX + 6];
+        if matches!(row[I::REC_KIND], 2. | I::KIND_BLENDED_RIGID) && lo != hi {
+            let (lo, hi) = crate::lights::box_to_world(&local, lo.try_into().unwrap(), hi.try_into().unwrap());
+            return self.intersects(lo, hi, CASTER_MARGIN);
+        }
+        let sphere = &row[I::REC_SPHERE..I::REC_SPHERE + 4];
+        let (center, radius) = crate::math::sphere_to_world(&local, sphere[..3].try_into().unwrap(), sphere[3]);
+        self.intersects(center, center, CASTER_MARGIN + radius)
+    }
+}
+
 pub struct Cell {pub first:u32,pub end:u32,pub min:[f64;3],pub max:[f64;3]}
 pub struct DepthGeometry {pub geometry:Geometry,pub cells:Vec<Cell>,pub layer:u32,pub clipped:u32}
 struct Part {x:f64,z:f64,count:usize,min:[f64;3],max:[f64;3]}
@@ -88,6 +123,45 @@ impl DepthGeometry {
 // The index ranges of a caster a shadow camera sees: its visible cells, neighbours in index order joined into one
 // range (first index, index count) each, written to `out`. Unpartitioned casters keep their whole range once their
 // sphere is in view. Returns how many ranges there are.
+impl DepthGeometry {
+    /// Keep whole intersecting triangles within the original draw order and
+    /// cell boundaries. A merged mesh can contain an interior and its roof.
+    pub fn in_region(&self, region: &Region) -> Vec<Cell> {
+        let mut out: Vec<Cell> = Vec::new();
+        let mut cell = 0;
+        let width = self.geometry.stride as usize / 4;
+        for (triangle, indices) in self.geometry.index.chunks_exact(3).enumerate() {
+            let first = (triangle * 3) as u32;
+            let boundary = self.cells.get(cell).is_some_and(|c| c.end == first);
+            if boundary { cell += 1; }
+            let mut lo = [f64::INFINITY; 3];
+            let mut hi = [f64::NEG_INFINITY; 3];
+            let mut world_lo = lo;
+            let mut world_hi = hi;
+            for &index in indices {
+                let at = index as usize * width;
+                let p = &self.geometry.vertices[at..at + 3];
+                let world = [p[0] as f64, p[1] as f64, p[2] as f64];
+                let local = crate::math::transform4(&region.inverse, [world[0], world[1], world[2], 1.]);
+                for k in 0..3 {
+                    lo[k] = lo[k].min(local[k]);
+                    hi[k] = hi[k].max(local[k]);
+                    world_lo[k] = world_lo[k].min(world[k]);
+                    world_hi[k] = world_hi[k].max(world[k]);
+                }
+            }
+            if !region.intersects(lo, hi, CASTER_MARGIN) { continue; }
+            if let Some(r) = out.last_mut().filter(|r| !boundary && r.end == first) {
+                r.end = first + 3;
+                for k in 0..3 { r.min[k] = r.min[k].min(world_lo[k]); r.max[k] = r.max[k].max(world_hi[k]); }
+            } else {
+                out.push(Cell { first, end: first + 3, min: world_lo, max: world_hi });
+            }
+        }
+        out
+    }
+}
+
 pub fn ranges(bounds:&[f64;10],count:u32,cells:&[Cell],frustum:&Frustum,out:&mut Vec<(u32,u32)>)->usize {
     out.clear();
     if !frustum.sphere(&[bounds[0],bounds[1],bounds[2]],bounds[3]) {return 0;}
@@ -110,10 +184,17 @@ pub struct Record {
     pub geometry:u32,pub program:usize,pub side:u32,pub texture:i32,
     pub bounds:[f64;10],pub cells:Vec<Cell>,pub count:u32,pub active:bool,
     pub uniforms:Vec<(usize,u32,u32)>,
+    pub regions: Option<Box<[Vec<Cell>; 4]>>,
+}
+impl Record {
+    pub fn visible_in(&self, region: Option<usize>) -> bool {
+        self.active && region.is_none_or(|slot| self.regions.as_ref()
+            .and_then(|r| r.get(slot)).is_some_and(|cells| !cells.is_empty()))
+    }
 }
 pub const MAX_RECORDS:usize=4096;
 #[derive(Default)]
-pub struct Bank {pub sources:Vec<Source>,pub records:Vec<Option<Record>>,pub clipped:u32,ranges:Vec<(u32,u32)>,counts:Vec<i32>,offsets:Vec<i32>}
+pub struct Bank {pub regions:[Option<Region>;4],pub sources:Vec<Source>,pub records:Vec<Option<Record>>,pub clipped:u32,ranges:Vec<(u32,u32)>,counts:Vec<i32>,offsets:Vec<i32>}
 impl Bank {
     // Admission is cold; a larger-than-content scene clips depth resources in
     // source order with telemetry instead of throwing in a slow frame.
@@ -121,10 +202,16 @@ impl Bank {
         if self.sources.len()>=MAX_RECORDS-2 {self.clipped=self.clipped.saturating_add(1);return u32::MAX;}
         let id=self.sources.len() as u32;self.sources.push(Source{source,texture});id
     }
-    pub fn draw<C:glow::HasContext,M:crate::core::MultiDraw>(&mut self, core:&mut crate::core::Core<C,M>,matrices:&mut HashMap<(usize,usize),[f32;16]>,id:usize,view:&[f64],frustum:&Frustum) {
+    pub fn reserve_ranges(&mut self, needed: usize) {
+        self.ranges.reserve(needed.saturating_sub(self.ranges.len()));
+        self.counts.reserve(needed.saturating_sub(self.counts.len()));
+        self.offsets.reserve(needed.saturating_sub(self.offsets.len()));
+    }
+    pub fn draw<C:glow::HasContext,M:crate::core::MultiDraw>(&mut self, core:&mut crate::core::Core<C,M>,matrices:&mut HashMap<(usize,usize),[f32;16]>,id:usize,region:Option<usize>,view:&[f64],frustum:&Frustum) {
         let Some(Some(r))=self.records.get(id) else {return;};
-        if !r.active || r.program>=core.programs.len() || r.geometry as usize>=core.geometries.len() {return;}
-        if ranges(&r.bounds,r.count,&r.cells,frustum,&mut self.ranges)==0 {return;}
+        if !r.visible_in(region) || r.program>=core.programs.len() || r.geometry as usize>=core.geometries.len() {return;}
+        let cells = region.and_then(|slot| r.regions.as_ref()?.get(slot)).unwrap_or(&r.cells);
+        if ranges(&r.bounds,r.count,cells,frustum,&mut self.ranges)==0 {return;}
         core.state.use_program(&core.gl,&mut core.stats,core.programs[r.program].program);
         // anchors were identity children of static world
         // meshes. Only the light camera changes between these native draws.
@@ -197,5 +284,43 @@ mod capacity_tests {
         for i in 0..MAX_RECORDS*3 {let id=bank.admit(i as u32,-1);assert_eq!(id,if i<MAX_RECORDS-2 {i as u32} else {u32::MAX});}
         assert_eq!(bank.sources.len(),MAX_RECORDS-2);
         assert_eq!(bank.clipped as usize,MAX_RECORDS*2+2);
+    }
+}
+
+#[cfg(test)]
+mod regional_tests {
+    use super::*;
+    const IDENTITY: crate::math::Mat4 = [1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.];
+
+    #[test]
+    fn regional_depth_keeps_the_interior_triangles_of_one_merged_cell() {
+        let mut vertices = vec![];
+        for y in [0., 12., 0.5] {
+            vertices.extend([0., y, 0., 4., y, 0., 0., y, 3.]);
+        }
+        let geometry = Geometry { vertices, index: (0..9).collect(), index_width: 4,
+            interleaved: false, fabric: false, tree_groups: None, attributes: vec![], stride: 12, bounds: [0.; 10] };
+        let depth = DepthGeometry::merged(&[&geometry]);
+        for radius in [None, Some(2.)] {
+            let region = Region { inverse: IDENTITY, half: [2.; 3], radius };
+            let cells = depth.in_region(&region);
+            assert_eq!(cells.iter().map(|c| (c.first, c.end)).collect::<Vec<_>>(), [(0, 3), (6, 9)]);
+        }
+    }
+
+    #[test]
+    fn regional_casters_use_transformed_bounds_on_both_sides_of_a_doorway() {
+        use crate::instances as I;
+        // A quarter turn and translation in the volume transform.
+        let region = Region { inverse: [0., 0., 1., 0., 0., 1., 0., 0., -1., 0., 0., 0., 0., 0., -10., 1.],
+            half: [1., 2., 3.], radius: None };
+        let mut row = [0.; I::REC_STRIDE];
+        row[I::REC_KIND] = 2.;
+        row[I::REC_WORLD..I::REC_WORLD+16].copy_from_slice(&IDENTITY);
+        row[I::REC_WORLD+12] = 25.;
+        row[I::REC_BOX..I::REC_BOX+6].copy_from_slice(&[-13.,0.,-1., 1.,1.,1.]);
+        assert!(region.instance(&row));
+        row[I::REC_WORLD+13] = 8.;
+        assert!(!region.instance(&row));
     }
 }

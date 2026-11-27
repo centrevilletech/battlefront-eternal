@@ -1,5 +1,6 @@
 //! Native front-end host over the existing shell and options screen stacks.
 
+mod map_load;
 use crate::{
     app::{
         settings::AppSettingsStore,
@@ -35,9 +36,12 @@ use bfe_render::{
 use bfe_shell::{
     audio::ShellAudioMixer,
     data::{load_shell_data_from_dir, ShellData},
-    launch::BattleRequest,
+    launch::{BattleRequest, GameFamily},
     loading::{planet_name, LoadingTimeline, LookId},
-    render::{draw_loading, ShellFonts, ShellTextures, StageTexture},
+    loading2::{loading_screen_for, LoadingScreenKind},
+    render::{
+        draw_loading, draw_loading_screen, ShellFonts, ShellTextures, StageTexture,
+    },
     screens::{
         HostConfig, MultiplayerKind, MultiplayerLaunch, OptionsPageId, PopupState,
         ScreenId, ShellAction, ShellApp,
@@ -119,6 +123,9 @@ pub fn host_options_from_shell(cfg: &HostConfig) -> HostOptions {
             "never" => RelayPolicy::Never,
             _ => RelayPolicy::Auto,
         },
+        // A 2004 host hosts conquest whatever mode the form carries, as it always did.
+        family: cfg.family,
+        game_mode: (cfg.family == bfe_family::GameFamily::Swbf2).then(|| cfg.mode.clone()),
         ..HostOptions::default()
     }
 }
@@ -487,8 +494,79 @@ fn movie_game_candidates(content_dir: &Path, settings: &AppSettingsStore) -> Vec
     candidates
 }
 
+/// The movie search for `family`: the 2004 game's is [`movie_game_candidates`] itself.
+fn movie_game_candidates_for(
+    content_dir: &Path,
+    family: bfe_family::GameFamily,
+    settings: &AppSettingsStore,
+) -> Vec<PathBuf> {
+    match family {
+        bfe_family::GameFamily::Swbf1 => movie_game_candidates(content_dir, settings),
+        bfe_family::GameFamily::Swbf2 => movie_game_candidates_2005(
+            content_dir,
+            settings,
+            std::env::var_os("BFE_GAME_DIR"),
+            std::env::var_os("BFE_FAMILY"),
+            || {
+                let env: std::collections::BTreeMap<String, String> = std::env::vars().collect();
+                let home = env.get("HOME").or_else(|| env.get("USERPROFILE")).map(PathBuf::from);
+                bfe_desktop::discover::find_game_installs_for(
+                    &bfe_desktop::discover::FindGameOptions {
+                        platform: super::settings::current_platform_str().to_string(),
+                        home,
+                        env,
+                        extra: Vec::new(),
+                    },
+                    family,
+                )
+            },
+        ),
+    }
+}
+
+/// The 2005 game's candidates: `BFE_GAME_DIR` unless `BFE_FAMILY` names the other game, then the 2005
+/// settings, records and copies.
+fn movie_game_candidates_2005(
+    content_dir: &Path,
+    settings: &AppSettingsStore,
+    env_game_dir: Option<std::ffi::OsString>,
+    env_family: Option<std::ffi::OsString>,
+    installs: impl FnOnce() -> Vec<bfe_desktop::discover::GameInstall>,
+) -> Vec<PathBuf> {
+    let family = bfe_family::GameFamily::Swbf2;
+    let named = env_family
+        .as_deref()
+        .and_then(std::ffi::OsStr::to_str)
+        .and_then(bfe_family::GameFamily::parse);
+    let mut candidates: Vec<PathBuf> = if named.is_none_or(|named| named == family) {
+        env_game_dir.map(PathBuf::from).into_iter().collect()
+    } else {
+        Vec::new()
+    };
+    candidates.extend(settings.desktop.game_dir_for(family).map(PathBuf::from));
+    candidates.extend(
+        settings
+            .desktop
+            .preparations_for(family)
+            .into_iter()
+            .filter(|(dir, _)| Path::new(dir.as_str()) == content_dir)
+            .map(|(_, record)| PathBuf::from(record.game_dir)),
+    );
+    candidates.extend(
+        bfe_desktop::prepare::read_prepare_state_for(Some(content_dir), family)
+            .and_then(|state| state.game)
+            .map(PathBuf::from),
+    );
+    candidates.extend(installs().into_iter().map(|install| install.dir));
+    candidates
+}
+
+fn planet_overlay(kind: LoadingScreenKind, planet: &str, word: &str) -> Option<(String, String)> {
+    (kind == LoadingScreenKind::PlanetZoom).then(|| (planet.to_owned(), word.to_owned()))
+}
+
 pub struct ShellHost {
-    /// The front end's movies, in the player's own game archives.
+    /// The front end's movies for 2004 (`swbf1`), in the player's own game archives.
     pub(super) movie_library: bfe_shell::movies::MovieLibrary,
     pub movies: bfe_shell::movies::MoviePlayer,
     right_movies: bfe_shell::movies::MoviePlayer,
@@ -538,6 +616,8 @@ pub struct ShellHost {
     pub browser: LiveServerBrowser,
     /// Animated planet zoom and stage crossfade timeline for loading screens.
     pub loading_timeline: LoadingTimeline,
+    battle_loading_kind: LoadingScreenKind,
+    map_load: Option<map_load::MapLoad>,
     /// Uppercase planet title displayed on the loading screen (e.g. `"NABOO"`).
     pub loading_planet: String,
     /// Localized status text displayed on the loading screen (e.g. `"LOADING"`).
@@ -564,6 +644,23 @@ pub struct ShellHost {
     pub layout_size: [i32; 2],
     /// Count of frames rendered by `ShellHost`.
     pub frames: u64,
+}
+
+/// Restore the shell context when leaving the paused Options screens.
+fn finish_battle_options(
+    options: &mut OptionsController,
+    front_end: &mut Option<OptionsContext>,
+    departing: Option<bfe_family::GameFamily>,
+) -> bool {
+    match departing {
+        None if !options.stack.is_empty() => return false,
+        Some(family) if !options.context.in_battle || (family == bfe_family::GameFamily::Swbf1
+            && options.controls_family() == bfe_family::GameFamily::Swbf1) => return false,
+        _ => {}
+    }
+    if let Some(context) = front_end.take() { options.context = context; }
+    options.stack.clear();
+    true
 }
 
 impl ShellHost {
@@ -669,6 +766,8 @@ impl ShellHost {
             app,
             browser,
             loading_timeline,
+            map_load: None,
+            battle_loading_kind: loading_screen_for(GameFamily::Swbf1),
             loading_planet: "BATTLEFRONT ETERNAL".to_string(),
             loading_text: "PREPARING CONTENT".to_string(),
             loading_time: 0.0,
@@ -772,8 +871,12 @@ impl ShellHost {
         let mut retired = std::mem::take(&mut self.content_textures);
         retired.extend(self.stage_map.take().into_iter().flat_map(|(_, made)| made));
         let made = std::cell::RefCell::new(Vec::new());
-        let data = load_shell_data_from_dir(content_dir);
-        let mut lib = Library::new(content_dir, false, 4096, 0)?;
+        let family_dir = bfe_content::layout::family_dir(
+            content_dir,
+            bfe_family::GameFamily::Swbf1,
+        );
+        let data = load_shell_data_from_dir(&family_dir);
+        let mut lib = Library::new(&family_dir, false, 4096, 0)?;
 
         // Deduplicate texture uploads by relative asset URL.
         let mut uploaded_paths: HashMap<String, (u32, u32, u32)> = HashMap::new();
@@ -850,7 +953,7 @@ impl ShellHost {
         let load_map = data
             .maps
             .iter()
-            .find(|m| m.id == "nab2")
+            .find(|m| m.family == bfe_family::GameFamily::Swbf1 && m.id == "nab2")
             .or_else(|| data.maps.first());
         if let Some(map) = load_map {
             let made = Self::upload_stages(&mut self.core, &mut lib, Some(map), data.load.backdrop.as_deref(), &mut textures);
@@ -916,6 +1019,9 @@ impl ShellHost {
         let mut opt_ctx = OptionsContext::default();
         opt_ctx.has_integrations = true;
         opt_ctx.gpu_renderer = self.gpu_renderer.clone();
+        if bfe_family::GameFamily::Swbf2.is_available() {
+            opt_ctx.swbf2_control_strings = super::control_strings::load(content_dir);
+        }
         opt_ctx.strings = data
             .strings
             .iter()
@@ -928,12 +1034,12 @@ impl ShellHost {
         // The release's own version (PREVIEW N on the version line); a source
         // build has none and the line says DEVELOPMENT BUILD.
         let release = super::cli::release_version();
-        let about = AboutInfo::from_content_dir(content_dir, release.as_deref());
+        let about = AboutInfo::from_content_dir(&family_dir, release.as_deref());
         let mut app = ShellApp::new(data.clone(), Some(&about));
         settings.apply_to_shell_app(&mut app);
 
         // Start front-end shell audio mixer and queue initial transition cues.
-        let mut shell_audio = ShellAudioMixer::new(&data, Some(content_dir));
+        let mut shell_audio = ShellAudioMixer::new(&data, Some(&family_dir));
         shell_audio.set_volumes(
             app.settings.master_volume,
             app.settings.music_volume,
@@ -948,7 +1054,11 @@ impl ShellHost {
 
         // PageTheme's MovieBackdrop is independent of SCREEN_MEDIA. Its two
         // side sequences keep playing when Multiplayer has no screen movie.
-        self.movie_library = bfe_shell::movies::MovieLibrary::open(Some(content_dir), &movie_game_candidates(content_dir, settings));
+        self.movie_library = bfe_shell::movies::MovieLibrary::open(
+            bfe_family::GameFamily::Swbf1,
+            Some(content_dir),
+            &movie_game_candidates_for(content_dir, bfe_family::GameFamily::Swbf1, settings),
+        );
         match self.movie_library.game_dir() {
             Some(game) => eprintln!("Movies: {} archives in {}", self.movie_library.archive_count(), game.display()),
             None => eprintln!("Movies: no game folder with Movies/shell.mvs found; the menus play without movies"),
@@ -1027,6 +1137,7 @@ impl ShellHost {
     pub(super) fn open_battle_options(
         &mut self,
         page: &str,
+        family: bfe_family::GameFamily,
         first_person: bool,
         settings: &AppSettingsStore,
     ) {
@@ -1044,24 +1155,20 @@ impl ShellHost {
         ctx.viewport = Some([self.layout_size[0].max(1) as u32, self.layout_size[1].max(1) as u32]);
         self.front_end_options.get_or_insert(front_end);
         self.options_ctrl = OptionsController::new(settings.interface.clone(), ctx);
-        self.options_ctrl.open_page(page);
+        if page == "controls" {
+            self.options_ctrl.open_battle_controls(family);
+        } else {
+            self.options_ctrl.open_page(page);
+        }
         if self.options_ctrl.stack.screens.len() > 1 {
             self.options_ctrl.stack.screens.remove(0);
         }
         self.options_ctrl.stack.sounds.drain();
     }
 
-    /// Puts the front-end options context back once the battle's option page is closed, and returns the
-    /// camera viewpoint the player left it on.
-    pub(super) fn close_battle_options(&mut self) -> Option<bool> {
-        let viewpoint = self.options_ctrl.context.viewpoint;
-        if let Some(front_end) = self.front_end_options.take() {
-            self.options_ctrl.context = front_end;
-        }
-        self.options_ctrl.stack.clear();
-        viewpoint
+    pub(super) fn finish_battle_options(&mut self, departing: Option<bfe_family::GameFamily>) -> bool {
+        finish_battle_options(&mut self.options_ctrl, &mut self.front_end_options, departing)
     }
-
 
     /// Drains sound cues and named actions from [`Self::options_ctrl`] and persists
     /// any modified settings into `settings` and `self.app`.
@@ -1380,7 +1487,7 @@ impl ShellHost {
     /// join before the server has said which battle it runs) gets the neutral backdrop and no
     /// planet name. The timeline is the same length for every map.
     fn load_map_pictures(&mut self, map_id: &str) {
-        let map = self.app.data.maps.iter().find(|m| m.id == map_id).cloned();
+        let map = self.app.data.maps.iter().find(|m| m.has_browser_id(map_id)).cloned();
         self.loading_planet = match &map {
             Some(map) => planet_name(&map.id, &self.app.data.strings, map.load.as_ref()),
             None => map_id.to_ascii_uppercase(),
@@ -1392,7 +1499,11 @@ impl ShellHost {
             self.textures.loading_stages.clear();
             self.textures.by_name.remove(bfe_shell::render::LOADING_BACKDROP);
             if let Some(root) = &self.content_dir {
-                if let Ok(mut images) = Library::new(root, false, 4096, 0) {
+                let family_dir = bfe_content::layout::family_dir(
+                    root,
+                    bfe_family::GameFamily::Swbf1,
+                );
+                if let Ok(mut images) = Library::new(&family_dir, false, 4096, 0) {
                     let made = Self::upload_stages(&mut self.core, &mut images, map.as_ref(), self.app.data.load.backdrop.as_deref(), &mut self.textures);
                     self.stage_map = Some((map_id.to_string(), made));
                 }
@@ -1419,6 +1530,7 @@ impl ShellHost {
     }
 
     pub fn prepare_map_loading(&mut self, map_id: &str, audio_router: &SharedAudioRouter) {
+        self.release_map_load();
         self.suspend_movies();
         self.load_map_pictures(map_id);
         self.loading_text = self
@@ -1431,11 +1543,15 @@ impl ShellHost {
         self.loading_time = 0.0;
         self.loading_frames = 0;
         self.loading_peak_ms = 0.;
-        let sounds = self.loading_timeline.sounds();
+        self.battle_loading_kind = loading_screen_for(GameFamily::Swbf1);
+        let sounds = self.battle_loading_kind.sound_plan(&self.loading_timeline);
         audio_router.set_live(None);
         if let Ok(mut guard) = audio_router.shell.lock() {
             let mixer = guard.get_or_insert_with(|| {
-                ShellAudioMixer::new(&self.app.data, self.content_dir.as_deref())
+                let family_dir = self.content_dir.as_deref().map(|d| {
+                    bfe_content::layout::family_dir(d, bfe_family::GameFamily::Swbf1)
+                });
+                ShellAudioMixer::new(&self.app.data, family_dir.as_deref())
             });
             // A battle straight after a battle (restart, playlist, next online
             // battle) makes a fresh mixer here: it plays at the player's volumes too.
@@ -1489,11 +1605,16 @@ impl ShellHost {
         self.upload_and_draw_batch();
     }
 
-    /// Renders a map-loading frame (`draw_loading`) while transitioning into a battle.
+    /// Renders a map-loading frame while transitioning into a battle. The
+    /// screen's structure follows the incoming map's family
+    /// (`loading_screen_for`); every battle today is the 2004 game's, so
+    /// this draws its planet sequence exactly as before.
     pub fn battle_loading_complete(&self) -> bool {
+        if let Some(done) = self.map_load_done() { return done; }
         self.loading_time >= self.loading_timeline.duration()
     }
     pub fn draw_battle_loading(&mut self, _dt: f64) {
+        if self.map_load.is_some() { return self.draw_map_load(); }
         // Sound and pictures share wall time even if a shader upload delayed
         // one display frame. Gameplay's dt clamp must not stretch the sequence.
         let time = (self.battle_loading_started.elapsed().as_secs_f64() - bfe_shell::loading::LEAD)
@@ -1504,12 +1625,17 @@ impl ShellHost {
         let at = self.loading_timeline.at(self.loading_time);
         let w = self.layout_size[0] as f64;
         let h = self.layout_size[1] as f64;
-        self.loading_overlay = Some((self.loading_planet.clone(), self.loading_text.clone()));
-        draw_loading(
+        let kind = self.battle_loading_kind;
+        // The overlay's tilted word belongs to the 2004 disk; only the
+        // planet screen asks it to draw.
+        self.loading_overlay = planet_overlay(kind, &self.loading_planet, &self.loading_text);
+        draw_loading_screen(
             &mut self.batch,
             &self.fonts,
             &self.textures,
+            kind,
             &at,
+            None,
             self.loading_time,
             &self.loading_planet,
             &self.loading_text,
@@ -1562,6 +1688,7 @@ impl ShellHost {
         settings: &mut AppSettingsStore,
         audio_router: &SharedAudioRouter,
     ) -> Option<ShellTransition> {
+        self.release_map_load();
         self.loading_overlay = None;
         if self.browser.poll() || (self.browser_page() && self.page.browser.source.is_none()) {
             self.sync_page_browser();
@@ -2448,7 +2575,7 @@ impl ShellHost {
     /// Iterates over `data.pages` to upload each font atlas PNG once, then converts
     /// the 11-element glyph metric rows (`[code, page_idx, advance, x0, x1, y0, y1, u0, v0, u1, v1]`)
     /// for `gamefont_large`, `gamefont_medium`, `gamefont_small`, and `gamefont_tiny`.
-    fn load_fonts(
+    pub fn load_fonts(
         data: &ShellData,
         upload_path: &mut impl FnMut(&str) -> Option<(u32, u32, u32)>,
     ) -> ShellFonts {
@@ -2546,7 +2673,7 @@ impl ShellHost {
         }
     }
 
-    pub(super) fn upload_rgba(
+    pub fn upload_rgba(
         gl: &glow::Context,
         width: i32,
         height: i32,
@@ -2641,6 +2768,7 @@ impl Drop for HeadlessAudio {
 
 impl Drop for ShellHost {
     fn drop(&mut self) {
+        self.release_map_load();
         self.blur.dispose(&self.core.gl);
     }
 }
@@ -2648,6 +2776,23 @@ impl Drop for ShellHost {
 #[cfg(test)]
 mod multiplayer_form_tests {
     use super::*;
+    #[test]
+    fn leaving_a_battle_closes_capture_and_restores_the_shell_options() {
+        use bfe_interface::{widgets::WidgetAction, MenuInputEvent, Settings};
+        let mut options = OptionsController::new(Settings::new(), OptionsContext { in_battle: true, ..Default::default() });
+        options.open_page("controls");
+        options.apply_event(MenuInputEvent::Action(WidgetAction::StartRebind {
+            tab: "infantry".into(), action: "presses.jump".into(), label: "Test jump".into(),
+        }));
+        assert!(options.stack.top().unwrap().key_capture.is_some());
+        let mut front = Some(OptionsContext::default());
+        assert!(!finish_battle_options(&mut options, &mut front, None));
+        assert!(!finish_battle_options(&mut options, &mut front, Some(bfe_family::GameFamily::Swbf1)));
+        assert!(finish_battle_options(&mut options, &mut front, Some(bfe_family::GameFamily::Swbf2)));
+        assert!(options.stack.is_empty() && front.is_none());
+        assert!(!options.context.in_battle);
+    }
+
     #[test]
     fn declining_notice_then_changing_source_never_queries_online() {
         let mut browser = LiveServerBrowser::new(None, false);
@@ -2676,5 +2821,109 @@ mod multiplayer_form_tests {
             vec!["swbf1/nab2:imp:conquest"]
         );
         assert_eq!(options.ai_units_per_team, None);
+    }
+
+    /// Runs the released 2004 movie search in a child process whose environment and home
+    /// this test sets, so that only the function's external inputs are controlled.
+    #[cfg(unix)]
+    #[test]
+    fn the_2004_movie_candidates_keep_the_released_order_with_a_given_environment() {
+        const CHILD: &str = "BFE_TEST_MOVIE_CANDIDATES_ROOT";
+        // Where the child writes its answer (the test harness's own lines share its output).
+        const ANSWER: &str = "BFE_TEST_MOVIE_CANDIDATES_ANSWER";
+        let paths = |root: &Path| {
+            let user_data = root.join("user-data");
+            bfe_desktop::paths::DesktopPaths {
+                user_data_dir: user_data.clone(),
+                user_data: user_data.clone(),
+                managed_content_dir: user_data.join("game-data"),
+                content_root: user_data.join("game-data"),
+                settings_file: user_data.join("desktop-settings.json"),
+                player_settings_file: user_data.join("player-settings.json"),
+                timings_file: user_data.join("prepare-timings.json"),
+                prepare_log_file: user_data.join("logs").join("prepare.log"),
+                update_root: None,
+                project_root: user_data.clone(),
+            }
+        };
+        if let (Some(root), Some(answer)) = (std::env::var_os(CHILD), std::env::var_os(ANSWER)) {
+            let root = PathBuf::from(root);
+            let store = AppSettingsStore::load(paths(&root));
+            let lines: Vec<String> = movie_game_candidates(&root.join("content"), &store)
+                .iter()
+                .map(|candidate| candidate.display().to_string())
+                .collect();
+            std::fs::write(answer, lines.join("\n")).unwrap();
+            return;
+        }
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "bfe-shell-movie-candidates-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(root.join("user-data")).unwrap();
+        std::fs::create_dir_all(root.join("home")).unwrap();
+        std::fs::create_dir_all(root.join("content")).unwrap();
+        std::fs::write(
+            root.join("user-data").join("desktop-settings.json"),
+            serde_json::json!({"gameDir": root.join("picked")}).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("content").join(".prepare.json"),
+            serde_json::json!({"game": root.join("recorded")}).to_string(),
+        )
+        .unwrap();
+        let name = format!(
+            "{}::the_2004_movie_candidates_keep_the_released_order_with_a_given_environment",
+            module_path!().split_once("::").unwrap().1
+        );
+        let run = |game_dir: Option<&Path>, answer: &str| {
+            let answer = root.join(answer);
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child
+                .args([name.as_str(), "--exact", "--test-threads=1"])
+                .env_clear()
+                .env(CHILD, &root)
+                .env(ANSWER, &answer)
+                .env("HOME", root.join("home"));
+            if let Some(dir) = game_dir {
+                child.env("BFE_GAME_DIR", dir);
+            }
+            let output = child.output().unwrap();
+            let text = String::from_utf8_lossy(&output.stdout).into_owned();
+            let candidates: Vec<PathBuf> = std::fs::read_to_string(&answer)
+                .unwrap_or_default()
+                .lines()
+                .map(PathBuf::from)
+                .collect();
+            (candidates, text)
+        };
+        let (with_env, text) = run(Some(&root.join("from-environment")), "answer-with-environment");
+        let (without, _) = run(None, "answer-without");
+        let _ = std::fs::remove_dir_all(&root);
+        assert_eq!(
+            with_env,
+            vec![root.join("from-environment"), root.join("picked"), root.join("recorded")],
+            "{text}"
+        );
+        assert_eq!(without, vec![root.join("picked"), root.join("recorded")]);
+    }
+}
+
+#[cfg(test)]
+mod loading_overlay_tests {
+    use super::*;
+
+    #[test]
+    fn battle_loading_retains_both_planet_labels_including_before_online_retarget() {
+        for title in ["", "WORLD"] {
+            assert_eq!(planet_overlay(loading_screen_for(GameFamily::Swbf1), title, "LOADING"),
+                       Some((title.into(), "LOADING".into())));
+            assert_eq!(planet_overlay(loading_screen_for(GameFamily::Swbf2), title, "LOADING"), None);
+        }
     }
 }

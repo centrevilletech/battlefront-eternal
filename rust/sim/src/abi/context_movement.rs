@@ -2,7 +2,7 @@
 //! caller closure while movement or collision storage is borrowed.
 use super::collision::CollisionError;
 use super::{Context, Error};
-use crate::movement::{soldier::Input, IO_LEN};
+use crate::movement::{soldier::Input, ProfileError, IO_LEN};
 
 pub use crate::movement::native::MovementResult;
 
@@ -13,6 +13,7 @@ pub enum MovementError {
     InvalidMover,
     InvalidFlags,
     UnknownState,
+    Profile(ProfileError),
     Capacity,
 }
 impl From<Error> for MovementError {
@@ -33,6 +34,7 @@ impl std::fmt::Display for MovementError {
             Self::InvalidMover => f.write_str("invalid or removed movement handle"),
             Self::InvalidFlags => f.write_str("flags must follow the world's body order"),
             Self::UnknownState => f.write_str("unknown movement state code"),
+            Self::Profile(error) => f.write_str(error.message()),
             Self::Capacity => f.write_str("too many movement handles"),
         }
     }

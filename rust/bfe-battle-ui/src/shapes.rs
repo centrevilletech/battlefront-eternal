@@ -2,80 +2,15 @@
 //! word wrapping, flashy title bar intro, and `GameFamily` selector (`src/interface/shapes.js`,
 //! `src/menus/themes/classic/draw.js`, `MULTIPLAYER.md`).
 
-use std::fmt;
-
 use bfe_render::interface::{
     anchor, mul, rotate_y, rotate_z, Batch, Color, Font, Matrix, IDENTITY, UV,
 };
 
 pub use crate::surface::*;
-
-/// Which game family a map, its rules, and its in-battle interface belong to (`MULTIPLAYER.md`).
-///
-/// Today only [`GameFamily::Swbf1`] (2004) is implemented; requesting [`GameFamily::Swbf2`] (2005)
-/// from any layout or controller constructor returns an explicit [`GameFamilyError`] and never
-/// silently falls back to the 2004 layout.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum GameFamily {
-    /// Star Wars Battlefront (2004) (`swbf1`).
-    #[default]
-    Swbf1,
-    /// Star Wars Battlefront II (2005) (`swbf2`).
-    Swbf2,
-}
-
-impl GameFamily {
-    /// Canonical short identifier (`"swbf1"` or `"swbf2"`).
-    #[inline]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            GameFamily::Swbf1 => "swbf1",
-            GameFamily::Swbf2 => "swbf2",
-        }
-    }
-
-
-    /// Verifies that this game family's in-battle UI is implemented, returning
-    /// [`GameFamilyError`] for [`GameFamily::Swbf2`].
-    #[inline]
-    pub const fn require_available(self) -> Result<(), GameFamilyError> {
-        match self {
-            GameFamily::Swbf1 => Ok(()),
-            GameFamily::Swbf2 => Err(GameFamilyError::not_available(self)),
-        }
-    }
-}
-
-// Formats the game family as its canonical lowercase identifier (`"swbf1"` or `"swbf2"`).
-impl fmt::Display for GameFamily {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+pub use bfe_family::GameFamily;
 
 /// Error returned when a caller requests an unimplemented [`GameFamily`] (such as [`GameFamily::Swbf2`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct GameFamilyError {
-    /// The unimplemented game family that was requested by the caller.
-    pub family: GameFamily,
-}
-
-impl GameFamilyError {
-    /// Constructs a "not available" error for `family`.
-    #[inline]
-    pub const fn not_available(family: GameFamily) -> Self {
-        Self { family }
-    }
-}
-
-// Formats the error message expected by `MULTIPLAYER.md` selector tests.
-impl fmt::Display for GameFamilyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "game family {} is not available", self.family.as_str())
-    }
-}
-
-impl std::error::Error for GameFamilyError {}
+pub type GameFamilyError = bfe_family::UnavailableFamily;
 
 /// Fixed horizontal width of the Classic interface plane (`IW = 1024`).
 pub const IW: f64 = 1024.0;

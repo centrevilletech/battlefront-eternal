@@ -1,6 +1,7 @@
 //! Semantic capture records to snapshot entries, following
 //! and snapshot-codec.js quantizers.
-use crate::gen::{WireBounds, WireClass, WireEntry, WireField, WireMount, WireQuaternion,
+use super::PositionBounds;
+use crate::gen::{WireClass, WireEntry, WireField, WireMount, WireQuaternion,
     WireRecord, WireRecordKind, WireRecordState, WireSlot, WireSnapshot, WireVelocity};
 use crate::store::Strings;
 use jsrt::{js_max, js_min, js_round, num_or, num_truthy, same_value_zero, to_int32};
@@ -10,18 +11,7 @@ const PI: f64 = std::f64::consts::PI;
 const ANGLE: f64 = 65536.0 / (2.0 * PI);
 const QUAT_RANGE: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
-pub fn default_bounds() -> WireBounds {
-    WireBounds { x_min: -1024.0, x_extent: 2048.0, y_min: -400.0,
-        y_extent: 700.0, z_min: -1024.0, z_extent: 2048.0 }
-}
-
 fn clamp(v: f64, lo: f64, hi: f64) -> f64 { js_max(lo, js_min(hi, v)) }
-
-pub fn quantize_position(p: [f64; 3], b: &WireBounds) -> [f64; 3] {
-    [clamp(js_round((p[0] - b.x_min) / b.x_extent * 65535.0), 0.0, 65535.0),
-     clamp(js_round((p[1] - b.y_min) / b.y_extent * 65535.0), 0.0, 65535.0),
-     clamp(js_round((p[2] - b.z_min) / b.z_extent * 65535.0), 0.0, 65535.0)]
-}
 
 pub fn quantize_velocity(v: [f64; 3], force_wide: bool) -> WireVelocity {
     let wide = force_wide || !v.iter().all(|x| x.is_finite() && x.abs() <= 31.75);
@@ -195,7 +185,7 @@ fn same_entry(a: &WireEntry, b: &WireEntry) -> bool {
     }
 }
 
-pub(crate) fn build_entry_into(entry: &mut WireEntry, record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
+pub(crate) fn build_entry_into(entry: &mut WireEntry, record: &WireRecord, bounds: &PositionBounds, mount: Option<&WireRecord>, seat_slot: f64,
     seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<bool, &'static str> {
     let cls = record_class(record.kind)?;
     let mut anim = std::mem::take(&mut entry.anim); anim.clear();
@@ -221,7 +211,7 @@ pub(crate) fn build_entry_into(entry: &mut WireEntry, record: &WireRecord, bound
         entry.gun_yaw = angle_code(record.gun_yaw);
         entry.gun_pitch = angle_code(record.gun_pitch);
     } else {
-        entry.pos = quantize_position(record.position.unwrap_or([0.0; 3]), bounds);
+        entry.pos = bounds.encode(record.position.unwrap_or([0.0; 3]));
         entry.vel = quantize_velocity(record.velocity.unwrap_or([0.0; 3]), cls == WireClass::Item);
         match cls {
             WireClass::Soldier | WireClass::Droideka => {
@@ -281,7 +271,7 @@ pub(crate) fn build_entry_into(entry: &mut WireEntry, record: &WireRecord, bound
     Ok(false)
 }
 
-fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
+fn build_entry(record: &WireRecord, bounds: &PositionBounds, mount: Option<&WireRecord>, seat_slot: f64,
     seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<(WireEntry, bool), &'static str> {
     // Standalone semantic fixtures own their returned entry. The live ring
     // calls build_entry_into with cold-reserved slots instead of this wrapper.
@@ -291,13 +281,13 @@ fn build_entry(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireReco
     Ok((entry, reused))
 }
 
-pub fn entry_from_record(record: &WireRecord, bounds: &WireBounds, mount: Option<&WireRecord>, seat_slot: f64,
+pub fn entry_from_record(record: &WireRecord, bounds: &PositionBounds, mount: Option<&WireRecord>, seat_slot: f64,
     seat_index: f64, previous: Option<&WireEntry>, strings: &Strings) -> Result<WireEntry, &'static str> {
     build_entry(record, bounds, mount, seat_slot, seat_index, previous, strings).map(|(entry, _)| entry)
 }
 
 pub(crate) fn discontinuity(entry: &mut WireEntry, before: Option<&WireEntry>, reused: bool, tick: f64,
-    previous_tick: f64, bounds: &WireBounds) {
+    previous_tick: f64, bounds: &PositionBounds) {
     if let Some(before) = before.filter(|before| !reused && before.generation == entry.generation && before.cls == entry.cls) {
         if matches!(entry.cls, WireClass::Soldier | WireClass::Droideka) && before.seat_slot != entry.seat_slot { entry.disc = true; }
         if entry.cls != WireClass::Turret {
@@ -306,9 +296,7 @@ pub(crate) fn discontinuity(entry: &mut WireEntry, before: Option<&WireEntry>, r
             let speed = if entry.vel.wide { v8math::hypot3(v[0] / 32.0, v[1] / 32.0, v[2] / 32.0) }
                 else { v8math::hypot3(v[0] * 0.25, v[1] * 0.25, v[2] * 0.25) };
             let allowance = 3.0 + js_max(if entry.cls == WireClass::Vehicle { 60.0 } else { 12.0 }, speed) * gap;
-            let dx = (entry.pos[0] - before.pos[0]) * bounds.x_extent / 65535.0;
-            let dy = (entry.pos[1] - before.pos[1]) * bounds.y_extent / 65535.0;
-            let dz = (entry.pos[2] - before.pos[2]) * bounds.z_extent / 65535.0;
+            let [dx, dy, dz] = bounds.displacement(entry.pos, before.pos);
             entry.disc = entry.disc || v8math::hypot3(dx, dy, dz) > allowance;
         }
     }
@@ -322,7 +310,7 @@ fn put_slot(slots: &mut Vec<WireSlot>, slot: f64, entry: WireEntry) {
 /// Capture record order determines slot allocation and the resulting Map
 /// order. Vehicle slots are assigned in a first pass before their riders.
 pub fn snapshot_from_records(tick: f64, epoch: f64, records: &[WireRecord], world: Vec<WireField>,
-    slots: &mut SnapshotSlotTable, bounds: &WireBounds, previous: Option<&WireSnapshot>, strings: &Strings) -> Result<WireSnapshot, &'static str> {
+    slots: &mut SnapshotSlotTable, bounds: &PositionBounds, previous: Option<&WireSnapshot>, strings: &Strings) -> Result<WireSnapshot, &'static str> {
     let mut snapshot = WireSnapshot { tick, epoch, slots: Vec::new(), world };
     let mut by_id: Vec<(f64, f64)> = Vec::new();
     for r in records.iter().filter(|r| r.kind == WireRecordKind::Vehicle) {

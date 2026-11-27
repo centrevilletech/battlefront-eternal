@@ -67,3 +67,27 @@ fn hosted_humans_replace_bots_without_changing_the_team_population() {
         .iter()
         .all(|team| team.total == Some(population) && team.humans == 0.));
 }
+
+// A 2004 join is the released one: it does not look at the publication bind's
+// answer, so a refused bind does not refuse the player (a 2005 join does, and
+// gives back what it took).
+#[test]
+fn a_2004_join_ignores_the_publication_binds_answer_as_released() {
+    let Some(root) = std::env::var_os("BFE_CONTENT_DIR") else {
+        return;
+    };
+    let mut host = NativeWorldHost::load_from_content(
+        std::path::Path::new(&root),
+        "?map=nab2&side=rep&ai=classic&seed=1",
+        1,
+    )
+    .unwrap();
+    assert!(host.world_admitted);
+    host.publication_session = 999_999;
+    let joined = host.add_player("first", "PLAYER TWO", false, false, false);
+    assert!(joined.is_ok(), "{joined:?}");
+    assert_eq!(
+        (host.mailbox_by_native.len(), host.player_by_native.len(), host.edges_by_native.len()),
+        (1, 1, 1)
+    );
+}

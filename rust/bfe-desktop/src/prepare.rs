@@ -10,77 +10,24 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use bfe_content::layout::{family_dir, family_dir_for_platform, prepare_state_file};
+pub use bfe_content::prepare::{
+    checkout_content_version, parse_content_version, prepared_content_current, read_content_version,
+    read_prepare_state, ContentVersion, PrepareFailureRecord, PrepareState, PrepareStateExtras,
+    CHECKOUT_CONTENT_VERSION_JSON,
+};
+use bfe_family::GameFamily;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::discover::{
-    find_content, find_game_installs, inspect_content, inspect_install, installed_add_ons,
-    ContentInfo, FindContentOptions, FindGameOptions, GameInstall,
+    find_content_for, find_game_installs_for, find_swbf2_lvl_pc, game_profile, inspect_content,
+    inspect_install_for, installed_add_ons, ContentInfo, FindContentOptions, FindGameOptions,
+    GameInstall,
 };
 use crate::paths::{normalize_comparable_path, resolve_from};
 use crate::settings::{PreparationRecord, SettingsStore};
-
-/// Compile-time embedded `tools/content-version.json` from the repository checkout.
-///
-/// Using `include_str!` ensures that if `tools/content-version.json` is moved
-/// or removed, compilation fails rather than silently drifting.
-pub const CHECKOUT_CONTENT_VERSION_JSON: &str = include_str!("../../../tools/content-version.json");
-
-/// Expected schema versions for prepared content outputs (`tools/content-version.json`).
-///
-/// Intentional omission: `ContentVersion` does **not** implement `Default`.
-/// Callers must load the version table from `tools/content-version.json` via
-/// [`read_content_version`] (runtime) or [`checkout_content_version`] (checkout/tests).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContentVersion {
-    /// Overall `.prepare.json` state format version.
-    pub state: u32,
-    /// Map importer generation version (`mapImportVersion` in `.prepare.json`).
-    pub maps: u32,
-    /// Side/muzzle importer generation version (`muzzleVersion` in `.prepare.json`).
-    pub sides: u32,
-    /// Common asset importer generation version (`commonVersion` in `.prepare.json`).
-    pub common: u32,
-}
-
-/// Parses a `tools/content-version.json` payload into a [`ContentVersion`].
-///
-/// Rejects missing fields, non-integer values, or malformed JSON with a
-/// human-readable error message suitable for surfacing in the loader UI.
-pub fn parse_content_version(raw: &str, source_label: &str) -> Result<ContentVersion, String> {
-    // Parse strictly via serde_json so any missing or extra-typed required key fails.
-    serde_json::from_str::<ContentVersion>(raw).map_err(|err| {
-        format!(
-            "Failed to parse content version file ({}): {}",
-            source_label, err
-        )
-    })
-}
-
-/// Reads and parses `<tools_dir>/content-version.json` at runtime.
-///
-/// Mirrors how the desktop host loads `../tools/content-version.json` from
-/// the installed `tools` directory (`resourcesPath/tools/content-version.json`
-/// in packaged builds). Never falls back to literal numbers.
-pub fn read_content_version(tools_dir: &Path) -> Result<ContentVersion, String> {
-    let path = tools_dir.join("content-version.json");
-    let raw = fs::read_to_string(&path).map_err(|err| {
-        format!(
-            "Missing or unreadable content version file at {}: {}",
-            path.display(),
-            err
-        )
-    })?;
-    parse_content_version(&raw, &path.display().to_string())
-}
-
-/// Parses the repository checkout's `tools/content-version.json` embedded via `include_str!`.
-///
-/// Used by unit tests and development checkouts when an explicit runtime tools
-/// directory is not supplied. Returns an error if the embedded JSON is invalid.
-pub fn checkout_content_version() -> Result<ContentVersion, String> {
-    parse_content_version(CHECKOUT_CONTENT_VERSION_JSON, "tools/content-version.json")
-}
+use crate::swbf2_tree;
 
 /// Top-level output entries written by `prepare.py` into a content folder.
 ///
@@ -205,11 +152,16 @@ pub fn toolchain_paths(opts: &ToolchainOptions) -> ToolchainPaths {
 /// Mirrors the argument object of `toolEnv` in the desktop host.
 #[derive(Debug, Clone)]
 pub struct ToolEnvOptions {
+    /// Game family (`swbf1` or `swbf2`). Always written explicitly to `BFE_FAMILY`
+    /// so an inherited value is never forwarded to preparation tools. `BFE_CONTENT_DIR`
+    /// stays `<content>` for `swbf1` and resolves to `<content>/swbf2/.content` for `swbf2`.
+    pub family: GameFamily,
     /// Toolchain root directory resolved by [`toolchain_paths`].
     pub toolchain: PathBuf,
     /// Optional path to the original game install directory (`BFE_GAME_DIR`).
     pub game: Option<PathBuf>,
-    /// Optional path to the target prepared content directory (`BFE_CONTENT_DIR`).
+    /// Optional path to the shared content root (`BFE_CONTENT_DIR` becomes
+    /// `family_dir(content, family)`: `<content>` for `swbf1`, `<content>/swbf2/.content` for `swbf2`).
     pub content: Option<PathBuf>,
     /// Base environment variables to inherit from.
     pub env: BTreeMap<String, String>,
@@ -265,11 +217,13 @@ pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     }
     set_var(&mut next, is_win, "PATH", bins.join(sep));
 
+    set_var(&mut next, is_win, "BFE_FAMILY", opts.family.as_str().to_string());
     if let Some(game) = &opts.game {
         set_var(&mut next, is_win, "BFE_GAME_DIR", game.to_string_lossy().into_owned());
     }
     if let Some(content) = &opts.content {
-        set_var(&mut next, is_win, "BFE_CONTENT_DIR", content.to_string_lossy().into_owned());
+        let content_dir = family_dir_for_platform(content, opts.family, is_win);
+        set_var(&mut next, is_win, "BFE_CONTENT_DIR", content_dir);
     }
 
     set_var(&mut next, is_win, "PYTHONUNBUFFERED", "1".to_string());
@@ -304,92 +258,26 @@ pub fn tool_env(opts: &ToolEnvOptions) -> BTreeMap<String, String> {
     next
 }
 
-/// Optional extra preparation flags stored in `.prepare.json`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrepareStateExtras {
-    /// Whether enhanced sound banks were built (`None` or `Some(true)` means enabled).
-    #[serde(default)]
-    pub enhanced_sound: Option<bool>,
-    /// Number of enhanced sound steps executed.
-    #[serde(default)]
-    pub sound_steps: Option<u32>,
-}
-
-/// Failure record for an individual preparation step stored in `.prepare.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrepareFailureRecord {
-    /// Step identifier (e.g. `"addon:bes1g"`).
-    pub id: String,
-    /// Optional human-readable label for the step.
-    #[serde(default)]
-    pub label: Option<String>,
-    /// Optional error description.
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
-/// Deserialized representation of `<content>/.prepare.json`.
+/// Reads and parses the preparation receipt for `family` under `content_dir`,
+/// returning `None` if missing or invalid.
 ///
-/// Mirrors the state object read by `readPrepareState` in the desktop host.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PrepareState {
-    /// State format version (`ContentVersion::state`).
-    pub version: Option<u32>,
-    /// Map import version (`ContentVersion::maps`).
-    pub map_import_version: Option<u32>,
-    /// Side/muzzle version (`ContentVersion::sides`).
-    pub muzzle_version: Option<u32>,
-    /// Common assets version (`ContentVersion::common`).
-    pub common_version: Option<u32>,
-    /// Whether preparation finished all required steps.
-    pub complete: Option<bool>,
-    /// Path to `<game>/GameData/Data/_LVL_PC` used during preparation.
-    pub game: Option<String>,
-    /// Add-on map IDs included in the preparation run.
-    pub add_ons: Option<Vec<String>>,
-    /// Step IDs that failed during preparation.
-    pub failed: Option<Vec<Value>>,
-    /// Step IDs that were skipped during preparation.
-    pub skipped: Option<Vec<Value>>,
-    /// Detailed failure records.
-    pub failures: Option<Vec<PrepareFailureRecord>>,
-    /// Optional extra preparation metadata (such as enhanced sound status).
-    pub extras: Option<PrepareStateExtras>,
-}
-
-/// Reads and parses `<content_dir>/.prepare.json`, returning `None` if missing or invalid.
-///
-/// Mirrors `readPrepareState` in the desktop host.
-pub fn read_prepare_state(content_dir: Option<&Path>) -> Option<PrepareState> {
-    let dir = content_dir?;
-    let raw = fs::read_to_string(dir.join(".prepare.json")).ok()?;
-    serde_json::from_str(&raw).ok()
-}
-
-/// Checks whether a `.prepare.json` state matches the required [`ContentVersion`]
-/// and completed with zero failed or skipped steps.
-///
-/// Mirrors `preparedContentCurrent` in the desktop host.
-pub fn prepared_content_current(
-    state: Option<&PrepareState>,
-    content_version: &ContentVersion,
-) -> bool {
-    let Some(st) = state else {
-        return false;
-    };
-    let failed_empty = st.failed.as_ref().map(|v| v.is_empty()).unwrap_or(false);
-    let skipped_empty = st.skipped.as_ref().map(|v| v.is_empty()).unwrap_or(false);
-
-    st.version == Some(content_version.state)
-        && st.map_import_version == Some(content_version.maps)
-        && st.muzzle_version == Some(content_version.sides)
-        && st.common_version == Some(content_version.common)
-        && st.complete == Some(true)
-        && failed_empty
-        && skipped_empty
+/// - `GameFamily::Swbf1` reads `<content_dir>/.prepare.json` via [`read_prepare_state`].
+/// - `GameFamily::Swbf2` reads `<content_dir>/swbf2/.content/.prepare-swbf2.json` and
+///   requires `"family": "swbf2"` so older or unknown records are treated as not prepared.
+pub fn read_prepare_state_for(
+    content_dir: Option<&Path>,
+    family: GameFamily,
+) -> Option<PrepareState> {
+    if family == GameFamily::Swbf1 {
+        return read_prepare_state(content_dir);
+    }
+    let dir = family_dir(content_dir?, family);
+    let raw = fs::read_to_string(dir.join(prepare_state_file(family))).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    if value.get("family").and_then(Value::as_str) != Some(GameFamily::Swbf2.as_str()) {
+        return None;
+    }
+    serde_json::from_value(value).ok()
 }
 
 /// Normalizes a filesystem path for cross-platform comparison in `prepared_from`.
@@ -409,7 +297,21 @@ fn comparable_path(p: &Path, platform: &str) -> String {
     }
 }
 
-/// Checks whether `state` was prepared from the given `game` installation root.
+/// Returns the expected `_LVL_PC` / `_lvl_pc` path inside `game_dir` for `family`.
+///
+/// For `GameFamily::Swbf1`, keeps the canonical `GameData/Data/_LVL_PC` path
+/// that `tools/zero_paths.py` and released builds write into `.prepare.json`,
+/// preserving the released `prepared_from` comparison on case-sensitive disks.
+pub fn game_lvl_pc_path(game_dir: &Path, family: GameFamily) -> PathBuf {
+    match family {
+        GameFamily::Swbf1 => game_dir.join("GameData").join("Data").join("_LVL_PC"),
+        GameFamily::Swbf2 => find_swbf2_lvl_pc(game_dir)
+            .unwrap_or_else(|| game_dir.join("GameData").join("data").join("_lvl_pc")),
+    }
+}
+
+/// Checks whether `state` was prepared from the given 2004 (`swbf1`) `game`
+/// installation root.
 ///
 /// Compares `state.game` against `<game>/GameData/Data/_LVL_PC`.
 /// Mirrors `preparedFrom` in the desktop host.
@@ -424,6 +326,50 @@ pub fn prepared_from(state: Option<&PrepareState>, game: Option<&Path>, platform
     comparable_path(Path::new(state_game), platform) == comparable_path(&expected, platform)
 }
 
+/// Checks whether `state` was prepared for `family` from the given `game`
+/// installation root.
+pub fn prepared_from_for(
+    state: Option<&PrepareState>,
+    game: Option<&Path>,
+    family: GameFamily,
+    platform: &str,
+) -> bool {
+    if family == GameFamily::Swbf1 {
+        return prepared_from(state, game, platform);
+    }
+    let (Some(st), Some(game_dir)) = (state, game) else {
+        return false;
+    };
+    let Some(state_game) = st.game.as_deref().filter(|s| !s.is_empty()) else {
+        return false;
+    };
+    let expected = game_lvl_pc_path(game_dir, family);
+    comparable_path_swbf2(Path::new(state_game), platform)
+        == comparable_path_swbf2(&expected, platform)
+}
+
+/// [`comparable_path`] with a Windows verbatim spelling (`\\?\C:\...`,
+/// `\\?\UNC\...`, as `canonicalize` writes it) read as the plain place it
+/// names. Only the 2005 comparison does this; the released 2004 comparison
+/// above keeps its exact released reading. A folder that exists is read
+/// through its links (macOS spells a temporary folder `/var/...` where the
+/// preparation records `/private/var/...`).
+fn comparable_path_swbf2(p: &Path, platform: &str) -> String {
+    let real = fs::canonicalize(p);
+    strip_verbatim(&comparable_path(real.as_deref().unwrap_or(p), platform))
+}
+
+fn strip_verbatim(text: &str) -> String {
+    let Some(rest) = text.strip_prefix("//?/") else {
+        return text.to_string();
+    };
+    if rest.as_bytes().get(..4).is_some_and(|b| b.eq_ignore_ascii_case(b"unc/")) {
+        format!("//{}", &rest[4..])
+    } else {
+        rest.to_string()
+    }
+}
+
 /// Desired optional features when checking if prepared content satisfies user settings.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WantedPrepareOptions {
@@ -431,19 +377,20 @@ pub struct WantedPrepareOptions {
     pub enhanced_sound: Option<bool>,
 }
 
-/// Checks whether `state` is current, prepared from `game`, includes the same
-/// sorted `add_ons` list, and satisfies `wanted` options (such as `enhanced_sound`).
-///
-/// Mirrors `preparedFor` in the desktop host.
-pub fn prepared_for(
+/// Checks whether `state` is current, prepared for `family` from `game`,
+/// includes the same sorted `add_ons` list, and satisfies `wanted` options.
+pub fn prepared_for_family(
     state: Option<&PrepareState>,
     game: Option<&Path>,
+    family: GameFamily,
     add_ons: &[String],
     wanted: &WantedPrepareOptions,
     platform: &str,
     content_version: &ContentVersion,
 ) -> bool {
-    if !prepared_content_current(state, content_version) || !prepared_from(state, game, platform) {
+    if !prepared_content_current(state, content_version)
+        || !prepared_from_for(state, game, family, platform)
+    {
         return false;
     };
     let Some(st) = state else {
@@ -472,6 +419,29 @@ pub fn prepared_for(
     }
 
     true
+}
+
+/// Checks whether `state` is current, prepared from 2004 (`swbf1`) `game`,
+/// includes the same sorted `add_ons` list, and satisfies `wanted` options.
+///
+/// Mirrors `preparedFor` in the desktop host.
+pub fn prepared_for(
+    state: Option<&PrepareState>,
+    game: Option<&Path>,
+    add_ons: &[String],
+    wanted: &WantedPrepareOptions,
+    platform: &str,
+    content_version: &ContentVersion,
+) -> bool {
+    prepared_for_family(
+        state,
+        game,
+        GameFamily::Swbf1,
+        add_ons,
+        wanted,
+        platform,
+        content_version,
+    )
 }
 
 /// Summary of add-on failures and enhanced sound status extracted from `.prepare.json`.
@@ -517,8 +487,8 @@ pub fn prepared_summary(state: Option<&PrepareState>) -> PreparedSummary {
     }
 }
 
-/// Clears prepared output subdirectories (`maps`, `sides`, `common`, `audio`, `.prepare.json`)
-/// inside `content` if its existing `.prepare.json` was not built from `game`.
+/// Clears 2004 (`swbf1`) prepared output subdirectories (`maps`, `sides`, `common`, `audio`,
+/// `.prepare.json`) inside `content` if its existing `.prepare.json` was not built from `game`.
 pub fn clear_prepared_for(content: Option<&Path>, game: Option<&Path>, platform: &str) -> bool {
     let (Some(content_dir), Some(game_dir)) = (content, game) else {
         return false;
@@ -1255,6 +1225,7 @@ pub fn resolve_startup_content(
     };
 
     let saved = settings.load();
+    let family = GameFamily::Swbf1;
     let explicit_content: Vec<PathBuf> = saved
         .content_dir
         .as_ref()
@@ -1262,21 +1233,23 @@ pub fn resolve_startup_content(
         .map(|s| vec![PathBuf::from(s)])
         .unwrap_or_default();
     let extra_game: Vec<PathBuf> = saved
-        .game_dir
-        .as_ref()
+        .game_dir_for(family)
         .map(|s| vec![PathBuf::from(s)])
         .unwrap_or_default();
 
-    let raw_content = find_content(&FindContentOptions {
-        explicit: explicit_content,
-        likely: likely_content_dirs.to_vec(),
-        home: home.map(|p| p.to_path_buf()),
-        search: true,
-    });
+    let raw_content = find_content_for(
+        &FindContentOptions {
+            explicit: explicit_content,
+            likely: likely_content_dirs.to_vec(),
+            home: home.map(|p| p.to_path_buf()),
+            search: true,
+        },
+        family,
+    );
 
     let prepare_state = raw_content
         .as_ref()
-        .and_then(|c| read_prepare_state(Some(&c.dir)));
+        .and_then(|c| read_prepare_state_for(Some(&c.dir), family));
     let current =
         raw_content.is_some() && prepared_content_current(prepare_state.as_ref(), &content_version);
     let content = if current { raw_content.clone() } else { None };
@@ -1286,12 +1259,15 @@ pub fn resolve_startup_content(
         None
     };
 
-    let installs = find_game_installs(&FindGameOptions {
-        platform: platform.to_string(),
-        home: home.map(|p| p.to_path_buf()),
-        env: env.clone(),
-        extra: extra_game,
-    });
+    let installs = find_game_installs_for(
+        &FindGameOptions {
+            platform: platform.to_string(),
+            home: home.map(|p| p.to_path_buf()),
+            env: env.clone(),
+            extra: extra_game,
+        },
+        family,
+    );
 
     let install = installs.first().cloned();
     if let Some(c) = content {
@@ -1305,18 +1281,19 @@ pub fn resolve_startup_content(
     }
 
     // Check if the user previously prepared from a specific install that is still valid.
-    let prepared_game_dir = saved
-        .preparations
+    let preps = saved.preparations_for(family);
+    let prepared_game_dir = preps
         .values()
         .next()
         .map(|p: &PreparationRecord| PathBuf::from(&p.game_dir))
-        .or_else(|| saved.game_dir.as_ref().map(PathBuf::from));
+        .or_else(|| saved.game_dir_for(family).map(PathBuf::from));
 
     if let Some(cand) = prepared_game_dir {
-        if let Some(valid) = inspect_install(&cand) {
+        if let Some(valid) = inspect_install_for(&cand, family) {
             if installs.len() <= 1 {
                 let matched = installs.first().cloned().unwrap_or(GameInstall {
                     dir: valid.dir.clone(),
+                    family: valid.family,
                     source: "chosen".to_string(),
                     how: "the folder you chose".to_string(),
                     chosen: true,
@@ -1369,11 +1346,14 @@ pub fn resolve_startup_content(
 /// Options for spawning a live `prepare.py` subprocess via [`PrepareSession::start`].
 #[derive(Debug, Clone)]
 pub struct PrepareSpawnOptions {
+    /// Game family (`swbf1` or `swbf2`) to prepare.
+    pub family: GameFamily,
     /// Resolved toolchain and script paths.
     pub toolchain: ToolchainPaths,
     /// Original game installation directory.
     pub game_dir: PathBuf,
-    /// Target content output directory.
+    /// Shared content root directory (`BFE_CONTENT_DIR` is `<content_dir>` for
+    /// `swbf1`, or `<content_dir>/swbf2/.content` for `swbf2`).
     pub content_dir: PathBuf,
     /// Base environment variables.
     pub env: BTreeMap<String, String>,
@@ -1414,31 +1394,81 @@ impl PrepareSession {
         timings_file: Option<PathBuf>,
         log_file: Option<PathBuf>,
     ) -> Result<Self, String> {
+        Self::spawn(opts, timings_file, log_file, false)
+    }
+
+    /// Check prepared audio metadata after the menu opens. The optional steps use prepared banks.
+    pub fn start_sound_maintenance(opts: PrepareSpawnOptions, log_file: PathBuf) -> Result<Self, String> {
+        Self::spawn(opts, None, Some(log_file), true)
+    }
+
+    fn spawn(opts: PrepareSpawnOptions, timings_file: Option<PathBuf>, log_file: Option<PathBuf>,
+             sound_maintenance: bool) -> Result<Self, String> {
         // Validate the shared content-version.json before launching the Python preparer.
         let _version = read_content_version(&opts.toolchain.tools)?;
 
-        if inspect_install(&opts.game_dir).is_none() {
-            return Err(
-                "That folder does not look like a Star Wars Battlefront (2004) install."
-                    .to_string(),
-            );
+        let mut child_game = opts.game_dir.clone();
+        let mut swbf2_lock = None;
+        let mut checked_dir = None;
+        match opts.family {
+            GameFamily::Swbf1 => {
+                if !sound_maintenance && inspect_install_for(&opts.game_dir, opts.family).is_none() {
+                    return Err(format!(
+                        "That folder does not look like a {} install.",
+                        game_profile(opts.family).display_name
+                    ));
+                }
+                if !opts.plan_only && !sound_maintenance {
+                    clear_prepared_for(Some(&opts.content_dir), Some(&opts.game_dir), &opts.platform);
+                }
+            }
+            // Sound maintenance of a 2005 tree validates no install, but it takes the tree's lock like every other writer.
+            GameFamily::Swbf2 if sound_maintenance => {
+                let tools = swbf2_tree::swbf2_tools(Some(&opts.toolchain.tools))?;
+                let session = swbf2_tree::complete_session(&opts.content_dir, &tools)?;
+                checked_dir = Some(session.tree.dir);
+                swbf2_lock = Some(session.lock);
+            }
+            GameFamily::Swbf2 => {
+                let install = swbf2_tree::identify_install(&opts.game_dir)?;
+                child_game = install.root.clone();
+                if opts.plan_only {
+                    checked_dir = Some(swbf2_tree::locate(&opts.content_dir)?.dir);
+                } else {
+                    let tools = swbf2_tree::swbf2_tools(Some(&opts.toolchain.tools))?;
+                    let start = swbf2_tree::begin_identified(&swbf2_tree::Ops::REAL, &opts.content_dir, install, &tools)
+                        .map_err(|e| e.message().to_string())?;
+                    checked_dir = Some(start.tree.dir.clone());
+                    swbf2_lock = Some(start.lock);
+                }
+            }
         }
 
-        if !opts.plan_only {
-            clear_prepared_for(
-                Some(&opts.content_dir),
-                Some(&opts.game_dir),
-                &opts.platform,
-            );
-        }
-
-        let child_env = tool_env(&ToolEnvOptions {
+        let mut child_env = tool_env(&ToolEnvOptions {
+            family: opts.family,
             toolchain: opts.toolchain.toolchain.clone(),
-            game: Some(opts.game_dir.clone()),
+            game: Some(child_game),
             content: Some(opts.content_dir.clone()),
             env: opts.env.clone(),
             platform: opts.platform.clone(),
         });
+        let is_win = opts.platform == "win32" || opts.platform == "windows";
+        let mut held_lock = None;
+        if let Some(path) = checked_dir {
+            let dir = path.to_str().ok_or("The 2005 data folder cannot be passed to the tools.")?;
+            set_var(&mut child_env, is_win, "BFE_CONTENT_DIR", dir.to_string());
+        }
+        if let Some(lock) = swbf2_lock {
+            set_var(
+                &mut child_env,
+                is_win,
+                swbf2_tree::LOCK_ENV,
+                swbf2_tree::LOCK_HANDOVER.to_string(),
+            );
+            lock.release_tools_part()
+                .map_err(|e| format!("Could not pass the preparation lock on: {e}"))?;
+            held_lock = Some(lock);
+        }
 
         eprintln!(
             "preparation tools: python={} script={} toolchain={}",
@@ -1454,7 +1484,9 @@ impl PrepareSession {
                 .map_or(1, usize::from)
                 .to_string(),
         );
-        if opts.plan_only {
+        if sound_maintenance {
+            cmd.arg("--maintain-sound");
+        } else if opts.plan_only {
             cmd.arg("--check");
         }
         if !opts.enhanced_sound {
@@ -1468,6 +1500,13 @@ impl PrepareSession {
             cmd.env("BFE_SKIP_ADDONS", "1");
         }
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        if let Some(lock) = &held_lock {
+            let handed = lock
+                .file()
+                .try_clone()
+                .map_err(|e| format!("Could not pass the preparation lock on: {e}"))?;
+            cmd.stdin(Stdio::from(handed));
+        }
         #[cfg(unix)]
         {
             use std::os::unix::process::CommandExt;
@@ -1567,13 +1606,19 @@ impl PrepareSession {
                     }
                     if let Some(path) = timings_file.as_ref() {
                         if let Ok(body) = serde_json::to_vec(&guard.timings) {
-                            let _ = fs::write(path, body);
+                            let _ = bfe_storage::write_text_record(path, &body, |text| {
+                                serde_json::from_str::<StepTimings>(text).is_ok()
+                            });
                         }
                     }
                     let est = estimate(&guard, Some(&guard.timings), now_ms);
                     guard.eta_seconds = est.eta_seconds;
                     guard.phase_label = est.phase_label;
-                    let _ = tx.send(guard.clone());
+                    // The menu releases its maintenance session on completion. Send that
+                    // notification after wait() below, so dropping it cannot kill the worker.
+                    if !sound_maintenance || !matches!(guard.status.as_str(), "done" | "failed" | "cancelled") {
+                        let _ = tx.send(guard.clone());
+                    }
                 }
             }
             // EOF alone is not success: a missing script, import error or
@@ -1582,6 +1627,8 @@ impl PrepareSession {
                 .lock()
                 .ok()
                 .and_then(|mut c| c.as_mut().map(Child::wait));
+            // The tools have exited, and with them their last write: the 2005 tree's lock goes.
+            drop(held_lock);
             // Preserve the final diagnostic lines before publishing failure.
             let _ = stderr_reader.join();
             if let Ok(mut snap) = snap_clone.lock() {
@@ -1640,8 +1687,28 @@ impl PrepareSession {
     }
 }
 
-/// Inspects a content folder after preparation and verifies that its `.prepare.json`
-/// matches `tools/content-version.json` and the installed add-ons from `game_dir`.
+/// Inspects a content folder after preparation for `family` and verifies it: for 2004 with
+/// [`verify_prepared_outputs`], for 2005 with the test preparation and export use
+/// ([`swbf2_tree::verify`]).
+pub fn verify_prepared_outputs_for(
+    content_dir: &Path,
+    game_dir: &Path,
+    family: GameFamily,
+    platform: &str,
+    tools_dir: Option<&Path>,
+) -> Result<bool, String> {
+    if family == GameFamily::Swbf1 {
+        return verify_prepared_outputs(content_dir, game_dir, platform, tools_dir);
+    }
+    // Tools that cannot prepare the 2005 game cannot vouch for a 2005 tree either.
+    match swbf2_tree::swbf2_tools(tools_dir) {
+        Ok(tools) => swbf2_tree::verify(content_dir, game_dir, &tools),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Inspects a 2004 (`swbf1`) content folder after preparation and verifies that its
+/// `.prepare.json` matches `tools/content-version.json` and the installed add-ons from `game_dir`.
 pub fn verify_prepared_outputs(
     content_dir: &Path,
     game_dir: &Path,
@@ -1672,6 +1739,23 @@ pub fn verify_prepared_outputs(
 mod tool_protocol_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn verbatim_spellings_read_as_the_place_they_name() {
+        assert_eq!(strip_verbatim("//?/D:/zz/GameData/data/_lvl_pc"), "D:/zz/GameData/data/_lvl_pc");
+        assert_eq!(strip_verbatim("//?/UNC/server/share/zz"), "//server/share/zz");
+        assert_eq!(strip_verbatim("//?/unc/server/share/zz"), "//server/share/zz");
+        assert_eq!(strip_verbatim("D:/zz/GameData/data/_lvl_pc"), "D:/zz/GameData/data/_lvl_pc");
+        assert_eq!(strip_verbatim("/zz/GameData/data/_lvl_pc"), "/zz/GameData/data/_lvl_pc");
+        assert_eq!(strip_verbatim("//server/share/zz"), "//server/share/zz");
+        // Folder names past ASCII, one straddling the fourth byte.
+        assert_eq!(strip_verbatim("//?/ab\u{4e2d}/zz"), "ab\u{4e2d}/zz");
+        assert_eq!(strip_verbatim("//?/a\u{e9}b/zz"), "a\u{e9}b/zz");
+        assert_eq!(strip_verbatim("//?/\u{1f600}zz"), "\u{1f600}zz");
+        assert_eq!(strip_verbatim("//?/UNC/\u{4e2d}\u{6587}/share/zz"), "//\u{4e2d}\u{6587}/share/zz");
+        assert_eq!(strip_verbatim("//?/"), "");
+        assert_eq!(strip_verbatim("//?/un"), "un");
+    }
 
     #[test]
     fn actual_tool_plan_and_keyed_step_events_advance_progress() {
@@ -1768,6 +1852,7 @@ mod child_protocol_tests {
         )
         .unwrap();
         let options = PrepareSpawnOptions {
+            family: GameFamily::Swbf1,
             toolchain: ToolchainPaths {
                 toolchain: root.join("toolchain"),
                 tools: tools.clone(),
@@ -1807,13 +1892,54 @@ mod child_protocol_tests {
             }
         }
     }
+
+    #[test]
+    fn sound_maintenance_finishes_before_the_menu_releases_its_session() {
+        let (root, options) = fixture();
+        fs::create_dir_all(&options.content_dir).unwrap();
+        let closed = options.content_dir.join("closed");
+        fs::write(&options.toolchain.script, r#"import os, pathlib, time
+print('@@{"event":"finished","failed":[]}', flush=True)
+time.sleep(0.25)
+pathlib.Path(os.environ['BFE_CONTENT_DIR'], 'closed').touch()
+"#).unwrap();
+        let log = root.join("sound.log");
+        let session = PrepareSession::start_sound_maintenance(options, log.clone()).unwrap();
+        assert_eq!(terminal(&session).status, "done");
+        drop(session);
+        assert!(closed.is_file());
+        assert!(fs::read_to_string(log).unwrap().contains("finished: done"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn sound_maintenance_runs_for_portable_content_without_clearing_it() {
+        let (root, mut options) = fixture();
+        options.game_dir = root.join("absent");
+        options.env.insert("BFE_FAMILY".into(), "swbf2".into());
+        fs::create_dir_all(&options.content_dir).unwrap();
+        let marker = options.content_dir.join("keep");
+        fs::write(&marker, "prepared").unwrap();
+        fs::write(&options.toolchain.script, r#"import os, sys
+assert '--maintain-sound' in sys.argv and '--check' not in sys.argv
+assert os.environ['BFE_FAMILY'] == 'swbf1'
+print('@@{"event":"finished","failed":[]}', flush=True)
+"#).unwrap();
+        let session = PrepareSession::start_sound_maintenance(options, root.join("sound.log")).unwrap();
+        assert_eq!(terminal(&session).status, "done");
+        assert_eq!(fs::read_to_string(marker).unwrap(), "prepared");
+        drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn real_child_arguments_environment_and_framed_output_reach_the_snapshot() {
-        let (root, options) = fixture();
+        let (root, mut options) = fixture();
+        options.env.insert("BFE_FAMILY".to_string(), "swbf2".to_string());
         fs::write(&options.toolchain.script,r#"import argparse,json,os
 p=argparse.ArgumentParser();p.add_argument('--jobs');a=p.parse_args()
+assert os.environ['BFE_FAMILY'] == 'swbf1'
 assert os.environ['BFE_GAME_DIR'].endswith('game')
-assert os.environ['BFE_CONTENT_DIR'].endswith('content')
+assert os.path.basename(os.environ['BFE_CONTENT_DIR']) == 'content'
 for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':'Naboo','weight':120,'available':True}]},{'event':'step','key':'map:nab2','status':'start'},{'event':'step','key':'map:nab2','status':'done'},{'event':'finished','complete':True,'playable':True}]:
  print('@@'+json.dumps(event),flush=True)
 "#).unwrap();
@@ -1829,6 +1955,21 @@ for event in [{'event':'plan','steps':[{'key':'map:nab2','phase':'maps','label':
         assert!(text.contains(r#""key": "map:nab2", "status": "done""#) && !text.contains(r#""event": "plan""#), "{text}");
         fs::remove_dir_all(root).unwrap();
     }
+    #[test]
+    fn unreadable_timing_history_survives_preparation() {
+        let (root, options) = fixture();
+        let file = root.join("prepare-timings.json");
+        let damaged = br#"{"copy":"yesterday"}"#;
+        fs::write(&file, damaged).unwrap();
+        fs::write(&options.toolchain.script, r#"print('@@{"event":"finished","complete":true}')"#).unwrap();
+        let session = PrepareSession::start_with_timings(options, Some(file.clone()), None).unwrap();
+        assert_eq!(terminal(&session).status, "done");
+        drop(session);
+        assert!(serde_json::from_slice::<StepTimings>(&fs::read(&file).unwrap()).is_ok());
+        assert_eq!(fs::read(file.with_added_extension("bak")).ok().as_deref(), Some(&damaged[..]));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn a_nonzero_child_without_events_becomes_a_terminal_failure() {
         let (root, options) = fixture();
@@ -1863,6 +2004,322 @@ sys.exit(1)
         assert_eq!(snap.check_report.unwrap()["ok"], false);
         assert_eq!(fs::read(&kept).unwrap(), b"keep");
         drop(session);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Publishes, in the fixture's tools folder, the 2005 generation and as many of the keys a
+    /// 2005 start needs as asked for (`swbf2Lock`, `swbf2Outputs`).
+    fn swbf2_tools_file(tools: &Path, handover: bool, inventory: bool) {
+        let mut value = serde_json::to_value(checkout_content_version().unwrap()).unwrap();
+        value["swbf2"] = Value::from(8u64);
+        if handover {
+            value["swbf2Lock"] = Value::from(swbf2_tree::LOCK_HANDOVER);
+        }
+        if inventory {
+            value["swbf2Outputs"] = Value::from(1u64);
+        }
+        fs::write(tools.join("content-version.json"), value.to_string()).unwrap();
+    }
+
+    /// Every entry under `dir` with a file's bytes (`None` for a folder), for comparing all
+    /// names and bytes.
+    fn everything(dir: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
+        fn walk(base: &Path, at: &Path, out: &mut BTreeMap<PathBuf, Option<Vec<u8>>>) {
+            let Ok(entries) = fs::read_dir(at) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let rel = path.strip_prefix(base).unwrap().to_path_buf();
+                if path.is_dir() && !path.is_symlink() {
+                    out.insert(rel, None);
+                    walk(base, &path, out);
+                } else {
+                    out.insert(rel, fs::read(&path).ok());
+                }
+            }
+        }
+        let mut out = BTreeMap::new();
+        walk(dir, dir, &mut out);
+        out
+    }
+
+    /// A made-up 2005 install the validators accept.
+    fn swbf2_install(at: &Path) {
+        let lvl = at.join("GameData/data/_lvl_pc");
+        fs::create_dir_all(lvl.join("side")).unwrap();
+        fs::write(at.join("GameData/BattlefrontII.exe"), b"made up").unwrap();
+        for name in ["common.lvl", "core.lvl", "mission.lvl", "ingame.lvl", "shell.lvl"] {
+            fs::write(lvl.join(name), b"made up").unwrap();
+        }
+    }
+
+    /// Drains the session's progress until its reader has seen the tools exit.
+    fn ended(session: &PrepareSession) {
+        loop {
+            match session.events.recv_timeout(std::time::Duration::from_secs(30)) {
+                Ok(_) => continue,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(mpsc::RecvTimeoutError::Timeout) => panic!("the tools did not end"),
+            }
+        }
+    }
+
+    /// Stands in for tools that adopt the client's lock: standard input must be the held lock
+    /// on the folder they write, a fresh open of it must find it held, and they finish a
+    /// made-up complete tree once the test lets them.
+    #[cfg(unix)]
+    const ADOPTING_TOOLS: &str = r#"import fcntl,json,os,sys,time
+content=os.environ['BFE_CONTENT_DIR']
+lock=os.path.join(content,'.prepare.lock')
+assert os.environ.get('BFE_PREPARE_LOCK')=='stdin','no lock was handed over'
+assert os.environ['BFE_FAMILY']=='swbf2'
+assert os.path.realpath(content)==content,'the tools must get the resolved folder'
+assert os.path.samestat(os.fstat(0),os.stat(lock)),'standard input is not the lock'
+fcntl.flock(0,fcntl.LOCK_EX|fcntl.LOCK_NB)
+other=open(lock,'a+b')
+try:
+    fcntl.flock(other.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+    sys.exit('the lock was free while the tools ran')
+except BlockingIOError:
+    pass
+root=os.path.dirname(os.path.dirname(content))
+open(os.path.join(root,'ready'),'w').close()
+waited=0
+while not os.path.exists(os.path.join(root,'go')):
+    time.sleep(0.02)
+    waited+=1
+    if waited>3000:
+        sys.exit('nobody said go')
+version=json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),'content-version.json')))
+def put(rel,body):
+    path=os.path.join(content,rel)
+    os.makedirs(os.path.dirname(path),exist_ok=True)
+    open(path,'w').write(body)
+    return [rel,len(body.encode())]
+outputs={'map:zz1':[put('maps/zz1/map.json','{"made":"up"}'),put('maps/zz1/geom.bin','mesh')],'common':[put('common/common.json','{"shared":1}')],'*':[put('audio/index.json','{}')]}
+import hashlib
+for name, body in [('anims.bin','keys'),('manifest.json','{"version":2,"animsData":"anims.bin","rigs":{},"textures":{}}')]:
+    outputs['common'].append([*put('firstperson/'+name,body), hashlib.sha256(body.encode()).hexdigest()])
+game=os.path.realpath(os.path.join(os.environ['BFE_GAME_DIR'],'GameData','data','_lvl_pc'))
+record={'family':'swbf2','version':version['state'],'mapImportVersion':version['maps'],'muzzleVersion':version['sides'],'commonVersion':version['common'],'swbf2Version':version['swbf2'],'game':game,'plan':['map:zz1','common'],'done':['map:zz1','common'],'outputs':outputs,'addOns':[],'failed':[],'skipped':[],'complete':True}
+put('.prepare-swbf2.tmp',json.dumps(record))
+os.replace(os.path.join(content,'.prepare-swbf2.tmp'),os.path.join(content,'.prepare-swbf2.json'))
+print('@@'+json.dumps({'event':'finished','complete':True}),flush=True)
+"#;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_2005_preparation_holds_the_tools_lock_from_its_checks_to_their_last_write() {
+        let (root, mut options) = fixture();
+        let game = root.join("game-2005");
+        swbf2_install(&game);
+        let content = root.join("content");
+        fs::create_dir_all(&content).unwrap();
+        let alias = root.join("content-alias");
+        std::os::unix::fs::symlink(&content, &alias).unwrap();
+        options.family = GameFamily::Swbf2;
+        options.game_dir = game.clone();
+        options.content_dir = alias.clone();
+        swbf2_tools_file(&options.toolchain.tools, true, true);
+        fs::write(&options.toolchain.script, ADOPTING_TOOLS).unwrap();
+
+        let session = PrepareSession::start(options.clone()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        while !content.join("ready").exists() {
+            assert!(std::time::Instant::now() < deadline, "the tools did not start");
+            thread::sleep(std::time::Duration::from_millis(20));
+        }
+        // While the tools run, a second start, for this copy or another, is busy and changes
+        // no name or byte.
+        let tree = fs::canonicalize(&content).unwrap().join("swbf2/.content");
+        let other = root.join("game-2005-other");
+        swbf2_install(&other);
+        let before = everything(&content);
+        let mut seconds = Vec::new();
+        for from in [game.clone(), other] {
+            let mut second = options.clone();
+            second.game_dir = from;
+            seconds.push((PrepareSession::start(second), everything(&content)));
+        }
+        // Let the tools finish before judging, so a failure here cannot leave them waiting.
+        fs::write(content.join("go"), b"").unwrap();
+        for (second, after) in seconds {
+            match second {
+                Err(error) => assert!(error.contains("already running"), "{error}"),
+                Ok(session) => {
+                    session.cancel();
+                    panic!("a second start must fail");
+                }
+            }
+            assert_eq!(after, before);
+        }
+        let snap = terminal(&session);
+        assert_eq!(snap.status, "done", "{:?} {:?}", snap.error, snap.logs);
+        ended(&session);
+        // The lock went with the tools, and what they made verifies.
+        let lock = fs::OpenOptions::new()
+            .read(true)
+            .append(true)
+            .open(tree.join(".prepare.lock"))
+            .unwrap();
+        // A process another test starts can hold a copy of the lock for a moment between its
+        // fork and its exec; the tools' own hold is long gone once that moment passes.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while lock.try_lock().is_err() {
+            assert!(std::time::Instant::now() < deadline, "the lock outlived the tools");
+            thread::sleep(std::time::Duration::from_millis(25));
+        }
+        drop(lock);
+        let tools = swbf2_tree::swbf2_tools(Some(&options.toolchain.tools)).unwrap();
+        assert!(swbf2_tree::verify(&alias, &game, &tools).unwrap());
+        assert!(verify_prepared_outputs_for(&alias, &game, GameFamily::Swbf2, "linux", Some(&options.toolchain.tools)).unwrap());
+        assert!(tree.join(bfe_content::layout::SWBF2_MARKER_FILE).is_file());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Tools that do not publish the lock handover and the inventory are never started for the
+    /// 2005 game, and the start changes no name or byte of the content folder.
+    #[test]
+    fn tools_without_the_handover_are_refused_before_any_change() {
+        let (root, mut options) = fixture();
+        let game = root.join("game-2005");
+        swbf2_install(&game);
+        options.family = GameFamily::Swbf2;
+        options.game_dir = game.clone();
+        let ran = root.join("tools-ran");
+        fs::write(
+            &options.toolchain.script,
+            format!("open({:?},'w').close()\n", ran.to_string_lossy()),
+        )
+        .unwrap();
+        // A fresh folder, a stale tree and an unmarked tree, each with 2004 data beside it.
+        let content = options.content_dir.clone();
+        fs::create_dir_all(content.join("common")).unwrap();
+        fs::write(content.join("common/common.json"), b"{}").unwrap();
+        let tree = bfe_content::layout::family_dir(&content, GameFamily::Swbf2);
+        for (label, keys) in [("generation only", (false, false)), ("lock only", (true, false)), ("inventory only", (false, true))] {
+            swbf2_tools_file(&options.toolchain.tools, keys.0, keys.1);
+            for state in ["none", "stale", "unmarked"] {
+                let _ = fs::remove_dir_all(content.join("swbf2"));
+                if state != "none" {
+                    fs::create_dir_all(tree.join("maps/zz1")).unwrap();
+                    fs::write(tree.join("maps/zz1/map.json"), b"{}").unwrap();
+                    let game_field = if state == "stale" { "/made/up/elsewhere" } else { "/made/up/here" };
+                    fs::write(
+                        tree.join(bfe_content::layout::SWBF2_PREPARE_STATE_FILE),
+                        format!("{{\"family\":\"swbf2\",\"game\":\"{game_field}\"}}"),
+                    )
+                    .unwrap();
+                }
+                let before = everything(&content);
+                let error = PrepareSession::start(options.clone()).err().unwrap_or_default();
+                assert!(error.contains("cannot prepare the 2005 game"), "{label}, {state}: {error}");
+                assert_eq!(everything(&content), before, "{label}, {state}");
+                assert!(!ran.exists(), "{label}, {state}: the tools ran");
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn both_2005_starts_pass_the_physical_install_and_exact_destination() {
+        use std::os::unix::ffi::OsStringExt;
+        let (root, mut options) = fixture();
+        let game = root.join("game");
+        swbf2_install(&game);
+        let alias = root.join("alias");
+        std::os::unix::fs::symlink(&game, &alias).unwrap();
+        options.game_dir = alias;
+        options.family = GameFamily::Swbf2;
+        options.env.insert("EXPECTED_GAME".into(), fs::canonicalize(game).unwrap().to_str().unwrap().into());
+        swbf2_tools_file(&options.toolchain.tools, true, true);
+        let script = r#"import json, os, sys
+assert os.environ['BFE_GAME_DIR'] == os.environ['EXPECTED_GAME']
+event = {'event': 'check', 'ok': True} if '--check' in sys.argv else {'event': 'finished', 'complete': True}
+print('@@' + json.dumps(event), flush=True)
+"#;
+        fs::write(&options.toolchain.script, script).unwrap();
+        for check in [true, false] {
+            options.plan_only = check;
+            let session = PrepareSession::start(options.clone()).unwrap();
+            let snap = terminal(&session);
+            assert_eq!(snap.status, "done", "{:?} {:?}", snap.error, snap.logs);
+            ended(&session);
+        }
+        options.content_dir = root.join(std::ffi::OsString::from_vec(vec![0xfe]));
+        for check in [true, false] {
+            options.plan_only = check;
+            assert!(PrepareSession::start(options.clone()).is_err());
+            assert!(!options.content_dir.exists());
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A 2005 check (`--check`) takes no lock and makes, marks or clears nothing.
+    #[test]
+    fn a_2005_check_takes_no_lock_and_changes_nothing() {
+        let (root, mut options) = fixture();
+        let game = root.join("game-2005");
+        swbf2_install(&game);
+        options.family = GameFamily::Swbf2;
+        options.game_dir = game;
+        options.plan_only = true;
+        swbf2_tools_file(&options.toolchain.tools, true, true);
+        fs::write(&options.toolchain.script, r#"import argparse,json,os,sys
+p=argparse.ArgumentParser();p.add_argument('--jobs');p.add_argument('--check',action='store_true');p.add_argument('--no-enhanced-sound',action='store_true');a=p.parse_args();assert a.check
+assert os.environ.get('BFE_PREPARE_LOCK') is None,'a check is handed no lock'
+print('@@'+json.dumps({'event':'check','ok':True,'problems':[]}),flush=True)
+"#).unwrap();
+        let content = options.content_dir.clone();
+        let tree = bfe_content::layout::family_dir(&content, GameFamily::Swbf2);
+        for state in ["none", "stale"] {
+            let _ = fs::remove_dir_all(&content);
+            fs::create_dir_all(&content).unwrap();
+            if state == "stale" {
+                fs::create_dir_all(tree.join("maps/zz1")).unwrap();
+                fs::write(tree.join("maps/zz1/map.json"), b"{}").unwrap();
+                fs::write(tree.join(bfe_content::layout::SWBF2_PREPARE_STATE_FILE), b"{\"family\":\"swbf2\"}").unwrap();
+            }
+            let before = everything(&content);
+            let session = PrepareSession::start(options.clone()).unwrap();
+            let snap = terminal(&session);
+            assert_eq!(snap.status, "done", "{state}: {:?}", snap.error);
+            ended(&session);
+            assert_eq!(everything(&content), before, "{state}");
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Tools that take their own lock by name, as before the handover, find it held: they
+    /// report busy, and the start's checks left the tree as they found it.
+    #[cfg(unix)]
+    #[test]
+    fn tools_that_do_not_adopt_the_lock_find_it_held_and_touch_nothing() {
+        let (root, mut options) = fixture();
+        let game = root.join("game-2005");
+        swbf2_install(&game);
+        options.family = GameFamily::Swbf2;
+        options.game_dir = game;
+        swbf2_tools_file(&options.toolchain.tools, true, true);
+        fs::write(&options.toolchain.script, r#"import fcntl,json,os,sys
+content=os.environ['BFE_CONTENT_DIR']
+handle=open(os.path.join(content,'.prepare.lock'),'a+b')
+try:
+    fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+except OSError:
+    print('@@'+json.dumps({'event':'busy','message':'Another preparation is already running in '+content}),flush=True)
+    sys.exit(3)
+open(os.path.join(content,'written-without-the-lock'),'w').close()
+"#).unwrap();
+        let session = PrepareSession::start(options.clone()).unwrap();
+        let snap = terminal(&session);
+        assert_eq!(snap.status, "failed");
+        assert!(snap.error.unwrap_or_default().contains("already running"));
+        ended(&session);
+        let tree = bfe_content::layout::family_dir(&options.content_dir, GameFamily::Swbf2);
+        assert!(!tree.join("written-without-the-lock").exists());
         fs::remove_dir_all(root).unwrap();
     }
 }

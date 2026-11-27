@@ -506,10 +506,9 @@ impl GateDriver {
             GatePhase::Launch => {
                 // Start an Instant Action battle on the target map.
                 if self.phase_frames >= 4 {
-                    let map = self.target_map.as_str();
-                    let era = if map == "hot1" { "gcw" } else { "cw" };
-                    let playlist = vec![PlaylistEntry::new(map, Some(era.to_string()))];
-                    let req = BattleRequest::from_rotation(Some(map), Some(era), playlist, 0, false)?;
+                    let req = script_request(&self.target_map)?;
+                    // A game this build cannot play ends the run here, before any content.
+                    super::instant::check(req.battle_at(0)).map_err(|e| e.to_string())?;
                     self.transition_to(GatePhase::Spawn);
                     return Ok(Some(ShellTransition::StartInstantAction(req)));
                 }
@@ -569,7 +568,7 @@ impl GateDriver {
                     if battle.spawn_ctrl.is_open() {
                         battle.spawn_ctrl.close(&mut battle.spawn_port);
                     }
-                    let shot_name = format!("ia-{}-battle.png", self.target_map);
+                    let shot_name = shot_file_name(&self.target_map);
                     self.save_battle_shot(battle, &shot_name)?;
                     self.reset_combat_measurement_window();
                     return Ok(());
@@ -772,6 +771,35 @@ fn adler32(data: &[u8]) -> u32 {
     (b << 16) | a
 }
 
+/// The battle screenshot's file name for a script target. A 2005 target
+/// (`swbf2/tat2:gcw:eli`) spells separators a file name cannot carry (a slash
+/// would nest it, a colon NTFS refuses), so they read as dashes; a plain
+/// 2004 map name keeps its released spelling.
+fn shot_file_name(target: &str) -> String {
+    let plain: String = target
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':') { '-' } else { c })
+        .collect();
+    format!("ia-{plain}-battle.png")
+}
+
+/// The Instant Action request of `--script ia:<target>`. A 2004 target is the
+/// released single-map request, unchanged: its text is the map id as written
+/// (one map, no playlist parsing). A target with the literal prefix `swbf2/`
+/// names a 2005 battle in the short form of `bfe_family::swbf2`, and is not a
+/// map at all otherwise.
+pub fn script_request(target: &str) -> Result<BattleRequest, String> {
+    if bfe_family::swbf2::is_entry(target) {
+        let entry = bfe_family::swbf2::Entry::parse_short(target).ok_or_else(|| format!("invalid map name {target:?}"))?;
+        let playlist = vec![PlaylistEntry::with_family_and_mode(bfe_family::GameFamily::Swbf2, entry.map, entry.era, entry.mode)];
+        return BattleRequest::from_rotation(None, None, playlist, 0, false);
+    }
+    let map = target;
+    let era = if map == "hot1" { "gcw" } else { "cw" };
+    let playlist = vec![PlaylistEntry::new(map, Some(era.to_string()))];
+    BattleRequest::from_rotation(Some(map), Some(era), playlist, 0, false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -820,6 +848,14 @@ mod tests {
         std::fs::remove_dir_all(dir).expect("remove soak receipt");
     }
 
+    #[test]
+    fn battle_screenshot_names_fit_one_file_name() {
+        assert_eq!(shot_file_name("tat1"), "ia-tat1-battle.png");
+        assert_eq!(shot_file_name("NAB2"), "ia-NAB2-battle.png");
+        assert_eq!(shot_file_name("swbf2/tat2:gcw:eli"), "ia-swbf2-tat2-gcw-eli-battle.png");
+        assert_eq!(shot_file_name(r"swbf2\spa6:cw:ass"), "ia-swbf2-spa6-cw-ass-battle.png");
+    }
+
     /// Verifies that `write_png` writes a valid PNG file with the expected magic header and IEND chunk.
     #[test]
     fn write_png_produces_valid_png_signature_and_iend() {
@@ -831,5 +867,31 @@ mod tests {
         assert_eq!(&bytes[..8], &[137, 80, 78, 71, 13, 10, 26, 10]);
         assert!(bytes.windows(4).any(|w| w == b"IEND"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod family_tests {
+    use super::script_request;
+    use bfe_family::GameFamily;
+
+    // `--script ia:<target>` names one map, as it always did; only a literal
+    // `swbf2/` target names a 2005 battle.
+    #[test]
+    fn a_script_target_is_one_map() {
+        // These stay the released errors at preparation ("invalid map name", or no such map).
+        for target in ["hot1:gcw", "NAB2", "nab2,tat2", "swbf1/nab2"] {
+            let request = script_request(target).unwrap();
+            let planned = request.battle_at(0);
+            assert_eq!((planned.family, planned.map), (GameFamily::Swbf1, target), "{target}");
+        }
+        assert_eq!(script_request("hot1").unwrap().battle_at(0).era, Some("gcw"));
+        // The released request already read an upper-case prefix as the 2005 game.
+        let upper = script_request("SWBF2/TAT2").unwrap();
+        assert_eq!(upper.battle_at(0).family, GameFamily::Swbf2);
+        let later = script_request("swbf2/kam9:gcw:hunt").unwrap();
+        let planned = later.battle_at(0);
+        assert_eq!((planned.family, planned.map, planned.mode), (GameFamily::Swbf2, "kam9", "hunt"));
+        assert_eq!(script_request("swbf2/bad!,tat2").unwrap_err(), "invalid map name \"swbf2/bad!,tat2\"");
     }
 }

@@ -1,12 +1,14 @@
 //! MultiplayerWorld's retained connection spawn state. Mailboxes remain at
 //! the input boundary; eligibility, body realization and dead-body clocks
 //! read canonical Characters and Units before Game.step begins.
+pub(crate) mod mission;
 use crate::world::owner::World as Root;
 use super::owner::BattleOwner;
 use crate::{gen::*,store::{block::Block,Ref},units::f3};
 
-struct Entry {handle:F4Handle,ordinal:f64,view:F4ConnectionView}
-pub(super) struct State {rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
+// `mission`: the player whose deployments a scripted battle decides.
+struct Entry {handle:F4Handle,ordinal:f64,view:F4ConnectionView,mission:Option<u32>}
+pub(super) struct State {local_mission:Option<Ref<Character>>,rows:Vec<Option<Entry>>,output:Block,result:F4ConnectionView}
 impl State {
     fn publish(&mut self)->&[f64] {
         self.output.begin(1,F4ConnectionView::WORDS);
@@ -21,7 +23,7 @@ pub fn f4_connections_init_in(w: &mut Root, capacity:u32) {
     let human=&mut w.sim.store.human_spawn;human.auto=None;human.pending=None;human.spawned_once=true;
     super::f4_core::mark_tail_in(&mut w.battle, &w.sim.store);
     let mut output=Block::default();output.words.reserve(crate::store::block::HEADER+F4ConnectionView::WORDS);
-    {w.battle.connections=Some(State{rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
+    {w.battle.connections=Some(State{local_mission:None,rows:(0..capacity).map(|_|None).collect(),output,result:F4ConnectionView::default()});}
     outer.finish(w, true);
 }
 /// attachedPlayers qualifies the connection, not merely a recycled roster
@@ -61,6 +63,7 @@ pub(crate) fn reassign_in(
 }
 
 fn spawn(w: &mut Root, entry:&mut Entry,character:Ref<Character>,class:Option<crate::store::StrId>,post:Option<crate::store::StrId>,services:f3::WorldServices<'_>)->bool {
+    if entry.mission.is_some() { return mission::request(w, entry, character, class, post); }
     if w.sim.store.battle.game_over {return false;}
     if entry.view.unit.and_then(|r|w.sim.store.unit.get(r)).is_some_and(|u|!u.alive && u.dead_time+1e-6<4.) {return false;}
     let Some(class)=class.or(entry.view.class_name) else{return false};
@@ -79,7 +82,7 @@ pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
             let index=character.slot as usize;
             if index>=owner.rows.len() { return None; }
             if input.op==F4ConnectionOp::Admit {
-                owner.rows[index]=Some(Entry{handle:input.target.clone(),ordinal:input.ordinal,view:F4ConnectionView{class_name:input.class_name,..Default::default()}});
+                owner.rows[index]=Some(Entry{handle:input.target.clone(),ordinal:input.ordinal,view:F4ConnectionView{class_name:input.class_name,..Default::default()},mission:None});
             }
             if !owner.rows[index].as_ref().is_some_and(|entry|entry.handle==input.target) { return None; }
             Some((character,index,owner.rows[index].take().unwrap()))
@@ -101,6 +104,7 @@ pub fn f4_connection_command_in(w: &mut Root)-> Option<&[f64]> {
                 }true
             },
             F4ConnectionOp::Team=>{
+                if entry.mission.is_some() { mission::withdraw(w, character); }
                 if let Some(unit)=entry.view.unit {
                     let team=w.sim.store.character.get(character).unwrap().team;
                     f3::with_owner_rows(w,|store,owner| {
@@ -134,5 +138,15 @@ impl State {
     fn view(&self, reference: Ref<Character>) -> Option<&F4ConnectionView> {
         Some(&self.rows.get(reference.slot as usize)?.as_ref()?.view)
     }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_unit(w: &mut Root, handle: &F4Handle, unit: Ref<Unit>) {
+    let character = super::f4_core::resolve_character_ref(&w.battle, &w.sim.store, handle)
+        .expect("resolved test character");
+    let entry = state(&mut w.battle).rows[character.slot as usize]
+        .as_mut()
+        .expect("admitted test connection");
+    entry.view.unit = Some(unit);
 }
 

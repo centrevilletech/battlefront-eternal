@@ -8,6 +8,7 @@ description = "Front-end shell screens, playlist/mission selection, loading time
 
 [dependencies]
 bfe-battle-ui = { path = "../bfe-battle-ui" }
+bfe-family = { path = "../bfe-family" }
 audio = { path = "../audio" }
 audio-control = { path = "../audio-control" }
 audio-decode = { path = "../audio-decode" }
@@ -21,3 +22,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 bfe-video = { path = "../bfe-video" }
 glow = "0.18"
+
+[dev-dependencies]
+bfe-wide = { path = "../bfe-wide" }

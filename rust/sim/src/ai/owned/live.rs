@@ -29,6 +29,54 @@ pub fn with_rows<R>(w:&mut crate::world::owner::World,state:&mut State,
 pub fn clear_above(w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:&crate::gen::AiLifeHandle)->bool {
     super::sight::clear_above(w,&mut super::sight::F3,&three::Vector3::new(from.x,from.y,from.z),unit)
 }
+pub fn clear_above_unit(w:&mut crate::world::owner::World,from:crate::ai::nav::math::Vec3,unit:Ref<crate::gen::Unit>)->bool {
+    super::sight::clear_above_unit(w,&mut super::sight::F3,&three::Vector3::new(from.x,from.y,from.z),unit)
+}
+pub(crate) fn collision_snapshot(w:&mut crate::world::owner::World)->Option<((u64,u64), &[u32], &[u8])>{
+    let id=crate::units::f3::collision_world_in(&w.units);
+    let state=&w.collision.state;
+    let scene=state.worlds.get(id)?;
+    let count=scene.order.len().min(crate::collision::MAX_BODIES);
+    Some(((scene.version,state.fixed_version),&scene.order[..count],&w.movement.flags_mut()[..count]))
+}
+pub(crate) fn observe_navigation(w:&mut crate::world::owner::World,nav:&mut crate::ai::nav::route::MapNavigation)->bool {
+    let id=crate::units::f3::collision_world_in(&w.units);
+    let geometry=&w.collision.state;
+    let Some(scene)=geometry.worlds.get(id) else {return false};
+    let count=scene.order.len().min(crate::collision::MAX_BODIES);
+    let order=&scene.order[..count];
+    let flags=&w.movement.flags_mut()[..count];
+    nav.observe_collision_classified(
+        (scene.version,geometry.fixed_version),
+        order,
+        flags,
+        |body| geometry.bodies.get(body as usize).is_some_and(|b| b.moving),
+        |i| Some(geometry.bodies.get(order[i] as usize)?.bounds),
+    )
+}
+pub(crate) fn supported_floor(w:&mut crate::world::owner::World, p:crate::ai::nav::math::Vec3, above:f64, below:f64)->Option<crate::ai::nav::math::Vec3> {
+    super::walk::support(w,p,above,below)
+}
+/// Navigation already reserved the mover work for this segment.
+pub fn crosses(w: &mut crate::world::owner::World, a: crate::ai::nav::math::Vec3, b: crate::ai::nav::math::Vec3, movement:u8) -> bool {
+    try_crosses(w,a,b,movement,crate::ai::nav::swbf2::ProbeKind::Turn).unwrap_or(false)
+}
+/// Ground clearance within the tick's work. `None` is neither clear nor
+/// blocked: the tick had no work left for it.
+pub(crate) fn try_crosses(
+    w: &mut crate::world::owner::World,
+    a: crate::ai::nav::math::Vec3,
+    b: crate::ai::nav::math::Vec3,
+    movement: u8,
+    kind: crate::ai::nav::swbf2::ProbeKind,
+) -> Option<bool> {
+    super::walk::try_crosses(w, a, b, movement, kind)
+}
+/// Ground clearance for a caller that has already reserved the physical work.
+pub fn line_of_walk(w: &mut crate::world::owner::World, from: crate::ai::nav::math::Vec3, to: crate::ai::nav::math::Vec3) -> bool {
+    crosses(w, from, to, 0)
+}
+pub use super::walk::line_of_walk as direct_walk_clear;
 pub fn seat_frame(w:&mut crate::world::owner::World,hull:crate::vehicles::f2_seats::HullLife,index:usize)->Option<(crate::ai::nav::math::Vec3,crate::ai::nav::math::Vec3)> {
         let origin=crate::vehicles::module::f2::seat_origin_in(w,hull,index)?;
         let forward=crate::vehicles::module::f2::seat_forward_in(w,hull,index)?;

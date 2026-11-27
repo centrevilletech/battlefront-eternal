@@ -7,4 +7,6 @@ publish = false
 description = "Classic battle UI screens (spawn screen, scoreboard, pause menu) and HUD input"
 
 [dependencies]
+bfe-family = { path = "../bfe-family" }
 bfe-render = { path = "../bfe-render" }
+serde = { version = "1", features = ["derive"] }

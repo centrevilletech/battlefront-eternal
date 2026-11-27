@@ -3,7 +3,7 @@
 //! stay inside the phase and reuse prepared class/pad tables.
 use super::{battlefield::BattlefieldWorld, fleet_posts::Pads, human::Command,
     mobile::{self, MobileEvent, Pad}, observation::{Mounts, Observations},
-    phase::PhaseWorld, posts, registry::{Registry, Targets}, rules::RulesWorld,
+    phase::PhaseWorld, posts, registry::{Registry, Targets}, rules::{events::EventQueue, RulesWorld},
     spawning, stats::Seen, tail, world::{Body, Member, PostsWorld, SpawningWorld, Victim}};
 use crate::gen::{Building, Character, MobilePost, PostEvent, SpawnPost, Store, Unit, Vehicle};
 use crate::store::{Ref, StrId};
@@ -32,6 +32,20 @@ pub trait Services: Mounts + Targets {
     fn post_event(&mut self, s: &mut Store, event: &PostEvent);
     fn mobile_event(&mut self, s: &mut Store, event: &MobileEvent);
     fn battle_over(&mut self, s: &mut Store, loser: f64);
+    /// Exposes the native object service for queries and property writes.
+    /// Building health uses the same qualified property interface.
+    ///
+    /// ```compile_fail,E0599
+    /// # use bfe_sim::{battle::owned_world::Services, gen::{F4Handle, Store}};
+    /// fn destroy(world: &mut dyn Services, store: &mut Store, building: &F4Handle) {
+    ///     world.set_rule_building_health(store, building, 0.0);
+    /// }
+    /// ```
+    fn rule_objects(&mut self) -> Option<&mut dyn super::rules::objects::ObjectServices> { None }
+    fn rule_events(&mut self) -> Option<&mut EventQueue> { None }
+    /// One tick of the goal bots through the AI's callback loan.
+    fn ai_goal_pass(&mut self, _: &mut Store, _: &mut crate::ai::goals::GoalController, _: &dyn crate::ai::goals::GoalTable, _: f64) {}
+    fn ai_soldier_inputs(&mut self, _: &mut Store, _: &mut crate::ai::goals::SoldierInputs, _: f64) {}
     fn human_tail(&mut self, s: &mut Store, dt: f64, commands: &[Command], prepared: &mut Prepared);
     fn corpse_tail(&mut self, s: &mut Store);
 }
@@ -123,8 +137,17 @@ impl<S: Services> RulesWorld for World<'_, S> {
         (count,sum)
     }
     fn battle_over(&mut self, s: &mut Store, loser: f64) { self.services.battle_over(s,loser); }
+    fn rule_objects(&mut self) -> Option<&mut dyn super::rules::objects::ObjectServices> { self.services.rule_objects() }
+    fn rule_events(&mut self) -> Option<&mut EventQueue> { self.services.rule_events() }
+    fn ai_goal_pass(&mut self, s: &mut Store, bots: &mut crate::ai::goals::GoalController, table: &dyn crate::ai::goals::GoalTable, dt: f64) {
+        self.services.ai_goal_pass(s, bots, table, dt);
+    }
+    fn ai_soldier_inputs(&mut self, s: &mut Store, inputs: &mut crate::ai::goals::SoldierInputs, dt: f64) {
+        self.services.ai_soldier_inputs(s, inputs, dt);
+    }
 }
 impl<S: Services> SpawningWorld for World<'_, S> {
+    fn unlimited_reinforcements(&mut self) -> bool { self.services.rule_events().is_some() }
     fn spawn_goal(&mut self, s: &Store, r: Ref<Character>) -> Option<[f64;3]> {
         if self.prepared.enhanced {spawning::objective_position(s,r,self)}else{None}
     }

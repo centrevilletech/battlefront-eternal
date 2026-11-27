@@ -10,17 +10,18 @@ use bfe_pose::{ timeline::Timeline,
 // SnapshotClient entries retain wire values, not dequantized display values.
 // Small position deltas must add to exactly these integer codes. Keeping both
 // flags separately avoids widening the complete immutable baseline table.
-struct Entry { present: bool, wide: bool, data: [u16; r::DISC+1], high: [u16; 7] }
+struct Entry { present: bool, wide: bool, wide_position: bool, disc: bool, data: [u16; r::SCHEMA], high: [u16; 10] }
 impl Default for Entry {
-    fn default() -> Self { Self { present: false, wide: false, data: [0; r::DISC+1], high: [0; 7] } }
+    fn default() -> Self { Self { present: false, wide: false, wide_position: false, disc: false, data: [0; r::SCHEMA], high: [0; 10] } }
 }
 impl Entry {
-    // Wire groups use 16-bit codes apart from identities and five f32 clocks.
-    // High halves retain their exact bits without reserving publication-only
-    // f64 lanes in every slot of every immutable baseline.
+    // Positions, identities and f32 clocks use high words. Publication-only
+    // payload metadata needs no storage in a baseline entity.
     fn high_word(at: usize) -> Option<usize> {
         match at { r::ID => Some(0), r::GENERATION => Some(1), r::TIME => Some(2),
-            r::ROLL => Some(3), r::LEAN => Some(4), r::LEGS => Some(5), r::SHIELD => Some(6), _ => None }
+            r::ROLL => Some(3), r::LEAN => Some(4), r::LEGS => Some(5), r::SHIELD => Some(6),
+            at if (r::POSITION..r::POSITION + 3).contains(&at) => Some(7 + at - r::POSITION),
+            _ => None }
     }
     fn signed(&self, at: usize) -> bool {
         (r::VELOCITY..r::VELOCITY+3).contains(&at) || (r::SEAT_ANGLES..r::SEAT_ANGLES+32).contains(&at)
@@ -29,16 +30,25 @@ impl Entry {
     }
     #[inline(always)]
     fn get(&self, at: usize) -> f64 {
-        if at>=self.data.len(){return 0.;}
+        if at>=self.data.len(){return (at == r::DISC && self.disc) as u8 as f64;}
         if let Some(i) = Self::high_word(at) {
             let bits = self.data[at] as u32 | (self.high[i] as u32) << 16;
-            if i < 2 { bits as f64 } else { f32::from_bits(bits) as f64 }
+            if (2..7).contains(&i) { f32::from_bits(bits) as f64 } else { bits as f64 }
         } else if self.signed(at) { self.data[at] as i16 as f64 } else { self.data[at] as f64 }
     }
     #[inline(always)]
     fn set(&mut self, at: usize, value: f64) {
+        if at >= self.data.len() {
+            if at == r::DISC { self.disc = value != 0.; }
+            return;
+        }
         if let Some(i) = Self::high_word(at) {
-            let bits = if i < 2 { value as u32 } else { (value as f32).to_bits() };
+            let bits = match i {
+                2..=6 => (value as f32).to_bits(),
+                // Narrow baselines stored every position as a wrapping u16.
+                7.. if !self.wide_position => u32::from(value as i32 as u16),
+                _ => value as u32,
+            };
             self.data[at] = bits as u16; self.high[i] = (bits >> 16) as u16;
         } else { self.data[at] = value as i32 as u16; }
     }
@@ -59,6 +69,11 @@ impl Entry {
             let bits=self.data[at]as u32 | (self.high[i]as u32)<<16;
             out[at]=if i<2{bits as f64}else{f32::from_bits(bits)as f64};
         }
+        for axis in 0..3 {
+            let at = r::POSITION + axis;
+            out[at] = (u32::from(self.data[at]) | (u32::from(self.high[7 + axis]) << 16)) as f64;
+        }
+        out[r::DISC] = self.disc as u8 as f64;
         out
     }
 }
@@ -156,14 +171,38 @@ impl Default for Assembly {
 // alongside the vehicle generation. Neither id is a dense protocol index.
 struct Seat { id: f64, generation: f64, vehicle: f64, vehicle_generation: f64, index: f64, }
 #[derive(Clone, Copy)]
-struct Change { field: Field, removed: bool, }
+struct Change { field: Field, removed: bool, hidden: bool, }
+
+/// What a 2005 match's receiver checks before a record is stored, presented
+/// or acknowledged. A 2004 battle's receiver has none and keeps the released
+/// reading of every field.
+pub trait RecordChecks {
+    /// Whether a world field schema is read (true), skipped as an optional
+    /// record this build does not read (false), or refused as unknown.
+    fn reads(&self, schema: u16) -> Result<bool>;
+    /// The complete payload of a field `reads` skips: its revision is checked
+    /// against the one the match advertises before the version is kept,
+    /// unpublished, as the base a later delta of it is made from.
+    fn skipped(&self, schema: u16, payload: &[u8]) -> Result<()>;
+    /// A read field's id and complete payload.
+    fn field(&self, schema: u16, id: u32, payload: &[u8]) -> Result<()>;
+    /// An own correction whole: the epoch and tick of its datagram, its
+    /// subject, life, envelope schema and complete payload.
+    fn correction(&self, epoch: f64, tick: f64, id: u32, generation: u32, schema: u16, payload: &[u8]) -> Result<()>;
+}
 
 pub struct Session { links:Vec<std::rc::Weak<std::cell::RefCell<crate::network::LinkTable>>>,
     pub header: Vec<f64>, pub leases: super::record_leases::Leases,
     pub timeline: Timeline, snapshots: Vec<Snapshot>, ring: Vec<usize>, assemblies: Vec<Assembly>, bank: FieldBank,
     seats: Vec<Seat>, changed: Vec<usize>, removed: Vec<usize>, staging: Vec<Entry>, fields: Vec<Change>, epoch: f64,
     ack: f64, newest_entities: f64, newest_own: f64, current: Option<usize>, serial: u64, pending: bool,
-    pub excluded: [f64; 2], pub lease: u64, pub missed: u64, pub hz: f64, pub extrapolate: f64, pub maximum: usize, }
+    pub excluded: [f64; 2], pub lease: u64, pub missed: u64, pub hz: f64, pub extrapolate: f64, pub maximum: usize,
+    /// Completed baselines retired early to make room in a full field bank.
+    pub retired: u32,
+    checks: Option<Box<dyn RecordChecks>>,
+    /// Whether this receiver serves an admitted 2005 match: only then does a
+    /// full field bank retire old baselines instead of failing the part.
+    swbf2: bool, }
 impl Default for Session {
     fn default() -> Self { Self::new() } }
 impl Session {
@@ -176,7 +215,14 @@ impl Session {
             seats: Vec::with_capacity(tl::ENTITIES), changed: Vec::with_capacity(l::SLOTS),
             removed: Vec::with_capacity(l::SLOTS), staging: Vec::new(), fields: Vec::with_capacity(l::WORLD_FIELDS),
             epoch: 0., ack: 0., newest_entities: -1., newest_own: -1., current: None, serial: 0, pending: false,
-            excluded: [-1.; 2], lease: 0, missed: 0, hz: 60., extrapolate: 6., maximum: 64, } }
+            excluded: [-1.; 2], lease: 0, missed: 0, hz: 60., extrapolate: 6., maximum: 64, retired: 0, checks: None, swbf2: false, } }
+    /// Makes this a 2005 match's receiver: from the next part on, every 2005
+    /// record is checked before anything of its part is stored or acknowledged.
+    pub fn check_records(&mut self, checks: Box<dyn RecordChecks>) { self.checks = Some(checks); self.swbf2 = true; }
+    /// The 2005 receiver profile alone: a full field bank retires its oldest
+    /// completed baselines rather than failing. A 2004 battle's receiver keeps
+    /// the released bank, whose full state fails the part.
+    pub fn admit_swbf2(&mut self) { self.swbf2 = true; }
     // The client receiver calls this before transport delivery. Timeline-only and
     // encode-only owners avoid this larger reservation; repeated setup is inert.
     // The extra snapshot protects current lookups while an assembly is recycled.
@@ -292,7 +338,12 @@ impl Session {
     // SnapshotClient.receive has one byte boundary and one changed-record result.
     // Header validation precedes epoch/baseline selection. Older epochs return
     // nothing, while a newer epoch clears retained state before applying its part.
-    pub fn receive(&mut self, bytes: &[u8], bounds: &[f64; 6]) -> Result<()> { self.commit();self.leases.begin();
+    pub fn receive(&mut self, bytes: &[u8], bounds: &[f64; 6]) -> Result<()> {
+        let [x, dx, z, dz, y, dy] = *bounds;
+        let bounds = PositionBounds::from_padded([x, y, z], [dx, dy, dz]).ok_or("invalid snapshot bounds")?;
+        self.receive_with_bounds(bytes, &bounds)
+    }
+    pub fn receive_with_bounds(&mut self, bytes: &[u8], bounds: &PositionBounds) -> Result<()> { self.commit();self.leases.begin();
         self.header.fill(0.);
         self.header[h::EPOCH] = self.epoch;
         self.header[h::LEASE_SERIAL]=self.leases.serial as f64;self.header[h::REFUSED]=self.leases.refused as f64;
@@ -336,9 +387,16 @@ impl Session {
     // Every delta reads the named immutable base, including repeated field keys.
     // Handles transfer only after the enclosing packet passes its trailing check.
     fn field_changes(&mut self, r: &mut Reader, base: Option<usize>, own: bool, source: &[u8]) -> Result<()> {
+        if !self.swbf2 && self.checks.is_none() {
+            self.released_field_changes(r, base, own, source)
+        } else {
+            self.swbf2_field_changes(r, base, own, source)
+        }
+    }
+    fn released_field_changes(&mut self, r: &mut Reader, base: Option<usize>, own: bool, source: &[u8]) -> Result<()> {
         world_fields(r,|field|{
             let WireField{id,schema,generation,body}=field;
-            if let FieldBody::Removed=body{self.fields.push(Change{field:Field{id,schema,generation,handle:0},removed:true});return Ok(());}
+            if let FieldBody::Removed=body{self.fields.push(Change{field:Field{id,schema,generation,handle:0},removed:true,hidden:false});return Ok(());}
             let handle=match body{
                 FieldBody::Absolute{bytes,..}=>self.bank.put(bytes)?,
                 FieldBody::Delta(section)=>{
@@ -353,8 +411,63 @@ impl Session {
                     };self.bank.put(raw)?
                 },FieldBody::Removed=>return Ok(()),
             };
-            self.bank.meta[handle]=Field{id,schema,generation,handle};self.fields.push(Change{field:Field{id,schema,generation,handle},removed:false});Ok(())
+            self.bank.meta[handle]=Field{id,schema,generation,handle};self.fields.push(Change{field:Field{id,schema,generation,handle},removed:false,hidden:false});Ok(())
         })?;Ok(())
+    }
+    fn swbf2_field_changes(&mut self, r: &mut Reader, base: Option<usize>, own: bool, source: &[u8]) -> Result<()> {
+        world_fields(r,|field|{
+            let WireField{id,schema,generation,body}=field;
+            // A 2005 match reads only the records its table names. An optional
+            // one this build does not read is decoded like any field, checked
+            // whole against the revision the match advertises, and kept
+            // unpublished as the base its next delta is made from.
+            let hidden=match &self.checks{Some(checks)=>!checks.reads(schema)?,None=>false};
+            if let FieldBody::Removed=body{self.fields.push(Change{field:Field{id,schema,generation,handle:0},removed:true,hidden});return Ok(());}
+            let handle=match body{
+                FieldBody::Absolute{bytes,..}=>{self.check_field(schema,id,hidden,bytes)?;self.put_field(bytes,base)?},
+                FieldBody::Delta(section)=>{
+                    let previous=base.and_then(|i|{let rows=if own{&self.snapshots[i].own}else{&self.snapshots[i].world};rows.iter().map(|&f|self.bank.meta[f as usize]).find(|f|f.id==id&&f.schema==schema)}).map(|f|self.bank.get(f.handle));
+                    let mut scratch=[0.;256];let mut out=Output{values:&mut scratch,at:0};delta(section,previous,&mut out)?;
+                    let n=if scratch[0]==0.{scratch[2]}else{scratch[1]}as usize;
+                    if n>l::FIELD_PAYLOAD{return Err("snapshot field exceeds bounds");}
+                    // Delta wrote n packed bytes into the output from its third
+                    // word on: read them back byte by byte, on the stack.
+                    let mut packed=[0u8;l::FIELD_PAYLOAD];
+                    let raw=if scratch[0]==0.{let start=scratch[1]as usize;source.get(start..start+n).ok_or(EXCHANGE)?}else{
+                        for (at,byte) in packed[..n].iter_mut().enumerate(){*byte=scratch[2+at/8].to_ne_bytes()[at%8];}
+                        &packed[..n]
+                    };self.check_field(schema,id,hidden,raw)?;self.put_field(raw,base)?
+                },FieldBody::Removed=>return Ok(()),
+            };
+            self.bank.meta[handle]=Field{id,schema,generation,handle};self.fields.push(Change{field:Field{id,schema,generation,handle},removed:false,hidden});Ok(())
+        })?;Ok(())
+    }
+    // A 2005 match checks a read field's id and complete payload, or the
+    // revision of one it skips; a 2004 battle checks neither.
+    fn check_field(&self, schema: u16, id: u32, skipped: bool, payload: &[u8]) -> Result<()> {
+        match &self.checks { Some(checks) if skipped => checks.skipped(schema, payload), Some(checks) => checks.field(schema, id, payload), None => Ok(()) }
+    }
+    // A full field bank retires the oldest completed baselines until the new
+    // version fits, rather than waiting for a newer completed snapshot that a
+    // full bank can never assemble. The base this part reads, the current view
+    // and the newest baselines (the ones a server deltas against) stay.
+    fn put_field(&mut self, bytes: &[u8], keep: Option<usize>) -> Result<usize> {
+        if !self.swbf2 { return self.bank.put(bytes); }
+        loop {
+            match self.bank.put(bytes) {
+                Err("snapshot field storage full") if self.retire_oldest(keep) => continue,
+                other => return other,
+            }
+        }
+    }
+    fn retire_oldest(&mut self, keep: Option<usize>) -> bool {
+        const NEWEST: usize = 4;
+        let Some(older) = self.ring.len().checked_sub(NEWEST) else { return false };
+        let Some(at) = self.ring[..older].iter().position(|&i| Some(i) != keep && Some(i) != self.current) else { return false };
+        let snapshot = self.ring.remove(at);
+        self.snapshots[snapshot].clear(&mut self.bank);
+        self.retired = self.retired.saturating_add(1);
+        true
     }
     // applyEntities replaces fields by schema and id. Removing an absent field
     // is harmless; a replacement releases exactly this snapshot's old reference.
@@ -388,11 +501,52 @@ impl Session {
     fn publication_room(&mut self,count:usize)->Result<()>{
         if count>self.leases.available(){self.leases.refused+=1;Err("snapshot publication full")}else{Ok(())}
     }
+    fn emitted_field_count(&self) -> usize {
+        if !self.swbf2 {
+            self.released_emitted_field_count()
+        } else {
+            self.swbf2_emitted_field_count()
+        }
+    }
+    fn released_emitted_field_count(&self) -> usize {
+        self.fields.iter().filter(|f| !f.removed).count()
+    }
+    fn swbf2_emitted_field_count(&self) -> usize {
+        self.fields
+            .iter()
+            .filter(|f| !f.hidden && (!f.removed || (0x0201..=0x02ff).contains(&f.field.schema)))
+            .count()
+    }
     // worldRecordFromField publishes nonremoved summaries in decoded wire order.
     // Removed fields update the retained baseline without producing a gameplay
     // record, matching both the entity and own summary lanes.
-    fn emit_fields(&mut self, tick: f64) -> Result<()> { for at in 0..self.fields.len() { let c = self.fields[at];
+    fn emit_fields(&mut self, tick: f64) -> Result<()> {
+        if !self.swbf2 {
+            self.released_emit_fields(tick)
+        } else {
+            self.swbf2_emit_fields(tick)
+        }
+    }
+    fn released_emit_fields(&mut self, tick: f64) -> Result<()> { for at in 0..self.fields.len() { let c = self.fields[at];
             if c.removed { continue; }
+            let mut bytes = [0; l::FIELD_PAYLOAD];
+            let source = self.bank.get(c.field.handle);
+            let n = source.len();
+            bytes[..n].copy_from_slice(source);
+            self.bytes_record( k::SUMMARY, c.field.id as f64, c.field.generation as f64, tick, c.field.schema as f64,
+                &bytes[..n], )?; }
+        Ok(()) }
+    fn swbf2_emit_fields(&mut self, tick: f64) -> Result<()> { for at in 0..self.fields.len() { let c = self.fields[at];
+            // A removed field of the 2005 range (schemas 0x0201..=0x02ff, the
+            // sim's FIELD_BASE + kind) is published once more, empty: side
+            // stores the client keeps by schema and id clear what it held.
+            if c.removed {
+                if !c.hidden && (0x0201..=0x02ff).contains(&c.field.schema) {
+                    self.bytes_record(k::SUMMARY, c.field.id as f64, c.field.generation as f64, tick, c.field.schema as f64, &[])?;
+                }
+                continue;
+            }
+            if c.hidden { continue; }
             let mut bytes = [0; l::FIELD_PAYLOAD];
             let source = self.bank.get(c.field.handle);
             let n = source.len();
@@ -403,7 +557,7 @@ impl Session {
     // receiveEntities applies each part at arrival, before the whole tick completes.
     // Stage all its groups first: a late malformed group must not partially change
     // the working assembly. Older ticks still supply history but not gameplay.
-    fn entities(&mut self, bytes: &[u8], head: [f64; 9], bounds: &[f64; 6]) -> Result<()> {
+    fn entities(&mut self, bytes: &[u8], head: [f64; 9], bounds: &PositionBounds) -> Result<()> {
         if self.held(head[2]).is_some() { return Ok(()); }
         let base = if head[4] == 0. { None } else { self.held(head[4]) };
         if head[4] != 0. && base.is_none() { self.missing();
@@ -420,12 +574,13 @@ impl Session {
         if reader.at - start != n { return Err("snapshot world section size"); }
         let mut touched=[false;l::SLOTS];let snapshots=&self.snapshots;let staging=&mut self.staging;
         let changed=&mut self.changed;let removed=&mut self.removed;
-        entity_records(&mut reader,|slot|{
+        entity_records(&mut reader,bounds.width(),|slot|{
             let old=base.map_or(Entry::default(),|b|snapshots[b].entries[slot]);
             BaselineSlot{exists:old.present,class:old.get(r::KIND)as u8,position:old.present.then(||[old.get(r::POSITION),old.get(r::POSITION+1),old.get(r::POSITION+2)])}
         },|row|{
             if row.op==2{removed.push(row.slot);return Ok(());}
             let mut entry=if row.op==1{Entry::default()}else{base.map_or(Entry::default(),|b|snapshots[b].entries[row.slot])};
+            entry.wide_position = bounds.width() == PositionWidth::Wide;
             entry.present=true;entry.set(r::KIND,row.class as f64);
             if let Some(id)=row.identity{entry.set(r::GENERATION,id[0]);entry.set(r::ID,id[1]);entry.set(r::CLASS_ID,id[2]);entry.set(r::TEAM,id[3]);entry.set(r::DISC,1.);}
             for &(index,start,end)in &row.groups[..row.count]{apply_group(&mut entry,index,&row.values[start..end]);}
@@ -444,7 +599,7 @@ impl Session {
         // Only semantic application is monotonic; relabelling a late pose as
         // the newest tick would change interpolation and ownership timing.
         let gameplay = head[2] >= self.newest_entities;
-        if gameplay { self.publication_room((self.changed.len()+self.removed.len())*2+self.fields.iter().filter(|f|!f.removed).count())?;for i in 0..self.changed.len() { let entry = self.staging[self.changed[i]];
+        if gameplay { self.publication_room((self.changed.len()+self.removed.len())*2+self.emitted_field_count())?;for i in 0..self.changed.len() { let entry = self.staging[self.changed[i]];
                 let row = semantic(entry, head[2], bounds);
                 self.emit(&row)?;
                 if entry.get(r::KIND) == 2. {
@@ -508,7 +663,7 @@ impl Session {
     // samplePoses includes only entries changed by this part. Repeating stale
     // baseline poses with a new timestamp would hold then jump at the real arrival.
     // These generated timeline rows stay in Rust through the display consumer.
-    fn pose_batch(&mut self, tick: f64, bounds: &[f64; 6], published: bool) { let x = &mut self.timeline.input;
+    fn pose_batch(&mut self, tick: f64, bounds: &PositionBounds, published: bool) { let x = &mut self.timeline.input;
         x[tf::VERSION] = bfe_pose::timeline_layout::VERSION as f64;
         x[tf::EPOCH] = self.epoch;
         x[tf::TICK] = tick;
@@ -554,14 +709,16 @@ impl Session {
     // receiveOwn decodes correction, summaries and cosmetics in their source order.
     // Correction/summary failures request baseline repair. Cosmetic unpack errors
     // remain distinct, and duplicate own packets cannot reapply gameplay state.
-    fn own(&mut self, bytes: &[u8], head: [f64; 9], bounds: &[f64; 6]) -> Result<()> {
+    fn own(&mut self, bytes: &[u8], head: [f64; 9], bounds: &PositionBounds) -> Result<()> {
         let base = if head[4] == 0. { None } else { self.held(head[4]) };
         if head[4] != 0. && base.is_none() { self.missing();
             return Ok(()); }
         let mut decoded=OwnReceive{session:self,base,source:bytes,flags:0,correction:None,body_bytes:[0;l::PAYLOAD],body_len:0,cosmetics:None};
         if own_sections(bytes,&mut decoded).is_err(){decoded.session.missing();return Ok(());}
         let OwnReceive{flags,correction,body_bytes,body_len,cosmetics,..}=decoded;
-        self.publication_room(self.fields.iter().filter(|f|!f.removed).count()+correction.is_some()as usize+cosmetics.as_ref().map_or(0,|r|r.bytes.len()/2))?;
+        // A 2005 correction is checked whole before any of its part commits.
+        if let (Some(checks),Some((id,generation,schema)))=(&self.checks,correction){checks.correction(head[1],head[2],id,generation,schema,&body_bytes[..body_len])?;}
+        self.publication_room(self.emitted_field_count()+correction.is_some()as usize+cosmetics.as_ref().map_or(0,|r|r.bytes.len()/2))?;
         if let Some(bundle) = cosmetics { let mut reader = bundle;
             while reader.at < reader.bytes.len() { let mut values = [0.; 256];
                 let mut out = Output { values: &mut values, at: 0 };
@@ -665,13 +822,13 @@ fn apply_group(entry: &mut Entry, group: u8, values: &[f64]) { let class = entry
 // recordFromEntry dequantizes only changed gameplay records and direct samples.
 // The original multiply/divide order is shared with the proven wire reader;
 // retained baselines never round-trip through these floating-point values.
-fn semantic(entry: Entry, tick: f64, bounds: &[f64; 6]) -> [f64; r::STRIDE] { let mut d = entry.values();
+fn semantic(entry: Entry, tick: f64, bounds: &PositionBounds) -> [f64; r::STRIDE] { let mut d = entry.values();
     d[r::TICK] = tick;
     let class = d[r::KIND] as u8;
     if class == 3 { for at in [r::YAW, r::PITCH, r::GUN_YAW, r::GUN_PITCH] { d[at] = d[at] * PI / 32767.; }
         d[r::BUILDING] = d[r::CLASS_ID];
         return d; }
-    let position = position_values([d[r::POSITION], d[r::POSITION + 1], d[r::POSITION + 2]], bounds);
+    let position = bounds.decode([d[r::POSITION], d[r::POSITION + 1], d[r::POSITION + 2]]);
     d[r::POSITION..r::POSITION + 3].copy_from_slice(&position);
     for i in 0..3 { d[r::VELOCITY + i] = if entry.wide { d[r::VELOCITY + i] / 32. } else { d[r::VELOCITY + i] * 0.25 };
     }
@@ -697,7 +854,7 @@ fn mount_record(entry: Entry, tick: f64) -> [f64; r::STRIDE] { let mut d = entry
 impl Session {
     /// Resource prerequisites are occasional packet-time lookups, never a
     /// display sampler. The same changed-record layout returns their values.
-    pub fn lookup(&mut self, kind: u32, id: f64, bounds: &[f64; 6]) -> Option<usize> {
+    pub fn lookup(&mut self, kind: u32, id: f64, bounds: &PositionBounds) -> Option<usize> {
         let index = self.current?;
         let row = &self.snapshots[index];
         let class = if kind == k::MOUNT { k::VEHICLE } else { kind };
@@ -786,9 +943,10 @@ mod storage_tests {
     #[test]
     fn baseline_rows_keep_wire_bits_within_the_receive_budget() {
         assert!(std::mem::size_of::<Entry>() <= 184);
-        let mut row=Entry::default();
+        let mut row = Entry { wide_position: true, ..Default::default() };
         for (at,value) in [(r::ID,4294967295.),(r::GENERATION,4294967294.),(r::YAW,65535.),
-            (r::HEALTH,65535.),(r::SLOT,-1.),(r::VELOCITY,-32767.),(r::TIME,0.125),(r::SHIELD,0.75)] {
+            (r::HEALTH,65535.),(r::SLOT,-1.),(r::VELOCITY,-32767.),(r::TIME,0.125),(r::SHIELD,0.75),
+            (r::POSITION,16_777_215.),(r::POSITION+1,65_536.),(r::POSITION+2,9_000_000.),(r::DISC,1.)] {
             row.set(at,value); assert_eq!(row.get(at),value);
         }
         row.set(r::KIND,3.);row.set(r::YAW,-32767.);assert_eq!(row.get(r::YAW),-32767.);
@@ -797,8 +955,27 @@ mod storage_tests {
             let values=row.values();
             for (at,value) in values.into_iter().enumerate(){assert_eq!(value.to_bits(),row.get(at).to_bits(),"kind {kind}, field {at}");}
         }
+        for at in [r::SCHEMA, r::SCHEMA + 1, r::STRIDE, usize::MAX] {
+            row.set(at, 123.);
+            assert_eq!(row.get(at), 0.);
+        }
         let bank=FieldBank::new();
         let baseline_bytes=(l::BASELINES+l::ASSEMBLIES+1)*l::SLOTS*std::mem::size_of::<Entry>();
         assert!(baseline_bytes+bank.bytes.bytes.len()<19*1024*1024);
+    }
+
+    #[test]
+    fn removed_2005_field_counts_against_publication_room_only_for_swbf2() {
+        let mut session = Session::new();
+        session.fields.push(Change {
+            field: Field { id: 100_001, schema: 0x0203, generation: 1, handle: 0 },
+            removed: true,
+            hidden: false,
+        });
+        assert_eq!(session.emitted_field_count(), 0);
+        session.admit_swbf2();
+        assert_eq!(session.emitted_field_count(), 1);
+        session.fields[0].hidden = true;
+        assert_eq!(session.emitted_field_count(), 0);
     }
 }

@@ -10,6 +10,7 @@
 //! trap state machine has its own [`traps::World`] for hulls and effects.
 
 pub mod battlefield;
+pub mod leaving_swbf2;
 pub(crate) mod f4;
 pub(crate) mod f4_live;
 pub(crate) mod f4_core;
@@ -47,6 +48,7 @@ pub mod regions;
 pub mod registry;
 pub mod roster;
 pub mod rules;
+pub mod script;
 pub mod spawning;
 pub mod stat_records;
 pub mod stats;

@@ -234,8 +234,19 @@ struct Batch { first: usize, attach: Option<String>, parts: Vec<usize> }
 /// weights. The cold result is already rounded to the typed GPU attributes;
 /// hosts only allocate resource shells and choose the authored material.
 pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    build_batches(bytes, None)
+}
+
+/// Independently admitted surfaces can share a batch only when their material
+/// identities agree. Indices refer to the model pack's original part order.
+pub fn batches_with_materials(bytes: &[u8], materials: &[usize]) -> Result<Vec<u8>, String> {
+    build_batches(bytes, Some(materials))
+}
+
+fn build_batches(bytes: &[u8], materials: Option<&[usize]>) -> Result<Vec<u8>, String> {
     use three::Matrix4;
     let input: BatchInput = serde_json::from_slice(bytes).map_err(|e|e.to_string())?;
+    if materials.is_some_and(|m| m.len() != input.parts.len()) { return Err("model part material count".into()); }
     let model = json::parse(&input.rig.to_string()).map_err(|e|e.to_string())?;
     let bones = bfe_content::derived::rig_bones(&model);
     let mut world: Vec<Matrix4> = vec![Matrix4::default();bones.len()+1];
@@ -276,7 +287,7 @@ pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
     for (i,p) in input.parts.iter().enumerate() {
         let node=attach(p);
         if let Some(group)=groups.iter_mut().find(|g| {
-            let first=&input.parts[g.first];g.attach==node && first.texture==p.texture && first.flags==p.flags && first.scroll==p.scroll
+            let first=&input.parts[g.first];materials.is_none_or(|m| m[g.first] == m[i]) && g.attach==node && first.texture==p.texture && first.flags==p.flags && first.scroll==p.scroll
         }) {group.parts.push(i);} else {groups.push(Batch {first:i,attach:node,parts:vec![i]});}
     }
     let mut result=Vec::new();
@@ -289,7 +300,7 @@ pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let mut uv=Vec::<f32>::with_capacity(count*2);
         let mut joints=vec![0u16;count*4];let mut weights=vec![0f32;count*4];
         let mut indices=Vec::<u32>::new();let mut vertex=0;
-        for index in group.parts {
+        for &index in &group.parts {
             let p=&input.parts[index];let base=vertex;
             let joint=named(p.bone.as_deref()).unwrap_or(bones.len());
             let matrix=&world[joint];
@@ -320,8 +331,13 @@ pub fn batches(bytes: &[u8]) -> Result<Vec<u8>, String> {
         let mut radius=0.0_f64;
         for p in positions.as_chunks::<3>().0 {let dx=p[0] as f64-center[0];let dy=p[1] as f64-center[1];let dz=p[2] as f64-center[2];radius=radius.max(dx*dx+dy*dy+dz*dz);}
         let casts=input.parts[group.first].flags.unwrap_or(1)&0x84==0;
-        result.push(record!({"part":group.first,"attach":group.attach,"casts":casts,"positions":positions,"normals":normals,"uv":uv,
-            "joints":joints,"weights":weights,"indices":indices,"center":center,"radius":radius.sqrt()*1.35}));
+        let mut batch = record!({"part":group.first,"attach":group.attach,"casts":casts,"positions":positions,"normals":normals,"uv":uv,
+            "joints":joints,"weights":weights,"indices":indices,"center":center,"radius":radius.sqrt()*1.35});
+        if materials.is_some() {
+            // Additional vertex streams follow this exact bind-frame packing order.
+            batch["sources"] = record!(group.parts);
+        }
+        result.push(batch);
     }
     serde_json::to_vec(&result).map_err(|e|e.to_string())
 }

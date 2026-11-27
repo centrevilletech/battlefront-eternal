@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bfe_server::browser_info::{browser_info, map_names};
+use bfe_server::browser_info::{browser_info_for_family, map_names};
 use bfe_server::cli::{self, Command};
 use bfe_server::config::{state_dir, ServerConfig};
 use bfe_server::identity::ServerIdentity;
@@ -166,27 +166,10 @@ fn prompt(stdin: &mut io::StdinLock<'_>, label: &str) -> io::Result<String> {
     Ok(line.trim_end_matches(['\r', '\n']).to_string())
 }
 
-/// Validates a playlist entry against `/^swbf[12]\/[a-z0-9_-]+:[a-z0-9_-]+:[a-z0-9_-]+$/`
-/// (`choice === "3"` in `menu()`).
-/// Validates an interactive playlist rotation string (`map=<id>&mode=<id>...`), porting
-/// `validPlaylistEntry(entry)`.
+/// Validates an edited playlist entry (`choice === "3"` in `menu()`), porting
+/// `validPlaylistEntry(entry)`: see [`bfe_server::config::valid_playlist_entry`].
 fn valid_playlist_entry(entry: &str) -> bool {
-    let Some(rest) = entry
-        .strip_prefix("swbf1/")
-        .or_else(|| entry.strip_prefix("swbf2/"))
-    else {
-        return false;
-    };
-    let parts: Vec<&str> = rest.split(':').collect();
-    if parts.len() != 3 {
-        return false;
-    }
-    parts.iter().all(|part| {
-        !part.is_empty()
-            && part
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
-    })
+    bfe_server::config::valid_playlist_entry(entry)
 }
 
 /// Interactive live server administration submenu (`async function adminMenu(io)`).
@@ -391,7 +374,7 @@ fn launch_match(
     operator: &Arc<OperatorStore>,
     control: &Arc<ServiceControl>,
     started_at: u64,
-    match_token: Option<&str>,
+    start: bfe_server::local_server::MatchStart<'_>,
     port: Option<bfe_server::local_server::GamePort>,
 ) -> Result<(), String> {
     *control.status.write().unwrap() = "loading".to_string();
@@ -425,15 +408,16 @@ fn launch_match(
             );
         };
 
-    match LocalDedicatedServer::start_with_match_token(
+    match LocalDedicatedServer::start_match(
         config,
         &identity,
         is_banned,
         on_score,
-        match_token,
+        start,
         port,
     ) {
         Ok(local) => {
+            let family = local.family;
             let query = local.query.clone();
             let content = local.content.clone();
             let udp = Arc::clone(&local.udp);
@@ -454,8 +438,9 @@ fn launch_match(
                 let cfg_for_browser = active_cfg.clone();
                 let query_for_browser = query.clone();
                 let browser_fn = Arc::new(move || {
-                    browser_info(
+                    browser_info_for_family(
                         &cfg_for_browser,
+                        family,
                         &query_for_browser,
                         started_at,
                         &names,
@@ -536,6 +521,19 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
     for bad in config.apply_env(|name| std::env::var(name).ok()) {
         eprintln!("bfeserver: ignoring unusable environment value {bad}");
     }
+    // The gate is never read from a file: it is the one this program was built
+    // with, or a developer build's switch.
+    config.gate = bfe_family::online_gate();
+    if config.gate != bfe_family::Gate::BUILT {
+        eprintln!("bfeserver: battles are hosted under {:?}", config.gate);
+    }
+    // A game this build cannot play is refused before anything else, even before
+    // the content folder is known (the same check admission makes).
+    if not_started.is_none() {
+        if let Err(err) = bfe_server::config::check_families(&config.rotation, config.gate) {
+            not_started = Some(("fault", err));
+        }
+    }
     if not_started.is_none() && config.data.trim().is_empty() {
         not_started = Some((
             "setup",
@@ -566,12 +564,15 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
         Arc::clone(&control) as Arc<dyn OperatorControl>,
     )?;
 
+    if not_started.is_none() {
+        rotation::skip_missing_first(&mut config);
+    }
     if let Some((status, why)) = not_started {
         *control.status.write().unwrap() = status.to_string();
         *control.error.write().unwrap() = Some(why.clone());
         eprintln!("bfeserver: not hosting a match: {why}");
     } else if let Err(err) =
-        launch_match(directory, &config, &operator, &control, started_at, None, None)
+        launch_match(directory, &config, &operator, &control, started_at, bfe_server::local_server::MatchStart::New(None), None)
     {
         *control.status.write().unwrap() = "fault".to_string();
         *control.error.write().unwrap() = Some(err.clone());
@@ -624,7 +625,9 @@ fn serve(directory: &Path, operator_port: u16) -> Result<(), String> {
                 &operator,
                 &control,
                 started_at,
-                Some(&next.token),
+                bfe_server::local_server::MatchStart::Announced {
+                    family: next.family, token: &next.token, query: &next.query,
+                },
                 port,
             ) {
                 Ok(()) => eprintln!("battle rotation ready: query={}", next.query),

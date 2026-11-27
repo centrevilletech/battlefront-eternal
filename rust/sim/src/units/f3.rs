@@ -37,6 +37,16 @@ pub(super) struct State {
     descriptor: [f64; F3Boundary::WORDS],
     block: Block,
     services: Vec<Vec<std::rc::Rc<WeaponService>>>,
+    /// Battlefront II `SecondaryOrdnance` / `SecondaryOrdnancePeriod` sidecar
+    /// per weapon def and charge level. Empty in 2004 battles.
+    secondary_ordnance: Vec<Vec<Option<(crate::store::DefId, u32)>>>,
+    /// Per-unit-slot per-weapon shot counters for `SecondaryOrdnancePeriod`.
+    secondary_shot_counts: Vec<Vec<u32>>,
+    /// Battlefront II directional and timed presentation effects queued during
+    /// a fixed tick and drained by the authority host. Empty in 2004 battles.
+    swbf2_effects: Vec<Swbf2Effect>,
+    /// Retained piercing-beam hit buffer (zero per-tick allocation).
+    pierce_hits: Vec<crate::ordnance::world::UnitHit>,
     items: super::f3_items::Items,
     props: super::f3_props::Props,
     recon: Option<crate::recon::Authority>,
@@ -91,6 +101,8 @@ pub(super) struct State {
     event_epoch: u32,
     running: bool,
     failed:bool,
+    /// Soldiers whose movement state a step refused; the world went on without them.
+    movement_faults: u32,
     controls_consumed: bool,
     relations: Vec<f64>,
     relation_sides:usize,
@@ -164,6 +176,8 @@ pub(crate) fn recon_context_by_key_in(world_ctx: &mut crate::world::owner::World
     world_ctx.units.state.as_ref().expect("prepared unit service").recon.as_ref()?.context(&world_ctx.sim.store, key)
 }
 pub(crate) fn props_read(units: &super::owner::Units) -> &super::f3_props::Props { &units.state.as_ref().expect("prepared unit service").props }
+/// The props, before the unit service is necessarily prepared.
+pub(crate) fn props_try(units: &super::owner::Units) -> Option<&super::f3_props::Props> { units.state.as_ref().map(|s| &s.props) }
 // A battle owns one instance. This identifies ownership, not whether a tick
 // is currently on the stack: supply and damage commands between ticks still
 // use canonical state and the same native collision/ordnance services.
@@ -311,8 +325,117 @@ pub(crate) fn with_bare_services_in<T>(world_ctx: &mut crate::world::owner::Worl
 // CombatWorld.fireRound/dispense resolve definitions once at construction.
 // The immutable service remains at this address across synchronous hit hooks;
 // no definition is installed by a weapon update in the middle of a phase.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Swbf2Effect {
+    pub name: crate::store::StrId,
+    pub position: [f64; 3],
+    pub forward: Option<[f64; 3]>,
+    pub duration: Option<f64>,
+    pub owner: Option<(u32, f64)>,
+}
+
+pub(crate) fn push_swbf2_effect_in(
+    world_ctx: &mut crate::world::owner::World,
+    name: &str,
+    position: [f64; 3],
+    forward: Option<[f64; 3]>,
+    duration: Option<f64>,
+    owner: Option<(u32, f64)>,
+) {
+    if world_ctx.movement.family() != bfe_family::GameFamily::Swbf2 || name.is_empty() {
+        return;
+    }
+    let id = world_ctx.sim.strings.intern_str(name);
+    push_swbf2_effect_id_in(world_ctx, id, position, forward, duration, owner);
+}
+
+pub(crate) fn push_swbf2_effect_id_in(
+    world_ctx: &mut crate::world::owner::World,
+    name: crate::store::StrId,
+    position: [f64; 3],
+    forward: Option<[f64; 3]>,
+    duration: Option<f64>,
+    owner: Option<(u32, f64)>,
+) {
+    if world_ctx.movement.family() != bfe_family::GameFamily::Swbf2 {
+        return;
+    }
+    if let Some(state) = world_ctx.units.state.as_mut() {
+        state.swbf2_effects.push(Swbf2Effect {
+            name,
+            position,
+            forward,
+            duration,
+            owner,
+        });
+    }
+}
+
+pub(crate) fn drain_swbf2_effects_into(world_ctx: &mut crate::world::owner::World, out: &mut Vec<Swbf2Effect>) {
+    out.clear();
+    if let Some(s) = world_ctx.units.state.as_mut() {
+        out.extend_from_slice(&s.swbf2_effects);
+        s.swbf2_effects.clear();
+    }
+}
+
+pub(crate) fn take_pierce_hits_in(units: &mut super::owner::Units) -> Vec<crate::ordnance::world::UnitHit> {
+    std::mem::take(&mut units.state.as_mut().expect("prepared unit service").pierce_hits)
+}
+
+pub(crate) fn put_pierce_hits_in(units: &mut super::owner::Units, mut hits: Vec<crate::ordnance::world::UnitHit>) {
+    hits.clear();
+    if let Some(s) = units.state.as_mut() {
+        if hits.capacity() >= s.pierce_hits.capacity() {
+            s.pierce_hits = hits;
+        }
+    }
+}
+
+pub(crate) const SWBF2_SECONDARY_ORDNANCE_EXPORT: &str = "f3_swbf2_secondary_ordnance";
+
 pub(crate) fn weapon_service_in(units: &super::owner::Units, weapon: crate::store::DefId, level: f64) -> std::rc::Rc<WeaponService> {
     std::rc::Rc::clone(&units.state.as_ref().expect("prepared unit service").services[weapon.0 as usize][level as usize])
+}
+
+pub(crate) fn f3_swbf2_secondary_ordnance_in(world_ctx: &mut crate::world::owner::World, weapon: u32, level: u32, ordnance: u32, period: u32) {
+    let all = &mut world_ctx.units.state.as_mut().expect("prepared unit service").secondary_ordnance;
+    let w = weapon as usize;
+    if all.len() <= w {
+        all.resize_with(w + 1, Vec::new);
+    }
+    let l = level as usize;
+    if all[w].len() <= l {
+        all[w].resize(l + 1, None);
+    }
+    all[w][l] = Some((crate::store::DefId(ordnance), period.max(1)));
+}
+
+pub(crate) fn secondary_ordnance_for_shot_in(
+    units: &mut super::owner::Units,
+    slot: u32,
+    weapon_idx: usize,
+    weapon_def: crate::store::DefId,
+    level: f64,
+) -> Option<crate::store::DefId> {
+    let state = units.state.as_mut()?;
+    let (ord, period) = state
+        .secondary_ordnance
+        .get(weapon_def.0 as usize)?
+        .get(level as usize)?
+        .as_ref()
+        .copied()?;
+    let s = slot as usize;
+    if state.secondary_shot_counts.len() <= s {
+        state.secondary_shot_counts.resize_with(s + 1, Vec::new);
+    }
+    let counts = &mut state.secondary_shot_counts[s];
+    if counts.len() <= weapon_idx {
+        counts.resize(weapon_idx + 1, 0);
+    }
+    let count = counts[weapon_idx];
+    counts[weapon_idx] = count.wrapping_add(1);
+    (count % period == 0).then_some(ord)
 }
 
 // UnitFactory construction reserves phase storage before units begin ticking.
@@ -422,6 +545,10 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             descriptor: [0.0; F3Boundary::WORDS],
             block,
             services: Vec::new(),
+            secondary_ordnance: Vec::new(),
+            secondary_shot_counts: Vec::new(),
+            swbf2_effects: Vec::with_capacity(64),
+            pierce_hits: Vec::with_capacity(64),
             items: super::f3_items::Items::new(),
             props: super::f3_props::Props::new(),
             recon: Some(crate::recon::Authority::new(
@@ -459,7 +586,7 @@ pub fn f3_init_in(world_ctx: &mut crate::world::owner::World, world: u32, level:
             hit_policies: Vec::new(),
             blasts: Vec::new(),
             friendly_fire: true,
-            event_epoch: 0, running: false, failed:false, controls_consumed: false,
+            event_epoch: 0, running: false, failed:false, movement_faults: 0, controls_consumed: false,
             history: Some(crate::combat::history::History::new(48)),
             random_states,
             shared_random:vec![None;RANDOM_CAPACITY],
@@ -754,7 +881,28 @@ pub fn f3_weapon_services_in(world_ctx: &mut crate::world::owner::World, weapon:
 // slab object and life. A stale row cannot recreate or overwrite a body.
 // Consume inputs before callbacks, which may reuse the reserved command area.
 
+pub(crate) type SoldierPhase = fn(&mut crate::world::owner::World, u32, f64, f64, f64) -> u32;
+
 pub fn f3_step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, level: f64, tick: f64) -> u32 {
+    let result = (world_ctx.battle.soldier_phase)(world_ctx, count, dt, level, tick);
+    if result != 0 && world_ctx.units.infantry.is_some() {
+        super::infantry::powers_pass(world_ctx);
+        super::infantry::contact::finish_tick(world_ctx, tick as u32);
+    }
+    result
+}
+
+pub(crate) fn goal_step_in(w: &mut crate::world::owner::World, count: u32, dt: f64, level: f64, tick: f64) -> u32 {
+    w.units.state.as_mut().expect("prepared unit service").tick = tick;
+    with_services_in(w, |w, services| {
+        if !crate::ai::goals::api::step_soldiers(w, tick) { return 0; }
+        let result = step_in(w, count, dt, level, services);
+        if result != 0 { super::infantry::bot_input::finish_goal_frames(w, tick); }
+        result
+    })
+}
+
+pub(crate) fn released_step_in(world_ctx: &mut crate::world::owner::World, count: u32, dt: f64, level: f64, tick: f64) -> u32 {
     world_ctx.units.state.as_mut().expect("prepared unit service").tick = tick;
     with_services_in(world_ctx, |world_ctx, authority| step_in(world_ctx, count,dt,level,authority))
 }
@@ -1064,9 +1212,14 @@ fn command_in(world_ctx: &mut crate::world::owner::World, mut recon: Option<crat
         // Soldier.lookRaw keeps each mouse sample's normalization order.
         // Mouse look itself does not invalidate tickCount's shape cache.
         F3Action::Look | F3Action::LookRaw => {
+            let turn_scale = world_ctx.units.infantry.as_ref().and_then(|infantry| {
+                let unit = world_ctx.sim.store.unit.get(reference)?;
+                let UnitBody::Soldier(soldier) = &unit.soldier else { return None };
+                infantry.mouse_turn_scale(reference.slot, unit.class_name, unit.generation, soldier)
+            });
             world_ctx.units.state.as_mut().expect("prepared unit service")
                 .owner
-                .look(
+                .look_scaled(
                     &mut world_ctx.sim.store,
                     &F3LookCommand {
                         key: command.key,
@@ -1076,6 +1229,7 @@ fn command_in(world_ctx: &mut crate::world::owner::World, mut recon: Option<crat
                         invert: command.flag,
                         raw: command.action == F3Action::LookRaw,
                     },
+                    turn_scale,
                 )
                 .unwrap();
         }
@@ -1226,6 +1380,26 @@ fn apply_setting_in(world_ctx: &mut crate::world::owner::World, reference:Ref<Un
 // A missing service is a rejected boundary operation, not a panic. Keep
 // the current native frame valid until the outer phase reports its failure.
 pub(crate) fn fail_in(units: &mut super::owner::Units) {if active_in(units) {units.state.as_mut().expect("prepared unit service").failed=true;units.state.as_mut().expect("prepared unit service").layout.accepted=false;}}
+/// One soldier's movement state was refused for this tick: it keeps its place and the
+/// battle goes on without failing the world. The refusal is counted, and the earliest
+/// eight, then every 600th, are logged. Returns the count so far.
+pub(crate) fn soldier_fault_in(units: &mut super::owner::Units, id: u32, error: crate::movement::ProfileError) -> u32 {
+    let Some(state) = units.state.as_mut() else { return 0 };
+    state.movement_faults = state.movement_faults.saturating_add(1);
+    let count = state.movement_faults;
+    if count <= 8 || count % 600 == 0 {
+        eprintln!("soldier {id}: movement refused, the soldier keeps its place this tick ({}); {count} so far", error.message());
+    }
+    count
+}
+
+impl crate::world::owner::World {
+    /// Soldiers whose movement state a step refused so far in this battle (0 in a sound one).
+    pub fn soldier_movement_faults(&self) -> u32 {
+        self.units.state.as_ref().map_or(0, |s| s.movement_faults)
+    }
+}
+
 macro_rules! required_services {
     ($units:expr; $value:expr,$fallback:expr)=>{match $value {Some(services)=>services,None=>{$crate::units::f3::fail_in($units);return $fallback;}}};
 }
@@ -1784,6 +1958,9 @@ pub(crate) fn missile_class_in(units: &super::owner::Units, name: Option<crate::
         units.state.as_ref().expect("prepared unit service").missile_classes[name.0 as usize].expect("prepared missile class")
     })
 }
+pub(crate) fn registered_category_in(units: &super::owner::Units, slot: u32) -> Option<u32> {
+    units.state.as_ref()?.categories.get(slot as usize).copied()
+}
 pub(crate) fn category_in(units: &super::owner::Units, slot: u32) -> u32 {
     units.state.as_ref().expect("prepared unit service").categories[slot as usize]
 }
@@ -1902,6 +2079,11 @@ pub(crate) fn health_scale_in(units: &super::owner::Units, slot: u32) -> crate::
 }
 pub(crate) fn friendly_fire_in(units: &super::owner::Units) -> bool {
     units.state.as_ref().expect("prepared unit service").friendly_fire
+}
+
+#[cfg(test)]
+pub(crate) fn set_friendly_fire_for_test_in(units: &mut super::owner::Units, enabled: bool) {
+    units.state.as_mut().expect("prepared unit service").friendly_fire = enabled;
 }
 // AI commands mutate only Intent; they do not invalidate lazy geometry.
 // Keep a separate touched list so a concurrent lifecycle/weapon/body write
@@ -2422,5 +2604,48 @@ mod native_sensor_masks {
         assert_eq!(&w.units.state.as_ref().unwrap().input[..2], &[1., 0.]);
         assert!(f3_sensor_mask_in(&mut w, &[false, true]));
         assert_eq!(&w.units.state.as_ref().unwrap().input[..2], &[0., 1.]);
+    }
+
+    #[test]
+    fn swbf2_secondary_ordnance_fires_every_configured_period() {
+        let mut w = crate::world::owner::World::new();
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        f3_swbf2_secondary_ordnance_in(&mut w, 2, 0, 17, 2);
+        f3_swbf2_secondary_ordnance_in(&mut w, 3, 0, 29, 4);
+        // Period 2: fires on shots 0, 2, 4.
+        let seq2: Vec<_> = (0..5)
+            .map(|_| secondary_ordnance_for_shot_in(&mut w.units, 0, 0, crate::store::DefId(2), 0.0))
+            .collect();
+        assert_eq!(
+            seq2,
+            vec![Some(crate::store::DefId(17)), None, Some(crate::store::DefId(17)), None, Some(crate::store::DefId(17))]
+        );
+        // Period 4: fires on shot 0, skips 1..3, fires again on shot 4.
+        let seq4: Vec<_> = (0..6)
+            .map(|_| secondary_ordnance_for_shot_in(&mut w.units, 0, 1, crate::store::DefId(3), 0.0))
+            .collect();
+        assert_eq!(
+            seq4,
+            vec![Some(crate::store::DefId(29)), None, None, None, Some(crate::store::DefId(29)), None]
+        );
+        // Unregistered weapon returns None.
+        assert_eq!(secondary_ordnance_for_shot_in(&mut w.units, 0, 2, crate::store::DefId(9), 0.0), None);
+    }
+
+    #[test]
+    fn swbf2_effect_drain_retains_buffer_capacity_across_ticks() {
+        let mut w = crate::world::owner::World::new();
+        w.movement.select_family(bfe_family::GameFamily::Swbf2).unwrap();
+        f3_init_in(&mut w, 0, f64::NAN, 0);
+        let initial_cap = w.units.state.as_ref().unwrap().swbf2_effects.capacity();
+        assert!(initial_cap >= 64);
+        let mut out = Vec::with_capacity(64);
+        let out_ptr = out.as_ptr();
+        push_swbf2_effect_in(&mut w, "test_fx_alpha", [1.0, 2.0, 3.0], Some([0.0, 0.0, 1.0]), Some(0.4), None);
+        drain_swbf2_effects_into(&mut w, &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out.as_ptr(), out_ptr);
+        assert_eq!(w.units.state.as_ref().unwrap().swbf2_effects.len(), 0);
+        assert!(w.units.state.as_ref().unwrap().swbf2_effects.capacity() >= initial_cap);
     }
 }

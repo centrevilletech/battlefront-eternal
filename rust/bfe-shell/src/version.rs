@@ -5,7 +5,7 @@ use std::path::Path;
 
 /// Default simulation identifier from the shared network contract
 /// (`src/net/layout.js` / `rust/bfe-transport/src/layout.rs`).
-pub const DEFAULT_SIMULATION: &str = "bfe-sim-29";
+pub const DEFAULT_SIMULATION: &str = "bfe-sim-30";
 
 /// Embedded repository `tools/content-version.json` specifying expected
 /// `maps`, `sides`, and `common` content generations.
@@ -314,14 +314,14 @@ mod tests {
         assert_eq!(strict, relaxed);
         assert_eq!(strict.current, Some(true));
         let about = AboutInfo { prepared: Some(strict), wanted: Some(wanted), version: None };
-        assert_eq!(version_line(Some(&about), None), "DEVELOPMENT BUILD   SIMULATION 29   GAME DATA M16 S3 C2");
+        assert_eq!(version_line(Some(&about), None), "DEVELOPMENT BUILD   SIMULATION 30   GAME DATA M16 S3 C2");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn formats_version_line_matching_js_exactly() {
         // Web build without desktop `about` metadata.
-        assert_eq!(version_line(None, None), "DEVELOPMENT BUILD   SIMULATION 29");
+        assert_eq!(version_line(None, None), "DEVELOPMENT BUILD   SIMULATION 30");
 
         // Preview build with current prepared content generations.
         let preview = AboutInfo {

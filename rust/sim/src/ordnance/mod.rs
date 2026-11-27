@@ -97,6 +97,17 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     }
 
     #[inline]
+    fn scaled_def(&self, def: DefId, age: f64) -> DefArg {
+        if let Some(tuning) = self.defs().swbf2_tuning(def) {
+            let base = self.ord(def).damage.or(0.0);
+            if let Some(scaled) = tuning.scaled_damage(base, age) {
+                return DefArg::Scaled(def, scaled);
+            }
+        }
+        DefArg::Ordnance(def)
+    }
+
+    #[inline]
     fn bolt(&mut self, r: Ref<Bolt>) -> &mut Bolt {
         self.s().bolt.get_mut(r).expect("a bolt the ordnance holds")
     }
@@ -186,6 +197,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         };
         orient(round.velocity, &mut round.quaternion);
         let r = self.s().round.insert(round);
+        if self.defs().swbf2_tuning(def).is_some() {
+            self.w.set_swbf2_round_age(r, 0.0);
+        }
         self.s().ordnance.rounds.push(r);
         self.w.projectile(Shot::Round(r), ShotKind::Round);
         r
@@ -284,33 +298,60 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
             let b = self.beam(r);
             (b.position, b.direction, b.ignore_body, b.history_tick, b.def, b.duration)
         };
-        let hit = self.w.cast(position, direction, 600.0, Out::Hit, nullable(ignore_body), None);
-        let unit_hit = match self.cast_units(position, direction, hit.map_or(600.0, |h| h.distance), owner, history_tick, ignore_body, None, false) {
-            Some(u) => Some(u),
-            None => self.rider_behind(position, direction, hit, 600.0, owner, history_tick, ignore_body, false),
+        let (range, pass_through) = match self.defs().swbf2_tuning(def) {
+            Some(t) => (t.range.unwrap_or(600.0), t.pass_through),
+            None => (600.0, false),
         };
-        self.beam(r).history_tick = None;
-        let length = match (unit_hit, hit) {
-            (Some(u), _) => u.distance,
-            (None, Some(h)) => h.distance,
-            (None, None) => 600.0,
-        };
-        let end = add_scaled(position, direction, length);
-        self.beam(r).end = end;
+        let static_only = pass_through.then_some(true);
+        let hit = self.w.cast(position, direction, range, Out::Hit, nullable(ignore_body), static_only);
+        let static_dist = hit.map_or(range, |h| h.distance);
         let share = |cx: &Self| cx.ord(def).damage.or(0.0) * span / duration;
-        if let Some(u) = unit_hit {
+        let touched = if pass_through {
+            let hits = self.w.raycast_units_piercing(position, direction, static_dist, owner, history_tick, ignore_body);
+            self.beam(r).history_tick = None;
+            let end = add_scaled(position, direction, static_dist);
+            self.beam(r).end = end;
             let damage = share(self);
-            self.beam(r).damage = Some(damage);
-            self.w.hit_unit(u.unit, DefArg::Beam(r), Point::BeamEnd(r, end), owner, u.part, direction);
-        } else if let Some(body) = hit.and_then(|h| h.body) {
-            let damage = share(self);
-            self.beam(r).damage = Some(damage);
-            self.w.hit(body, DefArg::Beam(r), owner, direction);
-        }
+            if !hits.is_empty() || hit.and_then(|h| h.body).is_some() {
+                self.beam(r).damage = Some(damage);
+            }
+            for u in &hits {
+                self.w.hit_unit(u.unit, DefArg::Beam(r), Point::UnitHit(u.point), owner, u.part, direction);
+            }
+            let any_unit = !hits.is_empty();
+            self.w.recycle_piercing_query(hits);
+            if let Some(body) = hit.and_then(|h| h.body) {
+                self.w.hit(body, DefArg::Beam(r), owner, direction);
+            }
+            hit.is_some() || any_unit
+        } else {
+            let unit_hit = match self.cast_units(position, direction, static_dist, owner, history_tick, ignore_body, None, false) {
+                Some(u) => Some(u),
+                None => self.rider_behind(position, direction, hit, range, owner, history_tick, ignore_body, false),
+            };
+            self.beam(r).history_tick = None;
+            let length = match (unit_hit, hit) {
+                (Some(u), _) => u.distance,
+                (None, Some(h)) => h.distance,
+                (None, None) => range,
+            };
+            let end = add_scaled(position, direction, length);
+            self.beam(r).end = end;
+            if let Some(u) = unit_hit {
+                let damage = share(self);
+                self.beam(r).damage = Some(damage);
+                self.w.hit_unit(u.unit, DefArg::Beam(r), Point::BeamEnd(r, end), owner, u.part, direction);
+            } else if let Some(body) = hit.and_then(|h| h.body) {
+                let damage = share(self);
+                self.beam(r).damage = Some(damage);
+                self.w.hit(body, DefArg::Beam(r), owner, direction);
+            }
+            hit.is_some() || unit_hit.is_some()
+        };
         let b = self.beam(r);
         b.effect_time -= dt;
         // A beam leaves its ImpactEffect wherever it touches (drawn by a client).
-        if (hit.is_some() || unit_hit.is_some()) && b.effect_time <= 0.0 {
+        if touched && b.effect_time <= 0.0 {
             b.effect_time = 0.12;
         }
         b.life -= dt;
@@ -320,7 +361,7 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
     #[allow(clippy::too_many_arguments)]
     fn round_fire(&mut self, kind: RoundKind, def: DefId, origin: Vec3, direction: Vec3, owner: OrdnanceOwner, ignore_body: Option<Ref<Body>>, channel: f64, target_id: Option<f64>, target_generation: Option<f64>) -> Ref<Round> {
         let bullet = kind == RoundKind::Bullet;
-        let (speed, mut life, gravity) = {
+        let (mut speed, mut life, gravity) = {
             let d = self.ord(def);
             (
                 d.velocity.or_nullish(if bullet { 150.0 } else { 35.0 }),
@@ -328,6 +369,15 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 if kind == RoundKind::Shell { -9.8 * d.gravity.or_nullish(1.0) } else { 0.0 },
             )
         };
+        if kind == RoundKind::Missile {
+            if let Some(t) = self.defs().swbf2_tuning(def) {
+                if let Some(min_speed) = t.min_speed {
+                    if t.acceleration > 0.0 && min_speed < speed {
+                        speed = min_speed;
+                    }
+                }
+            }
+        }
         let dir = normalize(direction);
         let mut impact = None;
         if bullet {
@@ -365,6 +415,9 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         };
         orient(round.velocity, &mut round.quaternion);
         let r = self.s().round.insert(round);
+        if self.defs().swbf2_tuning(def).is_some() {
+            self.w.set_swbf2_round_age(r, 0.0);
+        }
         self.s().ordnance.rounds.push(r);
         self.w.projectile(Shot::Round(r), ShotKind::Round);
         r
@@ -531,8 +584,44 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         });
     }
 
-    /// stepRound.
     fn step_round(&mut self, r: Ref<Round>, dt: f64) {
+        if !self.w.infantry_projectiles() || self.round(r).kind != RoundKind::Bullet {
+            return self.step_round_released(r, dt);
+        }
+        let projectile = GuardProjectile::Bullet(r);
+        if self.w.guard_active() && self.guard_bullet(r, dt) {
+            return;
+        }
+        self.w.observe_projectile(Some(projectile));
+        self.step_round_released(r, dt);
+        self.w.observe_projectile(None);
+    }
+
+    fn guard_bullet(&mut self, r: Ref<Round>, dt: f64) -> bool {
+        let round = self.round(r);
+        if round.dead || round.life <= 0.0 {
+            return false;
+        }
+        let (start, velocity, life, owner, ignore) =
+            (round.position, round.velocity, round.life, round.owner, round.ignore_body);
+        let end = add_scaled(start, velocity, js_min(dt, life));
+        if end[1] < FLOOR || end[0].abs() > LIMIT || end[2].abs() > LIMIT
+            || self.w.water_crossing(start, end).is_some() {
+            return false;
+        }
+        let segment = sub(end, start);
+        let far = math::length(segment);
+        if far <= 1e-6 {
+            return false;
+        }
+        let direction = divide(segment, far);
+        let rider_far = far + js_max(life - dt, 0.0) * math::length(velocity);
+        self.guard_hit(start, direction, far, rider_far, owner, ignore, None)
+            .is_some_and(|hit| self.w.redirect_projectile(GuardProjectile::Bullet(r), hit))
+    }
+
+    /// stepRound.
+    fn step_round_released(&mut self, r: Ref<Round>, dt: f64) {
         let (dead, impact, kind, def, owner) = {
             let o = self.round(r);
             (o.dead, o.impact.clone(), o.kind, o.def, o.owner)
@@ -555,14 +644,30 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         }
         if kind == RoundKind::Missile {
             self.steer(r, dt);
+            let accel = self.defs().swbf2_tuning(def).map_or(0.0, |t| t.acceleration);
+            if accel > 0.0 {
+                let max_speed = self.ord(def).velocity.or_nullish(35.0);
+                let o = self.round(r);
+                let cur = math::length(o.velocity);
+                if cur > 1e-6 && cur < max_speed {
+                    let next = js_min(max_speed, cur + accel * dt);
+                    o.velocity = scale(o.velocity, next / cur);
+                }
+            }
         }
-        let (previous, position, life, velocity, ignore_body) = {
+        let has_swbf2 = self.defs().swbf2_tuning(def).is_some();
+        let prev_age = if has_swbf2 { self.w.swbf2_round_age(r) } else { 0.0 };
+        let (previous, position, life, velocity, ignore_body, step) = {
             let o = self.round(r);
+            let step = js_min(dt, o.life);
             o.previous = o.position;
-            o.position = add_scaled(o.position, o.velocity, js_min(dt, o.life));
+            o.position = add_scaled(o.position, o.velocity, step);
             o.life -= dt;
-            (o.previous, o.position, o.life, o.velocity, o.ignore_body)
+            (o.previous, o.position, o.life, o.velocity, o.ignore_body, step)
         };
+        if has_swbf2 {
+            self.w.set_swbf2_round_age(r, prev_age + step);
+        }
         if position[1] < FLOOR || position[0].abs() > LIMIT || position[2].abs() > LIMIT {
             self.remove_round(r);
             return;
@@ -602,11 +707,23 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 }
             };
             if let Some(u) = unit_hit {
+                if has_swbf2 {
+                    let speed = math::length(velocity);
+                    if speed > 1e-6 {
+                        self.w.set_swbf2_round_age(r, prev_age + u.distance / speed);
+                    }
+                }
                 self.impact_at(r, u.point, u.normal, false, None, Some(u.unit), u.part);
                 self.remove_round(r);
                 return;
             }
             if let Some(h) = hit {
+                if has_swbf2 {
+                    let speed = math::length(velocity);
+                    if speed > 1e-6 {
+                        self.w.set_swbf2_round_age(r, prev_age + h.distance / speed);
+                    }
+                }
                 self.impact_at(r, h.point, h.normal, h.terrain, h.body, None, Nullable::Null);
                 self.remove_round(r);
                 return;
@@ -723,11 +840,12 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         };
         self.w.impact(Shot::Round(r), &ImpactInfo::Plain { point, normal, surface });
         let axis = normalize(velocity);
+        let def_arg = self.scaled_def(def, self.w.swbf2_round_age(r));
         if let Some(b) = body {
-            self.w.hit(b, DefArg::Ordnance(def), owner, axis);
+            self.w.hit(b, def_arg, owner, axis);
         }
         if let Some(u) = unit {
-            self.w.hit_unit(u, DefArg::Ordnance(def), Point::UnitHit(point), owner, part, axis);
+            self.w.hit_unit(u, def_arg, Point::UnitHit(point), owner, part, axis);
         }
         let blast = self.ord(def).explosion_impact.clone();
         if blast.truthy() {
@@ -740,9 +858,44 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
         self.round(r).gone = Some(true);
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn guard_hit(&mut self, start: Vec3, direction: Vec3, far: f64, rider_far: f64,
+        owner: OrdnanceOwner, ignore: Option<Ref<Body>>, history: Option<f64>) -> Option<UnitHit> {
+        let obstruction = self.w.cast_moving(start, direction, far, Out::Hit, nullable(ignore));
+        self.cast_units(start, direction, obstruction.map_or(far, |h| h.distance), owner, history, ignore, None, true)
+            .or_else(|| self.rider_behind(start, direction, obstruction, rider_far, owner, history, ignore, true))
+    }
+
+    fn step_bolt(&mut self, r: Ref<Bolt>, dt: f64, history_tick: Option<f64>) {
+        let swbf2 = self.w.battle_family() == bfe_family::GameFamily::Swbf2;
+        if !self.w.infantry_projectiles() {
+            if swbf2 {
+                return self.step_bolt_swbf2(r, dt, history_tick);
+            }
+            return self.step_bolt_released(r, dt, history_tick);
+        }
+        let projectile = GuardProjectile::Bolt(r);
+        if self.w.guard_active() {
+            let bolt = self.bolt(r);
+            let (start, dir, speed, life, owner, ignore) =
+                (bolt.position, bolt.direction, bolt.speed, bolt.life, bolt.owner, bolt.ignore_body);
+            let hit = self.guard_hit(start, dir, speed * js_min(dt, life), speed * life, owner, ignore, history_tick);
+            if hit.is_some_and(|hit| self.w.redirect_projectile(projectile, hit)) {
+                return;
+            }
+        }
+        self.w.observe_projectile(Some(projectile));
+        if swbf2 {
+            self.step_bolt_swbf2(r, dt, history_tick);
+        } else {
+            self.step_bolt_released(r, dt, history_tick);
+        }
+        self.w.observe_projectile(None);
+    }
+
     /// stepBolt (a world's: nothing drawn). `history_tick`: the
     /// tick a lag-compensated bolt's step meets the others at.
-    fn step_bolt(&mut self, r: Ref<Bolt>, dt: f64, history_tick: Option<f64>) {
+    fn step_bolt_released(&mut self, r: Ref<Bolt>, dt: f64, history_tick: Option<f64>) {
         let (def, life, start, direction, speed, owner, ignore_body) = {
             let b = self.bolt(r);
             b.previous_flown = Some(b.flown);
@@ -834,6 +987,100 @@ impl<'a, W: World + ?Sized> Cx<'a, W> {
                 self.bolt(r).impact = None;
             } else if expire.truthy() {
                 // A bolt that bursts at the end of its flight (the AAA turret's flak).
+                self.w.explosion(&expire, position, owner);
+            }
+        }
+    }
+
+    fn step_bolt_swbf2(&mut self, r: Ref<Bolt>, dt: f64, history_tick: Option<f64>) {
+        let (def, life, start, direction, speed, owner, ignore_body, prev_flown) = {
+            let b = self.bolt(r);
+            let prev_flown = b.flown;
+            b.previous_flown = Some(b.flown);
+            b.previous_drawn = Some(b.drawn);
+            (b.def, b.life, b.position, b.direction, b.speed, b.owner, b.ignore_body, prev_flown)
+        };
+        let step = js_min(dt, life);
+        self.s().ordnance.start = start;
+        self.bolt(r).position = add_scaled(start, direction, speed * step);
+        let moving = self.w.cast_moving(start, direction, speed * step, Out::Hit, nullable(ignore_body));
+        let unit_hit = match self.cast_units(start, direction, moving.map_or(speed * step, |h| h.distance), owner, history_tick, ignore_body, None, true) {
+            Some(u) => Some(u),
+            None => self.rider_behind(start, direction, moving, speed * life, owner, history_tick, ignore_body, true),
+        };
+        if let Some(u) = unit_hit {
+            let b = self.bolt(r);
+            b.position = u.point;
+            b.life = 0.0;
+            b.impact = Some(Impact { point: u.point, normal: u.normal, terrain: false, body: Nullable::Null, unit: Some(u.unit), part: u.part });
+        } else if let Some(h) = moving {
+            let b = self.bolt(r);
+            b.position = h.point;
+            b.life = 0.0;
+            b.impact = Some(Impact { point: h.point, normal: h.normal, terrain: false, body: nullable(h.body), unit: None, part: Nullable::Undefined });
+        }
+        if self.bolt(r).life > 0.0 {
+            let position = self.bolt(r).position;
+            if let Some(wet) = self.w.water_crossing(start, position) {
+                self.bolt(r).life = 0.0;
+                self.w.impact(Shot::Bolt(r), &ImpactInfo::Plain { point: wet, normal: UP, surface: 4.0 });
+                self.bolt(r).impact = None;
+                return;
+            }
+        }
+        let longest = {
+            let d = self.ord(def);
+            js_max(js_max(d.laser_length.or(1.0), d.glow()), d.blur_length.or(0.0))
+        };
+        let (life, impact, position) = {
+            let b = self.bolt(r);
+            b.flown += speed * step;
+            b.drawn = js_min(b.drawn + speed * dt, longest);
+            b.life -= dt;
+            (b.life, b.impact.clone(), b.position)
+        };
+        if life <= 0.0 {
+            let info = match &impact {
+                Some(i) => {
+                    let surface = match i.unit {
+                        Some(u) => {
+                            if self.w.is_droid(u) {
+                                3.0
+                            } else {
+                                2.0
+                            }
+                        }
+                        None => {
+                            if i.terrain {
+                                0.0
+                            } else {
+                                1.0
+                            }
+                        }
+                    };
+                    ImpactInfo::Struck { impact: i.clone(), surface }
+                }
+                None => ImpactInfo::Plain { point: position, normal: UP, surface: 5.0 },
+            };
+            self.w.impact(Shot::Bolt(r), &info);
+            let (blast, expire) = {
+                let d = self.ord(def);
+                (d.explosion_impact.clone(), d.explosion_expire.clone())
+            };
+            if let Some(i) = impact {
+                let age = if speed > 1e-6 { (prev_flown + distance_to(start, i.point)) / speed } else { 0.0 };
+                let def_arg = self.scaled_def(def, age);
+                if let Nullable::Value(body) = i.body {
+                    self.w.hit(body, def_arg, owner, direction);
+                }
+                if let Some(u) = i.unit {
+                    self.w.hit_unit(u, def_arg, Point::Fresh(i.point), owner, i.part, direction);
+                }
+                if blast.truthy() {
+                    self.w.explosion(&blast, add_scaled(i.point, i.normal, 0.2), owner);
+                }
+                self.bolt(r).impact = None;
+            } else if expire.truthy() {
                 self.w.explosion(&expire, position, owner);
             }
         }
@@ -1020,3 +1267,305 @@ pub fn blast_distance(position: Vec3, center: Vec3, radius: f64) -> f64 {
 }
 
 pub(crate) mod trace;
+
+#[cfg(test)]
+mod beam_tests {
+    use super::*;
+    use crate::ordnance::defs::Swbf2OrdnanceTuning;
+
+    struct FakeBeamWorld {
+        store: Store,
+        strings: Strings,
+        defs: Defs,
+        cast_far: Option<f64>,
+        static_hit: Option<Hit>,
+        pierce_hits: Vec<UnitHit>,
+        damaged: Vec<(Ref<Unit>, f64)>,
+    }
+
+    impl World for FakeBeamWorld {
+        fn store(&self) -> &Store { &self.store }
+        fn store_mut(&mut self) -> &mut Store { &mut self.store }
+        fn strings_mut(&mut self) -> &mut Strings { &mut self.strings }
+        fn definitions(&self) -> &Defs { &self.defs }
+        fn cast(&mut self, _: Vec3, _: Vec3, far: f64, _: Out, _: Nullable<Ref<Body>>, _: Option<bool>) -> Option<Hit> {
+            self.cast_far = Some(far);
+            self.static_hit
+        }
+        fn cast_moving(&mut self, _: Vec3, _: Vec3, _: f64, _: Out, _: Nullable<Ref<Body>>) -> Option<Hit> { None }
+        fn raycast_units(&mut self, _: Vec3, _: Vec3, _: f64, _: OrdnanceOwner, _: Option<f64>, _: Option<Ref<Body>>, _: Option<Ref<Vehicle>>, _: bool) -> Option<UnitHit> {
+            self.pierce_hits.first().copied()
+        }
+        fn raycast_units_piercing(&mut self, _: Vec3, _: Vec3, far: f64, _: OrdnanceOwner, _: Option<f64>, _: Option<Ref<Body>>) -> Vec<UnitHit> {
+            self.pierce_hits.iter().copied().filter(|u| u.distance <= far).collect()
+        }
+        fn rider_mount(&mut self, _: Nullable<Ref<Body>>) -> Option<RiderMount> { None }
+        fn fat_query(&mut self, _: Vec3, _: f64, _: OrdnanceOwner, _: &RefSet<Unit>, _: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>> { None }
+        fn unit_sphere(&mut self, _: Ref<Unit>) -> Option<(Vec3, f64)> { None }
+        fn is_droid(&mut self, _: Ref<Unit>) -> bool { false }
+        fn gone(&mut self, _: BeamSource) -> bool { false }
+        fn beam_local_origin(&mut self, _: BeamSource, _: Vec3) -> Option<Vec3> { None }
+        fn beam_pose(&mut self, _: BeamSource, _: Vec3, _: &mut Vec3, _: &mut Vec3) {}
+        fn shot_tick(&mut self, _: OrdnanceOwner, _: f64) -> Nullable<f64> { Nullable::Null }
+        fn history_tick(&mut self) -> f64 { 0.0 }
+        fn shooter(&mut self, _: OrdnanceOwner, _: f64) -> Shooter { Shooter { fire_id: 0.0, unit: 0.0, generation: 0.0 } }
+        fn missile_target(&mut self, _: f64, _: f64) -> Option<Vec3> { None }
+        fn navigate_missile(&mut self, _: Vec3, _: &mut Vec3, _: Option<StrId>, _: f64, _: f64, _: f64) -> f64 { -1.0 }
+        fn water_crossing(&mut self, _: Vec3, _: Vec3) -> Option<Vec3> { None }
+        fn waver(&mut self) -> f64 { 0.0 }
+        fn spin(&mut self) -> f64 { 0.0 }
+        fn explosion(&mut self, _: &Field, _: Vec3, _: OrdnanceOwner) {}
+        fn hit(&mut self, _: Ref<Body>, _: DefArg, _: OrdnanceOwner, _: Vec3) {}
+        fn hit_unit(&mut self, unit: Ref<Unit>, def: DefArg, _: Point, _: OrdnanceOwner, _: Nullable<HitPart>, _: Vec3) {
+            let dmg = match def {
+                DefArg::Beam(r) => self.store.beam.get(r).and_then(|b| b.damage).unwrap_or(0.0),
+                DefArg::Scaled(_, d) => d,
+                DefArg::Ordnance(id) => self.defs.ordnance(id).damage.or(0.0),
+            };
+            self.damaged.push((unit, dmg));
+        }
+        fn projectile(&mut self, _: Shot, _: ShotKind) {}
+        fn launch(&mut self, _: Ref<Bolt>, _: Nullable<f64>) {}
+        fn impact(&mut self, _: Shot, _: &ImpactInfo) {}
+        fn grenade_contact(&mut self, _: Ref<Grenade>) {}
+        fn bounce(&mut self, _: DefId, _: Vec3, _: f64) {}
+        fn item_cast(&mut self, _: Vec3, _: Vec3, _: f64) -> Option<Hit> { None }
+        fn blocked(&mut self, _: Vec3, _: Vec3) -> bool { false }
+        fn item_water_crossing(&mut self, _: Vec3, _: Vec3) -> Option<Vec3> { None }
+        fn item_model(&mut self, _: DefId) -> ItemModel { ItemModel { mesh: false, radius: 0.1, center: None } }
+        fn owner_key(&mut self, _: ItemOwner) -> String { String::new() }
+        fn drop_roll(&mut self) -> f64 { 1.0 }
+        fn explode(&mut self, _: &Field, _: Vec3, _: ItemOwner) {}
+        fn watch(&mut self, _: usize, _: f64) -> Watched { Watched { relation: 0.0, center: [0.0; 3], radius: 0.0, velocity: [0.0; 3] } }
+        fn standing(&mut self, _: usize) -> Vec3 { [0.0; 3] }
+        fn give(&mut self, _: usize, _: DefId) -> bool { false }
+        fn pickup(&mut self, _: DefId, _: Vec3) {}
+    }
+
+    #[test]
+    fn swbf2_pass_through_beam_honors_range_and_pierces_multiple_units() {
+        let mut defs = Defs::default();
+        defs.ordnance.push(OrdnanceDef::read(|k| match k {
+            "base" => Field::Str("beam".into()),
+            "LifeSpan" => Field::Num(0.20),
+            "Damage" => Field::Num(120.0),
+            _ => Field::Undefined,
+        }));
+        defs.swbf2_tuning.push(Swbf2OrdnanceTuning {
+            range: Some(250.0),
+            pass_through: true,
+            ..Default::default()
+        });
+        let u1 = Ref::<Unit>::new(1, 1);
+        let u2 = Ref::<Unit>::new(2, 1);
+        let u3 = Ref::<Unit>::new(3, 1);
+        let mut world = FakeBeamWorld {
+            store: Store::default(),
+            strings: Strings::default(),
+            defs,
+            cast_far: None,
+            static_hit: Some(Hit { distance: 60.0, point: [0.0, 1.0, 60.0], normal: [0.0, 0.0, -1.0], terrain: false, body: None }),
+            pierce_hits: vec![
+                UnitHit { unit: u1, distance: 12.0, point: [0.0, 1.0, 12.0], normal: [0.0, 0.0, -1.0], part: Nullable::Value(HitPart::Body) },
+                UnitHit { unit: u2, distance: 34.0, point: [0.0, 1.0, 34.0], normal: [0.0, 0.0, -1.0], part: Nullable::Value(HitPart::Head) },
+                // Behind the static wall at 60 m: must not be hit.
+                UnitHit { unit: u3, distance: 75.0, point: [0.0, 1.0, 75.0], normal: [0.0, 0.0, -1.0], part: Nullable::Value(HitPart::Body) },
+            ],
+            damaged: Vec::new(),
+        };
+        let mut cx = Cx::new(&mut world);
+        cx.fire_round(DefId(0), [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], OrdnanceOwner::Player, None, None, BeamSource::Null, 0.0, None, None);
+        cx.update(0.05);
+        assert_eq!(world.cast_far, Some(250.0));
+        let beam = world.store.beam.get(world.store.ordnance.beams[0]).unwrap();
+        assert_eq!(beam.end, [0.0, 1.0, 60.0]);
+        assert_eq!(world.damaged.len(), 2);
+        assert_eq!(world.damaged[0].0, u1);
+        assert_eq!(world.damaged[1].0, u2);
+        // 0.05 / 0.20 of 120 = 30 damage per pierced target on this tick.
+        assert!((world.damaged[0].1 - 30.0).abs() < 1e-9);
+        assert!((world.damaged[1].1 - 30.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn swbf2_missile_launches_at_min_speed_and_accelerates_to_max() {
+        let mut defs = Defs::default();
+        defs.ordnance.push(OrdnanceDef::read(|k| match k {
+            "base" => Field::Str("missile".into()),
+            "Velocity" => Field::Num(60.0),
+            "LifeSpan" => Field::Num(4.0),
+            "TurnRate" => Field::Num(0.0),
+            _ => Field::Undefined,
+        }));
+        defs.swbf2_tuning.push(Swbf2OrdnanceTuning {
+            min_speed: Some(15.0),
+            acceleration: 90.0,
+            ..Default::default()
+        });
+        let mut world = FakeBeamWorld {
+            store: Store::default(),
+            strings: Strings::default(),
+            defs,
+            cast_far: None,
+            static_hit: None,
+            pierce_hits: Vec::new(),
+            damaged: Vec::new(),
+        };
+        let mut cx = Cx::new(&mut world);
+        cx.fire_round(DefId(0), [0.0, 2.0, 0.0], [0.0, 0.0, 1.0], OrdnanceOwner::Player, None, None, BeamSource::Null, 1.0, None, None);
+        let r = cx.s().ordnance.rounds[0];
+        assert!((math::length(cx.s().round.get(r).unwrap().velocity) - 15.0).abs() < 1e-9);
+
+        // After 0.25 s at +90 m/s^2 -> 15 + 22.5 = 37.5 m/s.
+        cx.update(0.25);
+        assert!((math::length(cx.s().round.get(r).unwrap().velocity) - 37.5).abs() < 1e-6);
+
+        // After another 0.50 s -> capped at max velocity 60.0 m/s.
+        cx.update(0.50);
+        assert!((math::length(cx.s().round.get(r).unwrap().velocity) - 60.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn swbf2_flight_age_damage_scaling_applies_at_bolt_and_round_impact() {
+        struct ScaledWorld {
+            store: Store,
+            strings: Strings,
+            defs: Defs,
+            round_ages: Vec<f64>,
+            target: Ref<Unit>,
+            trigger_hit: bool,
+            received: Vec<DefArg>,
+        }
+        impl World for ScaledWorld {
+            fn store(&self) -> &Store { &self.store }
+            fn store_mut(&mut self) -> &mut Store { &mut self.store }
+            fn strings_mut(&mut self) -> &mut Strings { &mut self.strings }
+            fn definitions(&self) -> &Defs { &self.defs }
+            fn battle_family(&self) -> bfe_family::GameFamily { bfe_family::GameFamily::Swbf2 }
+            fn swbf2_round_age(&self, r: Ref<Round>) -> f64 {
+                self.round_ages.get(r.slot as usize).copied().unwrap_or(0.0)
+            }
+            fn set_swbf2_round_age(&mut self, r: Ref<Round>, age: f64) {
+                let s = r.slot as usize;
+                if self.round_ages.len() <= s { self.round_ages.resize(s + 1, 0.0); }
+                self.round_ages[s] = age;
+            }
+            fn cast(&mut self, _: Vec3, _: Vec3, _: f64, _: Out, _: Nullable<Ref<Body>>, _: Option<bool>) -> Option<Hit> { None }
+            fn cast_moving(&mut self, _: Vec3, _: Vec3, _: f64, _: Out, _: Nullable<Ref<Body>>) -> Option<Hit> { None }
+            fn raycast_units(&mut self, origin: Vec3, direction: Vec3, far: f64, _: OrdnanceOwner, _: Option<f64>, _: Option<Ref<Body>>, _: Option<Ref<Vehicle>>, _: bool) -> Option<UnitHit> {
+                if !self.trigger_hit { return None; }
+                let dist = far * 0.5;
+                Some(UnitHit {
+                    unit: self.target,
+                    distance: dist,
+                    point: add_scaled(origin, direction, dist),
+                    normal: [0.0, 0.0, -1.0],
+                    part: Nullable::Value(HitPart::Body),
+                })
+            }
+            fn rider_mount(&mut self, _: Nullable<Ref<Body>>) -> Option<RiderMount> { None }
+            fn fat_query(&mut self, _: Vec3, _: f64, _: OrdnanceOwner, _: &RefSet<Unit>, _: Option<Ref<Body>>) -> Option<Vec<Ref<Unit>>> { None }
+            fn unit_sphere(&mut self, _: Ref<Unit>) -> Option<(Vec3, f64)> { None }
+            fn is_droid(&mut self, _: Ref<Unit>) -> bool { false }
+            fn gone(&mut self, _: BeamSource) -> bool { false }
+            fn beam_local_origin(&mut self, _: BeamSource, _: Vec3) -> Option<Vec3> { None }
+            fn beam_pose(&mut self, _: BeamSource, _: Vec3, _: &mut Vec3, _: &mut Vec3) {}
+            fn shot_tick(&mut self, _: OrdnanceOwner, _: f64) -> Nullable<f64> { Nullable::Null }
+            fn history_tick(&mut self) -> f64 { 0.0 }
+            fn shooter(&mut self, _: OrdnanceOwner, _: f64) -> Shooter { Shooter { fire_id: 0.0, unit: 0.0, generation: 0.0 } }
+            fn missile_target(&mut self, _: f64, _: f64) -> Option<Vec3> { None }
+            fn navigate_missile(&mut self, _: Vec3, _: &mut Vec3, _: Option<StrId>, _: f64, _: f64, _: f64) -> f64 { -1.0 }
+            fn water_crossing(&mut self, _: Vec3, _: Vec3) -> Option<Vec3> { None }
+            fn waver(&mut self) -> f64 { 0.0 }
+            fn spin(&mut self) -> f64 { 0.0 }
+            fn explosion(&mut self, _: &Field, _: Vec3, _: OrdnanceOwner) {}
+            fn hit(&mut self, _: Ref<Body>, _: DefArg, _: OrdnanceOwner, _: Vec3) {}
+            fn hit_unit(&mut self, _: Ref<Unit>, def: DefArg, _: Point, _: OrdnanceOwner, _: Nullable<HitPart>, _: Vec3) {
+                self.received.push(def);
+            }
+            fn projectile(&mut self, _: Shot, _: ShotKind) {}
+            fn launch(&mut self, _: Ref<Bolt>, _: Nullable<f64>) {}
+            fn impact(&mut self, _: Shot, _: &ImpactInfo) {}
+            fn grenade_contact(&mut self, _: Ref<Grenade>) {}
+            fn bounce(&mut self, _: DefId, _: Vec3, _: f64) {}
+            fn item_cast(&mut self, _: Vec3, _: Vec3, _: f64) -> Option<Hit> { None }
+            fn blocked(&mut self, _: Vec3, _: Vec3) -> bool { false }
+            fn item_water_crossing(&mut self, _: Vec3, _: Vec3) -> Option<Vec3> { None }
+            fn item_model(&mut self, _: DefId) -> ItemModel { ItemModel { mesh: false, radius: 0.1, center: None } }
+            fn owner_key(&mut self, _: ItemOwner) -> String { String::new() }
+            fn drop_roll(&mut self) -> f64 { 1.0 }
+            fn explode(&mut self, _: &Field, _: Vec3, _: ItemOwner) {}
+            fn watch(&mut self, _: usize, _: f64) -> Watched { Watched { relation: 0.0, center: [0.0; 3], radius: 0.0, velocity: [0.0; 3] } }
+            fn standing(&mut self, _: usize) -> Vec3 { [0.0; 3] }
+            fn give(&mut self, _: usize, _: DefId) -> bool { false }
+            fn pickup(&mut self, _: DefId, _: Vec3) {}
+        }
+
+        let mut defs = Defs::default();
+        // Def 0: bolt decaying 90 -> 30 over [0.10, 0.30] s.
+        defs.ordnance.push(OrdnanceDef::read(|k| match k {
+            "base" => Field::Str("bolt".into()),
+            "Velocity" => Field::Num(100.0),
+            "LifeSpan" => Field::Num(2.0),
+            "Damage" => Field::Num(90.0),
+            _ => Field::Undefined,
+        }));
+        defs.swbf2_tuning.push(Swbf2OrdnanceTuning {
+            damage_final: Some(30.0),
+            damage_transition_delay: 0.10,
+            damage_transition_period: 0.20,
+            ..Default::default()
+        });
+        // Def 1: bullet ramping 50 -> 130 over [0.0, 0.40] s.
+        defs.ordnance.push(OrdnanceDef::read(|k| match k {
+            "base" => Field::Str("bullet".into()),
+            "Velocity" => Field::Num(80.0),
+            "LifeSpan" => Field::Num(2.0),
+            "Damage" => Field::Num(50.0),
+            _ => Field::Undefined,
+        }));
+        defs.swbf2_tuning.push(Swbf2OrdnanceTuning {
+            damage_final: Some(130.0),
+            damage_transition_delay: 0.0,
+            damage_transition_period: 0.40,
+            ..Default::default()
+        });
+
+        let mut world = ScaledWorld {
+            store: Store::default(),
+            strings: Strings::default(),
+            defs,
+            round_ages: Vec::new(),
+            target: Ref::new(5, 1),
+            trigger_hit: false,
+            received: Vec::new(),
+        };
+        // Bolt flies 0.15 s clear, then hits halfway through a 0.10 s step -> age = 0.20 s -> dmg = 60.
+        {
+            let mut cx = Cx::new(&mut world);
+            cx.fire_round(DefId(0), [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], OrdnanceOwner::Player, None, None, BeamSource::Null, 0.0, None, None);
+            cx.update(0.15);
+        }
+        world.trigger_hit = true;
+        Cx::new(&mut world).update(0.10);
+        match world.received.as_slice() {
+            [DefArg::Scaled(DefId(0), dmg)] => assert!((*dmg - 60.0).abs() < 1e-6, "bolt scaled dmg={dmg}"),
+            other => panic!("expected DefArg::Scaled(0, 60.0), got {other:?}"),
+        }
+
+        // Bullet flies 0.15 s clear, then hits halfway through a 0.10 s step -> age = 0.20 s -> dmg = 90.
+        world.received.clear();
+        world.trigger_hit = false;
+        {
+            let mut cx = Cx::new(&mut world);
+            cx.fire_round(DefId(1), [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], OrdnanceOwner::Player, None, None, BeamSource::Null, 0.0, None, None);
+            cx.update(0.15);
+        }
+        world.trigger_hit = true;
+        Cx::new(&mut world).update(0.10);
+        match world.received.as_slice() {
+            [DefArg::Scaled(DefId(1), dmg)] => assert!((*dmg - 90.0).abs() < 1e-6, "bullet scaled dmg={dmg}"),
+            other => panic!("expected DefArg::Scaled(1, 90.0), got {other:?}"),
+        }
+    }
+}

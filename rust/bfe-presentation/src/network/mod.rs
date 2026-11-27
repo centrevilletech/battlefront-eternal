@@ -5,6 +5,7 @@ pub mod input;
 pub mod mounts;
 pub mod preview;
 pub mod outbound;
+pub mod position;
 pub mod read;
 pub type Result<T> = std::result::Result<T, &'static str>;
 pub const EXCHANGE: &str = "invalid page networking exchange";
@@ -62,7 +63,7 @@ impl<'a> Output<'a> {
         self.at = end;
         Ok(unsafe { std::slice::from_raw_parts_mut(span.as_mut_ptr().cast::<u8>(), n) }) } }
 
-pub use read::session::Session;
+pub use read::session::{RecordChecks, Session};
 use std::{cell::RefCell, rc::Rc};
 /// A cold link keeps display consumers beside the network ring. It never
 /// points into a caller-owned buffer or invokes a JavaScript sample reader.

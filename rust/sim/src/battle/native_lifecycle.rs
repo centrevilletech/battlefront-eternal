@@ -3,6 +3,7 @@
 //! not return through the former spawning or death adapters.
 use crate::world::owner::World as Root;
 use super::{f4_core, f4_factory, f4_live::with_store_in, native_actions::Lifecycle};
+use super::rules::events::Event;
 use crate::{
     gen::*,
     store::{Ref, StrId},
@@ -86,6 +87,9 @@ impl Lifecycle for Native {
         c.unit = Some(unit);
         c.class_name = Some(class);
         w.sim.store.unit.get_mut(unit).unwrap().character = Some(character);
+        if human {
+            super::f4_connections::mission::spawned(w, character, unit, class, name);
+        }
         f4_core::mark_character_in(&mut w.battle, character);
         let u = w.sim.store.unit.get(unit).unwrap();
         let p = u.position();
@@ -242,6 +246,49 @@ pub(crate) fn died(w: &mut Root,
     let u = w.sim.store.unit.get(unit).expect("dead native body");
     let character = u.character;
     let team = u.team;
+    let mut mission_killer = None;
+    if let Some(queue) = &mut w.battle.rule_events {
+        let s = &w.sim.store;
+        let killer_team = match u.combat.last_attacker {
+            Attacker::OwnerSnapshot(r) => s.owner_snapshot.get(r).map(|owner| owner.team),
+            _ => killer.and_then(|r| s.character.get(r)).map(|c| c.team),
+        };
+        if queue.mission_events() {
+            if let Some(victim) = character.and_then(|r| s.character.get(r).map(|c| (r,c))) {
+                use super::rules::awards::Credit;
+                let credit = Credit::capture(s, local, u.combat.last_attacker).or_else(|| {
+                    let r = killer?;
+                    let c = s.character.get(r)?;
+                    Some(Credit { character: Some(r), team: killer_team? as i32, human: c.human })
+                });
+                use crate::units::infantry::contact::{identity, DeathRecord};
+                let life = identity(unit, u);
+                let strike = w.units.infantry.as_ref().and_then(|i| i.strike).filter(|s| s.target == life);
+                let credit = strike.and_then(|hit| hit.credit).or(credit);
+                let credited_life = credit.and_then(|c| c.character).and_then(|r| s.character.get(r)?.unit)
+                    .and_then(|r| s.unit.get(r).map(|body| identity(r, body)));
+                let death = DeathRecord {
+                    tick: f3::tick_in(&w.units) as u32, victim: life, victim_team: team as i32,
+                    killer: strike.map_or(credited_life, |s| s.source.or(credited_life)),
+                    killer_team: credit.map(|c| c.team), cause: strike.map(|s| s.cause), weapon: strike.and_then(|s| s.weapon),
+                    reflected: strike.is_some_and(|s| s.reflected),
+                };
+                mission_killer = credit;
+                queue.push(Event::MissionSoldierKilled { victim: victim.0, victim_team: team as i32,
+                    human: victim.1.human, hero: victim.1.hero == Some(true), credit, death });
+            }
+        } else {
+        queue.push(Event::UnitKilled {
+            unit: F3UnitKey::of(unit, u),
+            victim: character,
+            victim_team: team,
+            killer,
+            killer_team,
+            relation,
+        });
+        }
+    }
+    if let Some(credit)=mission_killer { super::rules::hero_health::credited_kill(w,credit,team as i32); }
     if let Some(r) = character {
         let c = w.sim.store.character.get_mut(r).unwrap();
         c.died_at = Some(f3::tick_in(&w.units) / 60.0);
@@ -251,11 +298,12 @@ pub(crate) fn died(w: &mut Root,
         f4_core::mark_character_in(&mut w.battle, r);
     }
     let credit = |w: &mut Root| f4_core::credit(w, character, killer, relation);
+    let spend_on_death = w.battle.death_tickets == super::rules::DeathTickets::Conquest;
     let mut spend = |w: &mut Root| {
         if let Some(r) = character.filter(|_| classic) {
             let mut shell = Store::default();
             std::mem::swap(&mut shell, &mut w.sim.store);
-            super::spawning::on_death(&mut shell, r, &mut Death {w, services:services.reborrow()});
+            super::spawning::on_death_with_tickets(&mut shell, r, &mut Death {w, services:services.reborrow()}, spend_on_death);
             std::mem::swap(&mut shell, &mut w.sim.store);
             let character_handle = f4_core::character_handle_in(&mut w.battle, r);
             hook(w, F4AIHook {
@@ -263,7 +311,7 @@ pub(crate) fn died(w: &mut Root,
                 character_handle,
                 ..Default::default()
             },services.reborrow());
-        } else {
+        } else if spend_on_death {
             super::rules::spend(&mut w.sim.store.battle, team, 1.0);
         }
     };

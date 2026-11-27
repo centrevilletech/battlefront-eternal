@@ -193,12 +193,23 @@ impl Ownership {
     }
 
     pub fn look(&mut self, store: &mut Store, command: &crate::gen::F3LookCommand) -> Result<(), Stale> {
+        self.look_scaled(store, command, None)
+    }
+
+    pub fn look_scaled(
+        &mut self,
+        store: &mut Store,
+        command: &crate::gen::F3LookCommand,
+        turn_scale: Option<f64>,
+    ) -> Result<(), Stale> {
         let unit = command.key.validate_mut(store)?;
         match &mut unit.soldier {
-            UnitBody::Soldier(s) => {
-                if command.raw { s.look_raw(command.dx, command.dy, command.sensitivity, command.invert); }
-                else { s.look(command.dx, command.dy, command.sensitivity, command.invert); }
-            }
+            UnitBody::Soldier(s) => match (command.raw, turn_scale) {
+                (true, Some(scale)) => s.look_raw_scaled(command.dx, command.dy, command.sensitivity, command.invert, scale),
+                (true, None) => s.look_raw(command.dx, command.dy, command.sensitivity, command.invert),
+                (false, Some(scale)) => s.look_scaled(command.dx, command.dy, command.sensitivity, command.invert, scale),
+                (false, None) => s.look(command.dx, command.dy, command.sensitivity, command.invert),
+            },
             UnitBody::Droideka(d) => d.look(command.dx, command.dy, command.sensitivity, command.invert),
         }
         // Mouse look does not bump tickCount in the original game.

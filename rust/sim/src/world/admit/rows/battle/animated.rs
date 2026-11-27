@@ -18,11 +18,36 @@ fn error(message: impl Into<String>) -> AdmitError { AdmitError::Content { stage
 /// The instances LiveObjects turns into AnimatedProps, in prop order:
 /// `animatedprop` and `door` bases whose model exists (props.js 1053).
 pub fn instances(cx: &Cx) -> Vec<usize> {
+    if cx.battle.family == bfe_content::GameFamily::Swbf2 {
+        return instances_swbf2(cx);
+    }
+    instances_swbf1(cx)
+}
+
+// Released 2004 animated::instances kept verbatim.
+fn instances_swbf1(cx: &Cx) -> Vec<usize> {
     let Some(data) = cx.battle.props.as_ref() else { return Vec::new() };
     let models = data.get("models");
     data.get("instances").and_then(Value::as_array).unwrap_or(&[]).iter().enumerate().filter(|(_, desc)| {
         matches!(desc.get("base").and_then(Value::as_str), Some("animatedprop" | "door"))
             && desc.get("model").and_then(Value::as_str).and_then(|m| models.and_then(|ms| ms.get(m))).is_some_and(Value::truthy)
+    }).map(|(i, _)| i).collect()
+}
+
+fn instances_swbf2(cx: &Cx) -> Vec<usize> {
+    let Some(data) = cx.battle.props.as_ref() else { return Vec::new() };
+    let models = data.get("models");
+    data.get("instances").and_then(Value::as_array).unwrap_or(&[]).iter().enumerate().filter(|(_, desc)| {
+        if !matches!(desc.get("base").and_then(Value::as_str), Some("animatedprop" | "door")) {
+            return false;
+        }
+        let Some(model) = desc.get("model").and_then(Value::as_str).and_then(|m| models.and_then(|ms| ms.get(m))).filter(|m| m.truthy()) else {
+            return false;
+        };
+        let has_bones = model.get("bones").and_then(Value::as_array).is_some_and(|b| !b.is_empty());
+        let name = desc.get("model").and_then(Value::as_str).unwrap_or("");
+        let has_clips = cx.content.prop_clips.iter().any(|(m, c)| m == name && c.as_ref().is_some_and(|c| !c.list.is_empty()));
+        has_bones && has_clips
     }).map(|(i, _)| i).collect()
 }
 

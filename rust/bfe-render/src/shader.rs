@@ -124,7 +124,43 @@ const EXTRAS: &[(&str, &str, usize, &str)] = &[
     // the texels a heated body's values use: an overlay is never heated.
     ("shockTime", "float", 1, "x"), ("intensity", "float", 1, "y"), ("seed", "float", 1, "z"), ("inflate", "float", 1, "w"),
     ("color", "vec3", 2, "xyz"),
+    // Placed prop specular [exponent, r, g, b], stored in texel 1 on non-heated extended props.
+    ("bfeSpecular", "vec4", 1, ""),
+    // How far a 2005 soldier near the camera has faded, body and all (0 for everything else).
+    ("bfeFade", "float", 3, "w"),
 ];
+
+// Extended lighting block (BfeLight2, binding 2): second global directional light,
+// glow boost, and up to four world-space light/shadow regions (e.g. hangar interiors).
+// Declared only by shaders with `#define EXTENDED_LIGHT`, leaving 2004 shaders untouched.
+pub const LIGHT2_BACK_DIR: usize = 0;
+pub const LIGHT2_BACK_COLOR: usize = 4;
+pub const LIGHT2_META: usize = 8;
+pub const LIGHT2_REGION_INV: usize = 12;
+pub const LIGHT2_REGION_HALF: usize = 76;
+pub const LIGHT2_REGION_AMB_TOP: usize = 92;
+pub const LIGHT2_REGION_AMB_BOT: usize = 108;
+pub const LIGHT2_REGION_DIR: usize = 124;
+pub const LIGHT2_REGION_DIR_COL: usize = 140;
+pub const LIGHT2_FLOATS: usize = 156;
+pub const MAX_LIGHT_REGIONS: usize = 4;
+
+const LIGHT2_BLOCK: &str = "layout(std140) uniform BfeLight2 {
+  vec4 bfeBackLightDir;
+  vec4 bfeBackLightColor;
+  vec4 bfeLightMeta;
+  mat4 bfeRegionInv[4];
+  vec4 bfeRegionHalf[4];
+  vec4 bfeRegionAmbTop[4];
+  vec4 bfeRegionAmbBot[4];
+  vec4 bfeRegionDir[4];
+  vec4 bfeRegionDirCol[4];
+};
+";
+
+pub fn uses_extended_light(source: &str) -> bool {
+    source.lines().any(|l| l.trim() == "#define EXTENDED_LIGHT")
+}
 
 // The shadow receivers' inputs (three's USE_SHADOWMAP programs, the near
 // scene's), one std140 block for every program, written once a frame, in
@@ -195,7 +231,7 @@ pub fn reads_lamps(source: &str) -> bool {
 const INSTANCE_COMMON: &str = "uniform highp sampler2D bfeInstances;
 float sunScale; vec2 ambientPull; float brightness;
 int zeroLightCount; int bfeBoneBase; ivec4 bfeLightIndex[4];
-vec4 bfeTexel(int x) { return texelFetch(bfeInstances, ivec2(x, bfeRow), 0); }
+vec4 bfeTexel(int x) { int cols = max(textureSize(bfeInstances, 0).x >> 5, 1); return texelFetch(bfeInstances, ivec2((bfeRow % cols) * 32 + x, bfeRow / cols), 0); }
 void bfeLoadLook() {
   vec4 look = bfeTexel(15); sunScale = look.x; ambientPull = look.yz; brightness = look.w;
   vec4 counts = bfeTexel(16); zeroLightCount = int(counts.x); bfeBoneBase = int(counts.y);
@@ -296,6 +332,7 @@ pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Res
     // Shadow receivers read the BfeShadow block (World and instanced kinds;
     // a Classic source has no USE_SHADOWMAP and stays as it was).
     let shadows = (kind == Kind::World || instanced) && receives_shadows(source);
+    let extended_light = (kind == Kind::World || instanced) && uses_extended_light(source);
     let lamps = lamps && (kind == Kind::World || instanced) && reads_lamps(source);
     let mut lamped = false;
     let mut block = false;
@@ -308,6 +345,9 @@ pub fn rewrite_lamps(source: &str, stage: Stage, kind: Kind, lamps: bool) -> Res
                 // outside any condition: the block and the instance inputs go
                 // there, where every define they test is already set.
                 out.push_str(FRAME_BLOCK);
+                if extended_light {
+                    out.push_str(LIGHT2_BLOCK);
+                }
                 if kind == Kind::Effect {
                     out.push_str("#define modelViewMatrix viewMatrix\n");
                 }
@@ -412,7 +452,7 @@ const MOTION_VERTEX: &str = "uniform highp sampler2D bfeInstances;
 uniform int bfeInstanceBase;
 int bfeRow; int bfeBoneBase; int bfePreviousBoneBase;
 mat4 modelMatrix; mat4 modelViewMatrix; mat3 normalMatrix; mat4 bindMatrixInverse; mat4 bindMatrix; mat4 previousModel; mat4 previousBindInverse;
-vec4 bfeTexel(int x) { return texelFetch(bfeInstances, ivec2(x, bfeRow), 0); }
+vec4 bfeTexel(int x) { int cols = max(textureSize(bfeInstances, 0).x >> 5, 1); return texelFetch(bfeInstances, ivec2((bfeRow % cols) * 32 + x, bfeRow / cols), 0); }
 void bfeLoad() {
   bfeRow = bfeInstanceBase + gl_InstanceID;
   modelMatrix = mat4(bfeTexel(0), bfeTexel(1), bfeTexel(2), bfeTexel(3));
@@ -530,6 +570,7 @@ mod tests {
             assert!(!out.contains(gone), "{gone} declared still");
         }
         assert!(out.contains("vec2 scroll;\nfloat heat;\nvec4 heatTear;\nfloat dissolve;\n"), "each a global of the program's");
+        assert!(out.contains("textureSize(bfeInstances, 0).x >> 5"));
         assert!(out.contains("scroll = bfeTexel(25).xy;") && out.contains("heat = bfeTexel(26).x;") && out.contains("heatTear = bfeTexel(27);") && out.contains("dissolve = bfeTexel(28).x;"));
         assert!(!out.contains("heatBase"), "only what the source declares");
         assert!(out.contains("bfeLoadLook(); bfeLoadExtras(); }"));
@@ -673,5 +714,18 @@ mod tests {
         let out = rewrite(vs, Stage::Vertex, Kind::Skinned).unwrap();
         assert!(out.contains("mat4 boneMatX = getBoneMatrix( skinIndex.x );"));
         assert!(out.contains("mat4 boneMatY = mat4( 0.0 ); if ( skinWeight.y != 0.0 ) boneMatY = getBoneMatrix( skinIndex.y );"));
+    }
+    #[test]
+    fn an_extended_actor_takes_its_soldier_fade_from_its_row() {
+        // The record's EXTRA + 15 (instances::REC_FADE): texel 3 of the extras, its last component.
+        assert_eq!(crate::instances::REC_FADE - crate::instances::REC_EXTRA, 3 * 4 + 3);
+        let source = include_str!("../shaders/actors/ext-actor.frag");
+        for kind in [Kind::Skinned, Kind::Rigid] {
+            let out = rewrite(source, Stage::Fragment, kind).unwrap();
+            assert!(!out.contains("uniform float bfeFade;") && out.contains("float bfeFade;\n"), "{kind:?}: a global of the shader's");
+            assert!(out.contains(&format!("bfeFade = bfeTexel({}).w;", ROW_EXTRA + 3)), "{kind:?}: read from the row");
+            let applied = out.find("color.a *= 1.0 - bfeFade;").expect("the fade applies to the output");
+            assert!(applied < out.rfind("pc_fragColor = color;").unwrap(), "{kind:?}: before the output is written");
+        }
     }
 }

@@ -60,6 +60,38 @@ impl Units {
     }
 }
 
+/// A 2005 battle's soldier display fields (`0x0203`), keyed like the unit
+/// field and offered at its cadence: energy, sprint and the roll in flight.
+/// Every body on the field also keeps its unit field, which a 2005 battle
+/// sweeps with the bodies that leave: a class change takes another body, so
+/// a match's keyframe would else carry one for every body it ever fielded.
+/// A 2004 battle never calls this.
+pub fn take_swbf2(tick: f64, store: &Store, lives: &crate::movement::Swbf2Lives, stagger: &mut Stagger) -> Result<()> {
+    use crate::movement::soldier::swbf2::body;
+    let schema = f64::from(body::DISPLAY_SCHEMA);
+    for member in &store.units.list {
+        let Member::Unit(reference) = *member else { continue };
+        let Some(unit) = store.unit.get(reference).filter(|u| !u.removed) else { continue };
+        let id = 100000. + reference.slot as f64;
+        stagger.keep(6., id);
+        let UnitBody::Soldier(soldier) = &unit.soldier else { continue };
+        // Admission gave every 2005 soldier class its numbers: a soldier
+        // without them is an authority fault, never a silently missing field.
+        let (tuning, state) = lives.state(reference.slot, unit.generation, unit.class_name)
+            .ok_or("Battlefront II class tuning prerequisite missing")?;
+        let tick_code = if tick.is_finite() && (0.0..=u32::MAX as f64).contains(&tick) { tick as u32 } else { return Err("invalid canonical world facts") };
+        let (display, length) = body::display(&state, &tuning, tick_code, soldier.aim_yaw);
+        // Every living soldier is offered on every pass, so the stage keeps
+        // him and sweeps the departed; his flags and roll start change at once.
+        let shown = u64::from(display[2]) | u64::from_le_bytes([display[3], display[4], display[5], display[6], 0, 0, 0, 0]) << 8;
+        let mut payload = [0u8; 11];
+        payload[..2].copy_from_slice(&body::REVISION.to_le_bytes());
+        payload[2..2 + length].copy_from_slice(&display[..length]);
+        stagger.offer_display(tick, schema, id, unit.generation, &payload[..2 + length], shown)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy)]
 pub struct Building { pub turret: bool, pub state: u8, pub health: f64, pub team: f64, pub facing: f64, pub yaw: f64, pub station: Option<Station> }
 #[derive(Clone, Copy)]

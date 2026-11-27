@@ -272,6 +272,69 @@ fn beams_glow_defaults_and_stopped_sniper_fade_out_match_classic_rules() {
     assert!((o.calls()[cl::A + 2] - (5.0 - (100.0 / 60.0) / 2.0)).abs() < 1e-6);
 }
 
+// A beam style that names a glow width draws a second pass of the glow texture over the core
+// pass; a style without one, and the Enhanced look, draw exactly what they drew before.
+#[test]
+fn a_beam_with_a_glow_width_draws_a_second_pass_and_one_without_draws_none() {
+    let beam_record = |o: &mut Ordnance, enhanced: bool, life: f64| {
+        o.input[fr::VERSION] = VERSION as f64;
+        o.input[fr::ENHANCED_BOLTS] = if enhanced { 1.0 } else { 0.0 };
+        o.input[fr::RECORDS] = 1.0;
+        let at = fr::STRIDE;
+        o.input[at..at + rc::STRIDE].fill(0.0);
+        o.input[at + rc::KIND] = kind::BEAM as f64;
+        o.input[at + rc::STYLE] = 0.0;
+        o.input[at + rc::LIFE] = life;
+        o.input[at + rc::POSITION..at + rc::POSITION + 3].copy_from_slice(&[4.0, 1.0, 2.0]);
+        o.input[at + rc::END..at + rc::END + 3].copy_from_slice(&[4.0, 1.0, 22.0]);
+        o.input[at + rc::DIRECTION..at + rc::DIRECTION + 3].copy_from_slice(&[0.0, 0.0, 1.0]);
+        o.present();
+    };
+    let glow = lim::QUADS_PER_HANDLE;
+    let mut o = Ordnance::new();
+    register_style(&mut o, 0, 0.3, 1.0, 3.0, 0.0);
+    o.style_input[st::GLOW_COLOR..st::GLOW_COLOR + 3].copy_from_slice(&[0.5, 0.25, 0.125]);
+    o.style_input[st::BEAM_GLOW_WIDTH] = 0.75;
+    o.set_style(0);
+
+    // Half the final 0.08 s of life left: both passes at half strength, along the same ray.
+    beam_record(&mut o, false, 0.04);
+    assert_eq!(o.counts()[2], 1, "the core pass is the released one");
+    assert_eq!(o.counts()[1], 1, "one glow strip");
+    let [pos, color, shape, axis, _, _] = o.quad_arrays();
+    assert_eq!(&pos[glow * 3..glow * 3 + 3], &[4.0, 1.0, 22.0]);
+    assert_eq!(&axis[glow * 3..glow * 3 + 3], &[0.0, 0.0, 1.0]);
+    assert!((shape[glow * 4] - 0.375).abs() < 1e-6, "half of the glow width");
+    assert!((shape[glow * 4 + 2] - 20.0).abs() < 1e-6, "the beam's whole length");
+    assert_eq!(&color[glow * 4..glow * 4 + 3], &[0.5, 0.25, 0.125]);
+    assert!((color[glow * 4 + 3] - 0.5).abs() < 1e-6);
+    // The core pass is untouched: half the style's laser width, white, fading.
+    let core = 2 * lim::QUADS_PER_HANDLE;
+    assert!((shape[core * 4] - 0.15).abs() < 1e-6);
+    assert!((color[core * 4 + 3] - 0.5).abs() < 1e-6);
+
+    // Full life: the glow is at full alpha.
+    beam_record(&mut o, false, 1.0);
+    let [_, color, _, _, _, _] = o.quad_arrays();
+    assert!((color[glow * 4 + 3] - 1.0).abs() < 1e-6);
+
+    // The Enhanced look draws its capsule and no glow strip.
+    beam_record(&mut o, true, 1.0);
+    assert_eq!(o.counts()[1], 0);
+    assert_eq!(o.counts()[2], 0);
+
+    // A style with no glow width, and one without a glow texture, draw only the core pass.
+    o.style_input[st::BEAM_GLOW_WIDTH] = 0.0;
+    o.set_style(0);
+    beam_record(&mut o, false, 1.0);
+    assert_eq!((o.counts()[1], o.counts()[2]), (0, 1));
+    o.style_input[st::BEAM_GLOW_WIDTH] = 0.75;
+    o.style_input[st::GLOW_BATCH] = -1.0;
+    o.set_style(0);
+    beam_record(&mut o, false, 1.0);
+    assert_eq!((o.counts()[1], o.counts()[2]), (0, 1));
+}
+
 // "LightPool ranks the strongest eight lights and fades flashes"
 #[test]
 fn light_pool_ranks_eight_strongest_lights_and_decays_flashes() {

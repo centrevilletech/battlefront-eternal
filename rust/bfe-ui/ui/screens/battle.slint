@@ -96,6 +96,7 @@ export global BattleModel {
     in-out property <bool> figure-turned: false;
     in-out property <string> selected-class-title: "";
     in-out property <string> selected-post-name: "";
+    in-out property <bool> posts-unnamed: false;
     in-out property <string> selected-vehicles: "";
     in-out property <float> title-y: 0.0;
     in-out property <float> title-x: 0.0;
@@ -315,6 +316,7 @@ export component BattleSpawnScreen inherits Rectangle {
             width: BattleModel.title-w * 1px;
             class-title: BattleModel.selected-class-title;
             post-name: BattleModel.selected-post-name;
+            posts-unnamed: BattleModel.posts-unnamed;
             vehicles: BattleModel.selected-vehicles;
         }
 

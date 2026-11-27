@@ -18,6 +18,14 @@ impl Navigation {
         };
         Ok(Self {nav,posts:input.posts.iter().map(|row|row.post).collect()})
     }
+    pub fn read_swbf2(input: &AiNavSetup) -> Result<crate::ai::nav::route::MapNavigation, String> {
+        let p = &input.pools;
+        let pools = PlannerOptions { paths: p.paths, path_nodes: p.path_nodes, requests: p.requests,
+            search_nodes: p.search_nodes, heap: p.heap };
+        let source = bfe_content::json::parse_bytes(&input.json).map_err(|err| err.to_string())?;
+        let bin = (!input.bin.is_empty()).then_some(input.bin.as_slice());
+        crate::ai::nav::route::MapNavigation::load_swbf2(&source, bin, input.hint_capacity, pools)
+    }
     /// Hint post ids belong to this cold loader, not entity/registry slots.
     /// Resolve them after F4's complete placed/mobile policy order is known.
     pub fn hint_posts(posts:&[SpawnPost],population:&Population)->Vec<Option<usize>> {

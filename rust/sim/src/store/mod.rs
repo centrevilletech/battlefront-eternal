@@ -214,6 +214,8 @@ impl<V> Default for IntObj<V> {
 impl<V> IntObj<V> {
     pub const fn new() -> Self { Self { entries: Vec::new() } }
 
+    pub(crate) fn reserve(&mut self, additional: usize) { self.entries.reserve(additional); }
+
     fn find(&self, key: f64) -> Result<usize, usize> {
         match array_index(key) {
             Some(k) => self.entries.binary_search_by(|(x, _)| x.partial_cmp(&k).unwrap()),

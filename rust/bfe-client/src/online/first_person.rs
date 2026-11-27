@@ -21,6 +21,7 @@ struct Resource {
     model: String,
     classes: Vec<usize>,
 }
+#[derive(Default)]
 pub struct Prepared {
     resources: Vec<Resource>,
     pub nodes: usize,
@@ -81,7 +82,8 @@ impl Prepared {
             let indices = bfe_content_native::geometry::words(&content.textures.read(&format!("{base}_index.bin"))?)?;
             let pack = bfe_content::models::model_pack(Some(&records), &vertices, &indices)?;
             let paths = content.texture_paths.clone();
-            bfe_content_native::loader::append_pack(
+            bfe_content_native::loader::append_pack_for_family(
+                content.family,
                 &mut content.models,
                 &pack,
                 &format!("{base}/"),

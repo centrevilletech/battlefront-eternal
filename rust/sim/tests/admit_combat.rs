@@ -232,7 +232,7 @@ fn fixture()->(bfe_content::files::MemFiles,bfe_sim::world::admit::Options) {
     }
     // loadAIWeaponData forwards fetched bytes even if they are invalid JSON.
     files.insert("sides/rep/ai.json",b"  invalid policy\n".to_vec());
-    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into()),name:None, bots: Default::default() };
+    let options=bfe_sim::world::admit::Options {map:"test".into(),side:"rep".into(),enhanced:false,seed:1,heroes:false,unit:Some("a".into()),name:None, bots: Default::default(), ..Default::default() };
     (files,options)
 }
 
@@ -357,7 +357,7 @@ fn policy_binding_sends_reserved_weapon_gaps_once_in_original_table_order() {
 // empty geometry while its Battle and Defs preserve the original Rc objects.
 fn fixture_content(battle:bfe_content::battle::Battle)->bfe_content::content::Content {
     bfe_content::content::Content {battle,weapon_packs:Vec::new(),vehicle_models:None,vehicle_extras:None,props_models:None,
-        weapon_models:Default::default(),weapon_model_sources:Vec::new(),actors:Vec::new(),body_clips:Vec::new(),walker_clips:Vec::new(),
+        weapon_models:Default::default(),weapon_model_sources:Vec::new(),actors:Vec::new(),body_clips:Vec::new(),unit_clips:Vec::new(),unit_anim_stats:Vec::new(),walker_clips:Vec::new(),
         collision:bfe_content::collision::MapCollision::load(&[],&[],&[],&[],&[]).unwrap(),vehicle_templates:Vec::new(),vehicle_blockers:None,
         prop_bodies:Vec::new(),prop_clips:Vec::new(),death_regions:Vec::new(),route_words:None,placed_items:Vec::new()}
 }

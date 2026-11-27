@@ -6,8 +6,8 @@ use crate::combat::{
     defs::WeaponDefs,
     weapons::{self, Admission, Aim, Arsenal, ArsenalInput, Shot, ShotKind, Trigger, WeaponDraws},
 };
-use crate::gen::{F3UnitKey, OwnerSnapshot, Posture, ReconContext, ReconDroid, ReconSalvo, Store};
-use crate::store::{DefId, Ref};
+use crate::gen::{F3UnitKey, HitPart, OwnerSnapshot, Posture, ReconContext, ReconDroid, ReconSalvo, Store, Unit};
+use crate::store::{DefId, Nullable, Ref};
 use jsrt::rng::ClassicRandom;
 use three::{Quaternion, Triangle, Vector3};
 use v8math::{cos, hypot, max, min, sin};
@@ -38,6 +38,26 @@ fn key(k: &F3UnitKey) -> F3UnitKey {
     }
 }
 
+/// Flight and fuel parameters for a Battlefront II guided missile remote
+/// (`GuidedMissile = 1`). Always `None` for 2004 recon droids.
+#[derive(Clone, Copy, Debug)]
+pub struct GuidedMissileDef {
+    pub min_speed: f64,
+    pub max_speed: f64,
+    pub boost_speed: f64,
+    pub accel: f64,
+    pub boost_accel: f64,
+    pub energy_bar: f64,
+    pub energy_restore: f64,
+    pub boost_drain: f64,
+    pub pitch_rate: f64,
+    pub turn_rate: f64,
+    pub direct_damage: f64,
+    pub boost_damage: f64,
+    pub boost_threshold: f64,
+    pub explosion_critical: Option<u32>,
+}
+
 /// Numeric definitions are prepared at load, including each weapon level's
 /// ordnance and destruct strike. No property or string lookup occurs in flight.
 #[derive(Clone)]
@@ -64,6 +84,7 @@ pub struct DroidDef {
     pub first_fov: f64,
     pub explosion: Option<u32>,
     pub loadout: Vec<DefId>,
+    pub guided: Option<GuidedMissileDef>,
 }
 impl Default for DroidDef {
     fn default() -> Self {
@@ -90,6 +111,7 @@ impl Default for DroidDef {
             first_fov: 48.0 * (std::f64::consts::PI / 180.0),
             explosion: None,
             loadout: Vec::new(),
+            guided: None,
         }
     }
 }
@@ -152,10 +174,42 @@ pub struct Hit {
     pub point: Vector3,
     pub normal: Vector3,
 }
+#[derive(Clone, Copy)]
+pub struct GuidedUnitHit {
+    pub hit: Hit,
+    pub unit: Ref<Unit>,
+    pub part: Nullable<HitPart>,
+}
 /// These are internal Rust world operations, never JS callbacks. Blast/fire
 /// receive ownership explicitly so immediate nested damage observes live rows.
 pub trait World {
     fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit>;
+    /// Direct unit collision along a guided missile flight segment.
+    fn cast_unit(
+        &mut self,
+        _store: &mut Store,
+        _origin: Vector3,
+        _direction: Vector3,
+        _far: f64,
+        _owner: Ref<OwnerSnapshot>,
+    ) -> Option<GuidedUnitHit> {
+        None
+    }
+    /// Apply guided-rocket direct impact damage (`GuidedMissileDamage` / boosted)
+    /// to a struck soldier before the detonation blast runs.
+    #[allow(clippy::too_many_arguments)]
+    fn direct_hit(
+        &mut self,
+        _authority: &mut Authority,
+        _store: &mut Store,
+        _unit: Ref<Unit>,
+        _part: Nullable<HitPart>,
+        _damage: f64,
+        _at: Vector3,
+        _direction: Vector3,
+        _owner: Ref<OwnerSnapshot>,
+    ) {
+    }
     /// Whether terrain or a building shields `to` from a blast at `from`.
     fn blast_blocked(&mut self, from: Vector3, to: Vector3) -> bool;
     fn gather(&mut self, center: Vector3, radius: f64, out: &mut Vec<Triangle>);
@@ -694,17 +748,34 @@ impl Authority {
             None => std::mem::take(&mut self.arsenals[token.slot as usize]),
         };
         weapons::arm_into(&def.loadout,&self.defs.weapons,true,&mut armed);
+        let (launch_pos, launch_vel, launch_yaw, launch_pitch, launch_health) = if let Some(gm) = def.guided {
+            let mut dir = velocity;
+            let len = dir.length();
+            if len > 1e-6 {
+                dir.divide_scalar(len);
+            } else {
+                dir = Vector3::new(sin(yaw), 0.0, cos(yaw));
+            }
+            let mut vel = dir;
+            vel.multiply_scalar(gm.min_speed);
+            let gyaw = v8math::atan2(dir.x, dir.z);
+            let gpitch = v8math::asin(clamp(dir.y, -0.99, 0.99));
+            (position, vel, gyaw, gpitch, gm.energy_bar)
+        } else {
+            (position, velocity, yaw, 0.0, def.health)
+        };
         let d = ReconDroid {
             context,
             owner,
             launch_owner,
             class,
             weapon,
-            position: a(position),
-            velocity: a(velocity),
-            yaw,
+            position: a(launch_pos),
+            velocity: a(launch_vel),
+            yaw: launch_yaw,
+            pitch: launch_pitch,
             team,
-            health: def.health,
+            health: launch_health,
             countdown: -1.0,
             weapons: armed,
             selected: [0.0; 2],
@@ -737,6 +808,31 @@ impl Authority {
     // Slot reuse waits for that salvo rather than ending the strike on death.
     // The explosion completes synchronously before the caller continues.
     pub fn kill<W: World>(&mut self, store: &mut Store, world: &mut W, r: Ref<ReconDroid>) {
+        let Some(d) = store.recon_droid.get(r) else {
+            return;
+        };
+        let def = &self.defs.droids[d.class as usize];
+        let explosion = match def.guided {
+            Some(gm) => {
+                let speed = v(d.velocity).length();
+                if crate::space::combat::guided_rocket_is_boosted(speed, gm.boost_speed, gm.boost_threshold) {
+                    gm.explosion_critical.or(def.explosion)
+                } else {
+                    def.explosion
+                }
+            }
+            None => def.explosion,
+        };
+        self.kill_with_explosion(store, world, r, explosion);
+    }
+
+    fn kill_with_explosion<W: World>(
+        &mut self,
+        store: &mut Store,
+        world: &mut W,
+        r: Ref<ReconDroid>,
+        explosion: Option<u32>,
+    ) {
         let Some(d) = store.recon_droid.get_mut(r) else {
             return;
         };
@@ -745,12 +841,7 @@ impl Authority {
         }
         d.dead = true;
         d.health = 0.0;
-        let (context, at, owner, explosion) = (
-            d.context,
-            v(d.position),
-            d.launch_owner,
-            self.defs.droids[d.class as usize].explosion,
-        );
+        let (context, at, owner) = (d.context, v(d.position), d.launch_owner);
         self.mark_droid(r);
         if store.recon_context.get(context).unwrap().piloted == Some(r) {
             self.exit(store, context);
@@ -847,9 +938,18 @@ impl Authority {
         }
         self.update_camera(store, world, r, dt);
         let input = world.control_input(store, r, input);
-        if store.recon_context.get(r).unwrap().piloted.is_some() {
+        if let Some(piloted) = store.recon_context.get(r).unwrap().piloted {
+            let is_guided = store
+                .recon_droid
+                .get(piloted)
+                .and_then(|d| self.defs.droids.get(d.class as usize))
+                .is_some_and(|def| def.guided.is_some());
             if input.exit {
-                self.exit(store, r);
+                if is_guided {
+                    self.kill(store, world, piloted);
+                } else {
+                    self.exit(store, r);
+                }
             } else if input.zoom && self.zoom_limit(store, r, false) > 1.0 {
                 let c = store.recon_context.get_mut(r).unwrap();
                 c.zoom = !c.zoom;
@@ -864,6 +964,20 @@ impl Authority {
             }
             self.mark_droid(droid);
             let flying = store.recon_context.get(r).unwrap().piloted == Some(droid);
+            let guided = self.defs.droids[store.recon_droid.get(droid).unwrap().class as usize].guided;
+            if let Some(gm) = guided {
+                let fly_input = if flying {
+                    Some(world.weapon_input(store, r, input))
+                } else {
+                    None
+                };
+                self.fly_guided(store, world, droid, dt, fly_input, gm);
+                if store.recon_droid.get(droid).unwrap().dead {
+                    continue;
+                }
+                self.aim(store, world, droid);
+                continue;
+            }
             self.fly(
                 store,
                 world,
@@ -1070,6 +1184,128 @@ impl Authority {
         position.add_scaled_vector(&velocity, dt);
         d.position = a(position);
         self.collide(store, world, r);
+    }
+
+    /// Battlefront II guided rocket flight reusing the Space guided-rocket
+    /// steering, boost speed threshold, direct-hit damage (`GuidedMissileDamage` /
+    /// boosted), critical/destruct explosion choice, and exclusive energy drain
+    /// (`EnergyBoostDrain` in boost, else `-EnergyAutoRestore`).
+    fn fly_guided<W: World>(
+        &mut self,
+        store: &mut Store,
+        world: &mut W,
+        r: Ref<ReconDroid>,
+        dt: f64,
+        input: Option<Input>,
+        gm: GuidedMissileDef,
+    ) {
+        let (context, launch_owner, old_pos, mut vel_arr) = {
+            let d = store.recon_droid.get(r).unwrap();
+            (d.context, d.launch_owner, v(d.position), d.velocity)
+        };
+        let detonate = input.is_some_and(|i| i.secondary);
+        let boosting = input.is_some_and(|i| i.held || i.primary || i.forward > 0.0);
+        let (stick_x, stick_y, fuel_empty) = {
+            let d = store.recon_droid.get_mut(r).unwrap();
+            let (sx, sy) = if let Some(inp) = input {
+                let c = store.recon_context.get_mut(context).unwrap();
+                let sx = clamp(
+                    inp.turn + inp.right + c.look_x / (2048.0 * max(dt, 1e-6)),
+                    -1.0,
+                    1.0,
+                );
+                let sy = clamp(c.look_y / (2048.0 * max(dt, 1e-6)), -1.0, 1.0);
+                c.look_x = 0.0;
+                c.look_y = 0.0;
+                (sx, sy)
+            } else {
+                (0.0, 0.0)
+            };
+            // Exclusive drain: EnergyBoostDrain while boosting, else -EnergyAutoRestore.
+            let drain = if boosting {
+                gm.boost_drain
+            } else {
+                max(0.0, -gm.energy_restore)
+            };
+            d.health -= drain * dt;
+            (sx, sy, d.health <= 0.0)
+        };
+        crate::space::combat::steer_guided_rocket_with_rates(
+            &mut vel_arr,
+            stick_x,
+            stick_y,
+            boosting,
+            gm.min_speed,
+            gm.max_speed,
+            gm.boost_speed,
+            gm.accel,
+            gm.boost_accel,
+            gm.turn_rate,
+            gm.pitch_rate,
+            dt,
+        );
+        let next_speed = v8math::hypot3(vel_arr[0], vel_arr[1], vel_arr[2]);
+        let dir = if next_speed > 1e-6 {
+            Vector3::new(vel_arr[0] / next_speed, vel_arr[1] / next_speed, vel_arr[2] / next_speed)
+        } else {
+            let d = store.recon_droid.get(r).unwrap();
+            Vector3::new(sin(d.yaw) * cos(d.pitch), sin(d.pitch), cos(d.yaw) * cos(d.pitch))
+        };
+        let step_dist = next_speed * dt;
+        let mut next_pos = old_pos;
+        next_pos.add_scaled_vector(&dir, step_dist);
+
+        let world_hit = world.cast(old_pos, dir, step_dist);
+        let unit_hit = world.cast_unit(store, old_pos, dir, step_dist, launch_owner);
+        let struck_unit = match (&world_hit, &unit_hit) {
+            (Some(w), Some(u)) if u.hit.distance <= w.distance => Some(*u),
+            (None, Some(u)) => Some(*u),
+            _ => None,
+        };
+        let impact = match (struck_unit, world_hit) {
+            (Some(u), _) => Some((u.hit.point, u.hit.normal, u.hit.distance)),
+            (None, Some(w)) => Some((w.point, w.normal, w.distance)),
+            (None, None) => None,
+        };
+        let water_level = world.water(next_pos.x, next_pos.z).filter(|&wl| next_pos.y <= wl);
+
+        let d = store.recon_droid.get_mut(r).unwrap();
+        d.velocity = vel_arr;
+        d.yaw = v8math::atan2(dir.x, dir.z);
+        d.pitch = v8math::asin(clamp(dir.y, -0.99, 0.99));
+        if let Some((point, normal, hit_dist)) = impact {
+            // Offset detonation 0.2 m along the hit surface normal (matching
+            // ordinary ordnance) so static-mesh impacts do not self-occlude blast LOS.
+            // If that offset crosses into solid geometry (for example a downward unit
+            // foot normal into a paved floor), back off along the clear incoming ray.
+            let mut blast_pos = point;
+            blast_pos.add_scaled_vector(&normal, 0.2);
+            if world.blast_blocked(old_pos, blast_pos) {
+                let back = if hit_dist < 0.2 { hit_dist } else { 0.2 };
+                blast_pos = point;
+                blast_pos.add_scaled_vector(&dir, -back);
+            }
+            d.position = a(blast_pos);
+            if let Some(u) = struck_unit {
+                let direct = crate::space::combat::guided_rocket_direct_damage(
+                    next_speed,
+                    gm.boost_speed,
+                    gm.boost_threshold,
+                    gm.direct_damage,
+                    gm.boost_damage,
+                );
+                world.direct_hit(self, store, u.unit, u.part, direct, point, dir, launch_owner);
+            }
+            self.kill(store, world, r);
+            return;
+        }
+        if let Some(wl) = water_level {
+            next_pos.y = wl + 0.2;
+        }
+        d.position = a(next_pos);
+        if detonate || fuel_empty || water_level.is_some() {
+            self.kill(store, world, r);
+        }
     }
     /// RemoteDroids.collide: four passes and strict first closest-triangle
     /// ties. A crash death explodes before sliding/bounce completes.
@@ -1512,5 +1748,308 @@ impl WeaponDraws for Draws {
     fn seeded(&mut self, _: f64, _: f64) {}
     fn admit(&mut self, _: u32) -> Admission {
         Admission::Yes
+    }
+}
+
+#[cfg(test)]
+mod guided_tests {
+    use super::*;
+
+    struct FakeGuidedWorld {
+        wall_z: f64,
+        water_y: Option<f64>,
+        target: Option<(f64, Ref<Unit>)>,
+        target_normal: Option<Vector3>,
+        block_below_y: Option<f64>,
+        events: Vec<String>,
+        direct_hits: Vec<(Ref<Unit>, f64)>,
+        explosions: Vec<(u32, Vector3)>,
+    }
+    impl World for FakeGuidedWorld {
+        fn cast(&mut self, origin: Vector3, direction: Vector3, far: f64) -> Option<Hit> {
+            if direction.z > 1e-6 && origin.z <= self.wall_z {
+                let d = (self.wall_z - origin.z) / direction.z;
+                if d >= 0.0 && d <= far {
+                    return Some(Hit {
+                        distance: d,
+                        point: Vector3::new(origin.x + direction.x * d, origin.y + direction.y * d, self.wall_z),
+                        normal: Vector3::new(0.0, 0.0, -1.0),
+                    });
+                }
+            }
+            None
+        }
+        fn cast_unit(
+            &mut self,
+            _store: &mut Store,
+            origin: Vector3,
+            direction: Vector3,
+            far: f64,
+            _owner: Ref<OwnerSnapshot>,
+        ) -> Option<GuidedUnitHit> {
+            let (tz, unit) = self.target?;
+            if direction.z > 1e-6 && origin.z <= tz {
+                let d = (tz - origin.z) / direction.z;
+                if d >= 0.0 && d <= far {
+                    return Some(GuidedUnitHit {
+                        hit: Hit {
+                            distance: d,
+                            point: Vector3::new(origin.x + direction.x * d, origin.y + direction.y * d, tz),
+                            normal: self.target_normal.unwrap_or_else(|| Vector3::new(0.0, 0.0, -1.0)),
+                        },
+                        unit,
+                        part: Nullable::Null,
+                    });
+                }
+            }
+            None
+        }
+        fn direct_hit(
+            &mut self,
+            _authority: &mut Authority,
+            _store: &mut Store,
+            unit: Ref<Unit>,
+            _part: Nullable<HitPart>,
+            damage: f64,
+            _at: Vector3,
+            _direction: Vector3,
+            _owner: Ref<OwnerSnapshot>,
+        ) {
+            self.events.push(format!("direct:{damage}"));
+            self.direct_hits.push((unit, damage));
+        }
+        fn blast_blocked(&mut self, _from: Vector3, to: Vector3) -> bool {
+            self.block_below_y.is_some_and(|y| to.y < y)
+        }
+        fn gather(&mut self, _: Vector3, _: f64, _: &mut Vec<Triangle>) {}
+        fn water(&self, _: f64, _: f64) -> Option<f64> { self.water_y }
+        fn capture_owner(&mut self, store: &mut Store, owner: &F3UnitKey) -> Ref<OwnerSnapshot> {
+            store.owner_snapshot.insert(OwnerSnapshot { id: owner.slot as f64, generation: owner.life, ..Default::default() })
+        }
+        fn fire(&mut self, _: &mut Authority, _: &mut Store, _: u32, _: Vector3, _: Vector3, _: Ref<OwnerSnapshot>) {}
+        fn fired(&mut self, _: &Store, _: Ref<ReconDroid>, _: Shot, _: Vector3) {}
+        fn explode(&mut self, _: &mut Authority, _: &mut Store, def: u32, at: Vector3, _: Ref<OwnerSnapshot>) {
+            self.events.push(format!("explode:{def}"));
+            self.explosions.push((def, at));
+        }
+    }
+
+    fn invented_guided_def() -> DroidDef {
+        DroidDef {
+            explosion: Some(71),
+            guided: Some(GuidedMissileDef {
+                min_speed: 12.0,
+                max_speed: 18.0,
+                boost_speed: 44.0,
+                accel: 30.0,
+                boost_accel: 90.0,
+                energy_bar: 100.0,
+                energy_restore: -6.0,
+                boost_drain: 18.0,
+                pitch_rate: 0.9,
+                turn_rate: 1.5,
+                direct_damage: 250.0,
+                boost_damage: 600.0,
+                boost_threshold: 0.75,
+                explosion_critical: Some(79),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn guided_missile_drains_exclusively_deals_direct_damage_before_blast_and_selects_explosion_by_speed() {
+        let dt = 1.0 / 60.0;
+
+        // Case 1: unboosted cruise hit -> exclusive idle drain (-energy_restore),
+        // base direct damage (250) BEFORE destruct explosion (71).
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let victim = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 11).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld { wall_z: 80.0, water_y: None, target: Some((6.0, victim)), target_normal: None, block_below_y: None, events: Vec::new(), direct_hits: Vec::new(), explosions: Vec::new() };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 2.0, 0.0), Vector3::new(0.0, 0.0, 10.0), 0.0, 1.0, true)
+                .unwrap();
+
+            auth.step(&mut store, &mut world, 1, 1.0, dt, Input::default()).unwrap();
+            let hp_after_1 = store.recon_droid.get(r).unwrap().health;
+            assert!((hp_after_1 - (100.0 - 6.0 * dt)).abs() < 1e-9, "idle drain must be exact -energy_restore: got {hp_after_1}");
+
+            for tick in 2..=60 {
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, Input::default()).unwrap();
+                if store.recon_droid.get(r).is_none_or(|d| d.dead) { break; }
+            }
+            assert_eq!(world.direct_hits, vec![(victim, 250.0)]);
+            assert_eq!(world.explosions.len(), 1);
+            assert_eq!(world.explosions[0].0, 71);
+            assert_eq!(world.events, vec!["direct:250", "explode:71"]);
+            assert_eq!(store.recon_context.get(ctx).unwrap().piloted, None);
+        }
+
+        // Case 2: boosted hit above threshold (0.75 * 44 = 33 m/s) -> exclusive boost drain
+        // (18.0 * dt, NOT (6 + 18) * dt), boosted direct damage (600) BEFORE critical explosion (79).
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let victim = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 22).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld { wall_z: 80.0, water_y: None, target: Some((20.0, victim)), target_normal: None, block_below_y: None, events: Vec::new(), direct_hits: Vec::new(), explosions: Vec::new() };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 2.0, 0.0), Vector3::new(0.0, 0.0, 10.0), 0.0, 1.0, true)
+                .unwrap();
+
+            let boost_inp = Input { held: true, ..Default::default() };
+            auth.step(&mut store, &mut world, 1, 1.0, dt, boost_inp).unwrap();
+            let hp_after_1 = store.recon_droid.get(r).unwrap().health;
+            assert!(
+                (hp_after_1 - (100.0 - 18.0 * dt)).abs() < 1e-9,
+                "boost drain must be exclusive boost_drain (18/s), not additive (24/s): got {hp_after_1}"
+            );
+
+            for tick in 2..=60 {
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, boost_inp).unwrap();
+                if store.recon_droid.get(r).is_none_or(|d| d.dead) { break; }
+            }
+            assert_eq!(world.direct_hits, vec![(victim, 600.0)]);
+            assert_eq!(world.explosions.len(), 1);
+            assert_eq!(world.explosions[0].0, 79);
+            assert_eq!(world.events, vec!["direct:600", "explode:79"]);
+            assert_eq!(store.recon_context.get(ctx).unwrap().piloted, None);
+        }
+    }
+
+    #[test]
+    fn guided_missile_pitch_matches_mouse_up_and_world_blast_offsets_off_surface() {
+        let dt = 1.0 / 60.0;
+
+        // Mouse up (dy < 0, invert = false) must pitch up; mouse down (dy > 0) must pitch down;
+        // invert = true flips vertical direction.
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 33).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld { wall_z: 120.0, water_y: None, target: None, target_normal: None, block_below_y: None, events: Vec::new(), direct_hits: Vec::new(), explosions: Vec::new() };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 5.0, 0.0), Vector3::new(0.0, 0.0, 12.0), 0.0, 1.0, true)
+                .unwrap();
+
+            auth.look(&mut store, ctx, 0.0, -40.0, 1.0, false);
+            auth.step(&mut store, &mut world, 1, 1.0, dt, Input::default()).unwrap();
+            let d = store.recon_droid.get(r).unwrap();
+            assert!(d.velocity[1] > 0.0 && d.pitch > 0.0, "mouse up must pitch up: vel={:?} pitch={}", d.velocity, d.pitch);
+
+            for tick in 2..=4 {
+                auth.look(&mut store, ctx, 0.0, 40.0, 1.0, false);
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, Input::default()).unwrap();
+            }
+            let d = store.recon_droid.get(r).unwrap();
+            assert!(d.velocity[1] < 0.0 && d.pitch < 0.0, "mouse down must pitch down: vel={:?} pitch={}", d.velocity, d.pitch);
+
+            // Inverted look flips mouse up (dy < 0) to pitch further down.
+            let prev_vy = d.velocity[1];
+            auth.look(&mut store, ctx, 0.0, -40.0, 1.0, true);
+            auth.step(&mut store, &mut world, 1, 5.0, dt, Input::default()).unwrap();
+            let d = store.recon_droid.get(r).unwrap();
+            assert!(d.velocity[1] < prev_vy, "inverted mouse up must pitch down");
+        }
+
+        // Wall impact offsets detonation 0.2 m along the hit surface normal (-Z).
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 44).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld { wall_z: 6.0, water_y: None, target: None, target_normal: None, block_below_y: None, events: Vec::new(), direct_hits: Vec::new(), explosions: Vec::new() };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 2.0, 0.0), Vector3::new(0.0, 0.0, 12.0), 0.0, 1.0, true)
+                .unwrap();
+
+            for tick in 1..=60 {
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, Input::default()).unwrap();
+                if store.recon_droid.get(r).is_none_or(|d| d.dead) { break; }
+            }
+            assert_eq!(world.explosions.len(), 1);
+            assert!((world.explosions[0].1.z - 5.8).abs() < 1e-6, "wall blast must offset 0.2 m along normal: got {:?}", world.explosions[0].1);
+        }
+
+        // Water impact places detonation 0.2 m above water level.
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 55).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld { wall_z: 120.0, water_y: Some(1.0), target: None, target_normal: None, block_below_y: None, events: Vec::new(), direct_hits: Vec::new(), explosions: Vec::new() };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 1.5, 0.0), Vector3::new(0.0, -6.0, 10.0), 0.0, 1.0, true)
+                .unwrap();
+
+            for tick in 1..=60 {
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, Input::default()).unwrap();
+                if store.recon_droid.get(r).is_none_or(|d| d.dead) { break; }
+            }
+            assert_eq!(world.explosions.len(), 1);
+            assert!((world.explosions[0].1.y - 1.2).abs() < 1e-6, "water blast must offset 0.2 m above surface: got {:?}", world.explosions[0].1);
+        }
+
+        // Unit impact whose normal points into a floor below y = 0.05 backs off along
+        // the clear incoming ray instead of detonating underneath the surface.
+        {
+            let mut defs = Definitions::default();
+            defs.droids.push(invented_guided_def());
+            let mut auth = Authority::new(defs, 4, 4);
+            let mut store = Store::default();
+            let shooter = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let victim = store.unit.insert(Unit { alive: true, generation: 1.0, ..Default::default() });
+            let owner = F3UnitKey { slot: shooter.slot, generation: shooter.gen, life: 1.0 };
+            let ctx = auth.attach(&mut store, 1, owner, 66).unwrap();
+            let tok = auth.reserve(&store).unwrap();
+            let mut world = FakeGuidedWorld {
+                wall_z: 80.0,
+                water_y: None,
+                target: Some((6.0, victim)),
+                target_normal: Some(Vector3::new(0.0, -1.0, 0.0)),
+                block_below_y: Some(0.05),
+                events: Vec::new(),
+                direct_hits: Vec::new(),
+                explosions: Vec::new(),
+            };
+            let r = auth
+                .launch(&mut store, &mut world, ctx, tok, 0, 1, Vector3::new(0.0, 0.1, 0.0), Vector3::new(0.0, 0.0, 12.0), 0.0, 1.0, true)
+                .unwrap();
+
+            for tick in 1..=60 {
+                auth.step(&mut store, &mut world, 1, tick as f64, dt, Input::default()).unwrap();
+                if store.recon_droid.get(r).is_none_or(|d| d.dead) { break; }
+            }
+            assert_eq!(world.direct_hits, vec![(victim, 250.0)]);
+            assert_eq!(world.explosions.len(), 1);
+            assert!(world.explosions[0].1.y >= 0.05 && world.explosions[0].1.z < 6.0,
+                "blocked normal offset must back off along incoming ray above floor: got {:?}", world.explosions[0].1);
+        }
     }
 }

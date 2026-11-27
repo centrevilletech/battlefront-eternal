@@ -1,3 +1,4 @@
+import { MapBackdropText, BackdropPlacement } from "map-backdrop.slint";
 import { Theme } from "../theme.slint";
 import { ScreenFrame, ScreenLayout } from "../components/screen-frame.slint";
 import { PageButton, ButtonVariant } from "../components/button.slint";
@@ -24,6 +25,9 @@ export global IaModel {
     in-out property <int> game-index: 0;
     in-out property <bool> game-open: false;
     callback game-selected(int);
+    in property <bool> developer-openings;
+    in-out property <bool> choosing-opening;
+    callback opening-selected(int);
     in-out property <[ListEntry]> maps: [
         { cells: ["BESPIN: PLATFORMS"], badge: "", disabled: false },
         { cells: ["BESPIN: CLOUD CITY"], badge: "", disabled: false },
@@ -68,6 +72,10 @@ export global IaModel {
     in-out property <bool> loading-visible: false;
     in-out property <string> loading-planet: "";
     in-out property <string> loading-word: "LOADING";
+
+    in-out property <bool> map-loading;
+    in-out property <string> loading-tip;
+    in-out property <BackdropPlacement> map-placement;
 
     // Callbacks to Rust host
     callback sp-row-selected(int);
@@ -134,6 +142,42 @@ export component SingleplayerScreen inherits Rectangle {
     }
 }
 
+component OpeningMissions inherits FocusScope {
+    callback back();
+    callback launch(int);
+    private property <int> selected: 0;
+    private property <[string]> battles: ["MOS EISLEY - HERO ASSAULT", "SPACE MYGEETO - SPACE ASSAULT"];
+    init => { self.focus(); }
+    key-pressed(event) => {
+        if (event.text == Key.Escape) { root.back(); return accept; }
+        if (event.text == Key.UpArrow) { root.selected = 0; return accept; }
+        if (event.text == Key.DownArrow) { root.selected = 1; return accept; }
+        if (event.text == Key.Return || event.text == " ") { root.launch(root.selected); return accept; }
+        return reject;
+    }
+    panel := ScreenFrame {
+        width: parent.width;
+        height: parent.height;
+        title: "BATTLEFRONT II (2005)";
+        layout: ScreenLayout.rows;
+        body-content-height: 2 * Theme.button-height + Theme.bfe-gap + 8px;
+        left-label: "BACK";
+        left-activated => { root.back(); }
+        VerticalLayout {
+            width: min(480px, panel.body-width - 16px);
+            x: (panel.body-width - self.width) / 2;
+            y: 4px;
+            spacing: Theme.bfe-gap;
+            for mission[index] in root.battles: PageButton {
+                label: mission;
+                highlighted: root.selected == index;
+                selected => { root.selected = index; }
+                activated => { root.launch(index); }
+            }
+        }
+    }
+}
+
 export component InstantActionScreen inherits Rectangle {
     in property <bool> use-underlay: true;
     in property <image> movie-frame;
@@ -147,6 +191,7 @@ export component InstantActionScreen inherits Rectangle {
     if !root.use-underlay: PageScrim { x: 0px; y: 0px; width: parent.width; height: parent.height; }
     PageDim { x: 0px; y: 0px; width: parent.width; height: parent.height; dimmed: true; }
     frame := ScreenFrame {
+        visible: !IaModel.choosing-opening;
         x: 0px; y: 0px; width: parent.width; height: parent.height;
         title: "INSTANT ACTION";
         layout: ScreenLayout.wide;
@@ -200,7 +245,13 @@ export component InstantActionScreen inherits Rectangle {
                     disabled-choices: IaModel.game-disabled;
                     current-index <=> IaModel.game-index;
                     open <=> IaModel.game-open;
-                    selection-changed(index) => { IaModel.game-selected(index); }
+                    selection-changed(index) => {
+                        if (IaModel.developer-openings && index == 1) {
+                            IaModel.choosing-opening = true;
+                        } else {
+                            IaModel.game-selected(index);
+                        }
+                    }
                 }
             }
             PageList {
@@ -306,6 +357,16 @@ export component InstantActionScreen inherits Rectangle {
             }
         }
     }
+    if IaModel.choosing-opening: OpeningMissions {
+        width: parent.width;
+        height: parent.height;
+        back => { IaModel.choosing-opening = false; }
+        launch(index) => {
+            IaModel.choosing-opening = false;
+            IaModel.opening-selected(index);
+        }
+    }
+
 }
 
 export component InstantActionEraScreen inherits Rectangle {
@@ -364,14 +425,20 @@ export component LoadingPageOverlay inherits Rectangle {
     property <length> disk-cy: root.height - 223 * self.disk-unit;
     background: transparent;
 
-    if !Theme.bf1 && root.planet-label != "": LoadingPlanetText {
+    if IaModel.map-loading && !Theme.bf1: MapBackdropText {
+        placement: IaModel.map-placement;
+        title-text: root.planet-label;
+        tip: IaModel.loading-tip;
+        word: root.loading-label;
+    }
+    if !IaModel.map-loading && !Theme.bf1 && root.planet-label != "": LoadingPlanetText {
         x: 51.2 * root.name-unit;
         y: 0.05 * root.height + 17 * root.name-unit - self.height / 2;
         unit: root.name-unit;
         label: root.planet-label;
     }
 
-    if !Theme.bf1 && root.loading-label != "": LoadingWordText {
+    if !IaModel.map-loading && !Theme.bf1 && root.loading-label != "": LoadingWordText {
         x: root.disk-cx - self.width / 2;
         y: root.disk-cy - self.height / 2;
         unit: root.disk-unit;

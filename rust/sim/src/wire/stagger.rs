@@ -40,10 +40,14 @@ impl Stagger {
         }
         Ok(())
     }
-    pub fn new() -> Self {
+    pub fn new() -> Self { Self::with_capacity(192) }
+    /// A stage for a battle publishing up to `fields` world fields: twice
+    /// that many entries for fields pending their first due tick, and one
+    /// reserved payload per field. A 2004 battle's stage holds 192.
+    pub fn with_capacity(fields: usize) -> Self {
         let mut out = Self {
-            entries: Vec::with_capacity(384),
-            native_payloads: (0..192).map(|_| Vec::with_capacity(900)).collect(),
+            entries: Vec::with_capacity(2 * fields),
+            native_payloads: (0..fields).map(|_| Vec::with_capacity(900)).collect(),
             cadence: vec![
                 (1., 6.),
                 (2., 6.),
@@ -54,6 +58,8 @@ impl Stagger {
                 (8., 12.),
                 (9., 60.),
                 (10., 60.),
+                (super::melee::SCHEMA, 1.),
+                (super::thrown::SCHEMA, 1.),
             ],
             ..Self::default()
         };
@@ -93,6 +99,11 @@ impl Stagger {
         Ok(())
     }
     pub fn begin(&mut self) { self.round += 1.; }
+    /// Whether a native field can be offered while leaving `reserve` payloads for new
+    /// fields of other producers: it already has an entry, or the bank holds more.
+    pub fn has_room(&self, schema: f64, id: f64, reserve: usize) -> bool {
+        self.entries.iter().any(|e| e.schema == schema && e.id == id) || self.native_payloads.len() > reserve
+    }
     pub fn offer(&mut self, tick: f64, record: crate::gen::WireStaggerRecord) {
         let round = self.round;
         let f = record.field;
@@ -176,6 +187,11 @@ impl Stagger {
         tick >= entry.due || schema == 9. || schema == 10.
             || schema == 7. && entry.field.is_some() && entry.native_state != state
     }
+    /// What a field describes is still there: the sweep of its schema keeps it.
+    pub fn keep(&mut self, schema: f64, id: f64) {
+        let round = self.round;
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.schema == schema && e.id == id) { entry.round = round; }
+    }
     /// Fields produced from the store retain their payloads and use native
     /// identities. Both pending births and published fields have reserved bytes;
     /// a first offer waits for its hashed cadence unless it is schema 9 or 10.
@@ -196,6 +212,37 @@ impl Stagger {
         let immediate = entry.field.as_ref().is_some_and(|field|
             schema == 7. && entry.native_state != state || (schema == 9. || schema == 10.) && field.payload != payload);
         if immediate || tick >= entry.due {
+            if entry.field.is_none() { entry.field = entry.pending.take(); }
+            let field = entry.field.as_mut().ok_or("missing world presentation storage")?;
+            field.generation = generation; field.payload.clear(); field.payload.extend_from_slice(payload);
+            entry.token = -(schema * 4294967296. + id); entry.native_state = state;
+            entry.due = tick + cadence;
+        }
+        Ok(())
+    }
+    /// A 2005 soldier's display field: marked as living on every pass, sent at
+    /// once for a new life or when its `state` (what the field shows beyond the
+    /// energy bar) changes, and otherwise refreshed on its cadence.
+    pub fn offer_display(&mut self, tick: f64, schema: f64, id: f64, generation: f64, payload: &[u8], state: u64) -> super::codec::Result<()> {
+        self.offer_record(tick, schema, id, generation, payload, state, 30.)
+    }
+    /// A 2005 field offered on every pass: sent at once when it is new, for a
+    /// new life or when its `state` changes, and otherwise refreshed every
+    /// `cadence` ticks.
+    pub fn offer_record(&mut self, tick: f64, schema: f64, id: f64, generation: f64, payload: &[u8], state: u64, cadence: f64) -> super::codec::Result<()> {
+        if payload.len() > 900 { return Err("World presentation record too large"); }
+        let at = if let Some(at) = self.entries.iter().position(|e| e.schema == schema && e.id == id) { at }
+        else {
+            if self.entries.len() == self.entries.capacity() { return Err("world field capacity exceeded"); }
+            let bytes = self.native_payloads.pop().ok_or("world presentation capacity exceeded")?;
+            self.entries.push(Entry { schema, id, token: 0., field: None, pending: Some(WireField {
+                id, schema, generation, payload: bytes }), native_state: None, state_team: None, round: self.round, due: tick });
+            self.entries.len() - 1
+        };
+        let entry = &mut self.entries[at]; entry.round = self.round;
+        let state = Some((0, state));
+        let changed = entry.native_state != state || entry.field.as_ref().is_some_and(|f| f.generation != generation);
+        if changed || tick >= entry.due {
             if entry.field.is_none() { entry.field = entry.pending.take(); }
             let field = entry.field.as_mut().ok_or("missing world presentation storage")?;
             field.generation = generation; field.payload.clear(); field.payload.extend_from_slice(payload);
@@ -276,6 +323,11 @@ pub(crate) fn wire_stagger_create_in(w: &mut crate::world::owner::World) -> usiz
 
     owner.staggers.insert(Stagger::new()).unwrap_or(0)
 
+}
+/// A 2005 battle's committed stage, sized for its admitted world fields.
+pub(crate) fn wire_stagger_create_with_in(w: &mut crate::world::owner::World, fields: usize) -> usize {
+    let owner = w.wire.as_deref_mut().expect("admitted wire owner");
+    owner.staggers.insert(Stagger::with_capacity(fields)).unwrap_or(0)
 }
 pub(crate) fn wire_stagger_drop_in(w: &mut crate::world::owner::World, p: usize) {
     let owner = w.wire.as_deref_mut().expect("admitted wire owner");
@@ -361,3 +413,82 @@ if owner.staggers.get(p as usize).is_none() {return 0;}
 
 }
 
+
+#[cfg(test)]
+mod capacity_tests {
+    use super::Stagger;
+
+    // The released stage holds 192 store fields; a 2005 battle's holds its
+    // admitted world fields.
+    #[test]
+    fn a_stage_holds_its_battle_s_world_fields() {
+        let mut released = Stagger::new();
+        for id in 0..192 { released.offer_native(0., 513., f64::from(id), 1., &[0, 0, 0], None).unwrap(); }
+        assert_eq!(released.offer_native(0., 513., 192., 1., &[0, 0, 0], None), Err("world presentation capacity exceeded"));
+        let mut wide = Stagger::with_capacity(1024);
+        for id in 0..1024 { wide.offer_native(0., 513., f64::from(id), 1., &[0, 0, 0], None).unwrap(); }
+        assert!(wide.offer_native(0., 513., 1024., 1., &[0, 0, 0], None).is_err());
+        // The capture stage swaps with the committed one: a 2005 battle's
+        // committed stage takes every captured field, the released one 192.
+        let mut committed = Stagger::with_capacity(1024);
+        committed.copy_native_from(&wide).unwrap();
+        assert_eq!(committed.entries.len(), 1024);
+        assert_eq!(Stagger::new().copy_native_from(&wide), Err("world presentation capacity exceeded"));
+    }
+
+    // Display fields of departed soldiers leave the stage on the next pass;
+    // a reused slot's new life and a changed state go out at once.
+    #[test]
+    fn display_fields_follow_their_soldiers_lives() {
+        let mut stage = Stagger::with_capacity(8);
+        stage.begin();
+        for id in 0..4 { stage.offer_display(0., 513., f64::from(id), 1., &[1, 0, 0], 0).unwrap(); }
+        stage.finish(&[513.]);
+        assert_eq!(stage.world().len(), 4);
+        // Only two remain on the next pass, still within their cadence.
+        stage.begin();
+        for id in 0..2 { stage.offer_display(1., 513., f64::from(id), 1., &[1, 0, 0], 0).unwrap(); }
+        stage.finish(&[513.]);
+        assert_eq!(stage.world().len(), 2);
+        // A new life in slot 0 and a roll in slot 1 refresh before the cadence.
+        stage.begin();
+        stage.offer_display(2., 513., 0., 2., &[9, 0, 0], 0).unwrap();
+        stage.offer_display(2., 513., 1., 1., &[9, 0, 2], 2).unwrap();
+        stage.finish(&[513.]);
+        let world = stage.world();
+        assert_eq!((world[0].generation, world[0].payload[0]), (2., 9));
+        assert_eq!(world[1].payload, vec![9, 0, 2]);
+        // An unchanged soldier waits for his cadence.
+        stage.begin();
+        stage.offer_display(3., 513., 0., 2., &[7, 0, 0], 0).unwrap();
+        stage.offer_display(3., 513., 1., 1., &[7, 0, 2], 2).unwrap();
+        stage.finish(&[513.]);
+        assert_eq!(stage.world()[0].payload[0], 9);
+        stage.begin();
+        stage.offer_display(40., 513., 0., 2., &[7, 0, 0], 0).unwrap();
+        stage.offer_display(40., 513., 1., 1., &[7, 0, 2], 2).unwrap();
+        stage.finish(&[513.]);
+        assert_eq!(stage.world()[0].payload[0], 7);
+    }
+
+    // A unit field goes out at its own cadence, so most passes do not offer
+    // it: the sweep keeps it while its body is there and no longer.
+    #[test]
+    fn unit_fields_stay_between_offers_and_leave_with_their_bodies() {
+        let mut stage = Stagger::with_capacity(8);
+        stage.begin();
+        for tick in [0., 30.] {
+            for id in [100_000., 100_001.] { stage.offer_unit(tick, id, 1., &[1]).unwrap(); }
+        }
+        stage.finish(&[6.]);
+        assert_eq!(stage.world().len(), 2);
+        stage.begin();
+        for id in [100_000., 100_001., 100_002.] { stage.keep(6., id); }
+        stage.finish(&[6.]);
+        assert_eq!(stage.world().iter().map(|f| f.id).collect::<Vec<_>>(), [100_000., 100_001.]);
+        stage.begin();
+        stage.keep(6., 100_001.);
+        stage.finish(&[6.]);
+        assert_eq!(stage.world().iter().map(|f| f.id).collect::<Vec<_>>(), [100_001.]);
+    }
+}

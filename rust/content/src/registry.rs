@@ -178,7 +178,7 @@ fn table(names: Vec<Option<Value>>) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct EntityRegistry {
     /// Combat definitions: JSON path text and definition, id = index + 1.
     pub combat: Vec<(String, Value)>,

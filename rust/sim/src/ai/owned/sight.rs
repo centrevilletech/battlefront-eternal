@@ -50,9 +50,9 @@ impl Sight {
         let mut direction=Vector3::default();direction.sub_vectors(to,from);let span=direction.length();
         if span<1e-6 {return true;}
         direction.divide_scalar(span);
-        let first=a.and_then(|o|self.body(sight_store!(w,store),entities,controls,o));
+        let first=a.and_then(|o|self.body(sight_store!(w,store),entities,controls,o).or_else(||craft(w,entities,o)));
         if let Some(hit)=sight_call!(world,cast,w,store,seats,from,&direction,span,first) {
-            let second=b.and_then(|o|self.body(sight_store!(w,store),entities,controls,o));
+            let second=b.and_then(|o|self.body(sight_store!(w,store),entities,controls,o).or_else(||craft(w,entities,o)));
             if second.is_none()||hit!=second {return false;}
         }
         let mut excluded=[Member::Unit(Ref::new(0,0));2];let mut count=0;
@@ -62,6 +62,12 @@ impl Sight {
         !sight_call!(world,raycast,w,store,seats,from,&direction,span,&excluded[..count])
     }
 }
+/// 2005 space battles only: the body of the craft a unit is aboard.
+fn craft(w:&crate::world::owner::World,entities:&Entities,obj:Obj)->Option<Ref<Body>> {
+    w.space.as_ref()?;
+    let Entity::Unit(r)=entities.get(obj)? else {return None};
+    crate::space::craft_body_in(w,r)
+}
 pub trait World {
     /// Some(None) is a terrain hit; None is a clear collision segment.
     fn cast(&mut self, w:&mut crate::world::owner::World,from:&Vector3,direction:&Vector3,span:f64,ignore:Option<Ref<Body>>)->Option<Option<Ref<Body>>>;
@@ -70,17 +76,36 @@ pub trait World {
 /// clearAbove uses the game's LOS service: ignore the rider's hull
 /// collision body and its own registry member, then test the full 40 m span.
 /// Owners are lent explicitly so lazy F3 shape reads cannot reacquire them.
-pub fn clear_above( w:&mut crate::world::owner::World,world:&mut impl World,from:&Vector3,unit:&crate::gen::AiLifeHandle)->bool {
-    let Some(row)=unit.unit(sight_store!(w,store)) else{return false};
-    let lease=row.seat.and_then(|r|sight_store!(w,store).seat_lease.get(r));
-    let ignore=lease.and_then(|l| {
-        if let Some(hull)=l.vehicle {sight_store!(w,store).vehicle.get(hull).map(|h|h.body)}else{
-            l.turret.and_then(|r|sight_seats!(w,seats).crews.turrets.iter().find(|t|t.turret==r)).and_then(|t|t.desc.body)
-        }
-    });
-    let direction=Vector3::new(0.,1.,0.);
-    if sight_call!(world,cast,w,store,seats,from,&direction,40.,ignore).is_some() {return false;}
-    !sight_call!(world,raycast,w,store,seats,from,&direction,40.,&[Member::Unit(Ref::new(unit.slot,unit.generation))])
+pub fn clear_above(w: &mut crate::world::owner::World, world: &mut impl World, from: &Vector3, unit: &crate::gen::AiLifeHandle) -> bool {
+    if unit.unit(sight_store!(w, store)).is_none() {
+        return false;
+    }
+    clear_above_unit(w, world, from, Ref::new(unit.slot, unit.generation))
+}
+
+pub fn clear_above_unit(w: &mut crate::world::owner::World, world: &mut impl World, from: &Vector3, reference: Ref<crate::gen::Unit>) -> bool {
+    let ignore = {
+        let Some(row) = sight_store!(w, store).unit.get(reference) else {
+            return false;
+        };
+        let lease = row.seat.and_then(|r| sight_store!(w, store).seat_lease.get(r));
+        lease
+            .and_then(|l| {
+                if let Some(hull) = l.vehicle {
+                    sight_store!(w, store).vehicle.get(hull).map(|h| h.body)
+                } else {
+                    l.turret
+                        .and_then(|r| sight_seats!(w, seats).crews.turrets.iter().find(|t| t.turret == r))
+                        .and_then(|t| t.desc.body)
+                }
+            })
+            .or_else(|| w.space.as_ref().and_then(|_| crate::space::craft_body_in(w, reference)))
+    };
+    let direction = Vector3::new(0., 1., 0.);
+    if sight_call!(world, cast, w, store, seats, from, &direction, 40., ignore).is_some() {
+        return false;
+    }
+    !sight_call!(world, raycast, w, store, seats, from, &direction, 40., &[Member::Unit(reference)])
 }
 
 pub struct F3;

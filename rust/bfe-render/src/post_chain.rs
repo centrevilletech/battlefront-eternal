@@ -107,7 +107,12 @@ impl PostChain {
         // Soft focus and bloom share the scene but use independently sized
         // resources: map blur rounds its extent; Bloom.resize rounds up.
         if blur { p.step(P::COPY, Some(R::QUARTER)); p.sampler(U::copy::MAP,R::SCENE); }
-        if bloom {
+        // A 2005 map's own bloom (its HDR effect) takes the place of the 2004 one.
+        let hdr = bloom && f[F::HDR] != 0.;
+        let mut glow = R::BLOOM;
+        if hdr {
+            glow = hdr_steps(&mut p, f);
+        } else if bloom {
             p.step(P::EXTRACT,Some(R::BLOOM)); p.sampler(U::extract::MAP,R::SCENE); p.value(U::extract::TEXEL,&[1./w,1./h]);
             p.step(P::BLUR,Some(R::SCRATCH)); p.sampler(U::blur::MAP,R::BLOOM); p.value(U::blur::DIRECTION,&[1./p.width(R::BLOOM),0.]);
             p.step(P::BLUR,Some(R::BLOOM)); p.sampler(U::blur::MAP,R::SCRATCH); p.value(U::blur::DIRECTION,&[0.,1./p.height(R::BLOOM)]);
@@ -119,9 +124,10 @@ impl PostChain {
         let fxaa_source = if fxaa && plain { R::SCENE } else { R::POST };
         if !(fxaa && plain) {
             p.step(P::COMPOSITE,if (fxaa || upscale) && !direct {Some(R::POST)} else {None});
-            p.sampler(U::composite::MAP,R::SCENE); p.sampler(U::composite::BLURRED,R::QUARTER); p.sampler(U::composite::GLOW,R::BLOOM);
+            p.sampler(U::composite::MAP,R::SCENE); p.sampler(U::composite::BLURRED,R::QUARTER); p.sampler(U::composite::GLOW,glow);
             p.value(U::composite::BLEND,&[if blur { f[F::BLUR_BLEND] } else { 0. }]);
-            p.value(U::composite::BLOOM_STRENGTH,&[if bloom {0.65} else {0.}]);
+            p.value(U::composite::BLOOM_STRENGTH,&[if bloom && !hdr {0.65} else {0.}]);
+            p.value(U::composite::GLOW_ADD,&[if hdr {f[F::HDR_FACTOR].max(0.)} else {0.}]);
             p.value(U::composite::SPEED_BLUR,&[speed]); p.value(U::composite::SPEED_TURN,&[turn]);
         }
         // FXAA reads the original scene for a plain frame. Otherwise its
@@ -195,6 +201,29 @@ impl PostChain {
     }
 }
 
+/// Bloom passes a 2005 map may ask for: the steps left beside the extract,
+/// composite, FXAA and a temporal upscale.
+pub const HDR_PASSES: usize = post::MAX_STEPS - 6;
+
+// The 2005 game's bloom: the scene's bright texels into the bloom target,
+// then passes back and forth between it and the scratch target, each four
+// diagonal taps (pass i + 0.5 texels of what it reads away), weighted
+// 0.25 + (most - 1) * i / passes. Returns where the last pass wrote.
+fn hdr_steps(p: &mut Planner, f: &[f64]) -> usize {
+    p.step(P::HDR_EXTRACT,Some(R::BLOOM)); p.sampler(U::hdr_extract::MAP,R::SCENE);
+    p.value(U::hdr_extract::THRESHOLD,&[f[F::HDR_THRESHOLD]]);
+    let asked = if f[F::HDR_PASSES].is_finite() { f[F::HDR_PASSES].max(0.).floor() } else { 0. };
+    let (mut from, mut to) = (R::BLOOM, R::SCRATCH);
+    for i in 0..(asked as usize).min(HDR_PASSES) {
+        let (offset, weight) = (i as f64 + 0.5, 0.25 + (f[F::HDR_WEIGHT] - 1.) * i as f64 / asked);
+        p.step(P::HDR_BLUR,Some(to)); p.sampler(U::hdr_blur::MAP,from);
+        p.value(U::hdr_blur::OFFSET,&[offset / p.width(from), offset / p.height(from)]);
+        p.value(U::hdr_blur::WEIGHT,&[weight]);
+        std::mem::swap(&mut from, &mut to);
+    }
+    from
+}
+
 // World-space homogeneous division cancels when the next projection divides
 // by w. Compose the camera transforms once instead of at every sampled pixel.
 fn reprojection(current: &math::Mat4, previous: &math::Mat4, inverse: &math::Mat4) -> (math::Mat4, math::Mat4, bool) {
@@ -259,6 +288,52 @@ mod tests {
         assert!(reprojection(&current,&current,&inverse.elements).2);
     }
     #[test]
+    fn a_2005_bloom_plans_the_games_passes_in_place_of_the_2004_bloom() {
+        let mut chain = PostChain::default();
+        chain.input[F::MODE] = M::OFF as f64;
+        for (key, value) in [(F::INPUT_WIDTH, 800.), (F::INPUT_HEIGHT, 400.), (F::OUTPUT_WIDTH, 800.), (F::OUTPUT_HEIGHT, 400.)] {
+            chain.input[key] = value;
+        }
+        for program in 0..P::COUNT { chain.input[F::PROGRAMS + program] = 100. + program as f64; }
+        for (slot, size) in [(R::SCENE, [800., 400.]), (R::BLOOM, [200., 100.]), (R::SCRATCH, [200., 100.])] {
+            chain.input[F::RESOURCES + slot * R::STRIDE..][..R::STRIDE].copy_from_slice(&[10. + slot as f64, 20. + slot as f64, size[0], size[1]]);
+        }
+        chain.input[F::BLOOM] = 1.;
+        chain.input[F::HDR] = 1.;
+        chain.input[F::HDR_THRESHOLD] = 0.6;
+        chain.input[F::HDR_FACTOR] = 1.5;
+        chain.input[F::HDR_PASSES] = 3.;
+        chain.input[F::HDR_WEIGHT] = 1.3;
+        let mut steps = vec![0.; post::MAX_STEPS * post::STEP];
+        chain.begin();
+        let count = chain.plan(&mut steps);
+        let rows: Vec<&[f64]> = steps[..count * post::STEP].as_chunks::<{ post::STEP }>().0.iter().map(|r| r.as_slice()).collect();
+        let uniform = |row: &[f64], slot: usize| row[post::STEP_FIRST + slot * post::UNIFORM + 2..][..2].to_vec();
+        let programs: Vec<f64> = rows.iter().map(|r| r[post::STEP_PROGRAM] - 100.).collect();
+        let (x, b, c) = (P::HDR_EXTRACT as f64, P::HDR_BLUR as f64, P::COMPOSITE as f64);
+        assert_eq!(programs, vec![x, b, b, b, c]);
+        assert_eq!(uniform(rows[0], U::hdr_extract::THRESHOLD)[0], 0.6);
+        // Back and forth between the two targets, ending in the scratch one.
+        let targets: Vec<f64> = rows[..4].iter().map(|r| r[post::STEP_TARGET]).collect();
+        assert_eq!(targets, vec![20. + R::BLOOM as f64, 20. + R::SCRATCH as f64, 20. + R::BLOOM as f64, 20. + R::SCRATCH as f64]);
+        for (i, row) in rows[1..4].iter().enumerate() {
+            let offset = i as f64 + 0.5;
+            assert_eq!(uniform(row, U::hdr_blur::OFFSET), vec![offset / 200., offset / 100.]);
+            assert!((uniform(row, U::hdr_blur::WEIGHT)[0] - (0.25 + 0.3 * i as f64 / 3.)).abs() < 1e-12);
+        }
+        assert_eq!(uniform(rows[4], U::composite::GLOW)[0], 10. + R::SCRATCH as f64);
+        assert_eq!(uniform(rows[4], U::composite::BLOOM_STRENGTH)[0], 0.);
+        assert_eq!(uniform(rows[4], U::composite::GLOW_ADD)[0], 1.5);
+        // Without the 2005 fact the 2004 bloom plans as before.
+        chain.input[F::HDR] = 0.;
+        let count = chain.plan(&mut steps);
+        let programs: Vec<f64> = steps[..count * post::STEP].as_chunks::<{ post::STEP }>().0.iter().map(|r| r[post::STEP_PROGRAM] - 100.).collect();
+        assert_eq!(programs, vec![P::EXTRACT as f64, P::BLUR as f64, P::BLUR as f64, c]);
+        let last = &steps[3 * post::STEP..4 * post::STEP];
+        assert_eq!(uniform(last, U::composite::BLOOM_STRENGTH)[0], 0.65);
+        assert_eq!(uniform(last, U::composite::GLOW_ADD)[0], 0.);
+    }
+    #[test]
     fn temporal_kernel_uses_the_shader_column_order_and_jitter() {
         let weights = temporal_weights([0.25, -0.125], 2.29);
         // Right and top neighbours have different weights for this jitter.
@@ -275,7 +350,7 @@ impl Planner<'_> {
     fn height(&self,r: usize) -> f64 { dimension(self.resource(r,R::HEIGHT)) }
     fn step(&mut self, program: usize, target: Option<usize>) {
         // A short host view clips whole steps, never a uniform or index. The
-        // normal owner reserves the maximum eight steps before play begins.
+        // normal owner reserves the maximum steps before play begins.
         if self.count >= post::MAX_STEPS || (self.count+1)*post::STEP > self.out.len() { self.complete = false; return; }
         self.at = self.count * post::STEP; self.count += 1;
         let o = self.at;

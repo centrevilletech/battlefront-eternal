@@ -51,6 +51,10 @@ pub struct Fleet {
     // The vehicle (generation * 65536 + id) whose prediction last failed, logged once.
     failed: f64,
     water:Option<bfe_sim::units::water::WaterState>,last_water:f64,
+    /// The flight environment built from this client's files, and whether
+    /// the map authored its ceiling and bounds, for a match whose authority
+    /// names the ceiling.
+    flight: Option<(Environment, bool, bool)>,
 }
 impl Fleet {
     /// The smoothing offset of the piloted hull's drawn position.
@@ -175,7 +179,22 @@ impl Fleet {
         for hull in &mut hulls {for(body,collider)in bodies.colliders(){hull.owner.bind_native_collider(body,collider);}
             hull.owner.prepare_native_collision(&mut collision.state);
         }
-        Ok(Self::with(world, bodies, hulls, classes, water))
+        let authored = content.content.battle.world.get("flight").and_then(bfe_content::Value::as_object);
+        let mut fleet = Self::with(world, bodies, hulls, classes, water);
+        fleet.flight = Some((environment, authored.is_some_and(|f| f.get("ceiling").is_some()), authored.is_some_and(|f| f.get("bounds").is_some())));
+        Ok(fleet)
+    }
+
+    /// A 2005 match's flight ceiling, as its welcome names it: every hull's
+    /// environment is built with it where this client's files built one with
+    /// the mission's (the ceiling, the top of the flight bounds and the fly
+    /// height), and the map's own authored values stay.
+    pub fn set_flight_ceiling(&mut self, ceiling: f64) {
+        let Some((environment, authored_ceiling, authored_bounds)) = &mut self.flight else { return };
+        environment.max_fly_height = ceiling;
+        if !*authored_ceiling { environment.ceiling = Some(ceiling); }
+        if let (false, Some((_, max))) = (*authored_bounds, &mut environment.bounds) { max[1] = ceiling; }
+        for hull in &mut self.hulls { hull.owner.set_hull_environment(environment.clone()); }
     }
     fn with(world: u32, bodies: super::collision::Bodies, hulls: Vec<Hull>, classes: Vec<Option<usize>>,
         water: Option<bfe_sim::units::water::WaterState>) -> Self {
@@ -201,6 +220,7 @@ impl Fleet {
             frozen_weapons: false,
             failed: -1.,
             water, last_water: 0.,
+            flight: None,
         }
     }
     pub fn weapons(&self) -> impl Iterator<Item = bfe_sim::gen::Weapon> + '_ {

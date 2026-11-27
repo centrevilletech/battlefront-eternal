@@ -739,6 +739,11 @@ pub fn tickets(s: &Store, team: f64) -> f64 {
     }
 }
 
+fn spawn_tickets<W: SpawningWorld + ?Sized>(s: &Store, team: f64, world: &mut W) -> f64 {
+    let count = tickets(s, team);
+    if count == -1.0 && world.unlimited_reinforcements() { f64::INFINITY } else { count }
+}
+
 /// spendTicket(team).
 pub fn spend_ticket(s: &mut Store, team: f64) {
     if s.battle.reinforcements.at(team).is_some() {
@@ -924,7 +929,7 @@ pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r
     if let Some(unit) = ch(s, r).unit {
         // A hero dies when its team's tickets fall to its living count.
         let c = ch(s, r);
-        if is_hero(c) && tickets(s, c.team) <= team(&s.spawning, t).living && world.health(s, unit) > 0.0 {
+        if is_hero(c) && spawn_tickets(s, c.team, world) <= team(&s.spawning, t).living && world.health(s, unit) > 0.0 {
             world.force_kill(s, r, unit);
         }
         return;
@@ -938,7 +943,7 @@ pub fn update_character_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r
         prepare_with_scratch(s, r, strings, world, random, scratch);
     }
     let human = ch(s, r).human;
-    if !human && tickets(s, t) <= team(&s.spawning, t).living {
+    if !human && spawn_tickets(s, t, world) <= team(&s.spawning, t).living {
         return;
     }
     if !human && team(&s.spawning, t).characters.len() as f64 > team(&s.spawning, t).capacity {
@@ -1031,6 +1036,10 @@ pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Chara
         unit = world.spawn_unit(s, r, class_name, post, xyz, yaw);
         unit?;
     }
+    finish_spawn(s,r,t,post,unit,world)
+}
+
+fn finish_spawn<W:SpawningWorld + ?Sized>(s:&mut Store,r:Ref<Character>,t:f64,post:SpawnPost,unit:Option<Ref<Unit>>,world:&mut W)->Option<Ref<Unit>> {
     let c = ch_mut(s, r);
     c.unit = unit;
     let index = class_index(c);
@@ -1059,6 +1068,10 @@ pub fn spawn_with_scratch<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Chara
 /// draws a fresh objective and forgets its post; the team's living count
 /// drops (heroes aren't counted) and it spends a reinforcement.
 pub fn on_death<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W) {
+    on_death_with_tickets(s, r, world, true)
+}
+
+pub(super) fn on_death_with_tickets<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, world: &mut W, spend_on_death: bool) {
     let t = ch(s, r).team;
     sp_mut(ch_mut(s, r)).timer = RESPAWN_DELAY;
     if !ch(s, r).human {
@@ -1069,7 +1082,7 @@ pub fn on_death<W: SpawningWorld + ?Sized>(s: &mut Store, r: Ref<Character>, wor
     if !is_hero(ch(s, r)) {
         team_mut(&mut s.spawning, t).living -= 1.0;
     }
-    if tickets(s, t) > 0.0 {
+    if spend_on_death && tickets(s, t) > 0.0 {
         spend_ticket(s, t);
     }
 }
@@ -1167,3 +1180,5 @@ pub fn objective_position<W: super::world::PostsWorld + ?Sized>(s: &Store, r: Re
     let post = spawn_post(ch(s, r).objective)?;
     Some(posts::spawn_facts(s, post, world).position)
 }
+
+pub(crate) mod mission;

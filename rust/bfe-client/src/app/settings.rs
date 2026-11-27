@@ -4,7 +4,7 @@ use bfe_desktop::{
     paths::{resolve_desktop_paths, DesktopPaths, DesktopPathsOptions},
     settings::{DesktopSettings, SettingsPatch, SettingsStore},
 };
-use bfe_interface::{DesktopSettingsSnapshot, Settings as InterfaceSettings};
+use bfe_interface::{hotkeys::ControlContext, settings::{DefaultVal, SWBF2_BINDINGS, SWBF2_FLIGHT_BINDINGS, SWBF2_GROUND_BINDINGS}, DesktopSettingsSnapshot, SettingValue, Settings as InterfaceSettings};
 use bfe_shell::{
     launch::PlaylistEntry,
     screens::{ShellApp, ShellSettings},
@@ -19,6 +19,7 @@ use std::{
     env, fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
 /// Returns the platform string matching `bfe-desktop` conventions (`"linux"`, `"darwin"`, `"win32"`).
@@ -136,8 +137,14 @@ pub struct PersistedPlayerSettings {
     #[serde(default)]
     pub complete: bool,
     /// Serialized 59-key [`bfe_interface::Settings`] map (`masterVolume`, `mouseSensitivity`, keybindings, etc.).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bfe_storage::settings_json::object")]
     pub values: Map<String, Value>,
+    /// Only this top-level version admits the Battlefront II maps in `values`.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "bfe_storage::settings_json::optional")]
+    pub swbf2_controls_version: Option<Value>,
+    /// Optional accessibility preference for a dedicated Battlefront II block control.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub swbf2_hold_to_block: Option<bool>,
     /// Synchronized [`ShellSettings`] projection consumed by `bfe-shell` audio and mission launch.
     #[serde(default)]
     pub shell: ShellSettings,
@@ -170,6 +177,8 @@ impl Default for PersistedPlayerSettings {
             native_settings_version: NATIVE_SETTINGS_VERSION,
             complete: snap.complete,
             values: snap.values,
+            swbf2_controls_version: None,
+            swbf2_hold_to_block: None,
             shell,
             pause_kv,
             ia_playlist: Vec::new(),
@@ -293,6 +302,20 @@ impl PersistedPlayerSettings {
 
     /// Re-synchronizes `values` and `pause_kv` from `self.shell`.
     pub fn sync_from_shell(&mut self) {
+        if self.swbf2_controls_version.as_ref().and_then(Value::as_u64) != Some(1) {
+            self.sync_released_from_shell();
+            return;
+        }
+        let controls = SWBF2_BINDINGS.map(|key| self.values.remove(key));
+        self.sync_released_from_shell();
+        for (key, value) in SWBF2_BINDINGS.into_iter().zip(controls) {
+            if let Some(value) = value {
+                self.values.insert(key.into(), value);
+            }
+        }
+    }
+
+    fn sync_released_from_shell(&mut self) {
         // Rebuild an `InterfaceSettings` instance from the snapshot, apply `self.shell`, and export back.
         let snapshot = DesktopSettingsSnapshot {
             complete: self.complete,
@@ -322,6 +345,10 @@ pub struct AppSettingsStore {
     pub desktop_store: SettingsStore,
     /// Loaded desktop settings (`content_dir`, `game_dir`, `update_channel`, etc.).
     pub desktop: DesktopSettings,
+    /// Snapshot of `desktop.extra["games"]` as last loaded from or saved to disk,
+    /// so ordinary 2004 saves leave `games` on disk completely untouched while
+    /// deliberate in-memory edits or clears to `games` are persisted accurately.
+    saved_games: Option<Value>,
     /// Canonical 59-key [`bfe_interface::Settings`] model driving the `bfe-interface` options pages.
     pub interface: InterfaceSettings,
     /// Persisted player profile, playlist, and synchronized shell/pause settings.
@@ -348,11 +375,13 @@ impl AppSettingsStore {
     pub fn load(paths: DesktopPaths) -> Self {
         let desktop_store = SettingsStore::new(&paths.settings_file);
         let desktop = desktop_store.load();
+        let saved_games = desktop.extra.get("games").cloned();
         let (player, interface, migrated) = Self::load_player_file(&paths.player_settings_file);
         let mut store = Self {
             paths,
             desktop_store,
             desktop,
+            saved_games,
             interface,
             player,
         };
@@ -369,6 +398,27 @@ impl AppSettingsStore {
     /// Reads `player-settings.json` and reconstructs both [`PersistedPlayerSettings`]
     /// and [`bfe_interface::Settings`].
     fn load_player_file(path: &Path) -> (PersistedPlayerSettings, InterfaceSettings, bool) {
+        let (player, mut interface, migrated) = Self::load_released_player_file(path);
+        if player.swbf2_controls_version.as_ref().and_then(Value::as_u64) == Some(1) {
+            for context in ControlContext::ALL {
+                let value = match context {
+                    ControlContext::Starfighter => player.values.get(SWBF2_FLIGHT_BINDINGS),
+                    _ => player.values.get(SWBF2_GROUND_BINDINGS).and_then(|map| map.get(context.tab())),
+                };
+                if let Some(SettingValue::Bindings(map)) = value
+                    .and_then(|v| SettingValue::from_json_typed(v, DefaultVal::Bindings))
+                {
+                    let map = context.saved_overrides(map);
+                    if !map.is_empty() {
+                        interface.swbf2_bindings.insert(context, map);
+                    }
+                }
+            }
+        }
+        (player, interface, migrated)
+    }
+
+    fn load_released_player_file(path: &Path) -> (PersistedPlayerSettings, InterfaceSettings, bool) {
         let Ok(bytes) = fs::read(path) else {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
@@ -376,10 +426,7 @@ impl AppSettingsStore {
             interface.fresh = true;
             return (player, interface, false);
         };
-        let record = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
-        let native_record = record.get("shell").is_some_and(Value::is_object);
-        let native_profile = record.get("profileName").is_some();
-        let Ok(mut parsed) = serde_json::from_value::<PersistedPlayerSettings>(record) else {
+        let Ok((mut parsed, native_record, native_profile)) = Self::parse_player_record(&bytes) else {
             let mut interface = InterfaceSettings::new();
             let player = PersistedPlayerSettings::default();
             PersistedPlayerSettings::apply_shell_to_interface(&player.shell, &mut interface);
@@ -459,6 +506,13 @@ impl AppSettingsStore {
         (parsed, interface, migrated)
     }
 
+    fn parse_player_record(bytes: &[u8]) -> serde_json::Result<(PersistedPlayerSettings, bool, bool)> {
+        let record = bfe_storage::settings_json::from_slice(bytes)?;
+        let native_record = record.get("shell").is_some_and(Value::is_object);
+        let native_profile = record.get("profileName").is_some();
+        Ok((serde_json::from_value(record)?, native_record, native_profile))
+    }
+
     /// Version 2's change to a saved record: on the Minimum preset with the old Minimum view distance, SHORT.
     fn adopt_minimum_view(values: &mut Map<String, Value>) -> bool {
         let minimum = values.get("performancePreset").and_then(Value::as_str) == Some("minimum");
@@ -500,6 +554,27 @@ impl AppSettingsStore {
 
     /// Synchronizes `self.player` into `self.interface` when `self.player.shell` was mutated directly.
     pub fn sync_interface_from_player(&mut self) {
+        if !self.interface.swbf2_bindings.is_empty() {
+            self.interface.complete = true;
+        }
+        self.sync_released_interface_from_player();
+        let controls = &self.interface.swbf2_bindings;
+        self.player.swbf2_controls_version = (!controls.is_empty()).then(|| Value::from(1));
+        let mut ground = Map::new();
+        for (context, bindings) in controls {
+            let value = serde_json::to_value(bindings).expect("string bindings serialize");
+            if *context == ControlContext::Starfighter {
+                self.player.values.insert(SWBF2_FLIGHT_BINDINGS.into(), value);
+            } else {
+                ground.insert(context.tab().into(), value);
+            }
+        }
+        if !ground.is_empty() {
+            self.player.values.insert(SWBF2_GROUND_BINDINGS.into(), Value::Object(ground));
+        }
+    }
+
+    fn sync_released_interface_from_player(&mut self) {
         PersistedPlayerSettings::apply_shell_to_interface(&self.player.shell, &mut self.interface);
         self.interface
             .set("playerName", self.player.profile_name.clone());
@@ -517,6 +592,21 @@ impl AppSettingsStore {
     /// `OPTIONS` pages) into `self.interface`, `self.player`, and `ShellApp`,
     /// saving to disk if anything changed.
     pub fn capture_from_interface_settings(
+        &mut self,
+        interface: &InterfaceSettings,
+        app: &mut ShellApp,
+    ) -> Result<bool, String> {
+        if self.interface.swbf2_bindings != interface.swbf2_bindings
+            && self.interface.complete == interface.complete && self.interface.values == interface.values
+        {
+            self.interface = interface.clone();
+            self.save_player()?;
+            return Ok(true);
+        }
+        self.capture_released_interface_settings(interface, app)
+    }
+
+    fn capture_released_interface_settings(
         &mut self,
         interface: &InterfaceSettings,
         app: &mut ShellApp,
@@ -579,25 +669,70 @@ impl AppSettingsStore {
     /// Saves `player-settings.json` atomically after synchronizing `self.interface`
     /// with `self.player`.
     pub fn save_player(&mut self) -> Result<(), String> {
+        static SAVE_SEQUENCE: AtomicU32 = AtomicU32::new(0);
         self.sync_interface_from_player();
         let path = &self.paths.player_settings_file;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        // Write to a sibling `.json.tmp` file and `fsync` before renaming into place.
-        let tmp = path.with_extension("json.tmp");
         let mut text = serde_json::to_string_pretty(&self.player).map_err(|e| e.to_string())?;
         text.push('\n');
-        {
-            let mut file = fs::File::create(&tmp).map_err(|e| e.to_string())?;
-            file.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
-            file.sync_all().map_err(|e| e.to_string())?;
+        let (tmp, mut file) = loop {
+            let sequence = SAVE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+            let tmp = path.with_extension(format!("json.native-{}-{sequence}.tmp", std::process::id()));
+            match fs::File::create_new(&tmp) {
+                Ok(file) => break (tmp, file),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(e.to_string()),
+            }
+        };
+        let written = file.write_all(text.as_bytes()).and_then(|()| file.sync_all());
+        drop(file);
+        let published = written
+            .and_then(|()| bfe_storage::preserve_unreadable(path, |bytes| Self::parse_player_record(bytes).is_ok()))
+            .and_then(|_| fs::rename(&tmp, path));
+        if published.is_err() {
+            let _ = fs::remove_file(&tmp);
         }
-        fs::rename(&tmp, path).map_err(|e| e.to_string())
+        published.map_err(|e| e.to_string())
+    }
+
+    /// Replaces `self.desktop` from a completed background search while keeping
+    /// the last-saved `games` snapshot synchronized.
+    pub fn adopt_desktop(&mut self, desktop: DesktopSettings) {
+        self.saved_games = desktop.extra.get("games").cloned();
+        self.desktop = desktop;
+    }
+
+    /// Updates and atomically persists a single game family's install directory
+    /// without touching unrelated settings fields or sibling families.
+    pub fn save_game_dir_for(
+        &mut self,
+        family: bfe_family::GameFamily,
+        dir: Option<String>,
+    ) -> Result<(), String> {
+        let mut patch = SettingsPatch::default();
+        if family == bfe_family::GameFamily::Swbf1 {
+            patch.game_dir = Some(dir);
+        } else {
+            patch.game_dirs.insert(family, dir);
+        }
+        self.desktop = self.desktop_store.save(&patch)?;
+        self.saved_games = self.desktop.extra.get("games").cloned();
+        Ok(())
     }
 
     /// Saves `DesktopSettings` (`desktop-settings.json`) atomically.
+    ///
+    /// Leaves `extra["games"]` on disk completely untouched unless `self.desktop.extra["games"]`
+    /// was explicitly mutated or cleared in memory since load/last save.
     pub fn save_desktop(&mut self) -> Result<(), String> {
+        let current_games = self.desktop.extra.get("games").cloned();
+        let games_extra = if current_games != self.saved_games {
+            Some(current_games)
+        } else {
+            None
+        };
         let patch = SettingsPatch {
             enhanced_sound: self.desktop.enhanced_sound,
             content_dir: Some(
@@ -607,14 +742,18 @@ impl AppSettingsStore {
                     .or_else(|| self.desktop.content_dir.clone()),
             ),
             game_dir: Some(self.desktop.game_dir.clone()),
+            game_dirs: BTreeMap::new(),
             update_channel: Some(self.desktop.update_channel.clone()),
             auto_check_updates: Some(self.desktop.auto_check_updates),
             discord_presence: Some(self.desktop.discord_presence),
             presence: self.desktop.presence.clone(),
             steam: self.desktop.steam.clone(),
             preparations: Some(self.desktop.preparations.clone()),
+            game_preparations: BTreeMap::new(),
+            games_extra,
         };
         self.desktop = self.desktop_store.save(&patch)?;
+        self.saved_games = self.desktop.extra.get("games").cloned();
         Ok(())
     }
 }
@@ -654,6 +793,28 @@ mod tests {
             update_root: None,
             project_root: dir,
         }
+    }
+
+    #[test]
+    fn profile_extension_keys_survive_or_get_the_original_file_backup() {
+        let paths = test_paths();
+        let bytes = br#"{"profileName":"Amber","nativeSettingsVersion":2,"iaRandom":true,"iaPlaylist":[{"family":"swbf1","map":"moss","era":"cw","mode":"conquest"}],"extra":{"$serde_json::private::RawValue":7}}"#;
+        fs::write(&paths.player_settings_file, bytes).unwrap();
+        let mut store = AppSettingsStore::load(paths.clone());
+        let backup = paths.user_data.join("player-settings.json.bak");
+        store.save_player().unwrap();
+        let reopened = AppSettingsStore::load(paths.clone());
+        if bfe_storage::settings_json::from_slice(bytes).is_ok() {
+            assert_eq!(reopened.player.profile_name, "Amber");
+            assert_eq!(reopened.player.ia_playlist[0].map, "moss");
+            assert!(reopened.player.ia_random);
+            assert!(!backup.exists());
+        } else {
+            assert_eq!(fs::read(backup).unwrap(), bytes);
+            assert_eq!(reopened.player.profile_name, default_profile_name());
+            assert!(reopened.player.ia_playlist.is_empty());
+        }
+        fs::remove_dir_all(paths.user_data).unwrap();
     }
 
     #[test]
@@ -884,5 +1045,67 @@ mod tests {
             Some("true")
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn save_desktop_preserves_swbf2_extensions_and_persists_explicit_clear() {
+        let paths = test_paths();
+        let initial = serde_json::json!({
+            "gameDir": "/games/bf1",
+            "games": {
+                "swbf2": {
+                    "gameDir": "/keep",
+                    "preparations": {
+                        "/a": {
+                            "gameDir": "/g",
+                            "addOns": [],
+                            "updatedAt": "2026-01-01T00:00:00Z",
+                            "extension": ["keep"]
+                        },
+                        "future-record": "keep-as-is"
+                    }
+                }
+            }
+        });
+        fs::write(
+            &paths.settings_file,
+            serde_json::to_string_pretty(&initial).unwrap(),
+        )
+        .unwrap();
+
+        // 1. Ordinary 2004 startup save must NOT strip extensions or non-record entries under games.swbf2.
+        let mut store = AppSettingsStore::load(paths.clone());
+        store.desktop.found_content_dir = Some("/found".to_string());
+        store.save_desktop().unwrap();
+        let after_2004_save: Value =
+            serde_json::from_str(&fs::read_to_string(&paths.settings_file).unwrap()).unwrap();
+        assert_eq!(
+            after_2004_save["games"]["swbf2"]["preparations"]["/a"]["extension"],
+            serde_json::json!(["keep"]),
+            "ordinary 2004 save_desktop stripped games.swbf2.preparations extension"
+        );
+        assert_eq!(
+            after_2004_save["games"]["swbf2"]["preparations"]["future-record"],
+            serde_json::json!("keep-as-is"),
+            "ordinary 2004 save_desktop dropped games.swbf2.preparations future-record"
+        );
+
+        // 2. Explicitly clearing swbf2 gameDir and preparations in memory then calling save_desktop
+        //    must actually clear them on disk rather than resurrecting "/keep".
+        store
+            .desktop
+            .set_game_dir_for(bfe_family::GameFamily::Swbf2, None);
+        store
+            .desktop
+            .set_preparations_for(bfe_family::GameFamily::Swbf2, BTreeMap::new());
+        store.save_desktop().unwrap();
+        let after_clear: Value =
+            serde_json::from_str(&fs::read_to_string(&paths.settings_file).unwrap()).unwrap();
+        assert!(
+            after_clear.get("games").and_then(|g| g.get("swbf2")).is_none(),
+            "clearing swbf2 then calling save_desktop resurrected old data: {after_clear}"
+        );
+
+        let _ = fs::remove_dir_all(&paths.user_data_dir);
     }
 }

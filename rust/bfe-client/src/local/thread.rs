@@ -13,6 +13,8 @@
 //! - Pause, focus suspension, spawn, respawn, and shutdown travel as explicit
 //!   `WorldMessage` variants rather than shared mutable flags.
 
+mod recording;
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -49,8 +51,12 @@ const RECENT_TICK_SAMPLES: usize = 4096;
 /// succeeds on the dedicated 60 Hz world thread.
 #[derive(Clone, Debug)]
 pub struct AdmittedWorldInfo {
+    pub space_counts: super::space::Counts,
+    pub wire_bounds: bfe_sim::wire::PositionBounds,
     /// Canonical battle query string (`?map=...&side=...&era=...&ai=...&seed=...`).
     pub query: String,
+    /// Ordered rules and rosters for a scene backed by a mission script.
+    pub mission_json: Option<String>,
     /// Entity registry descriptor emitted by `wire_registry_run`.
     pub registry: serde_json::Value,
     /// Admitted local human player's unit slot ID.
@@ -101,6 +107,9 @@ pub struct WorldTickStats {
 pub enum WorldMessage {
     /// One 60 Hz client command, stamped (`command.tick`) for the world tick it is the input of.
     Step {
+        infantry: Option<bfe_sim::units::infantry::Controls>,
+        // A 2005 battle's pilot controls (the Space seat driver takes them).
+        pilot: Option<bfe_sim::space::local::PilotControls>,
         command: ClientCommand,
         look: ClientLook,
         flight: ClientFlightCommand,
@@ -196,6 +205,14 @@ impl CommandRing {
 ///
 /// Holds the native `Block` and wire byte buffer produced by `Context::world_publish_into`.
 pub struct PublicationSlot {
+    pub space: super::space::Frame,
+    pub mission_view: Option<Box<super::mission_view::Observation>>,
+    pub infantry: Option<bfe_sim::units::infantry::Sample>,
+    pub doors: Vec<bfe_sim::space::SpaceDoorSnapshot>,
+    pub mission_score: Option<bfe_sim::battle::script::MissionScore>,
+    pub contacts: Option<Box<bfe_sim::units::infantry::contact::Contacts>>,
+    pub powers: Option<Box<bfe_sim::combat::powers::PowerFrame>>,
+    pub hero_audio: Option<Box<bfe_sim::units::infantry::hero_audio::HeroAudioSnapshot>>,
     pub tick: f64,
     pub client: u32,
     pub block: Block,
@@ -216,6 +233,11 @@ impl PublicationSlot {
     pub fn new_preallocated() -> Self {
         let policy = Publisher::default();
         Self {
+            mission_view: None,
+            space: Default::default(),
+            infantry: None,
+            doors: Vec::new(),
+            mission_score: None, contacts: None, powers: None, hero_audio: None,
             tick: 0.0,
             client: 1,
             block: Block {
@@ -252,7 +274,7 @@ impl PublicationQueue {
 
     fn acquire_slot(&mut self) -> PublicationSlot {
         // Slots beyond the preallocated ones take only the memory their publication uses.
-        self.free.pop().unwrap_or_else(|| PublicationSlot { tick: 0.0, client: 1, block: Block { words: Vec::new(), heap: Vec::new() }, bytes: Vec::new() })
+        self.free.pop().unwrap_or_else(|| PublicationSlot { doors: Vec::new(), space: Default::default(), tick: 0.0, client: 1, mission_score: None, mission_view: None, infantry: None, contacts: None, powers: None, hero_audio: None, block: Block { words: Vec::new(), heap: Vec::new() }, bytes: Vec::new() })
     }
 
     fn full(&self) -> bool {
@@ -527,18 +549,40 @@ impl WorldThread {
     /// the caller displays the error to the player.
     pub fn admit_instant_action(
         options: &super::options::Options,
+        world_options: bfe_sim::world::admit::Options,
+        spawn_screen: bool,
     ) -> Result<(Self, AdmittedWorldInfo), String> {
-        let owned_options = super::options::Options {
-            root: options.root.clone(),
-            battle: options.battle.clone(),
-            audio: options.audio,
-            duration: options.duration,
-            name: options.name.clone(),
-            bots: options.bots,
-        };
+        Self::admit_selected(&options.root, world_options, spawn_screen, options.bots.friendly_fire)
+    }
+
+    pub(crate) fn admit_selected(
+        root: &std::path::Path, world_options: bfe_sim::world::admit::Options, spawn_screen: bool, friendly_fire: bool,
+    ) -> Result<(Self, AdmittedWorldInfo), String> {
+        let root = root.to_path_buf();
+        Self::admit_with(friendly_fire, move || {
+            super::launch::Prepared::selected(&root, world_options, spawn_screen).map(|prepared| (prepared, None))
+        })
+    }
+
+    pub(crate) fn admit_scripted(
+        root: &std::path::Path, options: bfe_sim::world::admit::Options,
+        selection: bfe_sim::world::admit::mission::MissionSelection,
+        preferences: bfe_sim::world::admit::mission::MissionPreferences,
+    ) -> Result<(Self, AdmittedWorldInfo), String> {
+        let root = root.to_path_buf();
+        Self::admit_with(options.bots.friendly_fire, move || {
+            let (prepared, journal) = super::launch::Prepared::developer_mission(&root, &options, &selection, preferences)?;
+            Ok((prepared, Some(journal.resources.mission_json)))
+        })
+    }
+
+    fn admit_with(
+        friendly_fire: bool,
+        prepare: impl FnOnce() -> Result<(super::launch::Prepared, Option<String>), String> + Send + 'static,
+    ) -> Result<(Self, AdmittedWorldInfo), String> {
         let shared = Arc::new(SharedState::new());
         shared.paused.store(true, Ordering::Release);
-        shared.friendly_fire.store(options.bots.friendly_fire, Ordering::Release);
+        shared.friendly_fire.store(friendly_fire, Ordering::Release);
         let thread_shared = Arc::clone(&shared);
         let (admit_tx, admit_rx) =
             std::sync::mpsc::sync_channel::<Result<AdmittedWorldInfo, String>>(1);
@@ -548,21 +592,39 @@ impl WorldThread {
             .stack_size(8 << 20)
             .spawn(move || {
                 let build_res = (|| -> Result<
-                    (Runtime<super::context::Native>, AdmittedWorldInfo),
+                    (Runtime<super::context::Native>, AdmittedWorldInfo, Option<super::mission_input::Recording>),
                     String,
                 > {
-                    let prepared = super::launch::Prepared::with_spawn_screen(&owned_options, true)?;
+                    let (mut prepared, mission_json) = prepare()?;
+                    let recording = if mission_json.is_some() { super::mission_input::Recording::for_mission()? } else { None };
+                    if mission_json.is_some() && recording.is_none() { prepared.engine.use_mission_spawn_screen(); }
                     let info = AdmittedWorldInfo {
+                        space_counts: prepared.engine.space_counts,
+                        mission_json,
+                        wire_bounds: prepared.admission.wire_bounds,
                         query: prepared.admission.query.clone(),
                         registry: prepared.admission.registry.clone(),
                         player_id: prepared.admission.player_id,
                     };
-                    let mut slot0 = thread_shared
-                        .publications
-                        .lock()
-                        .map_err(|_| "publication queue poisoned".to_string())?
-                        .acquire_slot();
-                    let runtime = Runtime::new_into_slot(
+                    let mut slot0 = {
+                        let mut queue = thread_shared.publications.lock()
+                            .map_err(|_| "publication queue poisoned".to_string())?;
+                        if info.space_counts.fighters > 0 {
+                            for slot in &mut queue.free { slot.space = super::space::Frame::reserved(info.space_counts); }
+                        }
+                        if prepared.engine.infantry {
+                            for slot in &mut queue.free {
+                                slot.contacts = Some(Box::default());
+                                slot.powers = Some(Box::new(bfe_sim::combat::powers::PowerFrame::with_capacity(
+                                    bfe_presentation::layout::unit_limits::ACTORS,
+                                )));
+                                slot.hero_audio = Some(Box::default());
+                            }
+                        }
+                        for slot in &mut queue.free { slot.doors.reserve_exact(prepared.engine.space_door_count); }
+                        queue.acquire_slot()
+                    };
+                    let mut runtime = Runtime::new_into_slot(
                         *prepared.engine,
                         *prepared.admission,
                         CLOCK_START_MS,
@@ -577,13 +639,27 @@ impl WorldThread {
                         .lock()
                         .map_err(|_| "publication queue poisoned".to_string())?
                         .publish_slot(slot0);
-                    Ok((runtime, info))
+                    if info.mission_json.is_some() && recording.is_none() {
+                        // Post-load owns the opening rules tick. Queue its publication once, or
+                        // return the setup draw before handing over the scene.
+                        let mut queue = thread_shared.publications.lock()
+                            .map_err(|_| "publication queue poisoned".to_string())?;
+                        let mut opening = queue.acquire_slot();
+                        runtime.step_into_slot(&mut opening)?;
+                        queue.publish_slot(opening);
+                        thread_shared.latest_tick_bits.store(runtime.tick().to_bits(), Ordering::Release);
+                    }
+                    Ok((runtime, info, recording))
                 })();
                 match build_res {
-                    Ok((runtime, info)) => {
+                    Ok((runtime, info, recording)) => {
                         eprintln!("native world admission succeeded: player={} welcome queued", info.player_id);
                         let _ = admit_tx.send(Ok(info));
-                        run_world_loop(Box::new(runtime), thread_shared);
+                        if let Some(recording) = recording {
+                            recording::run(Box::new(runtime), thread_shared, recording);
+                        } else {
+                            run_world_loop(Box::new(runtime), thread_shared);
+                        }
                     }
                     Err(err) => {
                         eprintln!("native world admission failed: {err}");
@@ -677,7 +753,7 @@ impl WorldThread {
         }
         let mut count = 0usize;
         let mut failed = None;
-        for slot in self.draining.iter() {
+        for slot in self.draining.iter_mut() {
             if let Err(err) = Publication::new(&slot.block, &slot.bytes)
                 .map_err(str::to_string)
                 .and_then(|pub_view| pub_view.deliver(slot.client, receiver, now_ms))
@@ -685,6 +761,21 @@ impl WorldThread {
                 failed = Some(err);
                 break;
             }
+            if let Some(history) = &mut receiver.space { history.publish(&mut slot.space); }
+            receiver.mission_score = slot.mission_score;
+            if let Some(view)=&slot.mission_view { view.copy_into(&mut receiver.mission_view); }
+            receiver.infantry = slot.infantry;
+            if let Some(contacts) = slot.contacts.as_deref() {
+                **receiver.contacts.get_or_insert_with(Default::default) = *contacts;
+            } else { receiver.contacts = None; }
+            if let Some(powers) = slot.powers.as_deref() {
+                powers.copy_into(&mut receiver.powers);
+            } else { receiver.powers = None; }
+            if let Some(hero_audio) = slot.hero_audio.as_deref() {
+                **receiver.hero_audio.get_or_insert_with(Default::default) = *hero_audio;
+            } else { receiver.hero_audio = None; }
+            if let Some(view) = &mut receiver.infantry_view { view.publish(&receiver.own); }
+            receiver.doors.publish(slot.tick, &slot.doors);
             self.delivered += 1;
             count += 1;
         }
@@ -779,12 +870,16 @@ fn run_world_loop<E: Engine>(mut runtime: Box<Runtime<E>>, shared: Arc<SharedSta
             };
             let Some(msg) = msg else { break };
             let done = match msg {
-                WorldMessage::Step { command, look, flight, view_tick, fire_aim, flight_mode } => {
+                WorldMessage::Step { command, look, flight, view_tick, fire_aim, flight_mode, infantry, pilot } => {
                     shared.commands_taken.fetch_add(1, Ordering::Relaxed);
                     if command.tick <= runtime.tick() {
                         shared.commands_late.fetch_add(1, Ordering::Relaxed);
                     }
-                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim, flight_mode);
+                    let done = runtime.submit(&command, &look, &flight, view_tick, fire_aim, flight_mode).and_then(|()| {
+                        if let Some(input) = infantry { runtime.infantry_input(command.sequence, input) } else { Ok(()) }
+                    }).and_then(|()| {
+                        if let Some(input) = pilot { runtime.pilot_input(command.sequence, input) } else { Ok(()) }
+                    });
                     shared.commands_refused.store(runtime.refusals(), Ordering::Relaxed);
                     done
                 }

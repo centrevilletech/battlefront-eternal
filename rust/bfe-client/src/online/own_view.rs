@@ -435,3 +435,54 @@ mod tests {
         assert_eq!(walker.sample(&own, life, 1. / 60.).position, own.position);
     }
 }
+
+/// The local 2005 world publishes the player's actual movement, including rolls
+/// and combo overrides. Keep enough corrections to bracket the display clock.
+pub(crate) struct LocalInfantry {
+    history: std::collections::VecDeque<(f64, Soldier)>,
+    life: Option<(u32, u32)>,
+}
+
+impl LocalInfantry {
+    pub fn new() -> Self {
+        Self { history: std::collections::VecDeque::with_capacity(16), life: None }
+    }
+
+    pub fn publish(&mut self, own: &super::receiver::Own) {
+        let life = own.alive.then_some((own.id as u32, own.generation as u32));
+        if self.life != life {
+            self.history.clear();
+            self.life = life;
+        }
+        if life.is_none() || self.history.back().is_some_and(|(t, _)| *t >= own.tick) { return; }
+        if self.history.len() == self.history.capacity() { self.history.pop_front(); }
+        let posture = bfe_sim::gen::Posture::from_u8(own.posture as u8).unwrap_or_default();
+        let air = own.air.checked_sub(1).and_then(bfe_sim::gen::Air::from_u8);
+        let pose = Soldier { position: own.position, velocity: own.velocity, aim_yaw: own.yaw,
+            aim_pitch: own.pitch, posture, air, dive: own.dive, fuel: own.fuel, grounded: air.is_none(),
+            ..Default::default() };
+        self.history.push_back((own.tick, pose));
+    }
+
+    pub fn sample(&self, clock: f64) -> Option<Soldier> {
+        let (mut prev_tick, mut prev) = self.history.front().map(|(tick, pose)| (*tick, pose))?;
+        for (tick, next) in self.history.iter().skip(1) {
+            if clock <= *tick {
+                let alpha = ((clock - prev_tick) / (*tick - prev_tick)).clamp(0., 1.);
+                let mut body = next.clone();
+                for axis in 0..3 {
+                    body.position[axis] = prev.position[axis] + alpha * (next.position[axis] - prev.position[axis]);
+                    body.velocity[axis] = prev.velocity[axis] + alpha * (next.velocity[axis] - prev.velocity[axis]);
+                }
+                let delta = next.aim_yaw - prev.aim_yaw;
+                body.aim_yaw = prev.aim_yaw + alpha * V8::atan2(V8::sin(delta), V8::cos(delta));
+                body.aim_pitch = prev.aim_pitch + alpha * (next.aim_pitch - prev.aim_pitch);
+                body.fuel = prev.fuel + alpha * (next.fuel - prev.fuel);
+                return Some(body);
+            }
+            prev_tick = *tick;
+            prev = next;
+        }
+        Some(prev.clone())
+    }
+}

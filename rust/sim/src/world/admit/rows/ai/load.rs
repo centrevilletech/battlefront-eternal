@@ -25,26 +25,163 @@ impl AiAssets {
     /// loadAIData/loadAIWeaponData use optional loads. An empty successful
     /// ai.json remains present; its native parser decides whether it is valid.
     pub fn read(battle: &Battle, files: &dyn Files) -> Result<Self, AdmitError> {
-        let nav = format!("maps/{}/ai-nav.json", battle.map);
-        let navigation = if battle.nav.is_some() {
-            files
-                .read(&nav)
-                .ok_or_else(|| error("original AI navigation bytes unavailable"))?
-                .to_vec()
+        let (navigation, navigation_bin) = if battle.family == bfe_content::GameFamily::Swbf2 {
+            let navigation = encode_swbf2_nav(battle)?;
+            let navigation_bin = if navigation.is_empty() {
+                Vec::new()
+            } else {
+                battle
+                    .swbf2_planning_bin()
+                    .map(|b| b.to_vec())
+                    .unwrap_or_default()
+            };
+            (navigation, navigation_bin)
         } else {
-            Vec::new()
+            let nav = format!("maps/{}/ai-nav.json", battle.map);
+            let navigation = if battle.nav.is_some() {
+                files
+                    .read(&nav)
+                    .ok_or_else(|| error("original AI navigation bytes unavailable"))?
+                    .to_vec()
+            } else {
+                Vec::new()
+            };
+            let navigation_bin = battle
+                .nav_bin
+                .as_ref()
+                .map(|b| b.to_vec())
+                .unwrap_or_default();
+            (navigation, navigation_bin)
         };
-        let navigation_bin = battle
-            .nav_bin
-            .as_ref()
-            .map(|b| b.to_vec())
-            .unwrap_or_default();
         let weapon_data = super::super::weapon_policies::source(battle, files, &[]).data;
         Ok(Self {
             navigation,
             navigation_bin,
             weapon_data,
         })
+    }
+}
+
+fn encode_swbf2_nav(battle: &Battle) -> Result<Vec<u8>, AdmitError> {
+    let Some(swbf2) = battle.swbf2.as_ref() else {
+        return Ok(Vec::new());
+    };
+    let adm = &swbf2.map_admission;
+    let map_data = &adm.map_data;
+    let opt_field = |key: &str| map_data.get(key).filter(|v| !v.is_null());
+    let plan = opt_field("plan");
+    let groups = opt_field("planningGroups");
+    let boundary_paths = opt_field("boundaryPaths");
+    let mut out = Vec::with_capacity(64 * 1024);
+    out.extend_from_slice(br#"{"schema":2,"map":"#);
+    let _ = serde_json::to_writer(&mut out, &battle.map);
+    for (key, val) in [
+        ("plan", plan),
+        ("bounds", opt_field("bounds")),
+        ("planningGroups", groups),
+        ("boundaryPaths", boundary_paths),
+    ] {
+        if let Some(v) = val {
+            out.push(b',');
+            let _ = serde_json::to_writer(&mut out, key);
+            out.push(b':');
+            write_value_json(v, &mut out);
+        }
+    }
+    write_navigation_records(map_data, &adm.active_layers, &mut out)?;
+    out.extend_from_slice(br#","paths":["#);
+    for (i, p) in adm.paths.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        write_value_json(p, &mut out);
+    }
+    out.extend_from_slice(br#"],"regions":["#);
+    for (i, r) in adm.regions.iter().enumerate() {
+        if i > 0 {
+            out.push(b',');
+        }
+        write_value_json(r, &mut out);
+    }
+    out.extend_from_slice(b"]}");
+    Ok(out)
+}
+
+fn write_navigation_records(map: &Value, active: &[String], out: &mut Vec<u8>) -> Result<(), AdmitError> {
+    use crate::ai::nav::swbf2::records::RecordLimits;
+    let mut limits = RecordLimits::default();
+    for key in ["barriers", "hints"] {
+        out.push(b',');
+        serde_json::to_writer(&mut *out, key).unwrap();
+        out.extend_from_slice(b":[");
+        let layers = map.get("layers");
+        let scopes = std::iter::once((None, map)).chain(active.iter().filter_map(|layer| {
+            Some((Some(layer.as_str()), layers?.get(layer)?))
+        }));
+        let mut first = true;
+        for (layer, scope) in scopes {
+            let Some(value) = scope.get(key) else { continue };
+            let rows = value.as_array().ok_or_else(|| error("navigation records must be an array"))?;
+            limits.add(key, rows).map_err(error)?;
+            for (index, row) in rows.iter().enumerate() {
+                RecordLimits::check_index(row, index).map_err(error)?;
+                if row.get("sourceLayer").is_some() {
+                    return Err(error("navigation source layer is supplied by the containing package"));
+                }
+                if !first { out.push(b','); }
+                first = false;
+                if let Some(layer) = layer {
+                    limits.add_layer_name(layer).map_err(error)?;
+                    let mut fields = row.as_object().expect("validated navigation record").clone();
+                    fields.set(Rc::from("sourceLayer"), Value::str(layer));
+                    write_value_json(&Value::Object(Rc::new(fields)), out);
+                } else {
+                    write_value_json(row, out);
+                }
+            }
+        }
+        out.push(b']');
+    }
+    Ok(())
+}
+
+fn write_value_json(v: &Value, out: &mut Vec<u8>) {
+    match v {
+        Value::Null => out.extend_from_slice(b"null"),
+        Value::Bool(true) => out.extend_from_slice(b"true"),
+        Value::Bool(false) => out.extend_from_slice(b"false"),
+        Value::Number(n) => {
+            if n.is_finite() {
+                out.extend_from_slice(bfe_content::js::number_to_string(*n).as_bytes());
+            } else {
+                out.extend_from_slice(b"null");
+            }
+        }
+        Value::String(s) => {
+            let _ = serde_json::to_writer(&mut *out, s.as_ref());
+        }
+        Value::Array(items) => {
+            out.push(b'[');
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                write_value_json(item, out);
+            }
+            out.push(b']');
+        }
+        Value::Object(obj) => {
+            out.push(b'{');
+            for (i, (k, val)) in obj.entries().enumerate() {
+                if i > 0 {
+                    out.push(b',');
+                }
+                let _ = serde_json::to_writer(&mut *out, k);
+                out.push(b':');
+                write_value_json(val, out);
+            }
+            out.push(b'}');
+        }
     }
 }
 
@@ -413,4 +550,41 @@ pub fn roster_rows_with_pads(
         pads,
         hero_names,
     })
+}
+
+#[cfg(test)]
+mod navigation_records_tests {
+    use super::*;
+    use crate::ai::nav::swbf2::load_swbf2_nav;
+
+    #[test]
+    fn active_packages_keep_separate_source_indices_through_hint_expansion() {
+        let frame = [1,0,0,0,1,0,0,0,1,-11,3,2];
+        let hint = |index, kind| serde_json::json!({"sourceIndex":index,"type":kind,"xfrm":frame});
+        let mut ring = hint(1, "7");
+        ring["properties"] = serde_json::json!([["0dba4cb3", null, "3"]]);
+        let panel = serde_json::json!({"sourceIndex":0,"size":[2,1,4],"flags":17,"enabled":true,"xfrm":frame});
+        let world = serde_json::json!({
+            "hints":[hint(0, "8")],
+            "layers":{"east":{"hints":[hint(0, "unrecognized"),ring],"barriers":[panel]},
+                      "store":{"hints":[hint(0, "4")]}, "west":{"hints":[hint(0, "2")]}}
+        });
+        let map = bfe_content::json::parse_bytes(world.to_string().as_bytes()).unwrap();
+        let mut bytes = br#"{"schema":2"#.to_vec();
+        write_navigation_records(&map, &["east".into(), "west".into()], &mut bytes).unwrap();
+        bytes.push(b'}');
+        let source = bfe_content::json::parse_bytes(&bytes).unwrap();
+        let nav = load_swbf2_nav(&source, None, None).unwrap();
+        assert_eq!(nav.barriers.list[0].flags, 17);
+        let raw = source.get("hints").unwrap();
+        let origins: Vec<_> = nav.hints.list.iter().map(|h| {
+            let row = raw.at(h.source).unwrap();
+            (row.get("sourceLayer").and_then(Value::as_str), row.get("sourceIndex").unwrap().as_f64().unwrap() as usize)
+        }).collect();
+        let rings = origins.iter().filter(|v| **v == (Some("east"), 1)).count();
+        assert_eq!(origins.first(), Some(&(None, 0)));
+        assert_eq!(rings, 4);
+        assert_eq!(origins.last(), Some(&(Some("west"), 0)));
+        assert_eq!(origins.len(), 6);
+    }
 }

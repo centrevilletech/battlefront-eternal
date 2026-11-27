@@ -58,6 +58,7 @@ impl<T: BattleWorld + ?Sized> PostsWorld for T {
 /// The spawn manager's foreign actions; its teams, Characters, queues
 /// and class choices remain in the caller's store.
 pub trait SpawningWorld: PostsWorld {
+    fn unlimited_reinforcements(&mut self) -> bool { false }
     /// Clock reads only active/team/ally count. Native owners avoid building
     /// complete spawn paths merely to count locals; capture hosts can retain
     /// their full source observation sequence through the default reader.

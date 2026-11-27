@@ -34,3 +34,6 @@ pub use view::{
     fallback_logo_for_side, spawn_map_place, ClassicSpawnView, MapProjection, Spawn3dPlacement,
     SpawnLogoPlacement, SpawnMapPlacement, SpawnSound,
 };
+
+#[cfg(test)]
+mod launcher_tests;

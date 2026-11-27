@@ -1,0 +1,72 @@
+import { Theme } from "../theme.slint";
+import { LoadingPlanetText, LoadingWordText, PageText, TextRole } from "../components/typography.slint";
+
+// Positions are fractions of the same viewport as the picture and LED batch.
+export struct BackdropPlacement {
+    unit-width: float, title-x: float, title-y: float,
+    tip-x: float, tip-y: float, tip-width: float, tip-height: float,
+    word-left: float, word-bottom: float, word-opacity: float,
+}
+
+component TipText inherits PageText {
+    role: TextRole.note;
+    horizontal-alignment: left;
+    vertical-alignment: top;
+    wrap: word-wrap;
+}
+
+export component MapBackdropText inherits Rectangle {
+    in property <BackdropPlacement> placement;
+    in property <string> title-text;
+    in property <string> tip;
+    in property <string> word;
+    property <length> unit: min(self.width / 800, self.height / 600);
+    in property <string> probe-text;
+    in property <length> probe-width;
+    out property <length> tip-font-size: max(11px, 11 * root.unit);
+    out property <length> measured-height: measure.preferred-height;
+    property <length> outline: Theme.bf2 ? 2 * root.unit : 0px;
+    // Measure the same role at its native size before fitting a long label.
+    natural-word := LoadingWordText {
+        visible: false;
+        label: root.word;
+        unit: root.unit;
+    }
+    property <float> word-scale: min(1, 800 / 3 * root.unit / max(1px, natural-word.width + 2 * root.outline));
+    out property <float> word-width: (painted-word.width + 2 * root.outline * root.word-scale) / max(0.001px, root.unit);
+    background: transparent;
+    visible: !Theme.bf1;
+
+    LoadingPlanetText {
+        x: root.placement.title-x * root.width;
+        y: root.placement.title-y * root.height;
+        unit: root.unit;
+        label: root.title-text;
+    }
+
+    measure := TipText {
+        visible: false;
+        width: root.probe-width;
+        text: root.probe-text;
+        font-size: root.tip-font-size;
+        line-height-factor: root.unit < 0.65px ? 0.82 : 1;
+    }
+    TipText {
+        x: root.placement.tip-x * root.width;
+        y: root.placement.tip-y * root.height;
+        width: root.placement.tip-width * root.width;
+        height: root.placement.tip-height * root.height;
+        text: root.tip;
+        font-size: root.tip-font-size;
+        line-height-factor: root.unit < 0.65px ? 0.82 : 1;
+    }
+    painted-word := LoadingWordText {
+        x: root.placement.word-left * root.width + root.outline * root.word-scale;
+        y: root.placement.word-bottom * root.height - self.height;
+        label: root.word;
+        unit: root.unit * root.word-scale;
+        turn: 1;
+        tilt: 0deg;
+        opacity: root.placement.word-opacity;
+    }
+}

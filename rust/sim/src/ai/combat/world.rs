@@ -104,6 +104,11 @@ pub struct SoldierView {
     pub jet_jump: Js,
     pub jet_min_border: Js,
     pub fuel: Js,
+    /// The jetpack hovers (JetType hover), its fuel cost a second of flight and its fuel
+    /// cost at ignition.
+    pub jet_hover: bool,
+    pub jet_cost: f64,
+    pub jet_initial: f64,
     /// `soldier.maxSpeed` (the Enhanced aim's top speed).
     pub max_speed: Js,
 }
@@ -612,6 +617,27 @@ impl BoundPosture {
 
 /// What the AI's perception and combat code asks of the battle.
 pub trait World: Draws {
+    fn foot_engagement(&self, _unit: Obj, _choice: &mut Engagement) {}
+    fn saber_walk_clear(&mut self, unit: Obj, to: &Vector3) -> Option<bool> { self.nav_direct_clear(unit, to) }
+    /// Whether this battle runs the 2005 game's AI firing and selection rules.
+    fn uses_swbf2(&self) -> bool { false }
+    /// Effective AI skill (1..=20) for `team`.
+    fn team_skill(&self, _team: f64) -> f64 { self.difficulty().enemy_skill.unwrap_or(14.0) }
+    /// Effective AI skill (1..=20) of opponents targeting `team`.
+    fn opposing_team_skill(&self, team: f64) -> f64 { self.team_skill(team) }
+    /// Whether this unit's thrown melee blade is currently in its post-return reload cooldown.
+    fn melee_throw_reloading(&self, _unit: Obj) -> bool { false }
+    /// Rising-edge motion flags for the 2005 target aim-error sphere.
+    fn unit_evasion_flags(&self, _u: Obj) -> u8 { 0 }
+    /// Current 2005 target aim-error sphere radius for `target` (bot controller or human life).
+    fn target_aim_miss_radius(&self, target: Obj) -> Option<f64> {
+        self.unit_controller(target)
+            .and_then(|c| self.ctl(c).perception.as_ref().map(|p| p.miss.radius))
+    }
+    /// Whether `unit` is currently airborne in a jump or jet arc.
+    fn unit_airborne(&self, _u: Obj) -> bool { false }
+    /// Whether a 2005 melee combat leap segment is free of navigation barriers.
+    fn swbf2_leap_clear(&mut self, _unit: Obj, _from: &Vector3, _to: &Vector3) -> bool { true }
     // -- Clock and settings.
     /// `world.time ?? 0` (simulation time in seconds).
     fn time(&self) -> f64;
@@ -799,6 +825,14 @@ pub trait World: Draws {
     fn helper_terminate(&mut self, agent: Obj);
     /// `this.controller.requestJet?.(vector)`.
     fn request_jet(&mut self, controller: Obj, vector: &Vector3);
+    /// A 2005 bot's end-jet request (the game's jet pattern raises it when it ends): the
+    /// controller ends a burning jet on its next update. No effect without navigation control.
+    fn end_jet(&mut self, _controller: Obj) {}
+    /// A 2005 bot's melee leap: one jump along `vector`, with no jet after it (the game's leap
+    /// flag). Without its own service it is a jet request.
+    fn request_leap(&mut self, controller: Obj, vector: &Vector3) { self.request_jet(controller, vector) }
+    /// Where a 2005 bot's jet at a target steers while its body jets (None: no such jet).
+    fn steer_jet(&mut self, _controller: Obj, _point: Option<&Vector3>) {}
 
     // -- Squads.
     /// emitVo(ai, unit, { event, property }).

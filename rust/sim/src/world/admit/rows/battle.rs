@@ -13,6 +13,7 @@ pub mod stock;
 /// F4Live, F4Battle and F4Tail construction with the AI's activation and the
 /// local human's binding (game.js 3128-3160).
 pub mod live;
+pub(crate) mod rule_selection;
 /// The props' and hulls' bindings attachF3 reads, from the fleet stage's receipts.
 pub mod bindings;
 /// The animated props' rigs, births and grip classes (AnimatedProp, f4-live.js bindAnimated).
@@ -117,13 +118,26 @@ pub fn live(facts: &Facts) -> Result<F4LiveSetup, AdmitError> {
 /// classes deduplicates their union in first-use order, as the JS Set does.
 /// fallbackPath is the first own property, including an empty path array.
 pub fn tail(battle: &ContentBattle, options: &Options, facts: &Facts, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4TailSetup, AdmitError> {
-    tail_with_ready(&battle.world, battle.nav.as_ref(), options.enhanced, facts, &|name| {
+    let mut setup = tail_with_ready(&battle.world, battle.nav.as_ref(), options.enhanced, facts, &|name| {
         // PlayerBodies.sideOf takes the first side defining a class. Its
         // ready check tests that side's loaded model, not just the roster.
         let Some(side) = battle.sides.iter().find(|side| side.units.get(name).is_some_and(Value::truthy)) else { return false };
         let model = side.units.get(name).and_then(|def| def.get("model")).and_then(Value::as_str).unwrap_or("undefined");
         battle.bodies.iter().any(|(key, _)| key == &format!("{}/{model}", side.name))
-    }, intern)
+    }, intern)?;
+    if battle.family == bfe_content::GameFamily::Swbf2 && setup.boundary.polygons.is_empty() {
+        if let Some(swbf2) = battle.swbf2.as_ref() {
+            let adm = &swbf2.map_admission;
+            let polygons = crate::ai::nav::swbf2::load::boundary_edges_from_swbf2(
+                adm.map_data.get("boundaryPaths"),
+                &adm.paths,
+            );
+            setup.boundary = BfConfig {
+                polygons: polygons.into_iter().map(|edges| BfPolygon { edges }).collect(),
+            };
+        }
+    }
+    Ok(setup)
 }
 pub fn tail_from_content(world: &Value, nav: Option<&Value>, enhanced: bool, facts: &Facts, intern: &mut impl FnMut(&str) -> StrId) -> Result<F4TailSetup, AdmitError> {
     tail_with_ready(world, nav, enhanced, facts, &|_| true, intern)
@@ -189,7 +203,9 @@ pub fn roster(options: &Options, factions: &[f64], local: Option<Ref<Character>>
     // The AI's spawning roster names no properties, so the roster carries
     // empty fallback lists.
     let mut row = roster_from_names(None, factions, local, army_size, intern)?;
-    row.classic = options.bots.fielded;
+    // A 2005 battle's places are its spawn rules' with bots or without: a
+    // mission deploys every player from there.
+    row.classic = options.bots.fielded || options.family == bfe_family::GameFamily::Swbf2;
     row.has_ai = options.bots.fielded;
     Ok(row)
 }

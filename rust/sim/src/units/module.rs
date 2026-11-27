@@ -238,6 +238,28 @@ pub(crate) struct ModuleWorld<'w, 'a> {
     recon: Option<crate::units::f3::WorldServices<'a>>,
 }
 
+/// One soldier's own state, refused by a Battlefront II step, is that soldier's fault: it is
+/// counted and logged and the world goes on. Anything else (a family without its data, a bad
+/// timestep or class) is every soldier's and fails the step.
+fn is_soldier_fault(error: crate::movement::ProfileError, owned_infantry: bool) -> bool {
+    owned_infantry && error == crate::movement::ProfileError::InvalidState
+}
+
+#[cfg(test)]
+mod soldier_fault_tests {
+    use super::is_soldier_fault;
+    use crate::movement::ProfileError::*;
+
+    #[test]
+    fn only_a_refused_soldier_state_of_the_owned_infantry_is_contained() {
+        assert!(is_soldier_fault(InvalidState, true));
+        assert!(!is_soldier_fault(InvalidState, false));
+        for every_soldiers in [MissingStep, UnexpectedStep, InvalidDelta, InvalidTuning] {
+            assert!(!is_soldier_fault(every_soldiers, true), "{every_soldiers:?}");
+        }
+    }
+}
+
 impl<'w, 'a> ModuleWorld<'w, 'a> {
     pub(crate) fn sensor_in(w: &'w mut crate::world::owner::World, world: usize) -> Self {
         Self {
@@ -260,7 +282,50 @@ impl<'w, 'a> ModuleWorld<'w, 'a> {
                     Some(body) => vm::collision_world_in(self.w).and_then(|c| c.kernel_slot(body.slot)).map_or(-1, |k| k as i64),
                     None => -1,
                 };
-                tick_soldier_in(&mut self.w.movement, &mut self.w.collision.state, s, input, h, self.world, pass_through);
+                let reference = self.w.units.infantry.as_ref().map(|_| super::f3::unit_reference_in(&self.w.units, id));
+                let result = if let Some((reference, profile)) = reference.zip(self.w.units.infantry.as_mut()) {
+                    if let Some(feet) = self.w.space.as_deref().and_then(|sp| sp.terminal_feet(id, unit.generation)) {
+                        s.previous = s.position;
+                        s.position = feet;
+                        s.settled = feet;
+                        s.velocity = [0.;3];
+                        return;
+                    }
+                    let life = super::infantry::contact::LifeId {slot:id,slab:reference.gen,generation:unit.generation as u32};
+                    let registered = !unit.human && profile.bot_inputs.installation.is_some();
+                    let bot_frame = if registered {
+                        let defs = crate::combat::module::defs_in(&mut self.w.combat);
+                        let binding = super::infantry::bot_input::equipped(&mut unit.combat, &defs.weapons);
+                        profile.bot_inputs.take(profile.tick, life, binding)
+                    } else { None };
+                    let controls = if unit.human {
+                        let mut controls = self.w.input.mailboxes.get_mut(profile.mailbox as usize).map(|m| m.infantry_controls(life)).unwrap_or_default();
+                        // A network human's buttons reach the soldier through
+                        // his player shadow; a local one's through the mailbox
+                        // above.
+                        if let Some(shadow) = self.w.input.players.shadows.get_mut(id as usize) {
+                            if shadow.swbf2_life == unit.generation {
+                                shadow.swbf2.take_into(&mut controls);
+                            }
+                        }
+                        controls
+                    } else {
+                        bot_frame.map(|delivery| delivery.frame.controls()).unwrap_or_default()
+                    };
+                    let held = crate::combat::powers::held_in(self.w, crate::combat::powers::LifeKey { slot: id, generation: reference.gen, life: unit.generation });
+                    let profile = self.w.units.infantry.as_mut().unwrap();
+                    profile.advance(&mut self.w.movement, &mut self.w.collision.state, id, reference.gen, unit.class_name,
+                        unit.generation, unit.human, unit.alive && !unit.dead, controls, bot_frame, held, s, input, h, self.world, pass_through)
+                } else {
+                    tick_soldier_in(&mut self.w.movement, &mut self.w.collision.state, s, input, h, self.world, pass_through, None)
+                };
+                if let Err(error) = result {
+                    if is_soldier_fault(error, self.w.units.infantry.is_some()) {
+                        super::f3::soldier_fault_in(&mut self.w.units, id, error);
+                    } else {
+                        super::f3::fail_in(&mut self.w.units);
+                    }
+                }
             }
             UnitBody::Droideka(_) => {
                 let mut parts = self.droideka.as_ref().expect("the droideka's class and clips").parts();
@@ -274,6 +339,14 @@ impl<'w, 'a> ModuleWorld<'w, 'a> {
     // Definitions are borrowed shared handles, not copied content tables.
     // The native world services permit immediate hits and nested explosions.
     // The caller restores the combat row before publishing a boundary result.
+    // The released step: the buffered PlayerCombat.update solver alone, with no
+    // per-life soldier input, power or throw handling around it.
+    fn released_combat_update(&mut self, id: u32, unit: &mut Unit, h: f64, stick: f64) {
+        let mut scratch = std::mem::take(&mut self.scratch);
+        self.on_combat(id, unit, |c, u, defs, edges, w| cb::update_buffered(c, id, u, defs, h, stick, edges, w, &mut scratch));
+        self.scratch = scratch;
+    }
+
     fn on_combat(&mut self, id: u32, unit: &mut Unit, f: impl FnOnce(&mut Combat, &mut Unit, &cb::CombatDefs, &Edges, &mut JsWorld)) {
         // Damage can precede Unit.onMoved after an impact. Its barrier must
         // publish combat too rather than reusing the last consumed clocks.
@@ -327,7 +400,16 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
 
     fn move_soldier(&mut self, id: u32, unit: &mut Unit, h: f64) {
         let input = unit.input.clone();
-        self.move_body(id, unit, &input, h);
+        if self.w.space.is_none() || !crate::space::move_mounted(self.w, id, unit) {
+            self.move_body(id, unit, &input, h);
+        }
+    }
+
+    fn carried_in_space(&self, slot: u32, life: f64) -> bool {
+        self.w.space.is_some() && crate::space::carried(self.w, slot, life)
+    }
+    fn map_world_bounds(&self) -> Option<super::damage::MapWorldBounds> {
+        self.w.units.map_world_bounds
     }
 
     fn damage(&mut self, id: u32, unit: &mut Unit, amount: f64) {
@@ -426,10 +508,53 @@ impl UnitsWorld for ModuleWorld<'_, '_> {
     // Take the phase scratch only for the duration of the serial combat update.
     // The next unit reuses the same storage after this row is restored.
     fn combat_update(&mut self, id: u32, unit: &mut Unit, h: f64, stick: f64) {
+        // A battle without the per-life soldier profile (every 2004 battle) runs the released step.
+        if self.w.units.infantry.is_none() {
+            return self.released_combat_update(id, unit, h, stick);
+        }
 
-            let mut scratch = std::mem::take(&mut self.scratch);
-            self.on_combat(id, unit, |c, u, defs, edges, w| cb::update_buffered(c, id, u, defs, h, stick, edges, w, &mut scratch));
-            self.scratch = scratch;
+        let blocked = self.w.units.infantry.as_ref().is_some_and(|profile| {
+            profile.blocks_fire(id, unit.generation) || self.w.space().is_some_and(|s| {
+                crate::space::carried(self.w, id, unit.generation) || s.terminal_feet(id, unit.generation).is_some()
+            })
+        });
+        let reload_blocked = self.w.units.infantry.as_ref().is_some_and(|profile| {
+            profile.blocks_reload(id, unit.generation)
+        });
+        let buttons = unit.intent.buttons;
+        if blocked {
+            unit.intent.buttons.fill(0.);
+            unit.controls.pressed.fill(false);
+        }
+        if reload_blocked {
+            unit.intent.reload = false;
+        }
+        let infantry = self.w.units.infantry.is_some();
+        let offhand = self.w.units.infantry.as_mut().is_some_and(|i| i.offhand_edge(id, unit.generation, unit.human, buttons[1] > 0.));
+        let mut throw = false;
+        let mut power = None;
+        let mut scratch = std::mem::take(&mut self.scratch);
+        let class = self.w.units.infantry.as_ref().and_then(|i| i.class_of(id, unit.generation));
+        let powers = class.map(|class| super::infantry::kit_slots(self.w, class)).unwrap_or([None; crate::combat::powers::MAX_POWERS]);
+        self.on_combat(id, unit, |c, u, defs, edges, w| {
+            if infantry && !blocked {
+                let (t, p) = super::infantry::mask_special_actions(c, u, &defs.weapons, offhand, &powers);
+                throw = t;
+                power = p;
+            }
+            let result = cb::update_buffered(c, id, u, defs, h, stick, edges, w, &mut scratch);
+            // The selected offhand power, whether or not its trigger is down.
+            if infantry && power.is_none() {
+                power = super::infantry::offhand_power(c, &defs.weapons, &powers);
+            }
+            result
+        });
+        self.scratch = scratch;
+        if infantry { unit.intent.buttons = buttons; }
+        if throw { self.w.units.infantry.as_mut().unwrap().request_throw(id); }
+        if let Some(i) = self.w.units.infantry.as_mut() {
+            i.set_power_input(id, unit.generation, super::infantry::power_input(offhand && !blocked, buttons[1] > 0. && !blocked, power));
+        }
 
     }
 

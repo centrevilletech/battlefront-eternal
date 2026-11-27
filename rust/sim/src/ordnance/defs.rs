@@ -270,6 +270,35 @@ impl ItemDef {
     }
 }
 
+/// Additional ordnance tuning fields used by Battlefront II (2005) projectiles.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Swbf2OrdnanceTuning {
+    pub damage_final: Option<f64>,
+    pub damage_transition_delay: f64,
+    pub damage_transition_period: f64,
+    pub range: Option<f64>,
+    pub pass_through: bool,
+    pub min_speed: Option<f64>,
+    pub acceleration: f64,
+}
+
+impl Swbf2OrdnanceTuning {
+    /// Linearly transitions direct-hit damage from `base_damage` to
+    /// `damage_final` once flight `age` exceeds `damage_transition_delay`.
+    pub fn scaled_damage(&self, base_damage: f64, age: f64) -> Option<f64> {
+        let final_damage = self.damage_final.filter(|v| v.is_finite() && *v >= 0.0)?;
+        if !age.is_finite() || age <= self.damage_transition_delay {
+            return None;
+        }
+        let t = if self.damage_transition_period > 0.0 {
+            ((age - self.damage_transition_delay) / self.damage_transition_period).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        Some(base_damage + (final_damage - base_damage) * t)
+    }
+}
+
 /// The battle's definitions the rounds and items read, by index, and its
 /// item pools (`pools`: how many items of each base the world
 /// holds at most, power-ups 25 and mines 50 unless the mission says).
@@ -279,6 +308,7 @@ pub struct Defs {
     pub explosion: Vec<ExplosionDef>,
     pub item: Vec<ItemDef>,
     pub pools: Vec<(String, Field)>,
+    pub swbf2_tuning: Vec<Swbf2OrdnanceTuning>,
 }
 
 impl Defs {
@@ -290,6 +320,9 @@ impl Defs {
     }
     pub fn item(&self, id: DefId) -> &ItemDef {
         &self.item[id.0 as usize]
+    }
+    pub fn swbf2_tuning(&self, id: DefId) -> Option<&Swbf2OrdnanceTuning> {
+        self.swbf2_tuning.get(id.0 as usize)
     }
 
     /// `pools[base] ?? Infinity`.
@@ -323,5 +356,63 @@ mod tests {
         assert_eq!(e.damage_at(4.0, &Field::Str("Droid".into())), 100.0 * 0.5 * 0.5);
         assert_eq!(e.damage_at(1.0, &Field::Undefined), 100.0);
         assert_eq!(e.damage_at(7.0, &Field::Undefined), 0.0);
+    }
+
+    #[test]
+    fn swbf2_flight_age_damage_transitions_up_and_down() {
+        let falloff = Swbf2OrdnanceTuning {
+            damage_final: Some(40.0),
+            damage_transition_delay: 0.3,
+            damage_transition_period: 0.2,
+            ..Default::default()
+        };
+        assert_eq!(falloff.scaled_damage(120.0, 0.0), None);
+        assert_eq!(falloff.scaled_damage(120.0, 0.3), None);
+        assert!((falloff.scaled_damage(120.0, 0.4).unwrap() - 80.0).abs() < 1e-9);
+        assert_eq!(falloff.scaled_damage(120.0, 0.5), Some(40.0));
+        assert_eq!(falloff.scaled_damage(120.0, 1.2), Some(40.0));
+
+        let ramp = Swbf2OrdnanceTuning {
+            damage_final: Some(180.0),
+            damage_transition_delay: 0.0,
+            damage_transition_period: 0.4,
+            ..Default::default()
+        };
+        assert_eq!(ramp.scaled_damage(60.0, 0.0), None);
+        assert!((ramp.scaled_damage(60.0, 0.2).unwrap() - 120.0).abs() < 1e-9);
+        assert_eq!(ramp.scaled_damage(60.0, 0.6), Some(180.0));
+
+        let step = Swbf2OrdnanceTuning {
+            damage_final: Some(25.0),
+            damage_transition_delay: 0.25,
+            damage_transition_period: 0.0,
+            ..Default::default()
+        };
+        assert_eq!(step.scaled_damage(90.0, 0.25), None);
+        assert_eq!(step.scaled_damage(90.0, 0.26), Some(25.0));
+
+        assert_eq!(Swbf2OrdnanceTuning::default().scaled_damage(90.0, 1.0), None);
+    }
+
+    #[test]
+    fn negative_damage_final_disables_damage_transition() {
+        let sentinel = Swbf2OrdnanceTuning {
+            damage_final: Some(-1.0),
+            damage_transition_delay: 0.0,
+            damage_transition_period: 0.25,
+            ..Default::default()
+        };
+        assert_eq!(sentinel.scaled_damage(45.0, 0.0), None);
+        assert_eq!(sentinel.scaled_damage(45.0, 0.2), None);
+        assert_eq!(sentinel.scaled_damage(45.0, 2.0), None);
+        // Zero final damage is valid and ramps damage down to 0.
+        let to_zero = Swbf2OrdnanceTuning {
+            damage_final: Some(0.0),
+            damage_transition_delay: 0.1,
+            damage_transition_period: 0.4,
+            ..Default::default()
+        };
+        assert!((to_zero.scaled_damage(80.0, 0.3).unwrap() - 40.0).abs() < 1e-9);
+        assert_eq!(to_zero.scaled_damage(80.0, 0.5), Some(0.0));
     }
 }

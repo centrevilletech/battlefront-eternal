@@ -399,6 +399,7 @@ pub fn relations(team_count: usize, mut relation: impl FnMut(f64,f64)->f64) -> R
 pub trait Definitions: super::recon::Definitions {
     fn item(&mut self, def: &Value) -> Result<DefId,AdmitError>;
     fn has_lightning(&self, name: &str) -> bool;
+    fn is_swbf2(&self) -> bool { false }
 }
 
 /// F3.prepareWeapons uses a WeakSet of base definitions, and a separate recon
@@ -411,12 +412,23 @@ impl Weapons {
         let id = bfe_content::defs::identity(base).ok_or_else(||error("weapon service has no object identity"))?;
         if self.sent.iter().any(|v|bfe_content::defs::identity(v)==Some(id)) {return Ok(Vec::new())}
         let mut calls = self.recon.prepare(base,definitions,muzzle)?.into_iter()
-            .map(|(_,name,call)|Export {name,arguments:Vec::new(),call}).collect::<Vec<_>>();
+            .map(|(_,name,call)|Export {name,arguments:call.args.clone(),call}).collect::<Vec<_>>();
         // Every level retains its base channel/bank. Only ordnance, item,
         // lightning and lock facts are read from the merged charge definition.
+        let swbf2 = definitions.is_swbf2();
         let mut services = Vec::new();
-        for level in weapon_levels(base)? {
+        let mut secondary: Vec<(u32, DefId, u32)> = Vec::new();
+        for (level_idx, level) in weapon_levels(base)?.into_iter().enumerate() {
             let ordnance = level.get("ordnance").filter(|v|!matches!(v,Value::Null)).map(|v|definitions.ordnance(v)).transpose()?;
+            if swbf2 {
+                if let Some(sec) = level.get("secondaryOrdnance").filter(|v| v.as_object().is_some()) {
+                    let sec_id = definitions.ordnance(sec)?;
+                    let period = optional_number(&level, "SecondaryOrdnancePeriod")
+                        .filter(|v| v.is_finite() && *v >= 1.0)
+                        .map_or(1, |v| v.floor() as u32);
+                    secondary.push((level_idx as u32, sec_id, period));
+                }
+            }
             let item = level.get("item").filter(|v|!matches!(v,Value::Null)).map(|v|definitions.item(v)).transpose()?;
             let lightning = level.get("ordnance").map(|v|text_truthy(v,"LightningEffect","")).unwrap_or("");
             let has_lightning = !lightning.is_empty() && definitions.has_lightning(lightning);
@@ -427,6 +439,18 @@ impl Weapons {
         let (_,encoded)=service.clone().into_call();
         definitions.emit(service.name,&encoded);
         calls.push(service);
+        for (level_idx, sec_id, period) in secondary {
+            let sec_call = Call {
+                args: vec![weapon.0 as f64, level_idx as f64, sec_id.0 as f64, period as f64],
+                ..Default::default()
+            };
+            definitions.emit(crate::units::f3::SWBF2_SECONDARY_ORDNANCE_EXPORT, &sec_call);
+            calls.push(Export {
+                name: crate::units::f3::SWBF2_SECONDARY_ORDNANCE_EXPORT,
+                arguments: sec_call.args.clone(),
+                call: sec_call,
+            });
+        }
         // Retain the source Rc as well as its identity: releasing it here
         // would let an allocator reuse that address for a different definition.
         self.sent.push(base.clone());
@@ -568,6 +592,13 @@ pub fn build_bound_with(cx: &mut super::Cx<'_>, bindings: &InitialBindings,
     // six-team fallback, including neutral team zero on its own diagonal.
     let relation_rows=relations(0,|a,b|if a==0.0||b==0.0 {0.0}else if a==b {1.0}else{-1.0})?;
     calls.push(in_context(cx,|_,_|Ok(Entry::Relations(relation_rows)))?);
+    if cx.battle.family == bfe_content::GameFamily::Swbf2 {
+        for (id, def) in &bindings.ordnance {
+            if let Some(call) = swbf2_ordnance_tuning_call(*id, def) {
+                calls.push((Stage::Units, crate::ordnance::module::SWBF2_ORDNANCE_TUNING_EXPORT, call));
+            }
+        }
+    }
     Ok(calls)
 }
 
@@ -693,6 +724,35 @@ fn export(entry:Entry,strings:&crate::store::Strings)->Result<super::combat::Exp
     Ok(super::combat::ExportCall {name,call,string_count:Some(strings.list.len())})
 }
 
+fn swbf2_ordnance_tuning_call(id: DefId, def: &Value) -> Option<Call> {
+    let damage_final = optional_number(def, "DamageFinalDamage").filter(|v| v.is_finite() && *v >= 0.0);
+    let delay = optional_number(def, "DamageTransitionDelay").filter(|v| v.is_finite()).unwrap_or(0.0);
+    let period = optional_number(def, "DamageTransitionPeriod").filter(|v| v.is_finite()).unwrap_or(0.0);
+    let range = optional_number(def, "Range").filter(|v| v.is_finite() && *v > 0.0);
+    let pass_through = optional_number(def, "PassThrough").is_some_and(|v| v != 0.0 && !v.is_nan());
+    let min_speed = optional_number(def, "MinSpeed").filter(|v| v.is_finite() && *v > 0.0);
+    let acceleration = optional_number(def, "Acceleration")
+        .or_else(|| optional_number(def, "acceleration"))
+        .filter(|v| v.is_finite() && *v > 0.0)
+        .unwrap_or(0.0);
+    if damage_final.is_none() && range.is_none() && !pass_through && min_speed.is_none() && acceleration == 0.0 {
+        return None;
+    }
+    Some(Call {
+        args: vec![
+            id.0 as f64,
+            damage_final.unwrap_or(f64::NAN),
+            delay,
+            period,
+            range.unwrap_or(f64::NAN),
+            if pass_through { 1.0 } else { 0.0 },
+            min_speed.unwrap_or(f64::NAN),
+            acceleration,
+        ],
+        ..Default::default()
+    })
+}
+
 // F1 notifies nativeServices immediately after each definition. A nested
 // explosion therefore registers combat and its F3 binding before its parent.
 pub(crate) fn prepared(content:&Content,groups:&mut ItemGroups,combat:&mut super::combat::CombatRows,
@@ -700,7 +760,19 @@ pub(crate) fn prepared(content:&Content,groups:&mut ItemGroups,combat:&mut super
     calls:&mut Vec<super::combat::ExportCall>)->Result<(),AdmitError> {
     use super::ordnance::Prepared;
     let row=match kind {
-        Prepared::Ordnance=>Entry::HitPolicy(hit_policy(id,def)),
+        Prepared::Ordnance=>{
+            calls.push(export(Entry::HitPolicy(hit_policy(id,def)),strings)?);
+            if content.battle.family == bfe_content::GameFamily::Swbf2 {
+                if let Some(call) = swbf2_ordnance_tuning_call(id, def) {
+                    calls.push(super::combat::ExportCall {
+                        name: crate::ordnance::module::SWBF2_ORDNANCE_TUNING_EXPORT,
+                        call,
+                        string_count: Some(strings.list.len()),
+                    });
+                }
+            }
+            return Ok(());
+        },
         Prepared::Explosion=>{
             let blast=combat.explosion(def,strings)?;
             calls.append(&mut combat.calls);
@@ -753,6 +825,7 @@ impl Definitions for Services<'_> {
         self.calls.append(&mut self.bindings.items.calls);Ok(id)
     }
     fn has_lightning(&self,name:&str)->bool {has_lightning(&self.content.battle,name)}
+    fn is_swbf2(&self)->bool {self.content.battle.family == bfe_content::GameFamily::Swbf2}
 }
 impl Services<'_> {
     fn field(&mut self,value:Option<&Value>)->Result<[f64;2],AdmitError> {

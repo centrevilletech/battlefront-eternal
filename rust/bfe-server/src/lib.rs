@@ -10,6 +10,7 @@
 //! - [`master_client`]: HTTPS master directory and `/v1/signal` WebSocket client.
 //! - [`net_metrics`]: sliding-window and lifetime transport metrics.
 //! - [`network_contract`]: `NETWORK_CONTRACT` ABI and wire compatibility validation.
+//! - [`notices`]: what a scripted 2005 battle's mission announces, to each player, reliably and in order.
 //! - [`online_server`]: directory registration, dual-family heartbeats, STUN NAT detection, and rendezvous.
 //! - [`operator`]: bundled `rusqlite` `operator.sqlite` store (`bans`, `scores`, `audit`) and loopback `/admin` + `/healthz` HTTP server.
 //! - [`udp_peer`]: server-side `BFE-UDP/1` peer state, `BNI1`/`BNA1` framing, `120 ms`/`50 ms` congestion hysteresis, and `StateBudget`.
@@ -22,11 +23,14 @@ pub mod cli;
 pub mod config;
 pub mod game_session;
 pub mod identity;
+pub mod inbound;
 pub mod lan;
+pub mod lobby;
 pub mod local_server;
 pub mod master_client;
 pub mod net_metrics;
 pub mod network_contract;
+pub mod notices;
 pub mod online_server;
 pub mod operator;
 mod sockets;

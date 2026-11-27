@@ -67,7 +67,9 @@ pub fn launcher_script(executable: &Path) -> String {
     .join("\n")
 }
 
-fn write_if_changed(file: &Path, content: &[u8], mode: u32) -> io::Result<bool> {
+fn write_if_changed(
+    file: &Path, content: &[u8], mode: u32, before_rename: impl FnOnce() -> io::Result<()>,
+) -> io::Result<bool> {
     if fs::read(file).ok().as_deref() == Some(content) {
         return Ok(false);
     }
@@ -83,7 +85,10 @@ fn write_if_changed(file: &Path, content: &[u8], mode: u32) -> io::Result<bool> 
     }
     #[cfg(not(unix))]
     let _ = mode;
-    fs::rename(&temp, file)?;
+    if let Err(e) = before_rename().and_then(|()| fs::rename(&temp, file)) {
+        let _ = fs::remove_file(&temp);
+        return Err(e);
+    }
     Ok(true)
 }
 
@@ -95,16 +100,20 @@ pub fn integrate(appimage: &Path, icon: &Path, data: &Path, bin: &Path) -> io::R
         &data.join("icons/hicolor/512x512/apps").join(format!("{ID}.png")),
         &icon_bytes,
         0o644,
+        || Ok(()),
     )?;
     let entry = write_if_changed(
         &data.join("applications").join(format!("{ID}.desktop")),
         desktop_entry(appimage).as_bytes(),
         0o755,
+        || Ok(()),
     )?;
     let command_file = bin.join("battlefront");
     let command = match fs::read_to_string(&command_file) {
         Ok(existing) if !existing.contains(MARKER) => None,
-        _ => Some(write_if_changed(&command_file, launcher_script(appimage).as_bytes(), 0o755)?),
+        _ => Some(write_if_changed(&command_file, launcher_script(appimage).as_bytes(), 0o755, || {
+            bfe_storage::preserve_unreadable_text(&command_file, |_| true).map(|_| ())
+        })?),
     };
     Ok(Outcome { icon, entry, command })
 }
