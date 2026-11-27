@@ -1,0 +1,22 @@
+[package]
+name = "bfe-family"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Which game a map, its rules and its interface belong to: Star Wars: Battlefront (2004) or Battlefront II (2005)."
+
+# A plain library with no engine dependencies, so every crate can name a family.
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+
+# `bfe_dev_online` compiles the developer switch for online play. Nothing in the
+# repository sets it (`src/dev_online.rs`).
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(bfe_dev_online)"] }

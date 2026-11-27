@@ -500,6 +500,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-family"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bfe-interface"
 version = "0.1.0"
 dependencies = [
@@ -607,6 +615,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "bfe-storage"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "bfe-test-alloc"
+version = "0.1.0"
+
+[[package]]
+name = "bfe-test-gate"
+version = "0.1.0"
+dependencies = [
+ "bfe-family",
+]
+
+[[package]]
 name = "bfe-transport"
 version = "0.1.0"
 dependencies = [
@@ -638,6 +666,10 @@ dependencies = [
  "bink-decoder",
  "serde_json",
 ]
+
+[[package]]
+name = "bfe-wide"
+version = "0.1.0"
 
 [[package]]
 name = "bincode"

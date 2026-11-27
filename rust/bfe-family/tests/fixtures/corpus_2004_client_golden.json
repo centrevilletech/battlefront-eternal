@@ -1,0 +1,5076 @@
+[
+  {
+    "host": false,
+    "ia": null,
+    "id": " ",
+    "input": " ",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": " "
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1"
+    },
+    "id": "hot1",
+    "input": "hot1",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "SWBF1/NAB2",
+    "input": "SWBF1/NAB2:REP:CONQUEST",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "NAB2",
+      "mode": "CONQUEST",
+      "side": "REP"
+    },
+    "next": "SWBF1/NAB2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "NAB2",
+    "input": "swbf1/NAB2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "NAB2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:REP:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "REP"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:ConQuest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "ConQuest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": " swbf1/nab2",
+    "input": " swbf1/nab2:rep:conquest ",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest ",
+      "side": "rep"
+    },
+    "next": " SWBF1/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2: rep:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": " rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": " nab2",
+    "input": "swbf1/ nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": " nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": " NAB2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "SWBF1 /nab2",
+    "input": "SWBF1 /nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF1 /NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cw",
+    "input": "swbf1/nab2/cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/gcw",
+    "input": "swbf1/nab2/gcw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/GCW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/CW",
+    "input": "swbf1/nab2/CW",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cis",
+    "input": "swbf1/nab2/cis",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CIS"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/all",
+    "input": "swbf1/nab2/all",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/ALL"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/hutt",
+    "input": "swbf1/nab2/hutt",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/HUTT"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/",
+    "input": "swbf1/nab2/",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf2/tat2/gcw",
+    "input": "swbf2/tat2/gcw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF2/TAT2/GCW"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf2/tat2:gcw:eli",
+      "query": "?map=tat2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/tat2:gcw:eli"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf2",
+          "map": "spa6",
+          "mode": "ass"
+        }
+      ],
+      "prefixed": "swbf2/spa6:cw:ass",
+      "query": "?map=spa6&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/spa6:cw:ass"
+    },
+    "id": "swbf2/spa6",
+    "input": "swbf2/spa6:cw:ass",
+    "join": {
+      "era": "cw",
+      "family": "swbf2",
+      "map": "spa6",
+      "mode": "ass",
+      "side": "cw"
+    },
+    "next": "SWBF2/SPA6"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:conquest",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:conquest"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf3/nab2",
+    "input": "swbf3/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF3/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "mod-one",
+    "input": "mod-one:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "mod-one",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MOD-ONE"
+  },
+  {
+    "host": true,
+    "ia": null,
+    "id": "mod-one",
+    "input": "swbf1/mod-one:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "mod-one",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MOD-ONE"
+  },
+  {
+    "host": true,
+    "ia": null,
+    "id": "mod_one",
+    "input": "swbf1/mod_one:cis:custom-mode",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "mod_one",
+      "mode": "custom-mode",
+      "side": "cis"
+    },
+    "next": "MOD_ONE"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "hutt",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:hutt:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:hutt"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:hutt:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "hutt"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:local-team:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "local-team"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:r%65p:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "r%65p"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:my mode",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "my mode",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:étoile",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "étoile",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:duel%2D1",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "duel%2D1",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:conquest:extra",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "nab2:rep:conquest:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2::eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "hot1",
+    "input": "hot1::eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "hot1",
+    "input": "hot1::",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:gcw:conquest",
+      "query": "?map=hot1&side=all&era=gcw&ai=classic&seed=1",
+      "short": "hot1:gcw"
+    },
+    "id": "hot1",
+    "input": "hot1:gcw:",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "gcw"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "bad",
+    "input": "bad:x:y",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "bad",
+      "mode": "y",
+      "side": "x"
+    },
+    "next": "BAD"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "étoile",
+    "input": "swbf1/étoile:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "étoile",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "éTOILE"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest,swbf1/hot1:gcw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw,hot1:gcw"
+    },
+    "id": "nab2",
+    "input": "nab2:cw,hot1:gcw",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "gcw",
+      "side": "cw,hot1"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw"
+    },
+    "id": "hot1",
+    "input": "hot1::,nab2:cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "mods/nab2",
+    "input": "mods/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MODS/NAB2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "conquest",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:conquest:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:conquest"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "conquest"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "nab2:rep:weird-mode",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "weird-mode",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:duel",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:duel"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:duel",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "duel",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:rep:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cis"
+    },
+    "id": "nab2",
+    "input": "nab2:cis:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:cis:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:cis:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:all"
+    },
+    "id": "nab2",
+    "input": "nab2:all:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:all:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:all:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:imp"
+    },
+    "id": "nab2",
+    "input": "nab2:imp:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:imp:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:imp:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw"
+    },
+    "id": "nab2",
+    "input": "nab2:cw:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:cw:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:cw:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gcw:conquest",
+      "query": "?map=nab2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "nab2:gcw"
+    },
+    "id": "nab2",
+    "input": "nab2:gcw:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gcw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gcw:eli",
+      "query": "?map=nab2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf1/nab2:gcw:eli"
+    },
+    "id": "nab2",
+    "input": "nab2:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cis"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cis:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:cis:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cis:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:all"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:all:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:all:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:all:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:imp"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:imp:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:imp:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:imp:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cw:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:cw:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cw:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gcw:conquest",
+      "query": "?map=nab2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "nab2:gcw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:gcw:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gcw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gcw:eli",
+      "query": "?map=nab2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf1/nab2:gcw:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:cw:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1:cw"
+    },
+    "id": "hot1",
+    "input": "hot1:cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "cw"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:rep:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1:rep"
+    },
+    "id": "hot1",
+    "input": "hot1:rep",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:imp:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1:imp"
+    },
+    "id": "hot1",
+    "input": "hot1:imp",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "hutt",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:hutt:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1:hutt"
+    },
+    "id": "hot1",
+    "input": "hot1:hutt",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "hutt"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1"
+    },
+    "id": "hot1",
+    "input": "hot1:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/hot1:imp:conquest",
+      "query": "?map=hot1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "hot1:imp"
+    },
+    "id": "hot1",
+    "input": "swbf1/hot1:imp:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "hot1",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(hot1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:cis:conquest:backup",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/rand",
+    "input": "swbf1/nab2/rand",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/RAND"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "ewk",
+          "family": "swbf1",
+          "map": "end1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/end1:ewk:conquest",
+      "query": "?map=end1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "end1:ewk"
+    },
+    "id": "end1",
+    "input": "swbf1/end1:ewk:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "end1",
+      "mode": "conquest",
+      "side": "ewk"
+    },
+    "next": "name(end1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "ewk",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:ewk:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:ewk"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:ewk:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "ewk"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/imp",
+    "input": "swbf1/nab2/imp",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/IMP"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "hot1/XYZ",
+    "input": "swbf1/hot1/XYZ",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "HOT1/XYZ"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:cis:conquest:old",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest,swbf1/hot1:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep,hot1:imp"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:conquest, swbf1/hot1:imp:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest, swbf1/hot1",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "geo1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/geo1:rep:conquest",
+      "query": "?map=geo1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "geo1:rep"
+    },
+    "id": "geo1",
+    "input": "swbf1/geo1:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "geo1",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(geo1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf2/tat2:eli",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:eli"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2::eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "eli",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:eli:conquest",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:eli:conquest"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "conquest",
+      "side": "eli"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "eli",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:eli:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "eli"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab%32",
+    "input": "swbf1/nab%32:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab%32",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB%32"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "%6Eab2",
+    "input": "swbf1/%6Eab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "%6Eab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "%6EAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:duel:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "duel",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:capture-the-flag",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "capture-the-flag",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf2/tat2:gcw:eli",
+      "query": "?map=tat2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/tat2:gcw:eli"
+    },
+    "id": "swbf2/TAT2",
+    "input": "swbf2/TAT2:GCW:ELI",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "TAT2",
+      "mode": "ELI",
+      "side": "GCW"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:imp"
+    },
+    "id": "\tswbf1/nab2",
+    "input": "\tswbf1/nab2:imp:conquest\t",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest\t",
+      "side": "imp"
+    },
+    "next": "\tSWBF1/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "/nab2",
+    "input": "/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cw/extra",
+    "input": "swbf1/nab2/cw/extra",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW/EXTRA"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf2//",
+    "input": "swbf2//:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "/",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "SWBF2//"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "mod_x07",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/mod_x07:rep:conquest",
+      "query": "?map=mod_x07&side=rep&era=cw&ai=classic&seed=1",
+      "short": "mod_x07:rep"
+    },
+    "id": "mod_x07",
+    "input": "swbf1/mod_x07:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "mod_x07",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MOD_X07"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "custom_side",
+          "family": "swbf1",
+          "map": "mod_x07",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/mod_x07:custom_side:duel",
+      "query": "?map=mod_x07&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/mod_x07:custom_side:duel"
+    },
+    "id": "mod_x07",
+    "input": "swbf1/mod_x07:custom_side:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "mod_x07",
+      "mode": "duel",
+      "side": "custom_side"
+    },
+    "next": "MOD_X07"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        },
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest,swbf1/hot1:gcw:conquest,swbf1/nab2:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw,hot1:gcw,nab2"
+    },
+    "id": "nab2",
+    "input": "nab2:cw,hot1:gcw,nab2",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "gcw,nab2",
+      "side": "cw,hot1"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:cis:conquest:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "ewk",
+          "family": "swbf1",
+          "map": "end1",
+          "mode": "conquest"
+        },
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/end1:ewk:conquest,swbf1/hot1:imp:conquest",
+      "query": "?map=end1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "end1:ewk,hot1:imp"
+    },
+    "id": "end1",
+    "input": "swbf1/end1:ewk:conquest,swbf1/hot1:imp:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "end1",
+      "mode": "conquest,swbf1/hot1",
+      "side": "ewk"
+    },
+    "next": "name(end1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2"
+    },
+    "id": "nab2",
+    "input": "nab2",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "swbf1/:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2::conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "hot1/gcw",
+    "input": "swbf1/hot1/gcw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "HOT1/GCW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "geo1/cw",
+    "input": "swbf1/geo1/cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "GEO1/CW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "tat2/rep",
+    "input": "swbf1/tat2/rep",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "TAT2/REP"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "tat2/all",
+    "input": "swbf1/tat2/all",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "TAT2/ALL"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cw/conquest",
+    "input": "swbf1/nab2/cw/conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW/CONQUEST"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cw",
+    "input": "nab2/cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/gcw",
+    "input": "nab2/gcw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/GCW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2/cw",
+    "input": "swbf1/nab2/cw:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2/CW"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cis"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cis",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:all"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:all",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:imp"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:imp",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gcw:conquest",
+      "query": "?map=nab2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "nab2:gcw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:gcw",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gcw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:conquest:extra:five",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "nab2:rep",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:rep:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:rep:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:rep:duel",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "rep"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cis:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cis"
+    },
+    "id": "nab2",
+    "input": "nab2:cis",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "cis"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "cis",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:cis:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:cis:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:cis:duel",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "cis"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:all:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:all"
+    },
+    "id": "nab2",
+    "input": "nab2:all",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "all"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "all",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:all:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:all:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:all:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "all"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:imp:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:imp"
+    },
+    "id": "nab2",
+    "input": "nab2:imp",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "imp",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:imp:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:imp:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:imp:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "imp"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "ewk",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:ewk:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:ewk"
+    },
+    "id": "nab2",
+    "input": "nab2:ewk",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "ewk"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "ewk",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:ewk:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:ewk:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:ewk:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "ewk"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gar",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gar:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:gar"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:gar:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gar"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gar",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gar:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:gar"
+    },
+    "id": "nab2",
+    "input": "nab2:gar",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gar"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gar",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:gar:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:gar:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:gar:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "gar"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "geo",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:geo:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:geo"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:geo:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "geo"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "geo",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:geo:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:geo"
+    },
+    "id": "nab2",
+    "input": "nab2:geo",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "geo"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "geo",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:geo:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:geo:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:geo:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "geo"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gun",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gun:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:gun"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:gun:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gun"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gun",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:gun:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:gun"
+    },
+    "id": "nab2",
+    "input": "nab2:gun",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "gun"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gun",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:gun:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:gun:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:gun:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "gun"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "jaw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:jaw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:jaw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:jaw:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "jaw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "jaw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:jaw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:jaw"
+    },
+    "id": "nab2",
+    "input": "nab2:jaw",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "jaw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "jaw",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:jaw:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:jaw:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:jaw:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "jaw"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "tus",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:tus:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:tus"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:tus:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "tus"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "tus",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:tus:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:tus"
+    },
+    "id": "nab2",
+    "input": "nab2:tus",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "tus"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "tus",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:tus:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:tus:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:tus:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "tus"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "wok",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:wok:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:wok"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:wok:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "wok"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "wok",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:wok:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:wok"
+    },
+    "id": "nab2",
+    "input": "nab2:wok",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "wok"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "wok",
+          "family": "swbf1",
+          "map": "tat1",
+          "mode": "duel"
+        }
+      ],
+      "prefixed": "swbf1/tat1:wok:duel",
+      "query": "?map=tat1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/tat1:wok:duel"
+    },
+    "id": "tat1",
+    "input": "swbf1/tat1:wok:duel",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "tat1",
+      "mode": "duel",
+      "side": "wok"
+    },
+    "next": "name(tat1)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "addons/my_map",
+    "input": "addons/my_map:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "ADDONS/MY_MAP"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "dlc/nab2",
+    "input": "dlc/nab2:cw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "DLC/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "custom/hot1",
+    "input": "custom/hot1:imp:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "CUSTOM/HOT1"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "addons/nab2",
+    "input": "swbf1/addons/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "addons/nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "ADDONS/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "mods/hot1/gcw",
+    "input": "mods/hot1/gcw",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MODS/HOT1/GCW"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "mod_pack/tat2",
+    "input": "mod_pack/tat2:all:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "MOD_PACK/TAT2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "\t",
+    "input": "\t",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "\t"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "\r\n",
+    "input": "\r\n",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "\r\n"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw"
+    },
+    "id": "  nab2",
+    "input": "  nab2:cw  ",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "  nab2",
+      "mode": "conquest",
+      "side": "cw  "
+    },
+    "next": "  NAB2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:conquest\n",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest\n",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2 ",
+    "input": "swbf1/nab2 :rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2 ",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "NAB2 "
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep :conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep "
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep: conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": " conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:c%69s:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "c%69s"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:c%6fnquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "c%6fnquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "%73wbf1/nab2",
+    "input": "%73wbf1/nab2:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "%73WBF1/NAB2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "hot%31",
+    "input": "swbf1/hot%31:imp:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "hot%31",
+      "mode": "conquest",
+      "side": "imp"
+    },
+    "next": "HOT%31"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:%64uel",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "%64uel",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "a",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/a:rep:conquest",
+      "query": "?map=a&side=rep&era=cw&ai=classic&seed=1",
+      "short": "a:rep"
+    },
+    "id": "a",
+    "input": "swbf1/a:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "a",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "A"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "a"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:a",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:a"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:a",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "a",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "a",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:a:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:a"
+    },
+    "id": "nab2",
+    "input": "nab2:a",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "a"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": true,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=rep&era=cw&ai=classic&seed=1",
+      "short": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep"
+    },
+    "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf1/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:rep:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "id": "nab2",
+    "input": "nab2:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": ":",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "::",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": ":::",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "swbf1/",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "swbf1/:",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "swbf1/::",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2::",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": ":rep:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": null,
+    "input": "swbf1/:cw:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "-"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "nab2",
+    "input": "swbf1/nab2::conquest:extra",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "rep",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:rep:conquest,swbf1/nab2:rep:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:rep,nab2:rep"
+    },
+    "id": "nab2",
+    "input": "nab2:rep,nab2:rep",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "rep",
+      "side": "rep,nab2"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest,swbf1/hot1:gcw:conquest",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw,hot1:gcw"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cw:conquest,swbf1/hot1:gcw:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest,swbf1/hot1",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "geo1",
+          "mode": "conquest"
+        },
+        {
+          "era": "gcw",
+          "family": "swbf1",
+          "map": "hot1",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/geo1:cw:conquest,swbf1/hot1:gcw:conquest,swbf1/tat2:cw:conquest",
+      "query": "?map=geo1&side=rep&era=cw&ai=classic&seed=1",
+      "short": "geo1:cw,hot1:gcw,tat2:cw"
+    },
+    "id": "geo1",
+    "input": "geo1:cw,hot1:gcw,tat2:cw",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "geo1",
+      "mode": "gcw,tat2",
+      "side": "cw,hot1"
+    },
+    "next": "name(geo1)"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m0",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m1",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m2",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m3",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m4",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m5",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m6",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m7",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m8",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m9",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m10",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m11",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m12",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m13",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m14",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m15",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m16",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m17",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m18",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m19",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m20",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m21",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m22",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m23",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m24",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m25",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m26",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m27",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m28",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m29",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m30",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m31",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m32",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m33",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m34",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m35",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m36",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m37",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m38",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m39",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m40",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m41",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m42",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m43",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m44",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m45",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m46",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m47",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m48",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m49",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m50",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m51",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m52",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m53",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m54",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m55",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m56",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m57",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m58",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m59",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m60",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m61",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m62",
+          "mode": "conquest"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "m63",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf1/m0:cw:conquest,swbf1/m1:cw:conquest,swbf1/m2:cw:conquest,swbf1/m3:cw:conquest,swbf1/m4:cw:conquest,swbf1/m5:cw:conquest,swbf1/m6:cw:conquest,swbf1/m7:cw:conquest,swbf1/m8:cw:conquest,swbf1/m9:cw:conquest,swbf1/m10:cw:conquest,swbf1/m11:cw:conquest,swbf1/m12:cw:conquest,swbf1/m13:cw:conquest,swbf1/m14:cw:conquest,swbf1/m15:cw:conquest,swbf1/m16:cw:conquest,swbf1/m17:cw:conquest,swbf1/m18:cw:conquest,swbf1/m19:cw:conquest,swbf1/m20:cw:conquest,swbf1/m21:cw:conquest,swbf1/m22:cw:conquest,swbf1/m23:cw:conquest,swbf1/m24:cw:conquest,swbf1/m25:cw:conquest,swbf1/m26:cw:conquest,swbf1/m27:cw:conquest,swbf1/m28:cw:conquest,swbf1/m29:cw:conquest,swbf1/m30:cw:conquest,swbf1/m31:cw:conquest,swbf1/m32:cw:conquest,swbf1/m33:cw:conquest,swbf1/m34:cw:conquest,swbf1/m35:cw:conquest,swbf1/m36:cw:conquest,swbf1/m37:cw:conquest,swbf1/m38:cw:conquest,swbf1/m39:cw:conquest,swbf1/m40:cw:conquest,swbf1/m41:cw:conquest,swbf1/m42:cw:conquest,swbf1/m43:cw:conquest,swbf1/m44:cw:conquest,swbf1/m45:cw:conquest,swbf1/m46:cw:conquest,swbf1/m47:cw:conquest,swbf1/m48:cw:conquest,swbf1/m49:cw:conquest,swbf1/m50:cw:conquest,swbf1/m51:cw:conquest,swbf1/m52:cw:conquest,swbf1/m53:cw:conquest,swbf1/m54:cw:conquest,swbf1/m55:cw:conquest,swbf1/m56:cw:conquest,swbf1/m57:cw:conquest,swbf1/m58:cw:conquest,swbf1/m59:cw:conquest,swbf1/m60:cw:conquest,swbf1/m61:cw:conquest,swbf1/m62:cw:conquest,swbf1/m63:cw:conquest",
+      "query": "?map=m0&side=rep&era=cw&ai=classic&seed=1",
+      "short": "m0:cw,m1:cw,m2:cw,m3:cw,m4:cw,m5:cw,m6:cw,m7:cw,m8:cw,m9:cw,m10:cw,m11:cw,m12:cw,m13:cw,m14:cw,m15:cw,m16:cw,m17:cw,m18:cw,m19:cw,m20:cw,m21:cw,m22:cw,m23:cw,m24:cw,m25:cw,m26:cw,m27:cw,m28:cw,m29:cw,m30:cw,m31:cw,m32:cw,m33:cw,m34:cw,m35:cw,m36:cw,m37:cw,m38:cw,m39:cw,m40:cw,m41:cw,m42:cw,m43:cw,m44:cw,m45:cw,m46:cw,m47:cw,m48:cw,m49:cw,m50:cw,m51:cw,m52:cw,m53:cw,m54:cw,m55:cw,m56:cw,m57:cw,m58:cw,m59:cw,m60:cw,m61:cw,m62:cw,m63:cw"
+    },
+    "id": "m0",
+    "input": "m0:cw,m1:cw,m2:cw,m3:cw,m4:cw,m5:cw,m6:cw,m7:cw,m8:cw,m9:cw,m10:cw,m11:cw,m12:cw,m13:cw,m14:cw,m15:cw,m16:cw,m17:cw,m18:cw,m19:cw,m20:cw,m21:cw,m22:cw,m23:cw,m24:cw,m25:cw,m26:cw,m27:cw,m28:cw,m29:cw,m30:cw,m31:cw,m32:cw,m33:cw,m34:cw,m35:cw,m36:cw,m37:cw,m38:cw,m39:cw,m40:cw,m41:cw,m42:cw,m43:cw,m44:cw,m45:cw,m46:cw,m47:cw,m48:cw,m49:cw,m50:cw,m51:cw,m52:cw,m53:cw,m54:cw,m55:cw,m56:cw,m57:cw,m58:cw,m59:cw,m60:cw,m61:cw,m62:cw,m63:cw,m64:cw,m65:cw",
+    "join": {
+      "era": "gcw",
+      "family": "swbf1",
+      "map": "m0",
+      "mode": "cw,m2",
+      "side": "cw,m1"
+    },
+    "next": "M0"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:gcw:conquest",
+      "query": "?map=tat2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/tat2:gcw:conquest"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "conquest",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:cw:conquest",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:cw:conquest"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:cw:conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "conquest",
+      "side": "cw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": null,
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:conquest",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:conquest"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2::conquest",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest",
+      "side": "rep"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf2/mod-one",
+    "input": "swbf2/mod-one:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "mod-one",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "SWBF2/MOD-ONE"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:custom-mode",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "custom-mode",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "prefixed": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "id": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "side": "gcw"
+    },
+    "next": "SWBF2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:eli",
+      "query": "?map=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:eli"
+    },
+    "id": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "input": "swbf2/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:gcw:eli",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "SWBF2/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      ],
+      "prefixed": "swbf2/tat2:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "query": "?map=tat2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/tat2:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "rep",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf2/tat2:rep:eli",
+      "query": "?map=tat2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "swbf2/tat2:rep:eli"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:rep:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "eli",
+      "side": "rep"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": null,
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:eli:extra",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "eli",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        },
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        }
+      ],
+      "prefixed": "swbf2/tat2:gcw:eli,swbf1/nab2:cw:conquest",
+      "query": "?map=tat2&side=all&era=gcw&ai=classic&seed=1",
+      "short": "swbf2/tat2:gcw:eli,nab2:cw"
+    },
+    "id": "swbf2/tat2",
+    "input": "swbf2/tat2:gcw:eli,swbf1/nab2:cw:conquest",
+    "join": {
+      "era": "gcw",
+      "family": "swbf2",
+      "map": "tat2",
+      "mode": "eli,swbf1/nab2",
+      "side": "gcw"
+    },
+    "next": "SWBF2/TAT2"
+  },
+  {
+    "host": false,
+    "ia": {
+      "entries": [
+        {
+          "era": "cw",
+          "family": "swbf1",
+          "map": "nab2",
+          "mode": "conquest"
+        },
+        {
+          "era": "gcw",
+          "family": "swbf2",
+          "map": "tat2",
+          "mode": "eli"
+        }
+      ],
+      "prefixed": "swbf1/nab2:cw:conquest,swbf2/tat2:gcw:eli",
+      "query": "?map=nab2&side=rep&era=cw&ai=classic&seed=1",
+      "short": "nab2:cw,swbf2/tat2:gcw:eli"
+    },
+    "id": "nab2",
+    "input": "swbf1/nab2:cw:conquest,swbf2/tat2:gcw:eli",
+    "join": {
+      "era": "cw",
+      "family": "swbf1",
+      "map": "nab2",
+      "mode": "conquest,swbf2/tat2",
+      "side": "cw"
+    },
+    "next": "name(nab2)"
+  }
+]

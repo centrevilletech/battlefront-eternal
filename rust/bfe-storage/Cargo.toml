@@ -1,0 +1,16 @@
+[package]
+name = "bfe-storage"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Preserving user files before replacement"
+
+[features]
+# Released client/server builds interpreted raw JSON values in saved records.
+server-json = ["serde_json/raw_value"]
+
+[dependencies]
+serde = "1"
+serde_json = "1"
+tempfile = "3"
