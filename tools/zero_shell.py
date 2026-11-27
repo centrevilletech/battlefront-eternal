@@ -45,6 +45,7 @@ from array import array
 from pathlib import Path
 
 import zero_addon
+import zero_family
 import zero_language
 from ucfb import child, chunks, cstr_at, iter_archives
 from zero_ai_mission import faction_of
@@ -59,23 +60,14 @@ from zero_spawn_screen import display_text
 from zero_texture import decode_texture, safe_name
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME  # noqa: E402
+from zero_paths import GAME, write_text_lf  # noqa: E402
 from zero_paths import PUBLIC  # noqa: E402
 
 
-def archives(game=GAME):
+def archives(game=GAME, family=None):
     """The archives the front end reads; common and shell in the copy's
-    language (tools/zero_language.py)."""
-    return {
-        "common": zero_language.common_archive(game),
-        "core": game / "core.lvl",
-        "shell": zero_language.shell_archive(game),
-        "load": game / "Load" / "load.lvl",
-        "sound": game / "Sound" / "shell.lvl",
-        "bank": game / "Sound" / "common.bnk",
-        "movies": game / "Movies" / "shell.mvs",
-        "mission": game / "mission.lvl",
-    }
+    language (tools/zero_language.py) for families with language folders."""
+    return zero_family.profile(family).archives(game)
 
 
 # ---------------------------------------------------------------- art
@@ -461,7 +453,7 @@ def write_movie_index(catalog, game=GAME, public=PUBLIC):
     manifest = {"version": 2, "movies": dict(sorted(movies.items(), key=lambda kv: (kv[1]["source"]["archive"], kv[1]["source"]["offset"])))}
     manifest_path = out / "manifest.json"
     part = manifest_path.with_suffix(".json.part")
-    part.write_text(json.dumps(manifest, indent=1) + "\n")
+    write_text_lf(part, json.dumps(manifest, indent=1) + "\n")
     part.replace(manifest_path)
     removed = 0
     for old in out.glob("*.webm"):
@@ -499,11 +491,11 @@ def screen_movies(catalog, config):
 # ---------------------------------------------------------------- catalog
 
 # A playlist entry's side letter: the era, and the side that attacks.
-SIDE_LETTERS = (("r", "cw", "rep"), ("c", "cw", "cis"), ("a", "gcw", "all"), ("i", "gcw", "imp"))
+SIDE_LETTERS = zero_family.profile().side_letters
 # Each era's two sides.
-ERA_SIDES = {"cw": ("rep", "cis"), "gcw": ("all", "imp")}
+ERA_SIDES = zero_family.profile().era_sides
 # A team's side, by the faction SetTeamName's parser makes of its name.
-FACTION_SIDES = {1: "all", 2: "imp", 3: "rep", 4: "cis"}
+FACTION_SIDES = zero_family.profile().faction_sides
 
 
 def ia_maps(shell_data):
@@ -693,7 +685,7 @@ def write_load_pictures(screen, maps, game=GAME, public=PUBLIC):
         names = {Path(stage["image"]).stem for stage in entry["stages"]}
         if entry["planetTexture"]:
             names.add(Path(entry["planetTexture"]).stem)
-        wanted.setdefault(game / "Load" / f"{map_id}.lvl", set()).update(names)
+        wanted.setdefault(game / zero_family.profile().load_dir / f"{map_id}.lvl", set()).update(names)
     written = []
     for archive, names in wanted.items():
         missing = {name for name in names if not (out / f"{name}.png").exists()}
@@ -937,8 +929,9 @@ def write_sound_sublevel(out, objects, contents, samples, core):
     manifest = {"sublevel": "shell", "map": None, "sides": [], "objects": objects, "samples": index, "streams": [],
                 "mission": {}, "classes": {}, "world": {"regions": [], "emitters": [], "posts": {}, "materials": []},
                 "names": names}
-    (out / "bank.bin").write_bytes(bytes(pcm))
-    (out / "sound.json").write_text(json.dumps(manifest))
+    from zero_sound import write_bank, write_manifest
+    write_bank(out / "bank.bin", pcm)
+    write_manifest(out / "sound.json", manifest)
     print(f"  sound: {len(objects)} objects, {len(index)} samples ({len(pcm) / 1e6:.1f} MB)", flush=True)
 
 
@@ -963,7 +956,7 @@ def refresh_common(locl, game=GAME, public=PUBLIC):
     raster = list(common.get("rasterHud", []))
     raster += [name for name in SHELL_RASTER if name in common["textures"] and name not in raster]
     common["rasterHud"] = raster
-    path.write_text(json.dumps(common))
+    write_text_lf(path, json.dumps(common))
     missing = sorted(set(SHELL_COMMON_TEXTURES) - set(common["textures"]))
     print(f"common: textures {len(added)} added{f', missing {missing}' if missing else ''},"
           f" strings {len(strings)}, rasterHud {len(raster)}", flush=True)
@@ -1002,7 +995,7 @@ def write_catalog(locl, game=GAME, public=PUBLIC, music=None, whooshes=None):
         "whooshes": whooshes if whooshes is not None else old.get("whooshes", []),
         "load": screen,
     }
-    path.write_text(json.dumps(data, indent=1) + "\n")
+    write_text_lf(path, json.dumps(data, indent=1) + "\n")
     playable = [f"{m['id']}:{','.join(e for e, v in m['eras'].items() if v['extracted'])}" for m in maps if m["extracted"]]
     print(f"shell.json: {len(data['movies'])} screens, {len(maps)} maps (extracted {playable}),"
           f" {len(data['music'])} music, {len(data['whooshes'])} whooshes; load pictures {len(written)} written", flush=True)
@@ -1042,4 +1035,5 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from zero_sound_health import extraction_status
+    sys.exit(extraction_status(main))

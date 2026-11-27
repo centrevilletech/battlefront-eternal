@@ -1,7 +1,10 @@
 """tools/prepare.py's plan: the sides and common before the maps, each map
 one step with all its sides, batches that never run one key twice at once,
 and workers sized by measured need."""
+import os
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -9,6 +12,175 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import prepare  # noqa: E402
+
+
+class LockHandoverTests(unittest.TestCase):
+    def test_windows_runs_take_their_bytes_by_name_and_check_a_handed_lock(self):
+        """Windows' decisions, with byte-range locking simulated: a 2005 run
+        holds bytes 0 and 1, a handed-over run takes byte 1 in its own name
+        once standard input is the lock file, and a 2004 run is unchanged."""
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / ".prepare.lock"
+            lock.write_bytes(b"")
+            other = Path(directory) / "other"
+            other.write_bytes(b"")
+            held, mine = set(), set()
+
+            def locking(fd, mode, count):
+                byte = os.lseek(fd, 0, os.SEEK_CUR)
+                self.assertEqual(count, 1)
+                if mode == msvcrt.LK_UNLCK:
+                    mine.discard(byte)
+                elif byte in held or byte in mine:
+                    raise OSError(33, "locked")
+                else:
+                    mine.add(byte)
+            msvcrt = SimpleNamespace(LK_NBLCK=2, LK_UNLCK=0, locking=locking)
+
+            def run(family, handed=False, stdin=lock, held_bytes=(), identity=True):
+                held.clear()
+                held.update(held_bytes)
+                mine.clear()
+                real_fstat = os.fstat
+                given = None
+                if stdin:
+                    fd = os.open(stdin, os.O_RDONLY)
+                    given = real_fstat(fd)
+                    os.close(fd)
+
+                def fstat(fd):
+                    if fd == 0:
+                        if given is None:
+                            raise OSError(9, "no standard input")
+                        return given if identity else os.stat_result((given.st_mode, 0, *given[2:10]))
+                    return real_fstat(fd)
+                env = {"BFE_PREPARE_LOCK": "stdin"} if handed else {}
+                with (patch.dict(sys.modules, {"msvcrt": msvcrt}), patch.object(os, "name", "nt"),
+                      patch.object(os, "fstat", fstat), patch.object(os, "dup2") as dup2,
+                      patch.object(prepare.zero_family, "is_swbf2", return_value=family == "swbf2"),
+                      patch.dict(os.environ, env, clear=False)):
+                    if not handed:
+                        os.environ.pop("BFE_PREPARE_LOCK", None)
+                    try:
+                        handle = prepare.hold_lock(lock)
+                    except prepare.HandoverUnconfirmed:
+                        return "unconfirmed", set(mine), dup2.called
+                if handle is not None:
+                    handle.close()
+                return ("busy" if handle is None else "held"), set(mine), dup2.called
+
+            # By name: a 2005 run holds both bytes, a 2004 run byte 0 as released.
+            self.assertEqual(run("swbf2"), ("held", {0, 1}, False))
+            self.assertEqual(run("swbf1"), ("held", {0}, False))
+            # A handed-over run whose client ended still holds byte 1: busy, byte 0 let go.
+            self.assertEqual(run("swbf2", held_bytes={1})[0], "busy")
+            # Handed over: the client holds byte 0 and has let go of byte 1.
+            self.assertEqual(run("swbf2", handed=True, held_bytes={0}), ("held", {1}, True))
+            self.assertEqual(run("swbf2", handed=True, held_bytes={0, 1}), ("busy", set(), False))
+            self.assertEqual(run("swbf2", handed=True, stdin=other, held_bytes={0}), ("busy", set(), False))
+            self.assertEqual(run("swbf2", handed=True, stdin=None, held_bytes={0}), ("unconfirmed", set(), False))
+            self.assertEqual(run("swbf2", handed=True, held_bytes={0}, identity=False), ("unconfirmed", set(), False))
+            # A 2004 run ignores the handover.
+            self.assertEqual(run("swbf1", handed=True, held_bytes={0}), ("busy", set(), False))
+
+    @unittest.skipUnless(os.name == "posix", "uses flock on inherited file descriptions")
+    def test_helpers_started_after_a_handover_do_not_keep_the_lock(self):
+        import fcntl
+        import signal
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / ".prepare.lock"
+            child = """import os, subprocess, sys
+from pathlib import Path
+from prepare import hold_lock
+h = hold_lock(Path(sys.argv[1]))
+helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+print(helper.pid, h is not None, os.path.samestat(os.fstat(0), os.stat(os.devnull)), flush=True)
+"""
+            env = dict(os.environ, BFE_FAMILY="swbf2", BFE_PREPARE_LOCK="stdin",
+                       PYTHONPATH=str(Path(prepare.__file__).parent))
+            owner = lock.open("a+b")
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            pid, adopted, null = subprocess.check_output([sys.executable, "-c", child, str(lock)],
+                                                         stdin=owner, env=env, text=True).split()
+            try:
+                # The client and the run are gone; the helper still runs and holds no copy of the lock.
+                owner.close()
+                with lock.open("a+b") as probe:
+                    try:
+                        fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        free = True
+                    except BlockingIOError:
+                        free = False
+                self.assertTrue(free, "a helper the run started kept the lock")
+                self.assertEqual((adopted, null), ("True", "True"))
+            finally:
+                os.kill(int(pid), signal.SIGTERM)
+
+    @unittest.skipUnless(os.name == "posix", "requires flock")
+    def test_writer_keeps_the_lock_when_the_client_closes_its_descriptor(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / ".prepare.lock"
+            owner = path.open("a+b")
+            self.addCleanup(owner.close)
+            fcntl.flock(owner, fcntl.LOCK_EX)
+            script = """import os, sys
+from pathlib import Path
+from prepare import hold_lock
+writer = hold_lock(Path(sys.argv[1]))
+print(writer is not None, flush=True)
+os.read(int(sys.argv[2]), 1)
+"""
+            env = dict(os.environ, BFE_FAMILY="swbf2", BFE_PREPARE_LOCK="stdin",
+                       PYTHONPATH=str(Path(prepare.__file__).parent))
+            r, w = os.pipe()
+            with os.fdopen(r, "rb") as wait, os.fdopen(w, "wb", buffering=0) as release:
+                with subprocess.Popen([sys.executable, "-c", script, str(path), str(wait.fileno())],
+                                      stdin=owner, stdout=subprocess.PIPE, text=True, env=env,
+                                      pass_fds=(wait.fileno(),)) as writer:
+                    try:
+                        self.assertEqual(writer.stdout.readline().strip(), "True")
+                        owner.close()
+                        with path.open("a+b") as probe, self.assertRaises(BlockingIOError):
+                            fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    finally:
+                        release.close()
+            with path.open("a+b") as probe:
+                fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    @unittest.skipUnless(os.name == "posix", "uses flock on inherited file descriptions")
+    def test_only_the_2005_owner_can_hand_its_lock_to_the_child(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / ".prepare.lock"
+            child = """import os, sys
+from pathlib import Path
+from prepare import hold_lock
+h = hold_lock(Path(sys.argv[1]))
+print('busy' if h is None else os.lseek(h.fileno(), 0, os.SEEK_CUR))
+"""
+            def enter(stdin, family="swbf2", marker="stdin"):
+                env = dict(os.environ, BFE_FAMILY=family, PYTHONPATH=str(Path(prepare.__file__).parent))
+                env.pop("BFE_PREPARE_LOCK", None)
+                if marker:
+                    env["BFE_PREPARE_LOCK"] = marker
+                return subprocess.check_output([sys.executable, "-c", child, str(lock)],
+                                               stdin=stdin, env=env, text=True).strip()
+
+            with lock.open("a+b") as owner, lock.open("rb") as stranger:
+                owner.seek(17)
+                self.assertEqual(enter(owner), "0")  # Unlocked stdin: take the lock by name.
+                fcntl.flock(owner, fcntl.LOCK_EX)
+                self.assertEqual(enter(owner), "17")
+                self.assertEqual(enter(stranger), "busy")
+                self.assertEqual(enter(subprocess.DEVNULL), "busy")
+                self.assertEqual(enter(owner, family="swbf1"), "busy")
+                self.assertEqual(enter(owner, marker=None), "busy")
+                fcntl.flock(owner, fcntl.LOCK_UN)
+                self.assertEqual(enter(subprocess.DEVNULL), "0")
 
 MAPS = [
     {"id": "bes1", "name": "Bespin: Platforms", "eras": {"cw": {"teams": ["rep", "cis"]}, "gcw": {"teams": ["all", "imp"]}}},
@@ -107,9 +279,9 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(after["catalog-update"], ("map:", "side:"))
         self.assertEqual(after["environment"], ("map:", "side:"))
         self.assertEqual(after["hud"], ("shell",))
-        self.assertEqual(after["audio:bes1cw"], ("map:bes1",))
-        self.assertEqual(after["audio:bes1gcw"], ("map:bes1",))
-        self.assertEqual(after["audio:geo1cw"], ("map:geo1", "audio:bes1cw"))  # the era's voice-over is made once
+        self.assertEqual(after["audio:bes1cw"], ("catalog-update",))
+        self.assertEqual(after["audio:bes1gcw"], ("catalog-update",))
+        self.assertEqual(after["audio:geo1cw"], ("catalog-update", "audio:bes1cw"))
         self.assertIn("map:", after["textures"])
         self.assertEqual(prepare.needs(steps[0])["cores"], 1)
         self.assertEqual({item[0]: prepare.needs(item)["cores"] for item in steps if item[0] in ("textures", "audio:bes1cw")},

@@ -29,6 +29,7 @@ import struct
 from collections import namedtuple
 from pathlib import Path
 
+import zero_family
 import zero_language
 from zero_locl import localization as archive_localization
 from zero_lua import calls, getn, global_tables, load, mission_scripts
@@ -52,15 +53,16 @@ def add_ons(game=GAME, everything=False):
     GameData/AddOn beside it. A folder without addme.script or Data/_LVL_PC
     isn't one: the game skips it. Those the run leaves out (skipped) are
     not returned unless everything is asked for."""
+    prof = zero_family.profile()
     found = []
-    folder = child(Path(game).parents[1], "AddOn")
+    folder = child(Path(game).parents[1], prof.addon_dir)
     try:
         entries = sorted((entry for entry in folder.iterdir() if entry.is_dir()), key=lambda p: p.name.lower()) if folder else []
     except OSError:
         entries = []
     left_out = set() if everything else skipped()
     for entry in entries:
-        script, root = child(entry, "addme.script"), child(entry, "Data", "_LVL_PC")
+        script, root = child(entry, prof.addon_script), child(entry, *prof.addon_data_subpath)
         if script and root and entry.name.lower() not in left_out:
             found.append(AddOn(entry.name.lower(), entry, root, script))
     return found
@@ -84,9 +86,14 @@ def map_archive(name, game=GAME):
     the world the map's own battles read, whatever its name (an add-on
     listing "georuins" whose battles read GEO\\geo1.lvl). The game's path
     when none has it, for the message."""
-    stock = Path(game) / name[:3].upper() / f"{name}.lvl"
+    prof = zero_family.profile()
+    stock = Path(game) / prof.planet_folder(name) / f"{name}.lvl"
     if stock.exists():
         return stock
+    if prof.id == zero_family.SWBF2:
+        found_stock = child(game, name[:3], f"{name}.lvl")
+        if found_stock and found_stock.is_file():
+            return found_stock
     for add_on in add_ons(game):
         found = child(add_on.root, name[:3], f"{name}.lvl")
         if found:
@@ -113,8 +120,10 @@ def battle_world(name, game=GAME):
     """The world archive a map's battles read (its regular ones first, then
     the campaign's), found as data_file finds it; None when no battle names
     one that is there."""
+    if zero_family.is_swbf2():
+        return None
     found = missions(game)
-    battles = sorted((m for m in found if re.fullmatch(re.escape(name.lower()) + r"[a-z](_h)?", m.lower())),
+    battles = sorted((m for m in found if re.fullmatch(zero_family.profile().mission_pattern(name.lower()), m.lower())),
                      key=lambda m: (m.lower().endswith("_h"), m))
     for mission in battles:
         try:
@@ -130,11 +139,12 @@ def battle_world(name, game=GAME):
 def side_archive(side, game=GAME):
     """A side's archive, SIDE/<side>.lvl: the game's, else an add-on's own
     army (Jabba's Palace's Gamorreans are Side/gam.lvl)."""
-    stock = Path(game) / "SIDE" / f"{side}.lvl"
+    prof = zero_family.profile()
+    stock = Path(game) / prof.side_dir / f"{side}.lvl"
     if stock.exists():
         return stock
     for add_on in add_ons(game):
-        found = child(add_on.root, "SIDE", f"{side}.lvl")
+        found = child(add_on.root, prof.side_dir, f"{side}.lvl")
         if found:
             return found
     return stock
@@ -148,13 +158,25 @@ def mission_files(game=GAME):
     return [(path, root) for path, root in files if path and path.exists()]
 
 
+def mission_packages(game):
+    for path, root in mission_files(game):
+        try:
+            scripts = mission_scripts(path.read_bytes())
+        except (OSError, ValueError, IndexError, struct.error) as error:
+            if root is None:
+                raise
+            print(f"Skipping unreadable add-on mission archive {path}: {error}")
+            continue
+        yield scripts, root
+
+
 def missions(game=GAME):
     """Every mission script, name -> compiled chunk: mission.lvl's in file
     order, then each add-on's (Jabba's Palace's tat3a and tat3c). A name
     the game's has keeps the game's."""
     found = {}
-    for path, _ in mission_files(game):
-        for name, chunk in mission_scripts(path.read_bytes()).items():
+    for scripts, _ in mission_packages(game):
+        for name, chunk in scripts.items():
             found.setdefault(name, chunk)
     return found
 
@@ -162,8 +184,8 @@ def missions(game=GAME):
 def mission_root(mission, game=GAME):
     """The add-on folder whose mission.lvl holds a mission (where its "dc:"
     paths are), or None for the game's own."""
-    for path, root in mission_files(game):
-        if mission in mission_scripts(path.read_bytes()):
+    for scripts, root in mission_packages(game):
+        if mission in scripts:
             return root
     return None
 

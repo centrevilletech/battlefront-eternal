@@ -27,6 +27,7 @@ import sys
 from pathlib import Path
 
 import zero_addon
+import zero_family
 import zero_language
 from portable_math import cos, sin
 from ucfb import child, chunks, cstr_at, iter_archives
@@ -41,9 +42,9 @@ from zero_fx import effect, effects, textures as effect_textures
 from zero_locl import localization, localize
 from zero_lua import calls as lua_calls, data_path, global_tables, load as load_lua, mission_scripts, mission_setup
 from zero_model import ADDITIVE, HARD_EDGED, LIT, SPECULAR, STATIC_LIGHTING, TRANSPARENT, collect_models
-from zero_model import BOUNDS as MODEL_BOUNDS
+from zero_model import BOUNDS as MODEL_BOUNDS, bind_bones
 from zero_odf import FOLIAGE, entity_classes, property_name, soldier_class
-from zero_sound import extract_audio
+from zero_sound import extract_audio, write_manifest
 from zero_spawn_screen import RASTER_HUD, SPAWN_MODELS, SPAWN_TEXTURES, map_spawn_screen, spawn_strings, unit_name, weapon_name
 from zero_scoreboard import SCOREBOARD_RASTER, SCOREBOARD_TEXTURES, scoreboard_strings
 from zero_sky import mission_roots as sky_mission_roots, write_sky_flyers
@@ -74,7 +75,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # The game as Steam installs it, copied whole: data/game/install holds
 # GameData (the game program, and Data/_LVL_PC with the archives) and Manuals.
 # BFE_GAME_DIR reads an installation in place instead (tools/zero_paths.py).
-from zero_paths import GAME, shared_lock  # noqa: E402
+from zero_paths import GAME, shared_lock, write_text_lf  # noqa: E402
 from zero_paths import PUBLIC  # noqa: E402
 
 
@@ -103,7 +104,7 @@ def first_person_archive(name):
     if not parts:
         return None
     parts[-1] = parts[-1] if parts[-1].lower().endswith(".lvl") else parts[-1] + ".lvl"
-    path = GAME / "FPM"
+    path = GAME / zero_family.profile().fpm_dir
     for part in parts:
         exact = path / part
         if not exact.exists():
@@ -117,7 +118,7 @@ def first_person_archive(name):
 
 def shared_archives():
     """Archives every map can draw models and textures from."""
-    return [path.read_bytes() for path in (common_archive(), GAME / "core.lvl") if path.exists()]
+    return [path.read_bytes() for path in zero_family.profile().shared_archive_paths(GAME) if path.exists()]
 
 
 # Material bits a mesh keeps (the rest only matter to the original loader).
@@ -387,12 +388,15 @@ def map_scripts(name):
     (the map and an era letter: bes2r, bes2a) and the historical campaign's
     version of it (bes2a_h)."""
     scripts = zero_addon.missions(GAME)
-    return {m: scripts[m] for m in sorted(scripts) if re.fullmatch(re.escape(name) + r"[a-z](_h)?", m)}
+    pattern = zero_family.profile().mission_pattern(name)
+    return {m: scripts[m] for m in sorted(scripts) if re.fullmatch(pattern, m)}
 
 
 def mission_sides_of(name):
     """Every side the map's missions read (SIDE\\<name>.lvl), in script
     order: both eras' armies and the locals."""
+    if zero_family.is_swbf2():
+        return []
     sides = []
     for chunk in map_scripts(name).values():
         try:
@@ -404,13 +408,12 @@ def mission_sides_of(name):
 
 
 # A mission's era, by the letter after its map's name, as the shell's
-# playlist names them (tools/zero_shell.py SIDE_LETTERS): r and c are the
-# Clone Wars, a and i the Galactic Civil War.
-MISSION_ERAS = {"r": "cw", "c": "cw", "a": "gcw", "i": "gcw"}
+# playlist names them (tools/zero_family.py).
+MISSION_ERAS = zero_family.profile().mission_eras
 # The era each army fights in.
-SIDE_ERAS = {"rep": "cw", "cis": "cw", "all": "gcw", "imp": "gcw"}
+SIDE_ERAS = zero_family.profile().side_eras
 # The era a map plays when nothing names one, where it has that era.
-DEFAULT_ERA = "cw"
+DEFAULT_ERA = zero_family.profile().default_era
 
 
 def mission_world(chunk):
@@ -427,16 +430,17 @@ def mission_world(chunk):
     return world
 
 
-def same_world(world, name):
+def same_world(world, name, archive=None):
     """Whether a mission's world archive is the map's own: by name (the map's,
     or its archive's when its battles read a world named otherwise, as an
     add-on's "georuins" reads GEO\\geo1.lvl), or byte for byte (the Dune
     Sea's historical battle reads TAT/tat1h.lvl, a copy of tat1.lvl, and
     Yavin's Arena's YAV/yav2_h.lvl one of yav2.lvl)."""
-    ours = map_archive(name)
+    archive = archive or map_archive
+    ours = archive(name)
     if world in (name, ours.stem.lower()):
         return True
-    theirs = map_archive(world)
+    theirs = archive(world)
     return (ours.exists() and theirs.exists() and ours.stat().st_size == theirs.stat().st_size
             and ours.read_bytes() == theirs.read_bytes())
 
@@ -1290,7 +1294,7 @@ def write_props(records, classes, live, models, skeletons, archives, out, locl=N
     animations = {model: meta for model, meta in animations.items() if meta}
     if animations:
         (out / "props_anims.bin").write_bytes(anim_floats.tobytes())
-    (out / "props.json").write_text(json.dumps({"models": rigs, "instances": instances, "effects": emitters, "extras": extras, "animations": animations,
+    write_text_lf(out / "props.json", json.dumps({"models": rigs, "instances": instances, "effects": emitters, "extras": extras, "animations": animations,
                                                 **({"items": items} if items else {})}))
     print(f"  live objects {len(instances)}: {sorted({i['class'] for i in instances})}", flush=True)
     if items:
@@ -1418,7 +1422,7 @@ def extract_map(name, shared, sides):
     # painted foliage layers plant more of them (and the odd prop).
     collision_instances = list(instances)
     painted = terrain_foliage(data, terrain, classes, water, models=models,
-                              executable=GAME.parent.parent / "Battlefront.exe")
+                              executable=zero_family.profile().program_path(GAME))
     collision_instances.extend(painted["collision"])
     if painted["foliage"] or painted["instances"]:
         print(f"  painted foliage: {len(painted['foliage'])} patches, {len(painted['instances'])} props", flush=True)
@@ -1646,7 +1650,7 @@ def extract_map(name, shared, sides):
             print(f"  vehicles {mission}: {error}", file=sys.stderr, flush=True)
             if not battle["mission"]["historical"]:
                 failed.append(error)
-    (out / "map.json").write_text(json.dumps(manifest))
+    write_text_lf(out / "map.json", json.dumps(manifest))
     print(f"  wrote {out} geom={len(verts) * 4 / 1e6:.1f}MB meshes={len(meshes)}", flush=True)
     # The sky's flyers (SkyObject), for the battles whose scripts load their
     # models: sky/, beside map.json and outside the content fingerprint, as
@@ -1667,7 +1671,7 @@ def extract_map(name, shared, sides):
     return {i["explosion"][k] for i in live_props["instances"] for k in ("Effect", "WaterEffect") if (i.get("explosion") or {}).get(k)}
 
 
-def write_actor(models, skeletons, model_name, out):
+def write_actor(models, skeletons, model_name, out, swbf2=False):
     """A unit's skinned model (hard skinned, one bone per vertex), packed as
     position, normal, uv, bone (9 floats), as <model>.json, .bin, and
     _index.bin in `out`. Weapons go to the hand's hp_weapons."""
@@ -1704,16 +1708,13 @@ def write_actor(models, skeletons, model_name, out):
             joints = [names.index(bone)] * len(part["positions"])
         rec = pack(part["positions"], part["normals"], part["uvs"], part["indices"], joints)
         rec["texture"] = part["texture"]
+        if swbf2:
+            rec.update(material=part["material"], bump=part.get("bump"))
         parts.append(rec)
-    lookup = {bone: i for i, bone in enumerate(names)}
-    bones = []
-    for i, bone in enumerate(names):
-        parent = skeleton["parents"][i]
-        parent_i = lookup[parent] if parent and parent in lookup and parent != bone else -1
-        bones.append({"name": bone, "parent": parent_i, "local": skeleton["local"][i]})
+    bones = bind_bones(skeleton)
     actor = {"stride": 36, "bones": bones, "parts": parts, "attach": "hp_weapons"}
     out.mkdir(parents=True, exist_ok=True)
-    (out / f"{model_name}.json").write_text(json.dumps(actor))
+    write_text_lf(out / f"{model_name}.json", json.dumps(actor))
     (out / f"{model_name}.bin").write_bytes(verts.tobytes())
     (out / f"{model_name}_index.bin").write_bytes(indices.tobytes())
     print(f"  body {model_name}: bones={len(bones)} vertices={sum(p['vertexCount'] for p in parts)}", flush=True)
@@ -1947,7 +1948,7 @@ def extract_side(side, units, shared):
                 names = rig_skeleton["names"]
                 bones = [{"name": n, "parent": names.index(p) if p in names and p != n else -1, "local": rig_skeleton["local"][i]}
                          for i, (n, p) in enumerate(zip(names, rig_skeleton["parents"]))]
-                fp_file.write_text(json.dumps({"model": fp_model, "bones": bones, "parts": rig[fp_model]}))
+                write_text_lf(fp_file, json.dumps({"model": fp_model, "bones": bones, "parts": rig[fp_model]}))
                 # Every rig's bones, so no arms rig loses tracks (the super
                 # battle droid's has only a right arm).
                 fp_names = fp_skeleton["names"] if fp_skeleton else []
@@ -2055,18 +2056,18 @@ def extract_side(side, units, shared):
         fx_models |= m
     fx_meshes = write_meshes(models, sorted(fx_models), out, "fxmodels")
     used |= {part["texture"] for parts in fx_meshes.values() for part in parts}
-    (out / "effects.json").write_text(json.dumps({"effects": own, "models": fx_meshes}))
+    write_text_lf(out / "effects.json", json.dumps({"effects": own, "models": fx_meshes}))
 
     paths = write_textures(textures, used, out / "textures")
     # What the shared step (extract_common) takes from the side: its
     # soldiers' bones, its arms rigs' bones, and the effects it wants.
-    (out / "units.json").write_text(json.dumps({
+    write_text_lf(out / "units.json", json.dumps({
         "units": defs, "items": items, "textures": paths,
         "skeleton": skeleton["names"] if skeleton else [],
         "firstPersonBones": fp_skeleton["names"] if fp_skeleton else [],
         "wantedEffects": sorted(wanted - set(own)),
     }))
-    (out / "weapons.json").write_text(json.dumps({"models": meshes, "firePoints": points}))
+    write_text_lf(out / "weapons.json", json.dumps({"models": meshes, "firePoints": points}))
     if own:
         print(f"  side effects {sorted(own)}", flush=True)
     return skeleton, wanted - set(own), fp_skeleton
@@ -2138,7 +2139,7 @@ MOTION_KEYS = ("Vec", "Slope", "Ore", "RSlope", "Time")
 HOLOGRAM_LOGOS = ("com_icon_republic", "com_icon_cis", "com_icon_alliance", "com_icon_imperial")
 
 
-def write_meshes(models, names, out, file, local=False):
+def write_meshes(models, names, out, file, local=False, swbf2=False):
     """Small static models (position, normal, uv) packed into one buffer, in
     the model's space, or with `local` in the space of the bone each part
     hangs from (for rigs posed at runtime)."""
@@ -2159,6 +2160,7 @@ def write_meshes(models, names, out, file, local=False):
             indices.extend(base + i for i in part["indices"])
             records.setdefault(name, []).append({
                 "texture": part["texture"],
+                **({"material": part["material"], "bump": part.get("bump")} if swbf2 else {}),
                 "vertexOffset": base * 32,
                 "vertexCount": len(part["local_positions"]),
                 "indexOffset": index_at * 4,
@@ -2391,13 +2393,13 @@ def extract_common(skeleton, shared, wanted_effects, fp_skeleton=None, maps=None
 
     wanted = set(HUD_TEXTURES) | set(SPAWN_TEXTURES) | set(SCOREBOARD_TEXTURES) | set(SHELL_COMMON_TEXTURES) | used
     paths = write_textures(textures, wanted, out / "textures")
-    (out / "common.json").write_text(json.dumps({
+    write_text_lf(out / "common.json", json.dumps({
         "holograms": holograms, "textures": paths, "fonts": fonts, "strings": strings, "cameraMotions": motions,
         # Art tools/upscale_hud.py enlarges besides its name rule: the spawn
         # screen's, then the scoreboard's, then the front end's.
         "rasterHud": [name for name in RASTER_HUD + SCOREBOARD_RASTER + SHELL_RASTER if name in paths],
     }))
-    (out / "effects.json").write_text(json.dumps({"effects": fx, "models": fx_meshes}))
+    write_text_lf(out / "effects.json", json.dumps({"effects": fx, "models": fx_meshes}))
     try:
         from upscale_hud import convert as upscale_hud
     except ImportError:
@@ -2418,7 +2420,16 @@ def main():
                         help="one part alone: the sides' units (--side), what every side shares (from the sides extracted so far "
                              "and the catalog's maps), the map with its audio and AI, or the audio alone")
     parser.add_argument("--skip-shared", action="store_true", help="the map alone, its sides and common/ being extracted already (tools/prepare.py); --only map")
+    parser.add_argument("--manifest", type=Path, help="optional JSON manifest from bfe-script-tool (swbf2)")
+    parser.add_argument("--sky-sub", help="optional sky sub-archive name in spa_sky.lvl (swbf2)")
     args = parser.parse_args()
+    if zero_family.is_swbf2():
+        from extract_swbf2 import run_extraction
+        try:
+            return run_extraction(args)
+        except (OSError, KeyError, ValueError, RuntimeError) as error:
+            print(f"Extraction failed: {error}", file=sys.stderr)
+            return 1
     sides = args.side or ["rep"]
     only = "map" if args.skip_shared else args.only
     shared = shared_archives()
@@ -2479,8 +2490,12 @@ def extract_map_audio(name):
     and the sub-level keeps the era's own battle. A battle fought in a world
     of its own (map_missions) is that world's to extract."""
     missions = {m: s for m, s in map_missions(name).items() if not s.get("world")}
+    manifests = {}
     for mission in sorted(missions, key=lambda m: not missions[m]["historical"]):
-        extract_audio(name, mission=mission)
+        extract_audio(name, mission=mission, manifest_writer=manifests.__setitem__)
+    # Publish only the selected battle for each bank, even if extraction is interrupted.
+    for path, manifest in manifests.items():
+        write_manifest(path, manifest)
 
 
 def extract_ai(name, side="rep"):
@@ -2509,4 +2524,5 @@ def extract_side_ai(side):
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    from zero_sound_health import extraction_status
+    sys.exit(extraction_status(main))

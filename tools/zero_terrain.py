@@ -206,7 +206,7 @@ def refresh_weights(name):
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[1]
-    from zero_paths import PUBLIC
+    from zero_paths import PUBLIC, write_text_lf
 
     out = PUBLIC / "maps" / name
     world = json.loads((out / "map.json").read_text())
@@ -228,7 +228,7 @@ def refresh_weights(name):
         raise SystemExit(f"{name}: terrain doesn't match map.json ({record['vertexCount']} vertices)")
     (out / "terrain_weights.bin").write_bytes(terrain["weights"])
     record["weights"] = "terrain_weights.bin"
-    (out / "map.json").write_text(json.dumps(world))
+    write_text_lf(out / "map.json", json.dumps(world))
     used = sorted({i for i in range(WEIGHT_SLOTS) if any(terrain["weights"][i::WEIGHT_SLOTS])})
     print(f"{name}: {record['vertexCount']} vertices, layers painted {[terrain['layers'][i] for i in used if i < len(terrain['layers'])]}")
 

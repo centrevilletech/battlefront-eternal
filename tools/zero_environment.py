@@ -28,7 +28,7 @@ import zero_addon
 import zero_language
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import GAME, PUBLIC  # noqa: E402
+from zero_paths import GAME, PUBLIC, write_text_lf  # noqa: E402
 FOUNTAIN = 'nab2_prop_fountain'
 MAX_ATTACHED = 30
 
@@ -116,7 +116,7 @@ def export(name):
         print(f'{name}: missing FX textures: {sorted(wanted - paths.keys())}')
     packed = write_meshes(models, sorted(geometry), out, 'models')
     result = dict(version=2, instances=instances, basins=basins, effects=library, textures=paths, models=packed)
-    (out / 'effects.json').write_text(json.dumps(result, separators=(',', ':')))
+    write_text_lf(out / 'effects.json', json.dumps(result, separators=(',', ':')))
     print(f'{name}: {len(instances)} attachments of {len(library)} effects, {len(basins)} basins, {len(paths)} textures, {len(packed)} FX meshes')
     return out
 

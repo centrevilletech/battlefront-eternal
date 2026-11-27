@@ -14,6 +14,7 @@ import shutil
 from pathlib import Path
 
 from zero_hash import fnv1a
+from zero_paths import write_text_lf
 from zero_odf import NAMES, entity_classes, property_name
 from ucfb import nodes
 
@@ -761,7 +762,7 @@ def extract_vehicles(map_name, mission, shared=None, setup=None):
     (out / 'animations.bin').write_bytes(animation_floats.tobytes())
     manifest = {'version': 1, 'animations': animations, 'classes': defs, 'spawns': spawns, 'models': rigs,
                 'collision': collisions, 'blockers': {k: list(blockers[v]) for k,v in [('positions','pos'),('indices','idx'),('polygons','poly')]}, 'extras': extras, 'effects': fx, 'textures': texture_paths}
-    (out / 'vehicles.json').write_text(json.dumps(manifest))
+    write_text_lf(out / 'vehicles.json', json.dumps(manifest))
     print(f'vehicles {map_name} {mission}: {len(spawns)} spawns, {len(defs)} classes, {len(texture_paths)} textures', flush=True)
     return manifest
 
@@ -782,7 +783,7 @@ def refresh_map(map_name):
         if not battle['mission'].get('world'):
             extract_vehicles(map_name, mission, setup=battle['mission'])
             battle['vehicles'] = pack_file(mission)
-    map_file.write_text(json.dumps(world))
+    write_text_lf(map_file, json.dumps(world))
 
 
 if __name__ == '__main__':

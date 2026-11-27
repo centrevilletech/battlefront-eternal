@@ -20,7 +20,7 @@ from zero_spawn_screen import core_localization, display_text, finish_common
 from zero_locl import localize
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import PUBLIC  # noqa: E402
+from zero_paths import PUBLIC, write_text_lf  # noqa: E402
 
 # The table's art in common.lvl: the dimming behind it (opaque_black, 16x16
 # black at alpha 119), the selection's and the pointer's row frames
@@ -85,7 +85,7 @@ def refresh_common(locl, public=PUBLIC):
     raster = list(common.get("rasterHud", []))
     raster += [name for name in SCOREBOARD_RASTER if name in common["textures"] and name not in raster]
     common["rasterHud"] = raster
-    path.write_text(json.dumps(common))
+    write_text_lf(path, json.dumps(common))
     print(f"common: textures {sorted(added)} strings {len(strings)} rasterHud {common['rasterHud']}", flush=True)
     return common
 

@@ -102,7 +102,7 @@ class MissionTests(unittest.TestCase):
                  'nab2a_h': {'historical': True}}
         written = []
         with mock.patch.object(extract, 'map_missions', lambda name: found), \
-                mock.patch.object(extract, 'extract_audio', lambda name, side='rep', mission=None: written.append(mission)):
+                mock.patch.object(extract, 'extract_audio', lambda name, mission, **kwargs: written.append(mission)):
             extract.extract_map_audio('nab2')
         self.assertEqual(written, ['nab2a_h', 'nab2a', 'nab2c'], 'a shared sub-level keeps its era\'s battle; another world\'s waits for it')
 

@@ -29,6 +29,7 @@ import struct
 from pathlib import Path
 
 import zero_addon
+import zero_family
 import zero_language
 from zero_locl import localization as read_localization
 from zero_lua import calls, load, mission_scripts, mission_setup
@@ -118,16 +119,18 @@ def tidy(problems):
     return sorted(out, key=lambda entry: problems.index(entry))
 
 
-def battles_of(map_id, scripts):
+def battles_of(map_id, scripts, family=None):
     """A map's mission scripts: each era's battle and its campaign version
     (bes2r, bes2a_h), as tools/extract.py reads them."""
-    return {name: chunk for name, chunk in scripts.items() if re.fullmatch(re.escape(map_id) + r"[a-z](_h)?", name.lower())}
+    pattern = zero_family.profile(family).mission_pattern(map_id)
+    return {name: chunk for name, chunk in scripts.items() if re.fullmatch(pattern, name.lower())}
 
 
-def sound_bank(bank, root, game):
+def sound_bank(bank, root, game, family=None):
     """The sound archive a battle's first bank is in, found as
     tools/zero_sound.py's sound_file finds it."""
-    return zero_addon.data_file(bank, root, game) or Path(game) / "Sound" / bank.split(";", 1)[0].split("\\")[-1]
+    sound_dir = zero_family.profile(family).sound_dir
+    return zero_addon.data_file(bank, root, game) or Path(game) / sound_dir / bank.split(";", 1)[0].split("\\")[-1]
 
 
 def mission_roots(game):
@@ -174,11 +177,13 @@ def map_problems(map_id, game, scripts, roots, add_on=False):
     return tidy(found)
 
 
-def language_problems(game):
+def language_problems(game, family=None):
     """What keeps the shared archive and the front end's from being read,
     {key: problem}: Common or Shell missing or spelled otherwise, or no
     language folder in it (ENG, FRE, whatever its name) holding its
     archive. The archive found is looked at like any other."""
+    if not zero_family.profile(family).language_folders:
+        return {}
     found = {}
     for key, part, name in (("common", "Common", "common.lvl"), ("shell", "Shell", "shell.lvl")):
         folder = Path(game) / part
@@ -190,50 +195,85 @@ def language_problems(game):
     return found
 
 
-def program_problem(game):
-    """None, or why the maps' painted foliage can't be placed from this copy's
-    Battlefront.exe (tools/zero_foliage.py reads its placement table)."""
+def program_problem(game, family=None):
+    """None, or why the game executable is missing or (for swbf1) why the
+    maps' painted foliage can't be placed from Battlefront.exe."""
     from zero_foliage import placement_table
-    exe = Path(game).parents[1] / "Battlefront.exe"  # as tools/extract.py names it
+    prof = zero_family.profile(family)
+    exe = prof.program_path(game)
     if not exe.is_file() or exe.stat().st_size == 0:
         found = archive_problem(exe, game) or problem("program", exe, game, f"{shown(exe, game)} is missing.")
-        found["message"] += " The maps' grass and plants are placed from a table in it."
+        if prof.has_foliage_table:
+            found["message"] += " The maps' grass and plants are placed from a table in it."
         return {**found, "code": "program"}
-    try:
-        placement_table(exe)
-    except (ValueError, IndexError, struct.error, OSError):
-        return problem("program", exe, game, f"{shown(exe, game)} isn't a version Battlefront Eternal knows (it may have been "
-                                             "modified or replaced). The maps' grass and plants are placed from a table in it.")
+    if prof.has_foliage_table:
+        try:
+            placement_table(exe)
+        except (ValueError, IndexError, struct.error, OSError):
+            return problem("program", exe, game, f"{shown(exe, game)} isn't a version Battlefront Eternal knows (it may have been "
+                                                 "modified or replaced). The maps' grass and plants are placed from a table in it.")
     return None
 
 
-def stock_problems(game=GAME):
+def stock_problems(game=GAME, family=None, recorded_assets=None):
     """What keeps the game itself from preparing: its folders, the shell's
     archives, the program, and every stock map's world, armies and sound.
     A folder that isn't there is the only problem reported."""
     from zero_shell import archives, ia_maps
+    prof = zero_family.profile(family)
     game = Path(game)
     for folder in (game.parents[1], game.parent, game):
         if not folder.is_dir():
             return [archive_problem(folder, game)]
-    languages = language_problems(game)
-    found = {key: languages.get(key) or archive_problem(path, game) for key, path in archives(game).items()}
-    shell = archives(game)["shell"]
-    try:
-        scripts = mission_scripts((game / "mission.lvl").read_bytes())
-    except UNREADABLE:
-        scripts = {}  # reported above, as a missing or damaged archive
-    try:
-        maps = ia_maps(shell.read_bytes())
-    except UNREADABLE:
+    languages = language_problems(game, family=prof.id)
+    arch = archives(game, family=prof.id)
+    found = {key: languages.get(key) or archive_problem(path, game) for key, path in arch.items()}
+    shell = arch["shell"]
+    if prof.lua_version == "4.0":
+        try:
+            scripts = mission_scripts((game / "mission.lvl").read_bytes())
+        except UNREADABLE:
+            scripts = {}  # reported above, as a missing or damaged archive
+        try:
+            maps = ia_maps(shell.read_bytes())
+        except UNREADABLE:
+            maps = []
+            # An archive, but not the front end's whole one: the Steam copy's
+            # other language folders hold one picture each (tools/zero_language.py).
+            found["shell"] = found["shell"] or problem(
+                "incomplete", shell, game, f"{shown(shell, game)} has no list of the game's maps, so it isn't the whole front end "
+                                           "archive. Of a copy's language folders one must be complete, as ENG is in the Steam copy.")
+    else:
+        from zero_mission2 import OPENING_MISSIONS, data_files, mission_assets
+        from zero_scripts2 import script_chain, script_index
+        try:
+            scripts = script_index(arch["mission"].read_bytes())
+        except UNREADABLE:
+            scripts = {}
+        recorder = zero_family.script_tool()
+        if not recorder or not recorder.is_file():
+            found["recorder"] = problem("recorder", None, game, "Set BFE_SCRIPT_TOOL to the 2005 mission recorder executable.")
+        for map_id, script in OPENING_MISSIONS.items():
+            found[map_id] = archive_problem(game / prof.map_relpath(map_id), game)
+            if found["mission"]:
+                continue
+            if script not in scripts:
+                found[script] = problem("incomplete", arch["mission"], game, f"Mission archive has no {script}.")
+            elif not found.get("recorder"):
+                try:
+                    setup = zero_family.read_mission_manifest(arch["mission"], script)
+                    for rel, _ in data_files(setup):
+                        found[rel] = archive_problem(game / rel, game)
+                    for i, row in enumerate(script_chain(map_id, setup, scripts).manifest["scripts"]):
+                        if "error" in row:
+                            found[(script, i)] = problem("incomplete", arch["mission"], game, f"{script}: {row['error']}")
+                    if recorded_assets is not None:
+                        recorded_assets.append(mission_assets(setup, map_id))
+                except (ValueError, RuntimeError, OSError) as error:
+                    found[script] = problem("recorder", None, game, f"Cannot record {script}: {error}")
         maps = []
-        # An archive, but not the front end's whole one: the Steam copy's
-        # other language folders hold one picture each (tools/zero_language.py).
-        found["shell"] = found["shell"] or problem(
-            "incomplete", shell, game, f"{shown(shell, game)} has no list of the game's maps, so it isn't the whole front end "
-                                       "archive. Of a copy's language folders one must be complete, as ENG is in the Steam copy.")
-    found = [*found.values(), archive_problem(game / "SIDE", game), program_problem(game)]
-    roots = mission_roots(game)
+    found = [*found.values(), archive_problem(game / prof.side_dir, game), program_problem(game, family=prof.id)]
+    roots = mission_roots(game) if prof.lua_version == "4.0" else {}
     for map_id in maps:
         found += map_problems(map_id, game, scripts, roots)
     return tidy(found)
@@ -310,22 +350,33 @@ def add_on_report(game=GAME, stock=()):
     return reports
 
 
-def check(game=GAME):
+def check(game=GAME, family=None):
     """The installation's check: ok when nothing keeps the game itself from
     preparing, with its problems, the stock maps' ids, the add-ons
     (add_on_report) and the language the copy is in (zero_language.found).
     Reads only; writes nothing."""
     from zero_shell import archives, ia_maps
+    prof = zero_family.profile(family)
     game = Path(game)
-    problems = stock_problems(game)
-    try:
-        stock = ia_maps(archives(game)["shell"].read_bytes())
-    except UNREADABLE:
-        stock = []
-    try:
-        add_ons = add_on_report(game, stock) if game.is_dir() else []
-    except UNREADABLE as error:
+    assets = []
+    problems = stock_problems(game, family=prof.id, recorded_assets=assets)
+    if prof.lua_version == "4.0":
+        try:
+            stock = ia_maps(archives(game, family=prof.id)["shell"].read_bytes())
+        except UNREADABLE:
+            stock = []
+        try:
+            add_ons = add_on_report(game, stock) if game.is_dir() else []
+        except UNREADABLE as error:
+            add_ons = []
+            problems.append(problem("unreadable", game.parents[1] / prof.addon_dir, game, f"The add-ons can't be read ({error})."))
+    else:
+        from zero_mission2 import OPENING_MISSIONS
+        stock = list(OPENING_MISSIONS)
         add_ons = []
-        problems.append(problem("unreadable", game.parents[1] / "AddOn", game, f"The add-ons can't be read ({error})."))
-    return {"ok": not problems, "game": str(install_root(game)), "problems": problems, "maps": stock, "addOns": add_ons,
-            "language": zero_language.found(game)}
+    counts = {}
+    if prof.id == zero_family.SWBF2 and not problems:
+        counts["counts"] = {"maps": len(assets), "sides": len({s for a in assets for s in a["sides"]}),
+                            "sublevels": sum(len(a["sound"]) for a in assets)}
+    return {**counts, "ok": not problems, "game": str(install_root(game)), "problems": problems, "maps": stock, "addOns": add_ons,
+            "language": zero_language.found(game, family=prof.id)}

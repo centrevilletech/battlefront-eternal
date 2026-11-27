@@ -2,5 +2,8 @@
   "state": 2,
   "maps": 16,
   "sides": 3,
-  "common": 2
+  "common": 2,
+  "swbf2": 12,
+  "swbf2Lock": "stdin",
+  "swbf2Outputs": 1
 }

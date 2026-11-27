@@ -33,6 +33,7 @@ it has.
 
 from pathlib import Path
 
+import zero_family
 from zero_locl import languages
 from zero_paths import GAME, child
 
@@ -68,34 +69,44 @@ def archive(folder, name):
     return next((path for path in found if path.parent.name.upper() == ENGLISH), max(found, key=size, default=None))
 
 
-def common_archive(game=GAME):
-    """The shared archive. The English one's path when the copy has none,
-    for the message."""
+def common_archive(game=GAME, family=None):
+    """The shared archive. For swbf1, in the language folder (English when
+    none, for the message); for swbf2, directly under _lvl_pc."""
+    if not zero_family.profile(family).language_folders:
+        return Path(game) / "common.lvl"
     return archive(Path(game) / "Common", "common.lvl") or Path(game) / "Common" / ENGLISH / "common.lvl"
 
 
-def shell_archive(game=GAME):
+def shell_archive(game=GAME, family=None):
     """The front end's archive, as common_archive."""
+    if not zero_family.profile(family).language_folders:
+        return Path(game) / "shell.lvl"
     return archive(Path(game) / "Shell", "shell.lvl") or Path(game) / "Shell" / ENGLISH / "shell.lvl"
 
 
-def recorded(path):
+def recorded(path, family=None):
     """A language archive as outputs record it: under the English folder's
     name whatever the copy's is and however it is spelled
     ("Common/ENG/common.lvl" for Common/FRE/common.lvl and for
-    Common/eng/COMMON.LVL). The record is in the content fingerprint, so
-    the same archive must give the same record: a folder's name is not
-    content, and the archive's checksum beside the name says which it is."""
+    Common/eng/COMMON.LVL). Families without language folders record the
+    archive's name directly ("common.lvl"). The record is in the content
+    fingerprint, so the same archive must give the same record: a folder's
+    name is not content, and the archive's checksum beside the name says
+    which it is."""
     path = Path(path)
+    if not zero_family.profile(family).language_folders:
+        return path.name.lower()
     return f"{path.parent.parent.name}/{ENGLISH}/{path.name.lower()}"
 
 
-def text(core, game=GAME):
+def text(core, game=GAME, family=None):
     """The language the tools read core.lvl's text in (core: its bytes):
     english where it has it, else the language of the copy's Common folder,
     else the first it has."""
     have = languages(core)
-    own = TEXT.get(common_archive(game).parent.name.upper())
+    if not zero_family.profile(family).language_folders:
+        return "english" if "english" in have else (have[0] if have else "english")
+    own = TEXT.get(common_archive(game, family=family).parent.name.upper())
     return next((name for name in ("english", own) if name in have), have[0] if have else "english")
 
 
@@ -106,14 +117,22 @@ def named(code):
     return name.replace("_", " ").capitalize() if name.islower() else name
 
 
-def found(game=GAME):
+def found(game=GAME, family=None):
     """What a copy has and the tools read, for the check's report and the
     run's log: the folders chosen in Common and Shell (None when there is
     none), the text's language, and the sentence saying so."""
     game = Path(game)
+    if not zero_family.profile(family).language_folders:
+        try:
+            words = text((game / "core.lvl").read_bytes(), game, family=family)
+        except OSError:
+            words = None
+        message = (f"This copy's game files are in {named(words)}." if words
+                   else "This copy's game files have no language folders.")
+        return {"common": None, "shell": None, "text": words, "message": message}
     common, shell = archive(game / "Common", "common.lvl"), archive(game / "Shell", "shell.lvl")
     try:
-        words = text((game / "core.lvl").read_bytes(), game)
+        words = text((game / "core.lvl").read_bytes(), game, family=family)
     except OSError:
         words = None
     parts = [(named(path.parent.name), f"{part}/{path.parent.name}") for part, path in (("Common", common), ("Shell", shell)) if path]

@@ -1,4 +1,7 @@
-"""Model chunks (`modl`, `skel`): segments, vertex formats, and skeletons."""
+"""Model chunks, segments, vertex formats, and skeletons.
+
+The 2005 material layout and flags follow swbf-unmunge (MIT).
+"""
 
 import math
 import struct
@@ -156,13 +159,15 @@ def model_box(data, info_body, info_end):
 BOUNDS = {}
 
 
-def model_bounds(data, body, end):
+def model_bounds(data, body, end, swbf2=False):
     info_c = child(data, body, end, b"INFO")
     sphere_c = child(data, body, end, b"SPHR")
     out = {}
-    if info_c and info_c[1] - info_c[0] >= 60:
-        values = f32s(data, info_c[0] + 12, 12)
-        out["box"] = [list(values[6:9]), list(values[9:12])]
+    if info_c:
+        base = info_c[0] + (16 if swbf2 else 12)
+        if info_c[1] - base >= 48:
+            values = f32s(data, base, 12)
+            out["box"] = [list(values[6:9]), list(values[9:12])]
     if sphere_c and sphere_c[1] - sphere_c[0] >= 16:
         out["sphere"] = list(f32s(data, sphere_c[0], 4))
     return out
@@ -231,6 +236,13 @@ def apply_bone(m, p):
     return transform_point(m, p)
 
 
+def bind_bones(skeleton):
+    names = skeleton["names"]
+    indices = {name: i for i, name in enumerate(names)}
+    return [{"name": name, "parent": indices.get(parent, -1) if parent and parent != name else -1,
+             "local": local} for name, parent, local in zip(names, skeleton["parents"], skeleton["local"])]
+
+
 def apply_bone_n(m, n):
     return transform_dir(m, n)
 
@@ -246,9 +258,84 @@ ADDITIVE = 0x80
 DOUBLE_SIDED = 0x86  # the renderer draws these flags without back-face culling
 
 
-def parse_material(data, b, e):
+# SWBF2 MTRL flag bits (from swbf-unmunge, MIT license).
+SWBF2_NORMAL = 0x1
+SWBF2_HARD_EDGED = 0x2
+SWBF2_TRANSPARENT = 0x4
+SWBF2_GLOSSMAP = 0x8
+SWBF2_GLOW = 0x10
+SWBF2_BUMPMAP = 0x20
+SWBF2_ADDITIVE = 0x40
+SWBF2_SPECULAR = 0x80
+SWBF2_ENV_MAP = 0x100
+SWBF2_VERTEX_LIGHTING = 0x200
+SWBF2_TILED_NORMALMAP = 0x800
+SWBF2_DOUBLESIDED = 0x10000
+SWBF2_SCROLLING = 0x1000000
+SWBF2_ENERGY = 0x2000000
+SWBF2_ANIMATED = 0x4000000
+SWBF2_ATTACHED_LIGHT = 0x8000000
+
+
+def swbf2_surface(raw_flags):
+    """Draw state from the PC material flags, independent of the legacy mask."""
+    double_sided = bool(raw_flags & SWBF2_DOUBLESIDED)
+    cutout = bool(raw_flags & SWBF2_HARD_EDGED)
+    blend = "opaque"
+    if raw_flags & SWBF2_ADDITIVE:
+        blend = "additive"
+    elif not cutout and (double_sided or raw_flags & SWBF2_TRANSPARENT):
+        blend = "alpha"
+    return {"doubleSided": double_sided, "blendMode": blend, "alphaCutout": 0.5 if cutout else None}
+
+
+def parse_material(data, b, e, swbf2=False):
+    # SWBF1 MTRL is 4 or 12 bytes; SWBF2 MTRL is 24 bytes plus a trailing
+    # null-terminated attached-light name string (swbf-unmunge, MIT license).
+    if swbf2 and e - b >= 24:
+        raw_flags, diffuse, specular, exponent, p0, p1 = struct.unpack_from("<4I2i", data, b)
+        attached_light = cstr_at(data, b + 24, e)
+        flags = 0
+        if raw_flags & SWBF2_NORMAL:
+            flags |= LIT
+        if raw_flags & SWBF2_HARD_EDGED:
+            flags |= HARD_EDGED
+        if raw_flags & SWBF2_TRANSPARENT and not raw_flags & SWBF2_DOUBLESIDED:
+            flags |= TRANSPARENT
+        if raw_flags & SWBF2_ADDITIVE:
+            flags |= ADDITIVE
+        if raw_flags & SWBF2_SPECULAR:
+            flags |= SPECULAR
+        if raw_flags & SWBF2_VERTEX_LIGHTING:
+            flags |= STATIC_LIGHTING
+        material = {
+            "flags": flags,
+            "swbf2Flags": raw_flags,
+            **swbf2_surface(raw_flags),
+            "diffuse": [((diffuse >> 16) & 255) / 255, ((diffuse >> 8) & 255) / 255,
+                        (diffuse & 255) / 255, ((diffuse >> 24) & 255) / 255],
+        }
+        if raw_flags & SWBF2_SPECULAR:
+            material["specular"] = [float(exponent), ((specular >> 16) & 255) / 255,
+                                    ((specular >> 8) & 255) / 255, (specular & 255) / 255]
+        if raw_flags & SWBF2_SCROLLING:
+            # The two bytes can be sign-extended into their 32-bit storage.
+            if not (-128 <= p0 <= 255 and -128 <= p1 <= 255):
+                raise ValueError(f"Invalid 2005 MTRL scroll words at {b}: {(p0, p1)}; expected byte values")
+            material["scroll"] = [(p0 & 255) / 255, (p1 & 255) / 255]
+        if raw_flags & SWBF2_GLOW:
+            material["glow"] = True
+        if (raw_flags & SWBF2_ATTACHED_LIGHT) and attached_light:
+            material["attachedLight"] = attached_light
+        return material
     flags = u32(data, b)
     material = {"flags": flags}
+    if swbf2:
+        # A short legacy MTRL used by a mixed-format asset.
+        surface_flags = ((SWBF2_TRANSPARENT if flags & TRANSPARENT else 0)
+                         | (SWBF2_HARD_EDGED if flags & HARD_EDGED else 0)
+                         | (SWBF2_ADDITIVE if flags & ADDITIVE else 0))
+        material.update(swbf2_surface(surface_flags))
     if flags & PARAMETERS and e - b >= 12:
         if flags & SPECULAR:
             exponent, color = struct.unpack_from("<II", data, b + 4)
@@ -269,12 +356,12 @@ def _fallback_basis(normal):
     return (tx, ty, tz), (ny * tz - nz * ty, nz * tx - nx * tz, nx * ty - ny * tx)
 
 
-def parse_segment(data, body, end, box):
+def parse_segment(data, body, end, box, swbf2=False):
     topology = TRI_LIST
     textures = {}
     vbufs = []
     indices = []
-    material = {"flags": LIT}
+    material = {"flags": LIT, **swbf2_surface(0)} if swbf2 else {"flags": LIT}
     render = "Normal"
     skin = None
     soft = False
@@ -287,7 +374,7 @@ def parse_segment(data, body, end, box):
         elif t == b"BNAM":
             bone = cstr_at(data, b, e)
         elif t == b"MTRL" and e - b >= 4:
-            material = parse_material(data, b, e)
+            material = parse_material(data, b, e, swbf2)
         elif t == b"RTYP":
             render = cstr_at(data, b, e)
         elif t == b"TNAM":
@@ -341,7 +428,8 @@ def parse_segment(data, body, end, box):
     if len(tris) < 3:
         return None
     mflags = material["flags"]
-    bump = textures.get(1) if render.lower() == "bump" and flags & TANGENTS else None
+    is_bump = render.lower() == "bump" or bool(material.get("swbf2Flags", 0) & SWBF2_BUMPMAP)
+    bump = textures.get(1) if is_bump and flags & TANGENTS else None
     part = {
         "texture": textures.get(0, ""),
         "bump": bump,
@@ -366,19 +454,21 @@ def parse_segment(data, body, end, box):
         if all(w is not None for w in exact):
             blend = [(slots, (w[0], w[1], max(0.0, 1.0 - w[0] - w[1]))) for (slots, _), w in zip(blend, exact)]
         part["blend"] = blend
-    # Vertex colour: a tint (COLOR) or baked light (STATIC_LIT); never both.
+    # The legacy world stream selects baked light when it is present.
     if flags & STATIC_LIT:
         part["colors"] = [v["lit"] for v in vertices]
         part["colorKind"] = "lit"
     elif flags & COLOR:
         part["colors"] = [v["color"] for v in vertices]
         part["colorKind"] = "tint"
-    if bump:
+    if swbf2 and flags & STATIC_LIT and flags & COLOR:
+        part["tints"] = [v["color"] for v in vertices]
+    if bump or (swbf2 and flags & TANGENTS):
         tangents = []
         binormals = []
         for v in vertices:
             t, b = v.get("tangent"), v.get("binormal")
-            if t is None or b is None or any(x != x for x in t + b):
+            if t is None or b is None or any(x != x for x in t + b) or (swbf2 and not all(map(math.isfinite, t + b))):
                 t, b = _fallback_basis(v["normal"] or (0.0, 1.0, 0.0))
             tangents.append(t)
             binormals.append(b)
@@ -436,7 +526,7 @@ def _inside(points, box, slack=0.05):
     )
 
 
-def parse_model(data, body, end, skeletons, far=False):
+def parse_model(data, body, end, skeletons, far=False, swbf2=False):
     """A model's parts, named without any LOD suffix. Only full-detail models
     are read, or with far set, only the low-detail (LOWD) ones the far scene
     draws."""
@@ -449,13 +539,14 @@ def parse_model(data, body, end, skeletons, far=False):
     if not (raw_name.endswith("LOWD") if far else full):
         return None
     box = model_box(data, info_c[0], info_c[1])
-    bounds = model_bounds(data, body, end)
+    bounds = model_bounds(data, body, end, swbf2)
     if full and not far:
         BOUNDS.setdefault(name, bounds)
-    bones = skeletons.get(name) or skeletons.get(raw_name)
+    bones = (skeletons.get(name.lower()) or skeletons.get(raw_name.lower()) if swbf2
+             else skeletons.get(name) or skeletons.get(raw_name))
     parts = []
     for b, e in children_of(data, body, end, b"segm"):
-        part = parse_segment(data, b, e, box)
+        part = parse_segment(data, b, e, box, swbf2)
         if part and part["texture"] and not part["texture"].startswith("p_"):
             part["local_positions"] = list(part["positions"])
             part["local_normals"] = list(part["normals"])
@@ -480,6 +571,8 @@ def parse_model(data, body, end, skeletons, far=False):
                 placed = bounds.get("box")
                 if trial.get("joints") and (not placed or _inside(trial["positions"], placed) >= _inside(part["positions"], placed)):
                     part.update(trial)
+                elif swbf2 and trial.get("joints"):
+                    part["joints"] = trial["joints"]
             else:
                 pose_rigid(part, bones)
             parts.append(part)
@@ -488,10 +581,10 @@ def parse_model(data, body, end, skeletons, far=False):
     return name, parts
 
 
-def collect_models(data, models, skeletons_out=None, far=None):
+def collect_models(data, models, skeletons_out=None, far=None, sections=None, swbf2=False):
     """Every model in an archive by name; the first one found wins. With far,
     the low-detail (LOWD) models go there, under their full model's name."""
-    for start, end in iter_archives(data):
+    for start, end in (iter_archives(data) if sections is None else sections):
         skeletons = {}
         nodes = chunks(data, start, end)
         for t, b, e in nodes:
@@ -499,18 +592,18 @@ def collect_models(data, models, skeletons_out=None, far=None):
                 continue
             parsed = parse_skeleton(data, b, e)
             if parsed is not None:
-                skeletons[parsed["name"]] = parsed
+                skeletons[parsed["name"].lower() if swbf2 else parsed["name"]] = parsed
                 if skeletons_out is not None:
                     skeletons_out.setdefault(parsed["name"], parsed)
         for t, b, e in nodes:
             if t != b"modl":
                 continue
-            parsed = parse_model(data, b, e, skeletons)
+            parsed = parse_model(data, b, e, skeletons, swbf2=swbf2)
             if parsed is not None:
                 name, parts = parsed
                 models.setdefault(name, parts)
             elif far is not None:
-                parsed = parse_model(data, b, e, skeletons, far=True)
+                parsed = parse_model(data, b, e, skeletons, far=True, swbf2=swbf2)
                 if parsed is not None:
                     name, parts = parsed
                     far.setdefault(name, parts)

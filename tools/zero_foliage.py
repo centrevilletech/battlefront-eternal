@@ -87,7 +87,7 @@ def placement_table(executable):
     data = Path(executable).read_bytes()
     pe = struct.unpack_from('<I', data, 0x3c)[0]
     if data[:2] != b'MZ' or data[pe:pe + 4] != b'PE\0\0':
-        raise ValueError('Foliage placement needs a supported Battlefront.exe')
+        raise ValueError(f'Foliage placement needs a supported {Path(executable).name}')
     count = struct.unpack_from('<H', data, pe + 6)[0]
     optional = struct.unpack_from('<H', data, pe + 20)[0]
     sections = []

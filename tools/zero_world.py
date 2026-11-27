@@ -16,7 +16,7 @@ import math
 import struct
 
 from portable_math import atan2, cos, sin
-from ucfb import child, children_of, chunks, cstr_at, f32s, nodes, u32, u32
+from ucfb import child, children_of, chunks, cstr_at, f32s, nodes, u32
 from xform import mat4, transform_point
 
 BOX = 4
@@ -24,9 +24,19 @@ CYLINDER = 2
 SPHERES = (0, 1)
 
 
-def coll_meshes(data):
+def _nodes_in(data, typ, sections):
+    if sections is None:
+        yield from nodes(data, typ)
+        return
+    for start, end in sections:
+        for t, b, e in chunks(data, start, end):
+            if t == typ:
+                yield b, e
+
+
+def coll_meshes(data, sections=None, with_masks=False):
     out = {}
-    for body, end in nodes(data, b"coll"):
+    for body, end in _nodes_in(data, b"coll", sections):
         name_c = child(data, body, end, b"NAME")
         info = child(data, body, end, b"INFO")
         posi = child(data, body, end, b"POSI")
@@ -48,13 +58,17 @@ def coll_meshes(data):
             if max(idx) >= count:
                 continue
             polys.append(idx)
-        out.setdefault(cstr_at(data, *name_c), []).append((positions, polys))
+        record = (positions, polys)
+        if with_masks:
+            mask = child(data, body, end, b"MASK")
+            record += (data[mask[0]] if mask and mask[0] < mask[1] else 0,)
+        out.setdefault(cstr_at(data, *name_c), []).append(record)
     return out
 
 
-def prim_shapes(data):
+def prim_shapes(data, sections=None):
     out = {}
-    for body, end in nodes(data, b"prim"):
+    for body, end in _nodes_in(data, b"prim", sections):
         info = child(data, body, end, b"INFO")
         if info is None:
             continue
@@ -63,6 +77,8 @@ def prim_shapes(data):
         for t, b, e in chunks(data, body, end):
             if t == b"NAME":
                 cur = {"name": cstr_at(data, b, e)}
+            elif sections is not None and t == b"MASK" and e > b:
+                cur["mask"] = data[b]
             elif t == b"PRNT":
                 cur["parent"] = cstr_at(data, b, e)
             elif t == b"XFRM" and e - b >= 48:

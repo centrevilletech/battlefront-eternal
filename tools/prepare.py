@@ -20,7 +20,7 @@ Steps (keys in brackets), each after the ones it needs:
 7. [environment]    after the maps: the effects their placed objects carry
                     (fountains, steam, torches, smoke, mist; tools/zero_environment.py)
 8. [hud]            after the shell: 4x HUD and font atlases (tools/upscale_hud.py; needs Pillow)
-9. [audio:<sub>]    after its map: the Enhanced sound per battle (tools/enhance_audio.py;
+9. [audio:<sub>]    after catalog-update: the Enhanced sound per battle (tools/enhance_audio.py;
                     needs numpy, scipy, soundfile and soxr, and ffmpeg)
 10. [textures]      after everything that writes textures: KTX2 copies (tools/ktx2.py;
                     needs KTX-Software's `ktx`)
@@ -30,8 +30,8 @@ game's own archives, and the client plays the Bink files from there.
 
 Steps 1-8 make the game playable ("core"); the rest refine it. Steps run as
 soon as what they need is done and the cores allow (--jobs): the sides and
-maps several at once (as memory allows), the sound of a battle while other
-maps extract. The game can start once the sides,
+maps several at once (as memory allows), then Enhanced Sound for the prepared
+battles. The game can start once the sides,
 common and shell steps and one map are done, which the "playable" event
 announces. The desktop app keeps its loader up until all of them are done.
 A step that completes is recorded in <out>/.prepare.json and skipped next
@@ -71,6 +71,7 @@ tools' own output passes through between them.
 """
 
 import argparse
+import errno
 import importlib.util
 import json
 import os
@@ -79,6 +80,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from collections import deque
@@ -86,9 +88,10 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 import zero_addon
+import zero_family
 import zero_language
 from zero_addon import add_ons, missions
-from zero_paths import GAME, PUBLIC
+from zero_paths import GAME, PUBLIC, write_text_lf
 
 TOOLS = Path(__file__).resolve().parent
 # Re-exports the armies when it moves (stored as the state's muzzleVersion):
@@ -96,7 +99,9 @@ TOOLS = Path(__file__).resolve().parent
 # AI class records name every property the tools know (AmbientSound, which
 # 7be608c taught them without a new generation, so sides prepared since
 # differed from the server's), and an add-on army's path is recorded as
-# spelled on disk on every platform (tools/zero_addon.py child).
+# spelled on disk on every platform (tools/zero_addon.py child). The 2005
+# armies' craft rigs (sides/<side>/craftrigs.*, presentation only) need no new
+# number: a set prepared without them plays as before, its craft unposed.
 CONTENT_VERSION = json.loads((TOOLS / "content-version.json").read_text())
 SIDE_EXPORT_VERSION = CONTENT_VERSION["sides"]
 MAP_IMPORT_VERSION = CONTENT_VERSION["maps"]  # 1: FOLG grid/scatter and painted mesh collision rules. 2: collision filed under the model a class draws. 3: every battle of a map (both eras), vehicle effects and sounds, posts' map icons. 4: haze, dust, snow, sky models and attached effects on every map. 5: turrets' damage effects and pieces, walkers' dying explosions. 6: geometry attached to placed props' hardpoints (Jabba, the rancor, sarlacc tentacles). 7: animated props and doors live, with their clips (props_anims.bin). 8: their bone-hung collision shapes (the closed trapdoor is solid). 9: soft-skinned props keep their bones' weights (the sarlacc tentacle, Jabba, the rancor), every Animation, AnimationTrigger and AttachTrigger of an animated prop, and the death regions a battle's script names (the sarlacc pit's Sarlac01). Hover suspension springs and walker foot bottoms/rules. 10: destructible command posts live (the shield generator, the Techno Union ships, the forward command center, the bunker control panel), their death clips and kill regions, the objective map icon and Info voice-over. 11: walker aimer and barrel records as the original game groups them, leg pairs (walkers stand on their legs), FireOutsideLimits per aimer. 12: traps live (Endor's Ewok log traps: their swing and build clips, build pad and DeathEffect), no longer baked; the power-ups the world places (props.json items; Yavin 4: Arena's health power-up). 13: the same bits on every platform: spawn paths' and posts' yaws, the sun's direction, foliage and collision shapes turned by tools/portable_math.py, not the platform's sin, cos and atan2 (Windows' differ from glibc's in the last bit), and an add-on map's recorded paths spelled as on disk. 14: flyers' takeoff clips (landing gear, gear doors, the X-wing's S-foils), drawn by flight state and left out of the content fingerprint. 15: the sky's flyers (SkyObject: sky/ beside map.json, for the battles that load their models; presentation only, outside the content fingerprint, so map.json and every fingerprinted file come out as at 14). 16: the Enhanced sky's flyers: every class of a battle's era (sky/flyers.json `enhanced`, with each class's era) and their models from the side archives, Bespin: Platforms' among them; presentation only, so the fingerprinted files come out as at 15.
@@ -109,12 +114,8 @@ STATE_VERSION = CONTENT_VERSION["state"]  # 2: sides and common are steps of the
 # takes their armies' clips and their maps' effects, and catalog-update marks
 # their maps ready. Their maps, armies and sound are steps of their own.
 ADD_ON_STEPS = ("catalog", "common", "catalog-update")
-ERA_TEAMS = {"cw": ["rep", "cis"], "gcw": ["all", "imp"]}
-SIDE_NAMES = {
-    "rep": "Republic", "cis": "CIS", "all": "Rebel Alliance", "imp": "Galactic Empire",
-    "geo": "Geonosians", "ewk": "Ewoks", "wok": "Wookiees", "gun": "Gungans", "des": "Tusken Raiders",
-    "gar": "Garrison", "jaw": "Jawas", "gam": "Gamorreans",
-}
+ERA_TEAMS = zero_family.profile().era_teams
+SIDE_NAMES = zero_family.profile().side_names
 
 
 OUTPUT = threading.Lock()
@@ -195,7 +196,7 @@ class State:
         self.data.update(extra)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temp = self.path.with_suffix(".tmp")
-        temp.write_text(json.dumps(self.data, indent=1))
+        write_text_lf(temp, json.dumps(self.data, indent=1))
         temp.replace(self.path)
 
 
@@ -218,27 +219,30 @@ class Ran:
     """A tool's run: true when it succeeded, with the last lines it printed
     (why: what a failed step reports)."""
 
-    def __init__(self, ok, tail=()):
-        self.ok, self.tail = ok, list(tail)
+    def __init__(self, ok, tail=(), returncode=None):
+        self.ok, self.tail, self.returncode = ok, list(tail), returncode
 
     def __bool__(self):
         return self.ok
 
 
-def run_tool(script, *args, prefix=""):
+def run_tool(script, *args, prefix="", env=None):
     """Runs a tool with this interpreter; a Ran, true when it succeeds. Its
     output passes through, each line led by prefix when tools run side by
-    side."""
+    side. After a lock handover (handed_lock) the tool gets no standard
+    input, so that it cannot keep the lock after this run ends."""
     command = [sys.executable, "-u", str(TOOLS / script), *map(str, args)]
     say(f"{prefix}$ " + " ".join(command[2:]))
-    child = subprocess.Popen(command, cwd=TOOLS.parent, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+    child = subprocess.Popen(command, cwd=TOOLS.parent, env=env, stdin=subprocess.DEVNULL if client_lock_requested() else None,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              text=True, encoding="utf-8", errors="replace", bufsize=1)
     tail = deque(maxlen=12)
     for line in child.stdout:
         say(prefix + line.rstrip("\n"))
         if line.strip():
             tail.append(line.strip())
-    return Ran(child.wait() == 0, tail)
+    returncode = child.wait()
+    return Ran(returncode == 0, tail, returncode)
 
 
 def why(result):
@@ -270,13 +274,13 @@ def map_workers(jobs, per_gb=0.6, most=6, least=2, mem=None):
     return max(min(least, jobs), min(jobs, by_memory, most))
 
 
-def mission_sides():
+def mission_sides(*, game=None):
     """Every side each map's mission scripts read (SIDE\\<name>.lvl), by map
     id, from mission.lvl and the add-ons'. Empty when the install or its
     scripts are missing."""
     try:
         from zero_lua import mission_setup
-        scripts = missions(GAME)
+        scripts = missions(game if game is not None else GAME)
     except (OSError, ImportError, ValueError):
         return {}
     sides = {}
@@ -299,7 +303,7 @@ def catalog():
         return []
 
 
-def mission_sublevels(maps, locals_of):
+def mission_sublevels(maps, locals_of, *, game=None):
     """Each map's sound sub-levels (the Enhanced sound's units of work), by
     map id, from the sound archive each of its missions reads
     ("sound\\bes.lvl;bes1cw"): known before any map is extracted, so the
@@ -307,7 +311,7 @@ def mission_sublevels(maps, locals_of):
     try:
         from zero_lua import calls, load, mission_setup
         from zero_sound import read_mission_audio
-        scripts = missions(GAME)
+        scripts = missions(game if game is not None else GAME)
     except (OSError, ImportError, ValueError):
         return {}
     found = {}
@@ -451,7 +455,7 @@ def audio_jobs(jobs):
     return max(2, min(4, jobs // 2))
 
 
-def plan(jobs, maps=None, locals_of=None, sublevels=None, add_on_maps=None):
+def plan(jobs, maps=None, locals_of=None, sublevels=None, add_on_maps=None, *, stream_session=None):
     """The steps (see step()), in the order the progress list shows them;
     run_steps schedules them by their needs. add_on_maps: the add-ons' own
     maps' ids (the run's, RUN.maps, by default)."""
@@ -503,16 +507,17 @@ def plan(jobs, maps=None, locals_of=None, sublevels=None, add_on_maps=None):
     enhanced = has_modules("numpy", "scipy", "soundfile", "soxr") and ffmpeg_ok()
     # An era's battles share their voice-over, made once by the first of
     # them (tools/enhance_audio.py keeps it): the rest of the era follow it.
+    stream_args = ("--stream-session", stream_session) if stream_session else ()
     leaders = {}
     for map_id, _, _ in battles:
         add_on = map_id in add_on_maps
         for sublevel in sublevels.get(map_id, []):
             era = "gcw" if sublevel.endswith("gcw") else "cw" if sublevel.endswith("cw") else sublevel
-            after = [f"map:{map_id}"] + ([leaders[era]] if era in leaders else [])
+            after = ["catalog-update"] + ([leaders[era]] if era in leaders else [])
             leaders.setdefault(era, f"audio:{sublevel}")
             steps.append(step(f"audio:{sublevel}", "extra", f"Enhancing sound: {sublevel}", 6, enhanced,
                               lambda sublevel=sublevel, map_id=map_id: LEFT_OUT if RUN.out(map_id)
-                              else run_tool("enhance_audio.py", sublevel, "--jobs", audio_jobs(jobs)),
+                              else run_tool("enhance_audio.py", sublevel, "--jobs", audio_jobs(jobs), *stream_args),
                               after=after, cores=audio_jobs(jobs), maps=(map_id,) if add_on else ()))
     steps.append(step("textures", "extra", "Compressing textures", 8, ktx_ok(), lambda: run_tool("ktx2.py", "--jobs", audio_jobs(jobs)),
                       after=("map:", "side:", "common", "shell", "environment", "hud"), cores=audio_jobs(jobs)))
@@ -609,18 +614,117 @@ def announce_playable(state):
         emit("playable")
 
 
-def hold_lock(path):
-    """An exclusive lock on path for this process's lifetime, or None when
-    another run holds it. The OS drops it if the process dies."""
-    handle = open(path, "a+b")
+class HandoverUnconfirmed(OSError):
+    """The handed file could not be identified."""
+
+
+def client_lock_requested():
+    return zero_family.is_swbf2() and os.environ.get("BFE_PREPARE_LOCK") == "stdin"
+
+
+def client_holds_initial_lock(path):
+    """Confirm the older client's marker-only handover without taking a writer lock."""
+    if not client_lock_requested() or not os.path.samestat(path.lstat(), os.fstat(0)):
+        return False
+    # A separate reader can share an unlocked file, but cannot share the client's
+    # exclusive lock. Closing the reader releases a successful shared lock.
+    with path.open("rb") as reader:
+        if os.name == "nt":
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+            class Overlapped(ctypes.Structure):
+                _fields_ = [("internal", ctypes.c_size_t), ("internal_high", ctypes.c_size_t),
+                            ("offset", wintypes.DWORD), ("offset_high", wintypes.DWORD),
+                            ("event", wintypes.HANDLE)]
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = wintypes.HANDLE(msvcrt.get_osfhandle(reader.fileno()))
+            # LOCKFILE_FAIL_IMMEDIATELY, shared, byte zero.
+            if not kernel.LockFileEx(handle, 1, 0, 1, 0, ctypes.byref(Overlapped())):
+                error = ctypes.get_last_error()
+                if error == 33:  # ERROR_LOCK_VIOLATION
+                    return True
+                raise ctypes.WinError(error)
+        else:
+            import fcntl
+            try:
+                fcntl.flock(reader, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+    return False
+
+
+def hold_lock(path, *, create=True):
+    """Take the named preparation lock or adopt the 2005 client's handed lock."""
+    swbf2 = zero_family.is_swbf2()
+    handle = open(path, "a+b" if create else "r+b")
     try:
         if os.name == "nt":
             import msvcrt
             handle.seek(0)
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            if swbf2:
+                handle.seek(1)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
         else:
             import fcntl
             fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        # Closing also releases byte 0 if byte 1 was busy.
+        handle.close()
+        if not create and error.errno not in (errno.EACCES, errno.EAGAIN, errno.EWOULDBLOCK):
+            raise
+        if not client_lock_requested():
+            return None
+        handle = handed_lock(path)
+    if handle is not None and client_lock_requested():
+        # Keep the private, non-inheritable handle. Even a helper launched
+        # outside run_tool (for example a display server) must get plain stdin.
+        try:
+            with open(os.devnull, "rb") as null:
+                os.dup2(null.fileno(), 0)
+        except OSError:
+            handle.close()
+            raise
+    return handle
+
+
+def existing_writer(path):
+    """Probe the existing lock after a read error inside an identified 2005 tree."""
+    try:
+        handle = hold_lock(path, create=False)
+    except OSError:
+        return False
+    if handle is None:
+        return True
+    handle.close()
+    return False
+
+
+def handed_lock(path):
+    """Unix shares a locked open file description. Windows assigns byte 1 to
+    this writer while the client keeps byte 0. Either excludes another writer."""
+    handle = open(path, "r+b")
+    try:
+        named, given = os.fstat(handle.fileno()), os.fstat(0)
+        if not named.st_ino or not given.st_ino:
+            raise ValueError("the lock or standard input has no file identity")
+    except (OSError, ValueError) as error:
+        handle.close()
+        raise HandoverUnconfirmed(f"standard input cannot be identified: {error}") from error
+    if not os.path.samestat(named, given):
+        handle.close()
+        return None
+    try:
+        if os.name == "nt":
+            import msvcrt
+            handle.seek(1)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            handle.close()
+            handle = os.fdopen(os.dup(0), "rb")
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         handle.close()
         return None
@@ -663,7 +767,7 @@ def check_install(jobs):
     by side (map_workers)."""
     from prepare_check import check
     report = check(GAME)
-    if report["ok"]:
+    if report["ok"] and "counts" not in report:
         try:
             report["counts"] = plan_counts(report)
         except Exception as error:  # noqa: BLE001 - the estimate is optional
@@ -703,33 +807,199 @@ def leave_out_checked(report, state):
                 RUN.leave_out(entry["id"], "check", " ".join(found["message"] for found in entry["problems"][:2]), state)
 
 
+def damaged_sound_maps(damaged, game):
+    banks = mission_sublevels(catalog(), mission_sides(game=game), game=game)
+    return [map_id for map_id, names in banks.items() if None in damaged or damaged.intersection(names)]
+
+
+def maintain_sound(args, *, locked=False):
+    """Run optional preparation steps for changed sound files. A clean folder needs only stat calls."""
+    import zero_sound_health as health
+    from zero_paths import child
+    from zero_sound_upgrade import prepared_game, refresh_prepared
+
+    audio = PUBLIC / "audio"
+    scopes = []
+    if not zero_family.is_swbf2() and audio.is_dir() and ((audio / "index.json").is_file() or (PUBLIC / ".prepare.json").is_file()):
+        scopes.append(("manifests", "Updating battle sound manifests"))
+    if not args.no_enhanced_sound and (audio / "enhanced").is_dir() and os.access(audio / "enhanced", os.W_OK):
+        scopes.append(("enhanced", "Verifying Enhanced Sound"))
+    if not scopes or not os.access(PUBLIC, os.W_OK) or not os.access(audio, os.W_OK):
+        return
+    def inputs(scope):
+        files = health.inputs(audio, enhanced=scope == "enhanced")
+        if scope == "manifests":
+            game = prepared_game()
+            core = child(game, "core.lvl")
+            files["@installation"] = [str(game), health.stamp(core) if core else None]
+            if core:
+                files["@missionFiles"] = {str(p): health.stamp(p) for p, _ in zero_addon.mission_files(game)}
+            files["@prepared"] = health.stamp(PUBLIC / ".prepare.json")
+            files["@indexRebuild"] = health.stamp(audio / ".index-rebuild")
+            if saved.get("blockedManifests"):
+                files["@repairArchives"] = health.archive_inputs(game)
+        return files
+    lock = None
+    try:
+        saved = health.load(PUBLIC)
+        pending = [(scope, label) for scope, label in scopes
+                   if (saved.get(scope) != inputs(scope)
+                       or health.retry_due(saved, audio, preparing=locked, key="retry" + scope.title()))]
+        if not pending:
+            return
+        if not locked and zero_family.is_swbf2():
+            from zero_outputs2 import destination_origin
+            lock = hold_lock(PUBLIC / ".prepare.lock")
+            if lock is None or destination_origin(PUBLIC) != "dedicated":
+                return
+        can_save = health.can_record(PUBLIC)
+        index_only = not can_save and not locked
+        if index_only:
+            say("Startup can restore the original battle index. Audio verification will run during preparation.")
+            pending = [(scope, label) for scope, label in pending if scope == "manifests"]
+            if not pending:
+                return
+        if not locked:
+            if not zero_family.is_swbf2():
+                lock = hold_lock(PUBLIC / ".prepare.lock")
+                if lock is None:
+                    return
+                health.clean_original_temporaries(audio)
+            health.clean_temporaries(audio / "enhanced")
+        for scope, label in pending:
+            key = "sound:" + scope
+            emit("step", key=key, label=label, phase="extra", weight=1, status="start")
+            retry_reason = None
+            blocked = {}
+            try:
+                if scope == "manifests":
+                    damaged = set()
+                    refresh_prepared(locked=True, damaged=damaged, index_only=index_only)
+                    ok = True
+                    if damaged:
+                        game = prepared_game()
+                        install = game.parents[len(zero_family.profile().data_subpath)]
+                        env = dict(os.environ, BFE_GAME_DIR=str(install), BFE_SOUND_REPAIR="1")
+                        unchanged = saved.get("blockedManifests", {})
+                        if unchanged and saved.get(scope) != inputs(scope):
+                            unchanged = {}
+                        jobs = [(name, ("extract.py", name, "--only", "audio"))
+                                for name in damaged_sound_maps(damaged, game)]
+                        if "shell" in damaged:
+                            jobs.append(("shell", ("zero_shell.py", "--audio")))
+                        for name, command in jobs:
+                            if name in unchanged:
+                                blocked[name] = unchanged[name]
+                                ok = False
+                                continue
+                            result = run_tool(*command, env=env)
+                            if not result:
+                                ok = False
+                                if result.returncode == health.TEMPORARY_FAILURE:
+                                    retry_reason = why(result)
+                                else:
+                                    blocked[name] = why(result)
+                else:
+                    ok = (has_modules("numpy", "scipy", "soundfile", "soxr") and ffmpeg_ok()
+                          and run_tool("enhance_audio.py", "--repair-streams"))
+            except Exception as error:  # Optional sound must never prevent the player from starting a battle.
+                say(f"{label}: {error}")
+                ok = False
+                if health.retryable_io(error):
+                    retry_reason = error
+                elif scope == "manifests":
+                    blocked["@index"] = str(error)
+            saved = health.load(PUBLIC)  # The encoder records each stream's verdict.
+            if scope == "manifests":
+                if blocked:
+                    saved["blockedManifests"] = blocked
+                else:
+                    saved.pop("blockedManifests", None)
+                if retry_reason:
+                    saved["retryManifests"] = health.retry_later(audio, retry_reason)
+                else:
+                    saved.pop("retryManifests", None)
+            saved[scope + "Status"] = "done" if ok else "failed"
+            if can_save:
+                saved[scope] = inputs(scope)
+                health.save(PUBLIC, saved)
+            emit("step", key=key, label=label, phase="extra", weight=1, status=saved[scope + "Status"])
+    except OSError as error:
+        say(f"Sound maintenance deferred: {error}")
+    finally:
+        if lock is not None:
+            lock.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 2)
     parser.add_argument("--core-only", action="store_true", help="stop once the game is playable")
     parser.add_argument("--no-enhanced-sound", action="store_true", help="leave the Enhanced sound (the audio steps) out")
-    parser.add_argument("--check", action="store_true", help="check the installation and stop, writing nothing")
+    parser.add_argument("--check", action="store_true", help="check the installation without writing any files")
+    parser.add_argument("--maintain-sound", action="store_true", help="update prepared sound if its files changed")
     args = parser.parse_args()
 
     if args.check:
         report = check_install(args.jobs)
         emit("check", **report)
         return 0 if report["ok"] else 1
-    if not (GAME / "SIDE").exists():
-        emit("error", message=f"No Star Wars Battlefront installation at {GAME.parents[1]}")
+    prof = zero_family.profile()
+    if prof.id == zero_family.SWBF2:
+        from zero_outputs2 import PayloadReadError, destination_origin
+        try:
+            origin = destination_origin(PUBLIC, client_handover=client_holds_initial_lock)
+        except (OSError, ValueError) as error:
+            if isinstance(error, PayloadReadError) and existing_writer(PUBLIC / ".prepare.lock"):
+                emit("busy", message=f"Another preparation is already running in {PUBLIC}")
+                return 3
+            emit("error", message=str(error))
+            return 2
+    if args.maintain_sound:
+        if prof.id != zero_family.SWBF2:
+            maintain_sound(args)
+        elif origin == "dedicated":
+            try:
+                maintain_sound(args)
+            except ValueError as error:
+                emit("error", message=str(error))
+                return 2
+        emit("finished", failed=[], failures=[], addOnFailures=[])
+        return 0
+    if not (GAME / prof.side_dir).exists():
+        emit("error", message=f"No {prof.title} installation at {GAME.parents[1]}")
         return 2
     PUBLIC.mkdir(parents=True, exist_ok=True)
-    lock = hold_lock(PUBLIC / ".prepare.lock")
+    try:
+        lock = hold_lock(PUBLIC / ".prepare.lock")
+    except HandoverUnconfirmed as error:
+        emit("error", message=f"The preparation lock handed over for {PUBLIC} could not be confirmed: {error}")
+        return 2
     if lock is None:
         emit("busy", message=f"Another preparation is already running in {PUBLIC}")
         return 3
     try:
-        return prepare_all(args)
+        if prof.id == zero_family.SWBF2:
+            from zero_mission2 import prepare_opening
+            try:
+                return prepare_opening(args, initializing=origin == "empty")
+            except (OSError, ValueError) as error:
+                emit("error", message=str(error))
+                return 1
+        from zero_sound_health import clean_original_temporaries, clean_temporaries
+        clean_original_temporaries(PUBLIC / "audio")
+        clean_temporaries(PUBLIC / "audio/enhanced")
+        if args.no_enhanced_sound:
+            result = prepare_all(args)
+        else:
+            with tempfile.TemporaryDirectory(prefix="bfe-streams-") as session:
+                result = prepare_all(args, stream_session=session)
+        return result
     finally:
         lock.close()
 
 
-def prepare_all(args):
+def prepare_all(args, *, stream_session=None):
     """The run itself, the output folder locked."""
     say(zero_language.found(GAME)["message"])
     # The add-ons first: what reads them must not see one left out whole.
@@ -737,6 +1007,17 @@ def prepare_all(args):
     ANNOUNCED.clear()
     report, skipped_add_ons = check_add_ons()
     state = State(PUBLIC / ".prepare.json", skipped=skipped_add_ons)
+    from zero_sound_upgrade import refresh_prepared
+    damaged = set()
+    try:
+        refresh_prepared(locked=True, damaged=damaged)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        say(f"Sound index maintenance deferred: {error}")
+    if damaged:
+        for map_id in damaged_sound_maps(damaged, GAME):
+            state.unmark(f"map:{map_id}")
+        if "shell" in damaged:
+            state.unmark("shell")
     leave_out_checked(report, state)
     failed = []
     failures = []
@@ -745,10 +1026,10 @@ def prepare_all(args):
 
     # The catalog decides which maps there are, so the plan is made again
     # after it runs; finished steps are skipped either way.
-    steps, _ = plan(args.jobs)
+    steps, _ = plan(args.jobs, stream_session=stream_session)
     for attempt in range(2):
         if attempt:
-            steps, has_maps = plan(args.jobs)
+            steps, has_maps = plan(args.jobs, stream_session=stream_session)
             if not has_maps:
                 emit("error", message="The game's map catalog could not be read.")
                 return 1
@@ -834,6 +1115,8 @@ def prepare_all(args):
     # from an earlier run) and how many steps adding it takes.
     state.save(finished=time.time(), failed=failed, failures=failures, skipped=skipped, complete=not args.core_only,
                extras={"enhancedSound": not off, "soundSteps": len(off)}, addOnFailures=RUN.failures)
+    if not args.core_only:
+        maintain_sound(args, locked=True)
     emit("finished", failed=failed, failures=failures, addOnFailures=RUN.failures)
     return 1 if core_failed else 0
 

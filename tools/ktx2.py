@@ -36,7 +36,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-from zero_paths import PUBLIC  # noqa: E402
+from zero_paths import PUBLIC, write_text_lf  # noqa: E402
 CACHE = Path.home() / ".cache" / "bf-tools"
 MANIFEST = "ktx2.json"
 MINIMUM = (4, 4)  # `ktx create --assign-tf` arrived in KTX-Software 4.4
@@ -279,7 +279,7 @@ def finish(folder, encoder, log):
     target = folder.path / MANIFEST
     if not target.is_file() or target.read_text() != text:
         temporary = folder.path / f".{MANIFEST}.{os.getpid()}.tmp"
-        temporary.write_text(text)
+        write_text_lf(temporary, text)
         os.replace(temporary, target)
     note = f", {folder.failed} failed" if folder.failed else ""
     note += f", {folder.removed} stale removed" if folder.removed else ""
