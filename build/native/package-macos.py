@@ -25,6 +25,8 @@ a link to /Applications. Runs on macOS only (sips, iconutil, hdiutil,
 codesign).
 """
 
+from __future__ import annotations
+
 import argparse
 import contextlib
 import os
@@ -156,6 +158,10 @@ def dmgbuild_python():
             raise FileNotFoundError(f'BFE_DMGBUILD_PYTHON names {provisioned}, which does not exist; nothing is fetched in its place')
         yield Path(provisioned)
         return
+    if sys.version_info < (3, 10):
+        # The pinned dmgbuild needs 3.10 or newer; the Python that macOS ships is 3.9.
+        raise SystemExit(f'the disk image tool needs Python 3.10 or newer, this is {sys.version_info[0]}.{sys.version_info[1]}: '
+                         'run this script with a newer one (not the Python macOS ships), or name a prepared one in BFE_DMGBUILD_PYTHON')
     with tempfile.TemporaryDirectory(prefix='bfe-dmgbuild-') as environment:
         python = Path(environment) / 'bin' / 'python3'
         run([sys.executable, '-m', 'venv', environment])

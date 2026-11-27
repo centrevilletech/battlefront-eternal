@@ -29,6 +29,8 @@ time). The helper programs are signed first, then resources/bfe-tree.json is
 written with their final hashes, then the bundle is sealed.
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json

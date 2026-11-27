@@ -46,6 +46,7 @@ base_test_crates=(
 
 wave_crates=(
   sim-gen
+  bfe-script
   bfe-ui
   bfe-interface
   bfe-shell
@@ -53,6 +54,8 @@ wave_crates=(
   bfe-battle-ui
   bfe-desktop
   bfe-server
+  bfe-family
+  bfe-storage
   xtask
 )
 
@@ -69,3 +72,10 @@ done
 echo "==> Running workspace native crate tests on $(uname -m) (--no-fail-fast, RUST_BACKTRACE=1, --nocapture)"
 RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked --no-fail-fast \
   "${test_pkg_args[@]}" -- --nocapture
+
+# The script runtime must give the same bits with the optimizer on: its tests run in
+# release as well (exceptional arithmetic, the differential corpus, hostile bounds).
+if [[ -f "rust/bfe-script/Cargo.toml" ]]; then
+  echo "==> bfe-script tests in release on $(uname -m)"
+  RUST_BACKTRACE=1 cargo test --manifest-path "${manifest}" --locked --release -p bfe-script -- --nocapture
+fi

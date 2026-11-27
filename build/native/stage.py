@@ -32,6 +32,8 @@ content-addressed update payload packer (build/native/update-payload.py):
         icons/hicolor/...
 """
 
+from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -377,6 +379,24 @@ def stage_host_runtime(dst: Path, server: Path, repo_root: Path = REPO_ROOT) -> 
             path.chmod(0o755 if path.name == 'bfeserver' else 0o644)
 
 
+def refuse_open_gate(binaries) -> None:
+    """Refuses a client or server binary that can open the 2005 game: one that
+    contains the marker of the test-only crate rust/bfe-test-gate, which no
+    shipped crate may depend on, or of the developer switch for online play,
+    which only `--cfg bfe_dev_online` compiles (build/ci/check-release-gate.sh
+    checks both in CI)."""
+    for source, what in (('rust/bfe-test-gate/src/lib.rs', 'the test-only open gate'),
+                         ('rust/bfe-family/src/dev_online.rs', 'the developer switch for online play')):
+        text = (REPO_ROOT / source).read_text()
+        found = [line for line in text.splitlines() if line.startswith('pub const MARKER: &str = "')]
+        if len(found) != 1:
+            raise SystemExit(f'error: no MARKER constant in {REPO_ROOT / source}')
+        marker = found[0].split('"')[1].encode()
+        for binary in binaries:
+            if binary is not None and marker in binary.read_bytes():
+                raise SystemExit(f'error: {binary} contains {what} ({marker.decode()})')
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--platform', required=True, help='Target platform (linux-x64, linux-arm64, win32-x64, darwin-arm64, darwin-x64)')
@@ -387,6 +407,8 @@ def main() -> None:
     parser.add_argument('--release-json', default=None, type=Path, help='Optional path to bfe-release.json')
     args = parser.parse_args()
 
+    # A release never ships a binary that can open the 2005 game.
+    refuse_open_gate([args.client_bin, args.server_bin])
     tc_dir = args.toolchain_dir or default_toolchain_dir(args.platform)
     manifest = stage_tree(
         platform=args.platform,

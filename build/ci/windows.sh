@@ -33,6 +33,7 @@ test_crates=(
 
 optional_crates=(
   sim-gen
+  bfe-script
   bfe-ui
   bfe-interface
   bfe-shell
@@ -40,6 +41,8 @@ optional_crates=(
   bfe-battle-ui
   bfe-desktop
   bfe-server
+  bfe-family
+  bfe-storage
   xtask
 )
 for crate in "${optional_crates[@]}"; do
@@ -54,6 +57,13 @@ for crate in "${test_crates[@]}"; do
 done
 
 cargo test --manifest-path "${manifest}" --locked --target "${target}" "${test_pkg_args[@]}"
+
+# The script runtime must give the same bits with the optimizer on: its tests run in
+# release as well (exceptional arithmetic, the differential corpus, hostile bounds).
+if [[ -f "rust/bfe-script/Cargo.toml" ]]; then
+  echo "==> Step 2b: bfe-script tests in release"
+  cargo test --manifest-path "${manifest}" --locked --target "${target}" --release -p bfe-script
+fi
 
 echo "==> Step 3: Windows CLI startup smoke"
 bin_dir="rust/target/${target}/debug"
