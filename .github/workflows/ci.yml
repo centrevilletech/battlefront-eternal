@@ -36,7 +36,7 @@ jobs:
     name: Linux Native (x86_64)
     if: ${{ inputs.package_run_id == '' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -73,7 +73,7 @@ jobs:
     name: Linux Native (arm64)
     if: ${{ inputs.package_run_id == '' }}
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -124,7 +124,7 @@ jobs:
     name: Windows Native (x86_64 MSVC)
     if: ${{ inputs.package_run_id == '' }}
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
@@ -179,7 +179,7 @@ jobs:
     if: ${{ inputs.package_run_id == '' }}
     # GitHub's standard Apple silicon runner: three cores, 7 GB of memory.
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:

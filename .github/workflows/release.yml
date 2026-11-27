@@ -377,7 +377,7 @@ jobs:
   windows:
     name: Build & Package (Windows x64 MSVC)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
         with:
