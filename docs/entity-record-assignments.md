@@ -16,11 +16,18 @@ The twelve kind numbers below are stable. Body schemas added to them
 | Summary (6) | 8 | Vehicle tow cable state | 300000 + vehicle ID |
 | Summary (6) | 9 | Animated prop that seizes: clip, start, whom it holds (simulation 21) | 400000 + animated prop index |
 | Summary (6) | 10 | Trap phase and the tick it began (simulation 24) | 500000 + trap index |
+| Summary (6) | 0x0205 | Battlefront II hero combat display (record kind 5, revision 2): part flags, then each part present: the melee pose (combo state, the tick its clip clock read zero, loop mode, clip length, blade mask, guard reaction, swing turn), the cast pose of a power (weapon class hash, fire slot, the tick its clock read zero, held) and the choke that holds the soldier (its clip) | 100000 + unit ID |
+| Summary (6) | 518 | Battlefront II hero throw: press tick and, while the blade is out, the launch parameters of its flight | 100000 + unit ID |
 | Combat (8) | 8 | Named presentation event, bounded JSON payload | Combat event ID |
 
 These schema namespaces are independent. Unit and tow records carry the
 actor's generation; building records carry the world epoch. Presentation
 events expire after 120 ticks and validate actor generations before applying.
+A Battlefront II battle also publishes its powers' casts, hits, throws and
+blocks as combat events of kind `power` (`action`, `weaponId` = the weapon
+class hash, `ownerId`/`ownerGeneration` = the caster's slot and life,
+`targetId`/`targetGeneration`, `position` = where the caster stood); a 2004
+battle's encoder refuses the kind.
 Summary schemas 1-5 remain battle, posts, spawn eligibility, roster and
 personal records. The current own-player outer schema is 11.
 

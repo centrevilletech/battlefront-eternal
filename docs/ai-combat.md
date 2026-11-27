@@ -247,6 +247,47 @@ What the host provides:
   FleeSound, e.g. the stock `*_inf_com_chatter_flee`) at the record's
   position.
 
+## Battlefront II (2005) combat rules
+
+When a battle uses the 2005 navigation and AI profile (`uses_swbf2`), the
+combat layer applies the following 2005 rules while leaving 2004 battles on
+the released paths above:
+
+- **Proximity vision:** targets strictly closer than 10 m are visible in 360
+  degrees; targets at 10 m or beyond still use the 77.5-degree forward half-cone.
+- **Weapon targeting and selection:** soldier weapons evaluate a separate AI
+  category mask that starts with standard categories enabled independently of
+  `Target*` and applies `AITarget*` overrides, lightsaber combat re-selects
+  weapons normally across melee, thrown blades, and damaging powers, and thrown
+  melee blades are excluded out of range (outside `MinRange..MaxRange`) and
+  while reloading when weapon switching is allowed.
+- **Trigger cadence:** single-trigger weapons (including melee blades and
+  thrown blades) emit one-tick pulses separated by a skill-scaled wait of
+  `rand(0.2, 2.0) * (1 - s)` seconds, where `s = lerp(0.1, 0.9, (skill - 1) / 19)`.
+  Automatic bursts draw `barrage_min + rand(0, barrage_max - barrage_min) * t`
+  rounds (floor 2) and pause `barrage_delay * (1.6 - s)` seconds between bursts.
+- **Target aim-error sphere (`AimMiss`):** each bot controller and each living
+  human-controlled unit maintains a slowly rotating unit direction and an
+  evasion radius driven by target speed, velocity changes, and rising-edge
+  jump, roll, sprint, and jet events, bounded by a refilling evasion budget
+  and opposing team skill. Aiming offsets a bot's lead point by the target's
+  sphere (projected into the shooter's right/up plane when moving above 95% of
+  max speed, scaled by 0.3 against bot targets and full scale against human
+  targets, and scaled with target distance).
+- **Melee pursuit leaps:** melee combat pursuit issues a routed walk at most
+  every 2 s, each awaited until it ends (skipping repaths while airborne),
+  keeps a target no route reaches, and schedules 45-degree combat leaps every
+  5 to 10 s (4 s retry if blocked, varying direction within 5 m; the 25 m
+  probe starts from the nearest free edge of a barrier the bot stands in).
+- **Jet at the target:** before its own move, every 2005 attack pattern (stand
+  and shoot, pause and move, band flank, lateral, melee and the saber
+  engagement) checks a jet at the target: a soldier with JetJump and a hover
+  jetpack, 20 m or more from its target, whose fuel after the ignition cost
+  lasts the flight at its top speed, and whose straight line to the target
+  crosses no barrier, takes off along the direction to the target lifted by
+  one (scaled by 0.7071) and follows it, looking 10 m above it beyond 10 m;
+  the jet ends within 3 m or when the fuel is gone, and the pattern resumes.
+
 ## Weapon options (`rust/sim` (`combat::weapons`))
 
 All additive; a player's weapons behave as before.

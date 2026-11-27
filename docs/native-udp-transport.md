@@ -1,5 +1,7 @@
 # Native UDP Transport (`BFU1`)
 
+> Historical. This describes the earlier native transport, `BFU1`, which BFE-UDP/1 replaced: the authenticated handshake with identity proofs, encrypted connections and the generated transport limits in `rust/bfe-transport/src/{handshake,server,endpoint,connection,layout}.rs`. Its statements are not evidence about the current transport or about application protocol 4.
+
 `rust/bfe-transport` provides the native UDP transport used by `bfe-client` and `bfe-server`.
 
 ---

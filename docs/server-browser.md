@@ -14,12 +14,12 @@ seconds after the last one.
 | `sponsor` | `{ name, url, logo }` or null; `url` and `logo` are https addresses, or null | `config.json` `sponsor` |
 | `location` | Free text (80), such as "Chicago, US", or null | `config.json` `location` |
 | `players`, `maxPlayers` | People on it now, and room (64: 32 a side) | The game port |
-| `battle` | `{ map, mapName, side, era, mode }`: the battle playing now, e.g. `bes2`, `BESPIN: CLOUD CITY`, `rep`, `cw`, `conquest` | Its rotation; the name from the prepared catalog |
+| `battle` | `{ map, mapName, side, era, mode }`: the battle playing now, e.g. `bes2`, `BESPIN: CLOUD CITY`, `rep`, `cw`, `conquest`. A Battlefront II (2005) battle adds `family: "swbf2"` and names its map `swbf2/<map>`; this build runs none | Its rotation; the name from the prepared catalog |
 | `rotation` | The playlist, the current battle first (`swbf1/<map>:<side>:<mode>`) | `config.json` `rotation` |
 | `bots` | Whether bots fill the teams (`ai: "off"` fields none), or null | `config.json` `ai` |
 | `autoAssignTeams` | Whether the server assigns teams (no team switch), or null | `config.json` |
 | `uptime` | Seconds since the service started (it restarts for each update), or null | The service |
-| `query` | The battle parameters needed to load and join (map, side, bots, seed, match token only) | The battle |
+| `query` | The battle parameters needed to load and join (map, side, bots, seed, match token only). A Battlefront II (2005) battle names its map first, as `swbf2/<map>`, and adds `mode` when it is not conquest; this build runs none | The battle |
 | `simulation`, `protocol`, `content` | The release it runs and its game data fingerprint | The engine |
 | `relayPolicy`, `endpoints` | `never` lists the game port at each address it heartbeats from (IPv4, IPv6); others list none | The master |
 | `latencyMs` | The player's ping: a TCP handshake with the game port, the lowest over its addresses, null for a server that lists none or does not answer within a second | `rust/bfe-online` |

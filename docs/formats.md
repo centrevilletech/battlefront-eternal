@@ -15,6 +15,19 @@ The Steam release is copied whole into `data/game/install/`: `installscript.vdf`
 
 Only those two archives come per language. The tools read the English folder where a copy has it and the copy's own otherwise (`tools/zero_language.py`; docs/desktop.md says what a player then sees), so `Common/ENG/common.lvl` and `Shell/ENG/shell.lvl` below stand for the folder of the copy's language.
 
+### Star Wars: Battlefront II (2005) install layout
+
+A 2005 install (`swbf2`, Steam app `6060`) has `GameData/BattlefrontII.exe` and `GameData/data/_lvl_pc/` (matched case-insensitively). No `AddOn/` folder is required, and its shared archives sit directly at the root of `_lvl_pc/` rather than inside language subfolders:
+
+| Path | Contents |
+| --- | --- |
+| `common.lvl`, `core.lvl`, `mission.lvl`, `ingame.lvl`, `shell.lvl` | Shared models, animations, HUD art, fonts, mission scripts, and front end directly under `GameData/data/_lvl_pc/` |
+| `side/` | Army and local unit archives (`all.lvl`, `cis.lvl`, `imp.lvl`, `rep.lvl`, etc.) |
+| `load/`, `sound/`, `movies/` | Loading screens, sound banks, and Bink movie archives (`*.mvs`) |
+| Planet folders (`cor/`, `dag/`, `dea/`, `hot/`, `spa/`, ...) | One folder per planet or space map |
+
+Prepared content for Star Wars: Battlefront (2004) (`swbf1`) stays directly under the content root (`<content>/{maps,sides,common,audio}`); Star Wars: Battlefront II (2005) (`swbf2`) uses `<content>/swbf2/.content/`, with `maps/`, `sides/`, `common/`, `audio/` and `scripts/` (compiled mission script bodies by SHA-256, `scripts/<sha256>.luac`), the record `.prepare-swbf2.json` and the marker `.bfe-family.json`, keeping the internal paths below unchanged inside each family's root. The record and what makes it complete are in docs/desktop.md, "Preparing the 2005 game".
+
 The PC archives are `ucfb` chunk trees. A chunk is a 4-byte tag, a little-endian size, and a body aligned to 4 bytes. `lvl_` nodes are a hash and an inner size, then more chunks.
 
 Bespin: Cloud City is `BES/bes2.lvl` (`bespin2`: carbon-freezing chamber, skyways, hotel). Bespin: Platforms is `bes1.lvl`. The clone trooper model is `rep_inf_trooper` in `SIDE/rep.lvl`, hard-skinned to the skeleton in that archive. The soldier animations are in `Common/common.lvl`.
@@ -56,6 +69,12 @@ Animation banks key bones and clips by CRC-32 of the lowercased name: MSB first,
 
 Entity class properties, instance properties, and localization keys use a 32-bit FNV-1a over each byte OR 0x20. That folds letters to lower case, but it also turns `_` into 0x7f. So for a name with `_` (or `@[\]^`), such as `Value_ATK_CIS`, the hash is not FNV-1a of the lowercased name.
 
+In Battlefront II (2005), the Lua 5.0 script `ifs_opt_pccontrols` in
+`common.lvl` defines the five keyboard tabs. It asks
+`ScriptCB_GetKeyBoardCmds` for each tab's rows and bindings. The script
+contains no ordered PC key table. The localized tab and action names are
+`Locl` entries in `core.lvl`, indexed by a 32-bit hash of the text key.
+
 ## Animation banks (`zaa_`, `zaf_`)
 
 `common.lvl` has `zaa_` banks `human_animation_0` to `_4`, `_alert`, `_fp` (first person, own skeleton), and `_lowrez`. A `zaf_` with the same name holds that bank's animation skeleton (joint bind pose and a skin).
@@ -79,13 +98,45 @@ The banks key tracks by bone name, so one bank serves every body with those bone
 
 ## Entity classes (`entc`)
 
-`TYPE`, `BASE` (the engine class, such as `soldier`), then `PROP` chunks: the FNV-1a of the property name and the value as a C string. The whole ODF inheritance chain is flattened into the class. Repeated keys keep their order; `CAMERASECTION` starts a group of `EyePointOffset`, `TrackCenter`, `TrackOffset`, and `TiltValue`.
+`TYPE`, `BASE`, then `PROP` chunks with the FNV-1a of the property name and the value as a C string. The 2004 archives flatten the ODF inheritance chain into the class and put the engine class (such as `soldier`) in `BASE`. Repeated keys keep their order. `CAMERASECTION` starts a group of `EyePointOffset`, `TrackCenter`, `TrackOffset`, and `TiltValue`.
 
 Two more repeated groups: `CHUNKSECTION` starts one of the pieces a droid blows apart into (`ChunkGeometryName`, `ChunkNodeName`, `ChunkSpeed`, `ChunkOmega`, `ChunkTerrainCollisions`, `ChunkTerrainEffect`, `ChunkTrailEffect`, `ChunkPhysics`), and the drop list is `DropItemClass` (406d2b75) with its `DropItemProbability` (26996dae), `NextDropItem` (5ea04066, value `-`) moving to the next slot. Every Republic and CIS infantry class drops ammo 0.4, health100 0.3, dual 0.1.
 
 `HealthType` (person, animal, droid, vehicle, building) picks which of an ordnance's or explosion's scales hurts a unit; unset is person. `OverrideTexture` re-skins a class's body: the assault droid's `cis_inf_battledroid_blue`, the assassin's `_red`, both over the B1's `cis_inf_battledroid`. The port swaps the texture most of the body uses (and `OverrideTexture2` the next).
 
 The 2004 trooper classes set `MaxSpeed`, `MaxStrafeSpeed`, `MaxTurnSpeed`, `Acceleraton`, the camera sections, and `FirstPersonFOV` / `ThirdPersonFOV`. The acceleration property really is spelled `Acceleraton`. There is no `JumpHeight` in the 2004 engine; the jump is `MaxJumpSpeed`. Properties a class leaves unset take the soldier class defaults listed under engine behavior.
+
+Battlefront II uses the same `entc` property encoding. `BASE` can name another
+ODF class, including a parent in another archive. Infantry leaves and role
+overrides are in the side archives and the common infantry parent is in
+`ingame.lvl`. Resolved soldier fields include `Acceleration`, `JumpHeight`,
+`JumpForwardSpeedFactor`, `JumpStrafeSpeedFactor`, `RollSpeedFactor`,
+`SprintAccelerateTime` and the energy properties. Each repeated `ControlSpeed`
+value names a movement mode followed by three numbers. Inheritance can
+override the row for one mode. The infantry energy settings distinguish
+capacity, idle and moving recovery, sprint drain, the exhaustion recovery
+threshold, jump and roll costs, and an optional sprint-jump cost. The
+equipped roll animation supplies its frame count separately from the class
+movement rows.
+
+The `jump` row's first two numbers steer a soldier in the air (jumping or
+falling). The stick accelerates him along his facing by `Acceleration` x
+the row's forward number x the forward stick, and sideways by `Acceleration`
+x the strafe number x the side stick, every second, with no top speed: a
+held stick keeps adding speed, and only the air drag (each second the
+velocity shrinks by the factor exp(-0.012 x speed)) slows him down. Heroes
+use 0.1 and the default `Acceleration` of 70, so 7 m/s per second.
+
+On the ground every row sets a target speed instead: forward stick x
+`MaxSpeed` (standing with the stick back: `MaxStrafeSpeed`) x the posture
+row's forward number, side stick x `MaxStrafeSpeed` x its strafe number;
+sprinting ramps the forward target from `MaxSpeed` to `MaxSpeed` x the
+sprint row over `SprintAccelerateTime`. Each axis of the ground plane moves
+toward its target by at most `Acceleration` per second, speeding up and
+slowing down alike (1.7 times that while a hard landing holds the soldier
+still, a tenth of it on ground whose normal's height is under 0.7). On a
+slope gravity along an axis shifts that allowance, and a target that climbs
+is shortened by the square of its climb (sin squared of the slope along it).
 
 ## Models (`modl`, `segm`)
 
@@ -292,6 +343,31 @@ Each battle's setup is a compiled Lua 4.0 chunk (version byte 0x40, 4-byte float
 A map's battles are the scripts named for it: the map, an era letter (`r` and `c` are the Clone Wars, `a` and `i` the Galactic Civil War, as the shell's playlist letters name them) and `_h` for the historical campaign's version. Each reads its world with `ReadDataFile("<PLANET>\\<world>.lvl")`. That is the map's own archive for every battle but two: the campaign's Theed and Naboo Plains (`nab2c_h`, `nab1c_h`) are fought in `NAB/nab2_h.lvl` and `nab1_h.lvl`, worlds of their own (`TAT/tat1h.lvl` and `YAV/yav2_h.lvl`, which `tat1i_h` and `yav2i_h` read, are byte for byte `tat1.lvl` and `yav2.lvl`). Every historical version but `rhn1r_h` calls `SetHistorical`, after which teams 1 and 2 take the vehicle pads' `ClassHisATK` and `ClassHisDEF`. The extraction keeps every battle of a map's world (`tools/extract.py` `map_missions`), the two in other worlds recorded with their `world` and nothing that depends on it.
 
 `common.lvl` holds the interface scripts the same way. Its `globals` script builds plain tables, which running its top-level code with tables recovers. the player's first-person camera motions are there: `RollLeft`, `RollRight`, `Crouch`, `CrouchToProne`, `StandToProne`, `ProneToStand`, `CrouchToStand`, and `Land`. Each has `Size` (the segment count), `Vec` and `Slope` (eye offsets in the camera's frame, x right, y up, z back, and their tangents, in metres), `Ore` and `RSlope` (Euler angles x, y, z in radians, and their tangents), and `Time` (seconds per segment). The game reads them by name at mission start and scales nothing.
+
+### Battlefront II (2005) scripts (`scr_`, Lua 5.0)
+
+In the 2005 game (`GameData/data/_lvl_pc/`), compiled scripts live in `mission.lvl` (138 `scr_` entries, including 4 duplicated `spa*_cmn` entries that are byte-for-byte identical), `common.lvl` (50), `ingame.lvl` (9), and `shell.lvl` (90). Scripts appear directly under `ucfb` or inside nested `lvl_` sub-archives (whose payload begins with an 8-byte name-hash + size header).
+
+Each `scr_` chunk contains three child chunks:
+
+- `NAME`: NUL-terminated Latin-1 script name.
+- `INFO`: 1-byte body count (`0x01` in every stock archive; padded to 4 bytes by UCFB alignment).
+- `BODY`: a compiled Lua 5.0 binary chunk followed by a single trailing `0x00` byte.
+
+The 18-byte Lua 5.0 header is identical across all 287 stock scripts:
+
+```text
+1b 4c 75 61  50  01  04 04 04  06 08 09 09  04  3b af ef 4b
+\x1bLua      5.0 LE  int sz ins OP A  B  C  num 31415926.0f
+```
+
+Compared to stock Lua 5.0.3 (double numbers, `MAXSTACK = 250`), the 2005 game's compiler differs in three ways:
+
+1. `lua_Number` is 4-byte IEEE-754 `float` (test number `0x4befaf3b` = `31415926.0f`).
+2. `size_t` (string lengths) and `Instruction` are 4-byte unsigned integers (`uint32_t`).
+3. `MAXSTACK` is `128` rather than `250`, so `RK(x)` instruction operands with `x >= 128` index constant `x - 128` rather than `x - 250`.
+
+See [scripts.md](scripts.md) for the pure-Rust runtime (`rust/bfe-script`) and the `bfe-script-tool` recording host.
 
 ## Localization (`Locl`)
 
@@ -759,7 +835,7 @@ A vehicle class lists its controls as sections: the hull's own (`BODY`, seat 0, 
 
 ### Mines and power-ups
 
-- **Flight:** items fall at `Gravity` × 9.8 in two half steps around the move. A power-up meeting the world at 1 m/s or more into it loses that part, then `Friction` × it × (1 + `Rebound`) of the rest, and bounces back at `Rebound` of it; slower, it settles upright on what it touches. Soldiers pass through. Mines stick to the initial thing that isn't a soldier, upright on it, and sink at 0.2 m/s in water. They bounce off soldiers, droids, droidekas and animals, team mates and their own thrower included (a time bomb leaves its thrower out for its first 0.5 s); a body a mine is moving away from does not turn it, nor its thrower while it is still inside him as a step starts (leaving his hand), though anyone else it starts inside and moves into does (a team mate point blank). A mine stuck to a hull rides along where it stuck, turning with it, and falls from there the tick the hull dies or is gone, moving as the hull carried it. The world publishes a riding mine at rest; a client works the ride out from the records (a mine they move while it lies still rides the hull whose own records keep it in one place in that hull's frame) and draws it there on the hull as it draws the hull, its own predicted one too, until it is thrown off, the hull is gone or the records stop following the hull, then fades it back over 0.15 s.
+- **Flight:** items fall at `Gravity` × 9.8 in two half steps around the move. A power-up meeting the world at 1 m/s or more into it loses that part, then `Friction` × it × (1 + `Rebound`) of the rest, and bounces back at `Rebound` of it; slower, it settles upright on what it touches. Soldiers pass through. Mines stick to the initial thing that isn't a soldier, upright on it, and sink at 0.2 m/s in water. They bounce off soldiers, droids, droidekas and animals, team mates and their own thrower included (a time bomb leaves its thrower out for its first 0.5 s); a body a mine is moving away from does not turn it, nor its thrower while it is still inside him as a step starts (leaving his hand), though anyone else it starts inside and moves into does (a team mate point blank). A mine stuck to a hull rides along where it stuck, turning with it, and falls from there the tick the hull dies or is gone, moving as the hull carried it. The world publishes a riding mine at rest. The client matches a mine's motion between two records to a vehicle whose collision surface is within 0.3 item radii plus 0.05 m of the centre on both records. The 0.3-radius offset is the settled height above the hit face. Equally close motion matches use the lower vehicle id. Power-ups use their own placement. A riding mine follows the vehicle's drawn transform until it comes loose, its vehicle disappears or its records stop following the vehicle. It then fades back to its own pose over 0.15 s.
 - **Power-ups** last `LifeSpan` (30 s), then fade over a second. Anyone touching one once it has landed (or after its first 0.5 s) takes it, whoever threw it: health by the receiver's `HealthType` up to its maximum (not for a unit whose `AddHealth` is below 0), and clips to every weapon but a power-up dispenser, as many as it carries. One that gives nothing stays. Health plays the soldier's `HealthGainEffect` (`Powerup_blue`), ammo its `AmmoGainEffect` (`Powerup_red`). Health100 gives 75, health25 50, dual 100 and 2 clips, ammo 1 clip. Their bands scroll (MTRL 0x410).
 - **Mines** last until set off. An enemy whose bounding sphere (the one a blast measures him to: a soldier's by stance, a droideka's about its model, a hull's about its model and springs) comes within `TriggerRadius` of the mine and who isn't closing in any more (still, moving away, or passing) sets one off (`ExplosionTrigger`, 1750 damage within 4.5 m), and so does an enemy's mine lying within `TriggerRadius` of its own sphere, unless a friend (or a friend's mine) is within `SuppressRadius`; teammates and the neutral never do. With the land mine's 1 m, a standing soldier sets it off 2.28 m away on flat ground, a crouching one 1.99 m, a prone one 2.61 m, a droideka 2.56 m from its middle, a parked fighter tank 7.3 m. Blasts damage them (200 health, taken as a person), and at 0 they pop harmlessly (`ExplosionDeath`). A steady light marks them.
 - **Time bombs** (the Wookiee smuggler's `all_weap_inf_remote_charge_dispenser`, three about at once) are mines with no `TriggerRadius` and a `LifeSpan` of 5 s, counted from the throw: when it runs out the bomb sets off its `ExplosionExpire` where it lies (2000 damage within 2.5 m, falling to nothing at 3.5 m, ×1.5 on vehicles, the `timebomb` effect), credited to its thrower. Destroyed first (100 health) it only pops (`ExplosionDeath`), as does the oldest of four.
@@ -1030,3 +1106,803 @@ What the game does with these sound objects:
 - **Command posts** loop the owner side's `AmbientSound` (none while neutral). While one is being captured it loops `ChargeSound`, pitched from 0.6 to 1 with the capture; contested, `DisputeSound`; while an owned one is being neutralized, `DischargeSound`, falling from 1 to 0.6. Capture and loss play `CapturedSound` and `LostSound` once, with the voice-over above.
 - **Droideka:** `TurnOnSound` and its `EngineSound` while it folds and rolls, `TurnOffSound` 3 s after it starts unfolding; `Footstep0Sound` to `Footstep2Sound` when each leg's `leg2` bone drops below 0.48 m; the shield's sound is its weapon's `FireSound`.
 - **Recon droid:** `AmbientSound` (its engine) loops and `Ambient2Sound` (its radio) is asked for again each time it ends; the orbital strike's countdown is the destruct weapon's `ChargeSound`, pitched to 0.4 after its first frame.
+
+### Static inspection of 2005 map layers
+
+A 2005 map's named layer can have its own mesh list and vertex and index
+buffers. Each list's byte offsets are relative to its own buffers. The
+indices of a world mesh are local to its vertex slice. Placed objects in a
+layer refer to the map's prop pack and carry column-major world matrices.
+Flat prop part lists in this pack have model-space positions and normals,
+eight floats per vertex, and pack-relative indices. Their bind pose needs
+only the placement matrix. Model references on placements can retain mixed
+case while their pack keys are lowercase. A space world with no terrain mesh can omit both
+terrain collision files.
+
+The 2005 material record can carry `doubleSided` independently of the
+legacy flag word. It selects blended transparency on both faces, or a
+two-sided alpha cutout when hard edges are set.
+
+A Battlefront II world mesh or packed model part selects blending, alpha testing
+and face culling from its original material descriptor. A positive `alphaCutout`
+selects an opaque, alpha-tested surface. An explicit `doubleSided` boolean
+controls culling independently of blending and the legacy flags. A descriptor
+that combines opaque blending with the additive flag is rejected at admission.
+Placed parts with different resolved surfaces retain separate draw groups.
+
+In a Battlefront II placed-model pack, `attributesFile` in `props.json` names
+the map-relative attribute buffer. A part's `vertexStreams.lit` and
+`vertexStreams.tint` are independent byte offsets to `vertexCount`
+little-endian RGBA float32 values. Their vertex order matches `props.bin`
+before bind transforms and index rebasing. The prepared vertex-light flag
+(`0x40`, or `0x200` in `material.swbf2Flags`) selects authored light when
+the stream exists. Tint alone colours the diffuse material. A part can
+supply both streams.
+
+A prepared 2005 mission names its compiled scripts in
+`maps/<map>/scripts/<era>-<mode>.json` under the family root. Version 1
+has integer `version`, string `family`, `map`, `era`, `mode` and `entry`,
+and a `chunks` array of script names in load order. The entry comes first.
+A repeated include appears again in this list. The parallel `scripts` records
+carry the requested `name`, its lowercase `id`, the source `archive`, the
+byte `length`, the lowercase hexadecimal `sha256` and a family-relative
+`file` at `scripts/<sha256>.luac`. Multiple names may share a body.
+The selected record in the map's `missions` object carries the same
+`scripts` and the sidecar path in `scriptManifest`.
+
+## 2005 game
+
+Set `BFE_FAMILY=swbf2`, `BFE_GAME_DIR` to the installation,
+`BFE_CONTENT_DIR` to the family's output directory and `BFE_SCRIPT_TOOL`
+to the mission recorder. An unset or unrecognized environment family selects
+the legacy `swbf1` profile. Explicit profile lookup validates its argument. A preparation
+writes directly under its content directory. The 2005 preparation runs
+both opening mission setups, exports their maps and shared data, and
+exports each side with the union of the packages requested by both
+missions. The client supplies `<content>/swbf2/.content` as the output directory.
+The tools select the family from the explicit environment value, independent of
+the folder name and its contents. The 2005 receipt is `.prepare-swbf2.json`.
+For a direct 2005 run, relative installation and output paths start at the
+caller’s working directory. Helpers inherit absolute paths.
+An absent or empty output directory can be prepared. A nonempty directory
+requires a plain receipt naming `swbf2` with a supported positive generation.
+The tools recognize an early `.prepare.json` with the state version, absolute
+installation, completion flag and finished steps. A record current to the
+released 2004 reader, a contradictory receipt or marker, or recognizable
+2004 payload prevents writing. A marker alone cannot authorize a write.
+The writer checks ownership before creating the lock and again while holding
+it. A new preparation publishes an unfinished receipt before extracting data.
+It records `family`, `swbf2Version` and
+`missionInputs` (script manifest SHA-256 by map) alongside step completion.
+The integer `swbf2` in `tools/content-version.json` is the expected
+`swbf2Version` for that receipt. Generation 8 adds the navigation arrays to
+maps. Generation 9 adds class artwork. Generation 12 adds first-person files to the common step.
+An upgrade rebuilds the map steps, and the common step when its first-person files are missing.
+
+Each 2005 map has a presentation catalog at `maps/<map>/hud/catalog.json`.
+Preparation follows links above the chosen 2005 destination and requires
+ordinary files and directories from the destination itself downward.
+Look up the lowercase value of a class's `MapTexture`, `IconTexture` or
+`HealthTexture` in `textures`. Its value is an RGBA PNG path relative to
+the catalog directory. The map catalog covers the loaded packages and their
+class ancestors, including equipment and placed classes. Art in a loaded
+package takes precedence. Otherwise the installed copies must agree on the
+pixels. For a `HUDTag` or `HUDModel`, use `meshes[lowercaseName]` as the
+key into `textures`. A model projects its actual segments, diffuse art and
+vertex alpha onto a transparent image. A tag with only a named bitmap
+resolves directly to that bitmap. Consult the alias even when a texture
+and a model have the same name. Each map owns its lookup, including when
+two maps draw a different resource under the same key.
+
+`missing` and `ambiguous` each contain `textures` and `meshes` arrays.
+`missingDiffuse` lists unavailable diffuse maps for each projected model.
+Those models retain their geometry and vertex colours. Each PNG filename
+is the SHA-256 of the file bytes plus `.png`. Its pixels are unpremultiplied
+RGBA8. The catalog and its images are presentation
+files outside the gameplay fingerprint. Resume checks each referenced PNG
+against its digest. Rebuilding may retire a superseded image whose receipt
+entry and file digest still match.
+
+The receipt's integer `version`, `mapImportVersion`, `muzzleVersion` and
+`commonVersion` use the versions in `tools/content-version.json`. `game`
+is the absolute installed data directory, with its on-disk spelling.
+`addOns`, `failed` and `skipped` are arrays. A failure has an `id`,
+`error` and optional `label` in `failures`. The tools publish the receipt by renaming a sibling temporary
+file over it. A normal process interruption leaves a complete JSON record.
+A power failure can roll back a recent write because receipt publication
+does not request a disk sync. A finished run records `complete: true`
+after publishing every planned step.
+
+`plan` is an array of step names selected for the run. The switches
+`--no-enhanced-sound` and `--core-only` leave optional audio steps out
+of this array. `outputs` maps each completed step to its file inventory.
+
+| Step | Files |
+| --- | --- |
+| `map:<id>` | Map data under `maps/<id>/`, including `map.json` and geometry. |
+| `effects:<id>` | The mission descriptor and resources under `maps/<id>/effects/<mission>/`. |
+| `side:<id>` | Files under `sides/<id>/`, including `units.json`. |
+| `common` | Files under `common/` and `firstperson/`, including `common.json` and `firstperson/manifest.json`. |
+| `*` | Shared audio index, banks and streams, compiled script bodies and any additional content outside the extractors’ directories. |
+| `audio:<bank>` | An empty array. Enhanced Sound uses its own manifests and `--maintain-sound` verification. |
+
+Each row is `[path, size]`. The path is relative to the content directory
+with `/` separators. The size counts bytes and may be zero. A script body
+has the row `["scripts/<sha256>.luac", size, sha256]`. Its name and
+lowercase hexadecimal SHA-256 both identify the bytes stored there.
+A first-person file has the row `["firstperson/<path>", size, sha256]`.
+Lock files, receipts, client markers, temporary files used to publish
+these records and the contents of `.locks/` belong to the preparation
+itself and do not appear in these arrays.
+Under the tree lock the tools remove their interrupted publication files
+before inspecting the inventory. The entire `audio/enhanced/` subtree is
+covered by the separate sound verification record. Sound maintenance may
+rewrite those files after completion.
+
+A resume enumerates the content on disk and compares both the paths and
+their sizes with each completed step's rows. It also hashes the script
+bodies and every first-person file, and requires each file that
+`firstperson/manifest.json` names. A missing or extra row, missing file, wrong size or script hash
+causes the step to run again. Map geometry and each map, side or common
+primary JSON must be present and nonempty. Empty optional buffers can be
+listed at zero bytes. Sound indexes and banks must contain the sample and
+stream spans their records describe. Core repairs read the player's archives
+into a new working directory. An incomplete receipt can retain a step's
+prior size expectations in `previousOutputs` until replacement succeeds.
+A difference in shared files requires all
+map steps. A generation 8 receipt created before inventories existed
+rebuilds the core files and keeps completed Enhanced Sound banks. Older
+map, side or common stamps invalidate their respective steps. A different
+installation or mission-input digest starts a new plan.
+
+Core extractors write to an empty working directory on the destination
+filesystem. Only their freshly produced files are renamed into place.
+The producer reports an unexpected file in an extractor's directory that
+it cannot reproduce and preserves that file for inspection. It can retire
+a previously recorded, content-addressed script body when the installation
+supplies a different one. Publication uses paths discovered in the work
+directory. Absolute paths or parent components in a receipt cannot select
+a source or destination. Preparation rejects symbolic links, junctions and
+special files in the tree before extracting. An interrupted run keeps an
+unfinished receipt and rebuilds the affected steps.
+
+The client checks the versions and installation, an empty failure and
+skip list, an empty add-on list, a planned map, each planned step in
+`done`, and the rows for those steps and `*`. It requires the common
+and map records and verifies the listed sizes and hashes.
+
+The capability fields in `tools/content-version.json` are
+`swbf2Outputs: 1` and `swbf2Lock: "stdin"`. A 2005 client passes its
+held `.prepare.lock` to the producer as standard input with
+`BFE_PREPARE_LOCK=stdin`. On Unix the writer keeps a private duplicate
+of the locked open file description. On Windows the client holds byte 0
+and releases byte 1 before spawning. The writer checks the file identity
+and locks byte 1 through its own handle. A direct 2005 preparation takes
+both bytes. The surviving writer retains exclusion if the client exits.
+The writer redirects standard input to the null device and starts its
+helpers with null input. The released 2004 lock protocol still applies
+to 2004 runs.
+
+### Archives and coordinates
+
+The data root is `GameData/data/_lvl_pc/`. Shared files include
+`core.lvl`, `ingame.lvl`, `common.lvl`, `mission.lvl`, `shell.lvl`
+and `inshell.lvl`. Maps are under the planet folder. Armies are under
+`side/`, loading art under `load/`, sound banks and streams under
+`sound/`, and movies under `movies/`. Text tables live in `core.lvl`.
+The preparation check tests for the presence of `GameData/BattlefrontII.exe`.
+
+A `ucfb` root can contain resources as well as named `lvl_` children.
+Each child starts with its 32-bit FNV id and a size. Root worlds are
+always present. A map package can add several worlds together. A side
+package can contain multiple classes, a model alone, textures and
+animation resources. Lua 5.0 script bodies have four-byte numbers.
+Sky packages also match the ids of installed planet archive directories.
+An absent requested sky reports its hash and the available package names
+or hashes.
+The 2005 installation check requires a working recorder and validates the manifest
+schema before checking the recorded archive requests. Each opening map and
+shared archive is checked independently of the recorder.
+The recorder and the explicit `extract.py --manifest` input share one
+adapter for schemas 1 and 2. It preserves schema 2's profile, unresolved
+queries and typed table entries. Byte-string scalar arguments use the
+same Latin-1 mapping as archive identifiers, and tagged negative zero
+becomes −0.0. Calls with converted scalars retain their original `wireArgs`.
+Unsupported versions are errors.
+The recorder executes setup and follows included scripts. Each
+`ReadDataFile` supplies an archive and its requested package names.
+
+### Prepared mission scripts
+
+Preparation version 4 adds `scripts` and `scriptManifest` to each record in
+`maps/<map>/map.json` under `missions[entry]`. Paths are relative to the
+2005 content root. The ordered `scripts` array starts with the mission
+entry and follows the recorder's depth-first `ScriptCB_DoFile` requests.
+A repeated include has an entry at each call site.
+
+| Script field | Value |
+| --- | --- |
+| `name` | Spelling requested by the caller. The entry uses the recorder's mission name. |
+| `id` | Script lookup name with ASCII capitals folded to lowercase. |
+| `archive` | Source archive relative to the game's data directory. The recorder resolves includes within its mission archive. |
+| `file` | `scripts/<sha256>.luac`, relative to the prepared family root. |
+| `length` | Byte length of the archive's `scr_/BODY`, excluding alignment padding. |
+| `sha256` | SHA-256 of those exact bytes, in lowercase hexadecimal. |
+| `error` | Present on an unresolved request. Its name, id, archive and position are preserved and its file, length and hash are null. |
+
+The first ASCII-case-insensitive `scr_/NAME` match in physical archive order
+supplies the body, including inside nested `lvl_` packages. Identical bodies
+share one file across names, repeated includes and missions.
+`scriptManifest` points to `maps/<map>/scripts/<era>-<mode>.json`. The
+document contains `version: 1`, `family: "swbf2"`, `map`, `era`, `mode`,
+the folded `entry` id, `chunks` (the ordered ids of resolved loads, including
+repeats) and the same `scripts` records. A standalone entry outside the
+map's era and mode naming convention has a manifest named
+`entry-<sha256 of the UTF-8 folded entry id>.json` with null era and mode.
+
+The authority can read each distinct file from prepared content, verify
+its length and hash, and execute the entry. It resolves each include in
+that mission's records and executes it when Lua makes the call. The
+ordered trace also records includes made during setup.
+
+On resume, preparation compares the mission's records, manifest and stored
+bodies with the current source archive. A missing or damaged product or a
+changed source body reruns its map step, even when the setup calls are
+identical. The install check lists unresolved requests. If an uncaught
+script error stops the recorder, preparation saves its mission and error
+in `.prepare-swbf2.json` and leaves the run incomplete.
+The gameplay fingerprint includes the map's ordered records, each
+referenced script manifest as canonical JSON, and the actual bytes of
+each distinct referenced body. A missing body is fingerprinted as missing.
+
+### Prepared 2005 vehicle collision and hardpoints
+
+Each map names its `vehicles/vehicles.json` and records its `vehiclePackSha256`.
+The vehicle layout dates from `swbf2Version` 6. The pack has `family`, format
+`version` 1, lowercased `classes` and `models`. It covers flyers, ground
+vehicles, remote seats, deployable defense turrets and armed buildings from
+the map's packages. A building with a named turret control also qualifies. This
+includes turrets used by other layers of the same map. Read the active
+mission and layer to determine which classes can spawn.
+
+Within either the class or model table, names must be unique ignoring ASCII
+case. A mounted weapon names its class. Every index in its `firePoints` must
+resolve to a point with an offset or an invertible affine model matrix.
+Collision primitive kinds are 0 and 1 (spheres), 2 (cylinder), and 4 (box).
+
+`vehicleSections` is the ordered list of ODF declarations for a vehicle or
+armed turret. It appears on the side's `units.json` unit, the `entc` entry
+in side and map `classes.json`, and the map vehicle pack's class. Each block
+gives the declaring ODF's `declaredBy`, its `kind`, the authored section
+`name`, the selector `marker` and ordered `properties` pairs. Values remain
+strings. Known property hashes have names and unknown hashes keep their
+eight hex digits. Repeated keys, empty sections and reopened seats retain
+their source order. Parent declarations precede their children.
+
+| Section | Property ownership |
+| --- | --- |
+| `chassis` | Each ODF starts in the implicit `BODY` (null marker). An explicit `BODY` selected by `FlyerSection`, `WalkerSection`, `BuildingSection` or `TurretSection` also belongs here. Read the hull's `TurnRate`, `PitchRate`, filters, speeds and acceleration from these blocks. The pilot's weapons and positions can be authored here. For scalar overrides, take the last value **within the chassis blocks**. |
+| `seat` | The same selectors with another name declare a seat or turret. Match the seat name case-insensitively across declarations. `TurnRate`, `PitchRate`, `MaxTurnSpeed`, `MaxPitchSpeed`, `PitchLimits` and `YawLimits` in this block are this seat's authored aim settings. `PilotPosition`, `PassengerPosition`, `TurretNodeName` and `EyePointOffset` place its occupant, pivot and eye. `VehiclePosition` names its role. A building can declare its weapon in one block and reopen the same turret to supply its fire points. |
+
+Inside a chassis or seat, `WeaponSection` selects a weapon slot. Its
+`WeaponName`, `WeaponAmmo`, `AimerNodeName`, `AimerPitchLimits`,
+`AimerYawLimits`, `BarrelNodeName` and fire-point pairs stay in that block.
+`NextAimer` and `NextBarrel` advance within the slot. A seat can also name
+its first weapon without a slot marker. Use the vehicle pack's `seats` and
+`points` for resolved mounts and bind transforms.
+
+`ChunkSection` selects a debris part independently of the active chassis
+or seat. The pair stays in the control block along with `ChunkGeometryName`
+and any debris attachment nodes. A flyer can declare its hull turn and pitch
+rates after the last debris part. Those rates still belong to its active
+flight control. Class-wide settings such as collision selections and effects
+also retain their position between control markers.
+
+The outer `properties` array keeps the original decoded pairs, including
+section selectors and duplicate keys. It covers the declaring ODF alone in
+`classes.json`, and the complete parent-to-child sequence on a side unit
+and on a vehicle pack class. ODF identifiers compare case-insensitively.
+
+A class names its visual `model` and `collisionModel`. Each model stores
+its bind `skeleton` in joint order. A joint retains its authored `name`,
+integer `parent` (−1 at a root), parent-relative `local` and model-space
+`matrix`. All matrices are column-major 4×4 in metres. `nodes` maps a
+case-folded name to a joint index. `namedNodes` also indexes names containing
+pilot, gunner, passenger, cockpit, eye, gear, foot, engine, exhaust or thrust.
+These are labels in the model. The class's seat and weapon records describe
+how the class refers to them.
+
+| Field | Contents |
+| --- | --- |
+| `models[id].meshes` | Each native collision mesh retains its source `node`, corresponding `joint` when present, model-space `positions`, original index `polygons` and triangulated `indices`. Use the source positions directly in the bind pose. For a moving joint, apply its current model-space transform times its inverse bind transform. |
+| `models[id].primitives` | Each primitive retains its `name`, parent name `parent` and joint index `joint`, parent-relative `local`, model-space bind `matrix`, native `kind` and three authored `size` values. Kinds 0 and 1 are spheres (radius), 2 is a Y-axis cylinder (radius and full height), and 4 is a box (half-extents). Local `positions` and triangle `indices` provide a tessellation. Transform them once by the primitive matrix. |
+| `mask`, `collidesWith` | Each mesh and primitive retains the native mask byte or null for an absent field. The bits are soldier 1, vehicle 2, building 4, terrain 8, ordnance 16 and flyer 32. A missing or zero mask admits all six categories. Unrecognized bits remain in the raw byte. |
+| `models[id].unresolvedParents` | Names of primitive parents missing from the model skeleton. Their model-space matrices are null. |
+| `classes[id].collisionSelections` | Ordered ODF collision selections, including `Only` and `TargetableCollision`. Each gives the property, requested name and matching primitive or mesh indices on the collision model. The reserved name `CollisionMesh` selects its meshes. Targeting is distinct from physical contact. |
+| `classes[id].points` | Ordered authored references with `property,value,model,name,joint,parent,matrix`. Named points bind case-insensitively to the model's skeleton. Vector offsets also give `offset`. Effects on debris can name a node in the chunk's own model. A missing named joint has a null matrix and is listed in `unresolvedPoints`. |
+| `classes[id].seats` | Each named control section lists indices into `points` and its own `weapons`. The same weapon can occupy multiple seats. Each weapon stores its section, class and point indices with aimer/barrel ordinals. Its `firePoints` prefer the authored fire node for each barrel, followed by a named barrel or aimer when that is all the class provides. The point's property identifies the source. |
+| `weapons[].extraOffsets`, `offsetPoints` | Ordered weapon-class fire offsets and their model-space points. Each point names the source fire-point index, or null when the weapon supplies an offset relative to the hull without naming a muzzle. An empty fire-point list means the class supplied no named mount. |
+
+### Prepared 2004 sound
+
+Sound manifest version 2 adds `ParameterGraphs` to the `Layer.children` of a
+`SoundParameterized` object. Each ordered binding is an array containing
+the input, graph and output name hashes followed by any numeric arguments.
+The singular `ParameterGraph` retains the last binding for released clients.
+Read the plural list when present, otherwise use the single released binding.
+The field identifies the sound version. Updating this metadata reads the
+installation's configs and preserves the sample banks, enhanced files and
+gameplay fingerprint. Read-only prepared folders keep their current manifests.
+
+After preparation, sound maintenance records each enhanced stream's byte size,
+modification time and verification result in the user's cache, keyed by content
+directory. A changed stream is checked once. An intact Opus container with a
+different reported frame count is accepted if it decodes completely. An unavailable
+source or failed encode is recorded until its inputs change. Maintenance can restore
+a battle copy from the verified shared stream.
+
+Version 3 adds `mission.lowReinforcementsVo` to battle sound manifests.
+Each ordered row is `[watchedTeam, threshold, sound, isFraction, listenerTeam]`.
+The teams and threshold are numbers, the sound is a name, and the boolean
+selects a fraction of starting tickets when true or an absolute count when
+false. An empty array means the mission set no rules. Battles sharing a
+sound bank use its default rows unless `mission.lowReinforcementsVoByMission`
+contains an override for the selected mission ID. A released manifest
+without a rule array supplies no low-reinforcement announcements.
+
+### Prepared 2005 sound
+
+Each `audio/<sublevel>/sound.json` lists all opened and appended streams in
+`streams`. Their segment indices and original encoded bytes are in
+`audio/streams/`. In `mission`, `streams` retains the opening calls,
+`streamRequests` gives archive and stream in call order, and
+`appendedStreams` pairs the opened slot's stream name with each appended
+name. The recorder numbers open handles from one. An unknown handle retains
+the original arguments in `unresolvedStreamAppends`.
+
+From `swbf2Version` 7, normal preparation enhances each mission bank and
+every stream in its `streams` list. The two opt-outs are `--no-enhanced-sound`
+and `--core-only`. Running preparation with enhancement enabled adds missing
+banks to a prepared folder. The receipt's `extras.enhancedSound` reports
+whether all bank steps finished and `extras.soundSteps` counts those remaining.
+
+`audio/enhanced/<sublevel>/manifest.json` uses the 2004 Enhanced Sound layout.
+Sample hashes index `samples`. Each entry names its 48 kHz, 24-bit FLAC in
+`file`. Stream names and segment hashes index `streams[stream][segment]`.
+Its `files` maps native layouts (`1ch`, `stereo`, `4ch`) and stereo music
+upmixes (`5.1`, `7.1`) to 48 kHz Opus files. All paths are relative to
+the manifest's directory. A 2004 battle can request a distinct treatment of
+a shared sample. Its sample entry uses the usual battle-relative `file` for
+a playable treatment and `file: null`, `fallback: true` to select the
+original bank sample when the treatment fails its checks. Read `fallback` before choosing a file and apply
+`playback_db` when playing enhanced audio. Appended voices keep their original
+stream and segment identifiers and their slot assignments in the mission record.
+An empty source slot has `frames: 0`, `files: {}`, `fallback: true` and
+`reason: "empty"`.
+
+`source_rate` and `source_frames` describe the original playable span per
+channel. `rate` and `frames` describe the enhanced span. Loop ranges are
+half-open frame positions, `source_loop` on the source clock and `loop_frames`
+on the 48 kHz clock. The source defines whole-item loops. Shared samples used
+as a loop by any prepared mission receive loop-safe processing. Interleaved
+ambience retains each substream's channels in source order.
+
+`dopplerFactor` is a number. `enableHeroMusic` and `enableHeroVo` are
+booleans. These fields appear when the mission sets them. `scaledParameters`
+holds ordered `[group, parameter, scale]` records. `lowReinforcementsVo`
+holds `[watchedTeam, threshold, sound, isFraction, listenerTeam]`.
+Each parameterized sound's `Layer.children[].ParameterGraphs` lists every
+authored binding in order. Its first three values are the input, graph and
+output name hashes. Additional numeric arguments follow when present.
+An interior `space` can carry `SpaceAttenuations`, an ordered list of
+`[neighborSpaceHash, gain]`. `MaxPlaybackTime` is expressed by name.
+
+The `classes` dictionary includes inherited sound properties from entity,
+weapon, ordnance and explosion definitions, including sound controls for
+heroes, interiors, engines and their warm-up. A derived property overrides
+the parent's values for that key. Multiple declarations at the same level
+retain their order. Property values retain the ODF text spelling.
+
+Instance, region, model and binary planning coordinates use the engine's
+world frame. Text-style light, portal and lowercase path configs use
+editor coordinates. The reader negates Z on positions and sector points.
+Path rotations `[a,b,c,d]` become `[c,d,a,-b]` in the same wxyz order
+as the binary spawn paths. Light and portal rotations become
+`[c,-d,a,-b]`. The format conventions come from swbf-unmunge.
+
+| Chunk | Layout |
+| --- | --- |
+| `wrld` | Named world with `inst`, `regn` and optional `anim`, `anmg`, `anmh` children. The latter name curves, groups and object hierarchies. |
+| `path`, `lght`, `port`, `comb`, `sanm` | Named `DATA` records and nested `SCOP` trees for paths, lights, portal sectors, melee state machines and animation sets. A config name is a 32-bit FNV id. The `bnd_` config stores its path reference as an FNV word. |
+| `entc`, `wpnc`, `ordc`, `expc` | `TYPE` and `BASE` strings followed by repeated `PROP` hash/string pairs. A parent may come from another package or a shared archive. |
+| `modl`, `segm` | The 72-byte model INFO places bounds after four words. MTRL has six u32 fields (flags, ARGB diffuse, ARGB specular, exponent and two parameters) followed by an optional attached-light string. Raw flags are preserved. |
+| `tex_`, `tern` | The 2D texture reader also supports L8 and A8L8. Terrain retains its patch/grid format. A name-only terrain chunk represents an empty map surface. |
+| `coll`, `prim` | A mesh or primitive can carry a one-byte `MASK` after its name. Primitive transforms may be relative to a skeleton node. |
+| `zaa_`, `zaf_` | Version 8 compressed banks use `SMNA/MINA/TNJA/TADA`, with signed deltas, absolute samples and runs. In a skeleton's `BIN_`, `FFAZ` contains `SREV` and `LEKS`. Each 44-byte `TNOJ` gives bone CRC, rotation xyzw, translation xyz, parent CRC and two more words. |
+| `CLTH` | Mesh name, parent and 4×3 transform, then packed texture string, vertex count, positions, UVs, fixed vertex count, counted weight strings, indexed triangles and three sets of index pairs. Each collision primitive holds a parent string, type, size, 3×3 rotation and position. |
+| `plan`, `plnp` | INFO gives u16 hub, arc and branch counts. NODE has a 32-byte named position/radius record, eight slots, five counts, then one byte per hub for each counted row. Each 26-byte ARCS record has a name, two u8 endpoints and two u32 flag words. The supplement holds a byte group count, byte counts per group, a byte number of 32-bit arc hashes, then zlib blocks prefixed by u32 unpacked and compressed sizes. |
+
+### Map products
+
+`maps/<map>/map.json` has `family`, `name`, `world`, `worlds`,
+`meshes`, `textures` and the existing terrain, lighting, distance, sky,
+water, weather and post-effect formats. The optional `skySource` string
+identifies an external sky archive and package. `sky` is the first
+drawn sky texture's relative path or null. A texture table maps material
+names to PNG paths. Where enabled, preparation also encodes KTX2.
+
+- `bounds` and `wireBounds` are the same `{min:[x,y,z], max:[x,y,z]}` in metres, rounded outward to the millimetre. They encompass gameplay geometry, placements, regions, paths, planning hubs and declared flight limits. For moving world groups the box includes the
+  model and its present hierarchy members throughout the clip. Constant
+  local forward travel with linear yaw is bounded at straight endpoints
+  and radial extrema of circular arcs. Ambient sound reach is excluded. `renderBounds` also covers the full sky at its reference placement.
+- `missions[script]` has ordered `layers`, `sides` (archive stem to requested package names), `sky` (package or null), and `sound` (bank sublevel names). `layers[name]` has `hash`, `worlds`, `instanceCount`, `instances`, `placedObjects`, `meshes`, `geom`, `index`, `collision`, `collisionTriangles`, `commandPosts`, `spawns`, `paths`, `regions`, `lights` and `worldAnimations`. The stored package FNV is the identity: `layerIndex[hexHash]` gives the key in
+  `layers`. A layer carries `name` when a recorded archive request or an embedded world name or
+  its underscore-delimited prefix matches that hash. Other candidates combine the map
+  stem with a suffix from a map-qualified mission string, or qualify a local world
+  suffix with a role that occurs both alone and inside a compound mission identifier.
+  Each spelling must match the stored hash. An unnamed, unrequested package is
+  retained under its eight-digit hash with `name: null`. Its `layerErrors` entry has
+  `{hash,candidates,message}`. A missing requested package or hash collision fails extraction.
+  Buffer paths are relative to the map or null. Compose the base with each selected layer in order.
+- The base and every entry in `layers` each have `barriers` and `hints` arrays, including
+  empty arrays. Each array follows archive order across that package's worlds. A record's
+  zero-based `sourceIndex` is its ordinal in that array, before any runtime filtering or
+  expansion. Keep the package and index together when composing a mission. Repeated names
+  and unfamiliar hint types occupy their original slots.
+- Both records carry `name`, `xfrm` and `properties`. The 12 floats in `xfrm` are the
+  world-space X, Y and Z basis vectors followed by the translation, in the same coordinates
+  as placed objects. Preparation copies all four triples as stored. The barrier query negates
+  the translation's Z once when building its footprint. Hint positions use the stored Z.
+  Each property is `[hash, nameOrNull, value]`. The hash is eight lowercase hexadecimal
+  digits and the value is the original string. Unknown hashes and repeated properties keep
+  their order.
+- A barrier also carries `size` (three half-extents in metres), `flags` (the complete
+  unsigned 32-bit `FLAG`) and `enabled` (initially true). The traversal bits are
+  0x01 soldier, 0x02 hover, 0x04 small, 0x08 medium and 0x10 huge. The runtime sets
+  its enable bit 0x20 on load and can toggle it by name. Other stored bits are preserved.
+  A hint's `type` is the original `TYPE` string, including `"7"` and `"8"`. Each
+  authored hint contributes one record regardless of its radius.
+- Both base and layer `instances` preserve every `{name,class,matrix,properties}` in file order. Matrices are 16 column-major floats. `placedObjects` is the live subset with `base`, `position` and optional `model`. `classes[id]` has the engine base, root-first parent names, and ordered inherited property pairs for classes placed anywhere. Unresolved class ids appear in `missingClasses`. `missingModels`, when present, counts unrepresented static model references.
+- Paths have `name`, `pathType`, `spline` and ordered `nodes` with `position`, `rotation` and optional `properties`. A 2005 path name carries its editor type in front: `type_EntityPath ` marks a flyer path (launch paths out of a hangar among them) and `type_entityformation ` a squadron formation template; the paths' own properties (class, direction, variance) are not kept. `spawns[name]` holds `[x,y,z,yaw]` nodes, with yaw in radians. `boundaryPaths` names the base paths referenced by the boundary config, retaining an unresolved FNV id as eight hex digits. A region stores `type,name,matrix,size`. A post carries its class, label, team, transform, references to paths/regions, ally count, bleed value and ordered instance properties.
+- Lights carry a name and the authored fields when present. These include `type`, `typeCode`, `position`, `rotation`, `direction`, `color`, `range`, `cone`, `castShadow`, `castSpecular`, `static`, `region` and `texture`. `globalLights` names the two lights and stores top/bottom RGB. Individual and global colors are in 0..1. The existing `lighting` block uses 0..255.
+- `portals` holds `sectors` (name, base, height, 2D polygon points, member objects) and `portals` (name, position, rotation, width, height, optional sector1/sector2). `plan` contains hub, arc and branch counts, `hubs` (name, position, radius, slots, weightCounts, weights) and `arcs` (name, start, end, filterFlags, typeFlags, oneWay, jump, jetJump). `planningGroups` has `groupCounts`, `connectionHashes` (eight-digit FNV ids), `data` naming `planning.bin` and `blocks` with byte `offset`, compressed `size` and `unpackedSize`. The semantics of decompressed routing bytes are unknown.
+- `worldAnimations.clips[name]` has `duration` in seconds, `loop`, `localTranslation`, `positions` and `rotations`. Each key has time, a vec3 value, interpolation type and six tangent values. Position is in metres, rotation in radians, in the authored animation frame. `groups[name]` has `defaultOn`, `stopWhenControlled`, `disableHierarchies` and ordered `{clip,object}` bindings. `hierarchies` contains `{parent,children}` instance names. Bound props remain available as individual meshes.
+
+World geometry uses the existing little-endian `geom.bin` and
+`index.bin` layout. Mesh offsets are bytes, stride counts floats,
+and u32 indices are relative to the mesh. Terrain, far and sky meshes
+retain their existing attributes. Every 2005 world mesh, actor part and
+packed model part supplies a `material`. **`blendMode` and `alphaCutout`
+are the consumer contract for blending and alpha testing.** Read the
+boolean value of `doubleSided` to select culling.
+
+| Material key | Values and units |
+| --- | --- |
+| `blendMode` | `opaque`, `alpha`, or `additive`. Additive takes precedence. Transparent or double-sided surfaces use alpha blending unless hard-edged. Terrain and the background sky dome are opaque. |
+| `alphaCutout` | Null disables the test. The authored hard edge uses a discard threshold of 0.5. |
+| `doubleSided` | Boolean. True draws both faces. |
+| `textureMode` | `image` uses the part's diffuse image, `none` uses no image, `missing` records a broken diffuse reference. |
+| `flags` | Optional integer compatibility mask. Bits 0x01, 0x02, 0x04, 0x20, 0x40 and 0x80 encode lighting, hard edge, transparency, specular, vertex lighting and additive blending. |
+| `swbf2Flags` | Original unsigned 32-bit mask, when present in the source. |
+| `diffuse` | Optional normalized [red, green, blue, alpha]. |
+| `specular` | Optional [exponent, red, green, blue] with normalized colour channels. |
+| `scroll` | Optional [U, V] image repeats per second. The low byte is unsigned even when its archive word is sign-extended. Each step is 1/255 of a repeat per second. A byte of 255 gives one repeat per second. Subtract speed times elapsed seconds from the sampled UV. |
+| `glow` | True when enabled, otherwise absent. |
+| `attachedLight` | Optional source light name. |
+| `missingTexture`, `missingBump` | Optional unresolved diffuse or bump image name. |
+| `sourceTexture` | Original name of an explicitly untextured placeholder. An unbound `noIcon` sets `textureMode` to `none` and the part's `texture` to the empty string. A supplied image takes precedence. |
+
+`props.json` contains `family`, `models`, `collision` and base live
+`instances`. The model dictionary covers referenced live, destroyed,
+unbuilt, detached, carried and hologram meshes where available. Prop
+and side model parts have eight floats per vertex (position, normal, UV),
+file-relative indices, a material and an optional bump texture.
+Model ids used for lookup are lowercase, including placed instances, model
+and collision dictionaries, unit model ids, actor filenames and projected
+weapon geometry fields. The ordered ODF property pairs retain source spelling.
+Lowercase a geometry id read directly from those pairs before lookup.
+
+`props.json.skeletons[model]` is the bind hierarchy in archive joint order.
+Each bone has `name`, `parent` (index, −1 for a root) and `local` (16
+column-major floats, relative to its parent). Parts still index the original
+32-byte model-space position/normal/UV stream. `bindBone` is the index of a
+rigid attachment or −1. Each part's `vertexStreams` gives byte offsets into
+the little-endian file named by `props.json.attributesFile`
+(`props_attributes.bin`). Each present stream is tightly packed in the
+part's vertex order. `tint` and `lit` are four f32 channels in RGBA order,
+in 0..1. `tangent` and `binormal` are three f32 in model bind space.
+`joints` contains u32 skeleton indices. `influencesPerVertex` is 1 with
+implicit weight one or 3 with matching f32 `weights`. Each triple must be
+finite and nonnegative, with an absolute sum error of at most 0.00001 from
+one. Admission retains the authored weights. Joint streams take
+precedence over a rigid attachment. To animate a bind-space vertex, apply
+the posed joint world matrix multiplied by its inverse bind world matrix
+and blend using these weights. Missing streams indicate absent attributes.
+
+Collision position, index and polygon-id buffers retain their existing
+format. Each base, layer or prop `*_mask.bin` has one byte per triangle,
+in index-buffer order. Zero permits all contacts. Bits 0 through 5
+select soldier, vehicle, building, terrain, ordnance and flyer. Prop
+collision records are `{firstTriangle,triangleCount}` by model.
+Terrain collision has its own position and index files.
+
+### Classes, bodies and animations
+
+Each map and side writes `classes.json`. Each of `entc`, `wpnc`,
+`ordc` and `expc` maps a lowercase id to `{name,base,properties}`.
+Here base is the immediate BASE and properties are the class's own ordered
+string pairs, including duplicates. Unknown property hashes are lowercase
+eight-digit hex. Resolved records elsewhere concatenate ancestors' pairs
+from root to child. The last scalar assignment wins. A parent can live in any package of the side or shared archives.
+Only its definition is imported from an unrequested package. A resolved record has
+`base: null` when the chain has no recognized engine class. Map and unit manifests
+list each affected class in `unresolvedParents` as `{kind,class,parent,reason}`
+with reason `missing` or `cycle`. The raw catalog keeps the original BASE.
+
+`sides/<side>/units.json` has `family,side,requested,missingClasses,
+units,textures,skeleton,animBanks`. Each unit has class, engine base,
+parents, displayName, model, actor path and weapons; optional bounds and
+sphere (the model's second INFO box and its SPHR, centre and radius), cloth,
+combo and explosion supplement its ordered properties. Weapons
+carry their slot, ammo, channel, class, parents and resolved properties,
+including ordnance and secondary ordnance with nested explosion records.
+`units.json.unresolvedReferences` audits missing ordnance and explosions
+in the selected packages and shared archives. Each entry identifies the
+loadout `weapon`, referencing `class`, `property` and target `name`.
+`weapons.json` has `models` and `firePoints`. Its mesh buffers cover
+carried and non-actor meshes, including explicitly requested model-only
+packages. An actor uses the existing 36-byte vertex (position, normal,
+UV, dominant joint index), file-relative indices and bind skeleton.
+Each bone stores its name, parent index (-1 at a root) and local matrix.
+
+A weapon with visible saber blades has `saberHilts` in its unit's weapon
+record. Each entry names a lowercase `model` in this side's `weapons.json`,
+an actor `attachment`, and its ordered `blades`. Draw the hilt at the
+posed attachment joint. Its bind record contains `name,boneCrc,parentCrc`
+and the mesh's parent-local 4x4 `local` matrix. A socket supplied by the
+unit's animation skeleton instead carries `skeleton,position,rotation`
+(parent-local xyz, quaternion xyzw). CRCs are eight lowercase hex digits.
+The parent is null for a mesh root.
+
+Each blade has its named hilt `socket` and a column-major 4x4 `transform`
+from emitter to hilt space. Multiply the posed hilt matrix by this matrix.
+The blade runs from the resulting origin along its local positive Z axis.
+`length` and `width` are the authored dimensions in metres when present.
+`texture` names the full-colour blade image in `units.json.textures`.
+`color` is a representative RGBA8 texel for single-colour previews. It
+maximizes alpha times the RGB channel range, then alpha, then RGB sum,
+with ties in image order. Draw the blade with the image's own RGBA.
+`trailColor` carries the separate authored trail colour when present.
+Multiple blades can share a hilt. Extra hands and hilts have their own
+entries. Damage-only edges stay in the ordered weapon properties.
+
+Common, side and map directories have `anim_banks.json` and a
+little-endian float32 `anim_banks.bin`. The index contains `fps`, `data`
+(file name), `banks`, `skeletons`, `packages` and `sets`.
+`banks[name]` has `clipCount` and ordered `clips`. Each clip records its
+`crc,flags,frames,bones,offset,tracks`. Offset counts floats. Each track
+has `frames` consecutive samples of seven floats (local quaternion xyzw
+then translation xyz). Track keys are bone CRCs, independent of actor bone
+order. Untracked bones keep their bind transform. Duplicate source
+tracks retain their order. `skeletons[name]` has name, version and joints
+with boneCrc, parentCrc, rotation and position. Animation CRCs are
+eight lowercase hex digits. `packages[fnv]` (or `root`) lists bank and
+skeleton names. `sets[fnv]` preserves ordered config trees with key,
+values and children. `common/common.json` lists fonts, textures, selected
+language and strings by localization hash, bank clip counts and skeleton names.
+
+A set's idle, turn, walk and run rows exist twice: the plain rows (`stand_`,
+`crouch_` prefix) and an alert variant whose stance prefix is `standalert_`
+or `crouchalert_` (for example `standalert_walkforward_upper`). Plain
+upper-body rows of these four kinds usually carry `AimType Head`; their alert
+variants carry `AimType Torso`. Shoot and reload rows have no alert variant.
+Only some stances (the rifle, pistol and bazooka banks of the shipped data)
+carry alert clips; a stance without them keeps its plain rows. A soldier plays
+the alert rows for 2.5 s after it fires or takes up a weapon, and the player's
+own soldier always does.
+
+`cloth.json`, when present, maps lowercase model names to cloth records.
+Each stores model, name, parent, transform, texture, positions, UVs,
+fixedPoints, fixedWeights, triangles, stretchConstraints, bendConstraints,
+crossConstraints and collision primitives with parent, type, size, rotation
+and position. Vertices `0..len(fixedPoints)` are fixed, each on the one joint
+its `fixedWeights` entry names. Positions are in the piece's own frame: the
+parent joint times `transform` (three axis rows, then the translation). Rest
+lengths of the pairs are the distances between the stored positions. A
+primitive's type is 0 sphere (radius size x), 1 cylinder (axis its Y, radius
+size x, reaching twice size y each way) or 2 box (half sizes x, y, z); its
+rotation rows and position place it in the parent joint's frame. A piece's
+numbers come from the side's `classes.json` entry of the same name (base
+`cloth`): WindSpeed (default 10), WindDirection (two angles in degrees),
+Dampening (0.5), Drag (-2), ParticleMass (1), MaxAcceleration (20), the
+StretchConstraint, BendConstraint and CrossConstraint switches (on) and the HardEdge
+(drawn with an alpha test) and Transparent (drawn blended) switches (off: opaque). `combos.json` maps machine FNV ids to nameHash,
+offhandAnimations, animations, throwAnimations, states and optional extra
+records. The ordered key/value/children scopes preserve conditions,
+transitions and timing. Each node's `values` retains the argument order
+and JSON types. A numeric argument is a number. Text, including text
+that spells a number, is a string. In numeric transition and attack
+arguments the game reads a string as zero. Keep those types through loading.
+
+Within a state's `Deflect` scope, each `DeflectAnimation` retains its
+ordered `BlendInTime`, `BlendOutTime` and `LowResPose` children, including
+their arguments and units. An `offhandAnimations` entry retains its
+`AimType` child when authored. Read these records from the machine's
+config tree. A weapon's `comboBindings` follows its ordered
+`ComboAnimationBank` values. Each record contains bank prefix, mode,
+machine name, combo FNV id and clips by action name. Matches give bank and
+clip CRC for available package variants; an empty array means unresolved.
+The `clips` table includes every named state animation and directional
+`DeflectAnimation` as well as the root actions. Its candidate records keep
+their original order and shape. Look up **this unit's weapon binding** and
+its `clipTiming[action]` for the chosen `{bank,crc,frames,fps}`. Each clip
+must resolve inside that character's own animation package. Different
+characters can use the same action name with different frame counts.
+The archive stores the frame count. Playback runs at 30 Hz and spans
+`(frames - 1) / 30` seconds from the first to the last sample. One frame
+has zero span. The exported `fps` records that playback rate.
+
+State deadlines and transition windows use their own timing fields.
+The game truncates state duration to centiseconds. Numeric transition
+endpoints in `Frames` convert at 30 Hz, truncate toward zero to
+centiseconds and clamp to −512 through 511 centiseconds. `FromEnd`
+offsets the reference duration. `Break` uses a separate nonnegative
+centisecond threshold. Normalized attack windows use the state's
+explicit duration when supplied. The export retains the authored
+arguments and unit names.
+
+For clip resolution the unit's explicit `AnimationName` wins, then its other banks
+in archive order, then the weapon's common bank. Within a bank the search
+tries the authored action, its `_full` form and the full-body form of an
+upper/lower action, in order. A missing or zero-frame match gives null.
+`stateAnimations[state]` lists ordered `{name,key,playback}` records.
+A missing state key means that state declares no animation. Use
+`name` to look up timing and `key` to distinguish an animation from a
+directional deflection. Playback is `once`, `loop` or `holdFinalFrame` as
+specified by the animation's `Loop` scope. Unresolved references are also
+listed in `unresolvedAnimations` as `{machine,state,name}` (null state for
+a root declaration). A missing machine sets `missingMachine: true`.
+
+Mission audio keeps the existing `audio/index.json`, bank, stream and
+sound manifest layouts. The sound manifest's world records include the
+base and mission-selected layers. Preparation v4 and later (`swbf2Version: 4+`)
+write the following 2005 audio fields; preparation v3 omits the
+v4-only fields below and the loader falls back gracefully when reading v3:
+
+- `mission` fields (v4+; absent in v3): `appendedStreams` (`[target, appended]` pairs sharing one logical stream slot and 4-deep priority queue), `dopplerFactor`, `scaledParameters` (`[group, parameter, scale]`), `enableHeroMusic`, `enableHeroVo`, `lowReinforcementsVo` (`[watchedTeam, threshold, sound, isFraction, listenerTeam]`; 4-element rows default `listenerTeam` to `watchedTeam`), and optional `lowReinforcementsVoByMission[missionId]` per-mission overrides.
+- Multi-graph `SoundParameterized` `Layer.children`: v4+ writes all graphs as an ordered array under `ParameterGraphs` (`[[input, graph, output, ...], ...]`), including the `Proximity` input graph, preferred over the singular `ParameterGraph` triple even when empty; v3 writes only one `ParameterGraph` triple per layer child.
+- `Music` objects: v4+ exports `MaxPlaybackTime` by name (`319a9661` in v3).
+- `space` objects: v4+ writes `SpaceAttenuations` (`[[neighborSpaceHash, gain], ...]`; `148f0d58` in v3), alongside `box`/`cylinder`/`sphere` `soundspace` volumes and `soundtrigger` regions.
+- `sound.json.classes`: v4+ resolves ODF `BASE` inheritance and preserves repeated keys (`BoostSound`, `VOSound`, `AmbientSound`) as arrays alongside 2005 sound keys (`OnSound`, `TurnOnSound`, `TurnOffSound`, `HitSound`, `DeflectSound`, `TrickSound`, `FlipSound`, `Cockpit1stPersonSound`, `Cockpit3rdPersonSound`, `WarmUpSound`, `BarrelSound`, `BuildingSound`, `DamageEffectSound`, `OpenSound`, `CloseSound`, `LockedSound`, `SoldierMusic`, `RepMusic`, `CisMusic`, `SndHeroSpawned`, `SndHeroDefeated`, `SndHeroKiller`, `VOUnitType`); on v3 manifests the loader merges resolved ODF records from `BattleContent` while preserving repeated `[key, value]` entries.
+- `sides/<side>/combos.json` (v3 and v4+): melee combo `Sound(...)` triggers (with optional 30 fps frame delays) keyed by machine `nameHash` and state name.
+
+A soldier's mesh and animation skeleton may contain different joints.
+Animation package entries identify both the ordered banks and skeletons by
+name. The mesh supplies the bind transforms and inverse bind matrices for
+its vertices. Additional animation joints use the skeleton's `boneCrc`,
+`parentCrc`, local rotation and local translation. These joints can carry
+sockets, including on a mesh that has no vertices bound to the socket.
+Clip tracks are ordered CRCs. Each track occupies `frames * 7` successive
+float32 values, beginning at the clip's float offset into the bank.
+
+For how the Rust content, native admission, fingerprint, and simulation
+crates consume these prepared 2005 formats alongside the unchanged 2004
+loaders, see [architecture.md](architecture.md).
+
+Movement trials can supply states from the infantry mover. The receiver's
+published fields and the actions still supplied by the capture script are
+listed in [Battlefront II character presentation](architecture.md#battlefront-ii-character-presentation).
+### Battlefront II first-person arms and animations
+
+The common step writes `firstperson/` for the classes of the prepared
+missions. The manifest and rig descriptors use version 2. All offsets are
+relative to their own file.
+
+| File | Contents |
+|---|---|
+| `manifest.json` | Game family, `animsData`, named banks, rigs, classes, third-person exclusions, textures and camera motions. Each class names a rig and a bank and gives a horizontal field of view at 4:3 in degrees and an aim tension. |
+| `anims.bin` | Little-endian float32 samples. Each clip gives its frame count, FPS, offset in float elements and ordered tracks with bone CRCs. A track stores quaternion xyzw and translation xyz per frame. Duration is (frames − 1) / FPS. The bank skeleton gives named joints, parent CRCs and the camera attachment offset. |
+| `rigs/<model>.json` | Ordered parent-before-child bones with local bind matrices. Each part names its material, textures, byte offsets and element counts in the two geometry buffers. A rigid part names its attachment bone. A hard-skinned part supplies one topologically ordered joint index per vertex in `joints`. Each position and normal is in its own joint's local space. |
+| `rigs/<model>.bin`, `rigs/<model>_index.bin` | Eight little-endian float32 values per vertex (position xyz, normal xyz, UV), and little-endian uint32 triangle indices into the rig vertex buffer. |
+| `textures/<name>.png` | Referenced diffuse and bump images. Weapon geometry and its fire points remain in the side's weapon files. |
+| `cameraMotions` in the manifest | The camera globals give position, position slope, orientation, turn slope and duration per Hermite segment. `Time` is in seconds. |
+
+The class selects its bank. An explicit first-person animation bank takes
+precedence. Classes without one use the walker, super battle droid or
+humanoid family associated with their rig. Lightsaber classes and classes
+whose `ForceMode` is 1 are listed as third-person only. A requested class
+whose archive, model, bank or skeleton is missing is a preparation error.
+The camera angle is a horizontal angle at 4:3. An absent or invalid angle
+uses 70 degrees. Absent, negative or nonfinite aim tension uses zero.
+
+Preparation refuses a bank with more than 64 clips, a clip with more than
+65 tracks (a repeated root track is kept once) or over 4,096 frames, a rig
+over 64 bones or parts, a part over 65,536
+vertices or 262,144 indices, a texture over 4,096 pixels on either axis,
+nonfinite samples or vertices, and a skin vertex whose palette slot names
+no joint.
+
+### Battlefront II mission effects
+
+The world root, requested layers, named side packages and shared archives can
+all hold `fx__` chunks. In particular the in-game archive contains effects
+used by multiple sides. A class property names an effect by string. Its
+case-folded FNV identifies the chunk. Repeated fields and inherited ODF
+properties retain their order. An attachment binds the effect to the named
+model joint in the placed object's coordinate system.
+
+Each opening mission has a visual library under
+`maps/<map>/effects/<mission>/effects.json`. The library includes selected
+emitters, geometry models with vertex and index buffers, texture paths,
+bindings indexed by class kind and id, and world-space attachments. Its
+`missing` lists unresolved references. Its `invalid` rows name a skipped cosmetic
+resource and the reason it could not be prepared. Other effects in the same
+mission remain available. Non-particle blocks such as
+`LightBeam` and `EntityLight`, distance limits, sound references and
+additional geometry settings retain their config trees in `extensions`.
+
+Preparation bounds each source scope and each prepared effect record at depth 32.
+A group or extension sits two levels below the pack root, so its deepest value
+is at most depth 34 in the native reader, whose limit is 256. Truncated chunks,
+out-of-bounds value counts and unresolved class ancestry are reported per
+resource. Mission loading reads named records independently and omits groups
+whose descriptors the particle player cannot read.
+
+The mission effect pack also retains resolved class links and per-class mounting
+points. A mount holds its effect, model-space bind transform, and the speed
+range or health band that controls it. Repeated exhausts and damage points stay
+in authored order. A missing named joint is recorded alongside missing assets.
+
+Light beams retain their color, length, elliptical widths, beam and flare
+intensities, fade and draw distance. A radial alpha mask accompanies missions
+with these definitions. Preparation checks the manifest version and referenced
+resources when resuming an interrupted installation.
+The pack records its layout `version` (10). The client still loads a pack of
+another version and names it in its log, since bindings that layout lacks show nothing.
+
+The mission effect pack also stores the visual properties of each reachable
+linear ordnance class. The `flashes` table stores the weapon's muzzle preset
+and any explicit mesh radius, duration, color and light properties. Weapon links
+refer to these styles in authored slot order, including rounds on placed guns.
+
+A particle geometry with blend mode `BLUR` keeps its `BlurValue` and `BlurRes`
+alongside the mask texture, including on nested emitters.
+
+The mission particle reservation sums the largest burst populations for one
+activation per bound source and map placement. Child populations count once
+per parent particle. The next power of two supplies the reserved slots,
+up to 4,096 particles in a Battlefront II mission.
+
+The world’s named effect configuration can enable a camera-relative dust field.
+The mission pack keeps its texture, spawning distance and interval, lateral
+offsets, particle scale, reference speed, drift and speed-to-length ranges
+in `spaceDust`. The map can omit this block.
+
+The same configuration can declare the world's bloom, `Effect("HDR")`, with
+`DownSizeFactor`, `NumBloomPasses`, `MaxTotalWeight`, `GlowThreshold` and
+`GlowFactor`. The pack keeps them in `hdr`; a field the world leaves out takes the
+game's own value (0.25, 5, 1.2, 0.5 and 1.0). The block's `Enable` is not kept,
+since the game's Light Bloom option (the player's `bloomSwbf2` setting) decides. `hdr` is null for a world without
+one, and a pack without the key is prepared again.
+
+A 2005 command post class pairs a symbol model with each side name in
+`HoloImageGeometry` ("<model> <side>"). The game files side names into eight
+slots: `neutral` 0, `alliance`/`all` 1, `empire`/`imp` 2, `republic`/`rep` 3,
+`cis` 4, `hero`/`heroes` 6, `villain`/`villains` 7 and any other name 5 (letter
+case aside). A team shows the model of the slot its mission name (SetTeamName)
+falls in, and none when the class names no model for that slot.
+
+In 2005 prepared maps, base-world `barriers` and `hints` are arrays on the
+map object. Layer records have the same arrays on their own layer object.
+Records retain their zero-based source index, name, raw twelve-float transform
+and ordered property triples (hash, optional name, string value). Barriers
+also carry half-extents, the raw flags and a separate enabled boolean. The
+low five flag bits select traversal classes. Hints carry the source type as
+text. Runtime hint indices follow base and active-layer order before expansion.
+When a 2005 `map.json` declares `planningGroups.data` (such as `planning.bin`),
+`MapAdmission::load` reads the compressed XOR-delta binary into
+`MapAdmission::planning_bin` (always `None` for 2004 maps), and cold AI
+admission (`sim::world::admit::rows::ai::load`) packages `plan`, `planningGroups`,
+optional `barriers` and `hints`, `boundaryPaths`, composed `paths` and `regions`,
+and `planning_bin` into a `schema: 2` navigation payload consumed by
+`rust/sim/src/ai/nav/swbf2/` (`docs/ai-nav.md`).

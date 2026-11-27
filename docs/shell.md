@@ -40,6 +40,7 @@ nothing.
 | `rust/bfe-shell` (`music`, `audio`) | The tracks in turn and the gaps; the front end's mixer (the buses, the dips, whooshes, menu and loading sounds) |
 | `rust/bfe-shell` (`gate`) | The click gate's text, layout and pulse |
 | `rust/bfe-shell` (`loading`) | The loading screen: the original's timeline and its sounds, the disk, the lights, the zoom |
+| `rust/bfe-shell` (`loading2`) | The 2005 game's loading screen: the fixed map clock and backdrop, tips and LED bar (below) |
 | `rust/bfe-shell` (`profile`) | The profile rules |
 | `rust/bfe-shell` (`page`, `render`) | Layout and drawing of the front end's screens, the server browser and the battle screens' look |
 | `rust/bfe-video` | The Bink movies, decoded from the game's own files |
@@ -369,6 +370,68 @@ Not drawn yet: the rotating planet model, the side panels, the scan lines
 and noise of the config (they don't show in the captures), and the
 crosshair's corner pieces.
 
+### The 2005 game's loading screen
+
+The 2005 loading view uses the selected `menuTheme`. Its
+data is prepared by `tools/zero_load2.py` from the 2005 copy's
+`load/load.lvl` config and per-map picture archives
+([formats-2005-interface.md](formats-2005-interface.md)): one
+backdrop drawn at random from the map's candidate pictures and held for
+the whole load. The map title, loading word and tip group use the requested
+locale, its base language, English, then an available translation in name
+order. Locale matching ignores case. The tips box draws from the world's localized tip group,
+choosing a tip on each configured `TipsTime` interval without repetition
+until the group is exhausted. Each load has a local presentation seed,
+independent of gameplay. The map backdrop supplies an empty sound plan to
+the mixer. Planet loading keeps its tracking and zoom cues. Each light fills from
+its configured minimum intensity to full. Earlier lights stay lit.
+The art supplies the alpha mask and the theme supplies the colour.
+
+BF1 draws the title, tip and label with the copy's bitmap fonts.
+Eternal and BF2 use their Saira planet title, note and loading-word roles.
+The title and footer sit inside a centred 4:3 picture frame. The loading
+word starts at the title's left margin. Its active font sets the width,
+with a ten-unit gap before the lights. Long labels fit within a third
+of the frame.
+The tip panel keeps the corners and edge bevels at their source texel
+size. The note clears both the bevel and its inner shadow. At the
+reference width it occupies the upper right of the picture. In a small
+window the panel can span the picture between its margins. Text wraps at
+the active font's measured width, retains paragraph breaks and has a
+minimum size of 11 logical pixels. The panel grows down to the space above
+the lights. At the minimum 320 by 240 window size, unusually long text
+can occupy multiple pages. The arrows below the note and the left and
+right arrow keys turn those pages within the current tip. On short PC ground and space loads, the picture appeared from black and
+held until team selection. The measured picture holds lasted about 1.70
+and 2.13 seconds respectively. The ground load's lights finished together
+just before the transition. Entry and exit on further maps remain
+unmeasured.
+
+**Fixed length.** Preparation resolves the world's `ProgressBarTotalTime`
+(inherited from the display when absent) and rounds up to 60 Hz simulation
+ticks. The shared per-map `durationTicks` is the deadline on every client.
+Only simulation ticks advance the sequence. A display frame, including a
+long frame, merely samples it. Drawing interpolates the LED intensity and
+label blink between ticks. Picture and tip counts, missing art,
+upload time, frame rate and worker readiness cannot change the deadline.
+At that tick the screen ends. A client still preparing the battle enters a
+separate readiness wait with no rotating tips or loading lights.
+
+**Planned Enhanced backdrop.** The original loading pictures stretch on
+modern displays. An Enhanced option would render an empty 3D view of the
+incoming map at display resolution. The tips, title, lights and fixed
+length are independent of the backdrop source. Classic uses the picture.
+
+Which screen runs is `loading2::loading_screen_for(family)`, called
+by the client with the 2004 family. Incoming-map family wiring is pending. No
+2005 battle can be launched yet. Developers can sample the isolated draw
+example with `cargo run -p bfe-client --example loading_screen -- ROOT WORLD [LOOK [TICK [LANGUAGE [SEED [WIDTHxHEIGHT [OUTPUT.png]]]]]]`.
+It reads the prepared 2005 family root. An optional PNG captures the
+rendered frame at the chosen window size. The sample owns its textures,
+uses the common backdrop if the chosen map picture is unavailable, and
+releases its uploads when the sample is drawn. Offline
+start, online join and retarget use the released planet handover.
+
 ## Data read from shell.json
 
 `rust/bfe-shell` reads the schema of [shell-assets.md](shell-assets.md)
@@ -427,3 +490,46 @@ the looks' colours, and the look picked from the menu theme.
 - Each map folder of an older import holds one mission: it plays for both
   eras, and the era picker offers only its era. A newer import holds every
   battle of the map, and each era plays its own.
+
+With `BFE_DEV_SWBF2_IA=1`, choose Battlefront II (2005) in the Instant Action
+game selector. Its battle menu offers Mos Eisley Hero Assault
+(`swbf2/tat2:gcw:eli`) and Space Mygeeto Space Assault (`swbf2/spa6:cw:ass`).
+Click a battle or use the arrow keys and Enter. Escape returns to the game selector.
+The authority reads the compiled mission under `<content>/swbf2/.content`. Its
+team rosters, landing regions, scores and finish condition govern the battle.
+
+`BFE_DEV_SWBF2_TEAM` selects team 1 or 2. `BFE_DEV_SWBF2_UNIT` selects a
+class on that team. The first class the mission script declares for that team is the default.
+The client requests the selected class for its connected character on entry
+and when its personal respawn delay expires. The mission checks living class
+counts and assigns an eligible spawn point before linking the new life to
+that player's controls. For a developer session that starts already deployed,
+set `BFE_DEV_SWBF2_DIRECT_SPAWN=1`. Both battles otherwise open the spawn
+launcher both games share ([spawn-screen.md](spawn-screen.md)). The two scripted enemy pilots use the admitted fleet’s seats
+and weapons. Engine thrust and hull damage effects follow each completed fleet
+step, including a craft disappearing or respawning in its slot. Radar contacts
+use the hull class's map symbol from the active map's prepared HUD catalog.
+Each flight-screen look can open a prepared folder through a directory symlink. Set `BFE_DEV_SWBF2_ASSAULT_TARGET` to a positive point limit
+to exercise a shorter match of either opening battle with the same scoring rules.
+
+Secondary fire uses the equipped offhand. A returning saber spends the soldier’s
+energy and flies from the posed hand at a fixed tick. The dedicated Block
+control toggles standing guard. Hold-to-block is an optional preference. A
+selected area power keeps its place in the loadout and consumes its trigger.
+
+The recorded-match integration test can write each authority tick, script
+tick, both scores, target, outcome and match flags to `BFE_BENCH_MATCH_TRACE`.
+The fight replay test writes bodies and contacts to `BFE_BENCH_FIGHT_TRACE`.
+A bench session can replay a fixed-tick player input
+file with `BFE_BENCH_MATCH_INPUT`. Each JSON line begins with six unsigned
+integers in order: held buttons, the two mouse deltas as IEEE-754 bit
+patterns, action flags, held melee buttons and pressed melee buttons. The
+action flag bits are sprint, roll, block held, block pressed, hold-to-block and
+offhand pressed, from low to high. A tick with a deployment choice appends
+`[team, class, post]` as its seventh element. The player action goes through
+the mission’s normal spawn selection.
+`BFE_BENCH_MATCH_PREROLL` executes the preceding inputs before the window
+capture runs at normal speed. Every step uses the same 60 Hz clock.
+For a recorded 2005 battle, the optional `aiUnitsPerTeam` query field in
+`BFE_BENCH` supplies the mission's AI Units Per Team setting. Omitting the
+field uses the mission default.

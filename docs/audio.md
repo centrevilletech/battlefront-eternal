@@ -16,8 +16,10 @@ The port's sound has two modes, switched live in Settings → Audio:
   occlusion worked out from the map's collision, an LFE, a loudness-managed
   master, and the game's samples upscaled offline.
 
-The two modes play at the same loudness (within half a LU on the same
-battle), so switching between them compares the sound, not the level.
+The two modes are calibrated to match in average loudness across battles, so
+switching between them compares the sound rather than the level (individual
+battles still vary with vehicle density and map acoustics; see "Master chain
+and loudness" below).
 
 Nothing here commits retail data. The decoded and upscaled sound lives in
 `public/audio/` (gitignored), and so do the headphone filters.
@@ -63,6 +65,43 @@ and an era's voice-over streams (`cw_vo`, `cw_tac_vo`, `gcw_vo`,
 enhances only its own music and ambience. The Xbox ADPCM decode runs
 over every block at once with numpy (each 36-byte block starts from its
 own header), falling back to plain loops without it.
+
+In the 2004 game, battles can request different processing or loop settings
+for one sample ID. Each distinct treatment has its own cache record, keyed
+by sample ID, source PCM and rate, sound kind and loop setting. A playable
+treatment is linked into the battle under its usual `samples/<id>.flac`
+name. Its manifest supplies the gain. A treatment that fails the audio
+checks uses the original sample, with `fallback` true and `file` null.
+Uncontested samples keep their existing files. Sound maintenance updates
+older battle manifests and retires their single-treatment masters after
+publishing the new battle files.
+
+Concurrent battles reserve each shared stream segment before encoding. The
+battle that reserves a segment chooses its stream treatment for that run.
+The encoder finishes a temporary
+file in the destination directory and syncs it before replacing the published
+Opus file. Preparation verifies each stream it writes, including encodes whose
+battle manifest was interrupted. It checks the Ogg page checksums, serial,
+sequence and final frame. A stream that decodes completely is accepted when
+its final frame differs from the manifest.
+
+The installation check reports the game copy's archives and available battles.
+At each launch, once the menu is visible, the client starts sound maintenance.
+The tools compare file sizes and modification times with the player's cached
+verification results. They verify new or changed streams, restore damaged
+layouts from the prepared bank and update battle copies and sample treatments.
+In the 2004 game they can also restore the battle index and original sound
+banks. Removing an add-on leaves its known index entries intact while the
+tools restore the battles that are still installed. A missing or malformed
+archive is retried when its inputs change. A denied write waits for access
+to change. A temporary write or encoder error can be retried after space
+becomes available, after five minutes at a subsequent launch, or during
+preparation. If the verification cache
+is unwritable, startup can still restore the original battle index. Audio
+verification and repair run during preparation. The window title shows progress
+and `logs/sound-maintenance.log` records the outcome. Closing the game stops
+maintenance. The next launch picks up unfinished work. Read-only content
+remains playable.
 
 ## Settings, the panel, and debugging
 
@@ -174,10 +213,11 @@ What stands in for something:
   and the profile is a level there.
 - **Level.** The original mode is raised by the power OpenAL Soft's
   decoders give a source ahead (3.3 dB on 5.1, 0.9 on 7.1), so the two
-  modes match in loudness. Stereo's 3.2 dB is measured instead: recorded
-  battles on Home theater, where nothing compresses, as loud as Enhanced,
-  which keeps Normal and Night within half a LU as well. Nothing else in
-  the mix changes.
+  modes match in average loudness. Stereo uses a measured 3.2 dB trim across
+  seeded stereo battles; with multi-graph engine curves, the three-battle
+  mean gap (Enhanced minus Classic) is -0.6 LU on Home theater, -0.1 LU on
+  Normal and +0.2 LU on Night, while individual battles spread around zero
+  (see "Master chain and loudness"). Nothing else in the mix changes.
 - **7.1.4** is beyond OpenAL Soft 1.20.1: the original plays 7.1, the
   heights silent.
 - **Playback resampling** is a linear interpolation (translated from
@@ -447,20 +487,39 @@ The clarity stage, the dynamics (one of three profiles), then a true-peak
 limiter (4× oversampled peak detection, 1.5 ms lookahead, linked channels)
 at −1 dBTP, then the master volume.
 
-| Profile | Compression | Target | Measured enhanced / original | Loudness range |
+| Profile | Compression | Target | Measured Theed enhanced / original | Loudness range |
 | --- | --- | --- | --- | --- |
-| Home theater | none | −24 LUFS | −23.4 / −23.8 | 13 / 12 LU |
-| Normal | 2:1 over −18 dB, 25 ms attack | −20 LUFS | −19.6 / −19.7 | 10 / 8 LU |
-| Night | 5:1 over −30 dB | −18 LUFS | −18.8 / −18.5 | 5 / 4 LU |
+| Home theater | none | -24 LUFS | -20.8 / -21.9 LUFS | 4.0 / 4.9 LU |
+| Normal | 2:1 over -18 dB, 25 ms attack | -20 LUFS | -17.8 / -18.4 LUFS | 3.3 / 3.5 LU |
+| Night | 5:1 over -30 dB | -18 LUFS | -17.5 / -18.1 LUFS | 2.6 / 2.5 LU |
 
-The targets are ASWG-R001's (−24 ±2 LKFS for the home, −18 for portable
-devices; true peak at most −1 dBTP). Measured with
-`cargo test --locked --workspace` on the same 60 s of Theed in each mode (a seeded
-battle: walking, turning, firing in bursts among the AI's fighting),
-integrated loudness gated per BS.1770-4, loudness range per EBU Tech 3342.
-True peak stayed at or under −1 dBTP throughout. The meter in the panel is
-the same BS.1770 meter (K-weighting, 400 ms blocks, absolute and relative
-gates).
+The targets are ASWG-R001's (-24 +/-2 LKFS for the home, -18 for portable
+devices; true peak at most -1 dBTP). Measurements come from the reproducible
+60 s active-player loudness harness (`rust/bfe-client/tests/audio_loudness.rs`:
+walking, turning, and firing periodic bursts among the AI; integrated loudness
+gated per BS.1770-4, loudness range per EBU Tech 3342):
+
+```sh
+BFE_CONTENT_DIR=/path/to/content \
+  cargo test --release --locked -p bfe-client --test audio_loudness -- --ignored --nocapture
+```
+
+Add `BFE_LOUDNESS_UPSCALED=1` to also measure Enhanced with upscaled FLAC and
+Opus assets. Across three vehicle-bearing battles with multi-graph engine
+curves (`nab2:rep`, `geo1:rep`, `hot1:all`), the multi-graph curves lower idle
+and cruising vehicle engines. With the 3.2 dB stereo trim, the three-battle
+mean gap (Enhanced minus Classic) narrows from -1.54 to -0.63 LU on Home
+theater and from -0.38 to -0.08 LU on Normal. On Night it widens from
++0.10 to +0.19 LU. Individual battles still spread around zero because
+Enhanced applies collision occlusion and HDR ducking while Classic runs open-air
+attenuation: on Home theater, `nab2:rep` measures -20.8 / -21.9 LUFS (+1.12 LU),
+`geo1:rep` -21.9 / -21.8 LUFS (-0.06 LU), and `hot1:all` -21.4 / -18.5 LUFS
+(-2.94 LU), giving per-battle spreads of -2.94 to +1.12 LU (Home theater),
+-0.87 to +0.56 LU (Normal), and -0.19 to +0.55 LU (Night). Enabling upscaled
+Enhanced assets shifts Enhanced integrated loudness by at most 0.19 LU across
+all three maps and profiles (Theed: -20.7 / -17.7 / -17.3 LUFS). True peak
+stayed at or under -0.97 dBTP throughout. The meter in the panel is the same
+BS.1770 meter (K-weighting, 400 ms blocks, absolute and relative gates).
 
 ## Runtime ownership
 
@@ -544,8 +603,25 @@ replacing a segment releases its previous decoder. Short FLAC effects may
 retain their PCM in the existing asset cache. The original ADPCM segment
 cache keeps its existing device-memory limit.
 
-There is no codec fallback. A decode or stream underrun failure reaches
-the player's audio error display.
+The native battle player uses the original ADPCM segment when its Enhanced
+file fails to load. Once playback starts, a background reader can keep the
+compressed original for a switch at the same point if decoding stops.
+The load reply gives the Enhanced duration even when the original is shorter.
+After playback starts, the worker checks the Ogg pages of an unequal track
+without advancing its playback decoder. If a page is damaged, the worker can
+decode ahead to find the playable end and keep those samples for playback.
+Each damaged track may keep up to 8 MiB of extra PCM. These windows and the
+compressed originals share a 64 MiB limit.
+A failed page within the original's range switches at the same frame. Beyond
+that range the mixer ends the sample at the last delivered frame. The stream
+controller shortens that part's schedule and releases its voice normally.
+An unavailable original or a full reserve leaves that stream silent from the
+failed frame. Other voices keep playing.
+A substitute for 5.1 or 7.1 music uses the prepared layout's speaker levels.
+Stereo playback uses the original pair.
+The player remembers the failed Enhanced file until the battle ends. A
+full loading queue leaves the file eligible for a later request.
+The menu's codec player reports playback errors through its audio error display.
 
 The synthetic codec corpus records native and converted PCM at 22.05,
 44.1 and 48 kHz. FLAC S16/PCM_24 and float HRIR WAV compare bit for bit at
@@ -713,3 +789,141 @@ Things only a person with the hardware can check, in rough order:
   mono 3D stream) is panned as his other sounds are.
 - Where a queued voice-over line's tie goes (ahead of or behind an equal
   score) isn't known; the port puts it behind.
+
+## 2005 game
+
+A 2005 battle (`GameFamily::Swbf2`) runs through the same mixer and
+voice engine (`rust/audio`), with a separate control mapping
+(`rust/audio-control/src/swbf2/`) and manifest loader
+(`rust/bfe-client/src/online/sound_data_swbf2.rs`) beside the 2004 path.
+The 2004 control path, mixer, and movie muting are unchanged.
+
+### Implemented and reachable in a 2005 battle today
+
+- **Buses, scaling and Doppler.** The 2005 core bus hierarchy adds
+  intermediate pause (`0xfa930d1c`) and scoreboard overlay ducking
+  (`0xb38617c5`) buses between `ingame` and `main`, places `ambience`
+  under `main`, and ducks `main` when `voiceover` plays. The shared
+  engine ducks a target bus by `1 - Attenuation`, so an authored
+  `Attenuation = 0.65` lowers `main` to `0.35` (-9.1 dB) over 0.5 s.
+  At mission load, `dopplerFactor` scales radial Doppler velocity before
+  the 172 m/s cutoff, and `scaledParameters` scales `Gain`, `Pitch`,
+  `MinDistance`, `MaxDistance` and `MuteDistance` by sound group hash.
+- **Bank samples, streams and appended VO groups.** Bank PCM samples,
+  zero-length retail stream placeholder skipping, `_vo_slow`/`_vo_quick`
+  voice detection, and `appendedStreams` load directly from the prepared
+  manifest. Appended streams share one logical playback slot and one
+  4-deep priority queue. In Enhanced mode, the 2005 loader also imports
+  prepared `audio/enhanced/<level>/manifest.json` assets (48 kHz FLAC
+  bank replacements, Opus stream variants across primary and appended
+  streams, and optional SADIE HRTF filters for headphones) and falls
+  back cleanly to original bank PCM and ADPCM streams when the enhanced
+  directory is absent.
+- **Core combat, foley, engines, ambience and spaces.** Weapon fire,
+  reload, overheat, charge, impacts, explosions, footstep material boxes
+  and `FoleyFX` (merged with ODF inheritance), static emitters,
+  `soundstream` regions, multi-graph `SoundParameterized` vehicle and
+  starfighter engines (including `Proximity` distance modulation),
+  speed-threshold `BoostSound` cues from entity velocity, and placed
+  `BuildingSound` persistent loops run on every 2005 battle frame.
+  World `soundspace` regions support box, cylinder and sphere volumes
+  mapped to authored `I3DL2ReverbPreset` rooms with optional neighbor
+  space-to-space attenuation; in Enhanced mode, the authored interior
+  preset blends non-compoundingly (`INTERIOR_SPACE_BLEND = 0.65`) onto
+  the measured ray-traced room while the listener is inside a space.
+- **Space combat weapons, turrets, ordnance and destruction.**
+  `Swbf2WeaponBank` (`rust/audio-control/src/swbf2/weapons.rs`) and
+  `Sound::sync_space` drain every fixed 60 Hz space tick once per audio step
+  across all live player and bot craft, remote chair turrets and capital-ship
+  auto-turrets. Flight cannons, beam loops, chaingun `WarmUpSound` pitch/fade
+  ramps and `BarrelSound` fade-in/fade-out loops, overheat/reload/`WeaponChangeSound`, turret yaw and
+  pitch loops and activate/deactivate cues, fighter `TrickSound`/`FlipSound`
+  and cockpit cues, bounded flying ordnance loops, ordnance impacts,
+  explosions and expiry blasts, ship doors (`OpenSound`/`CloseSound`/
+  `LockedSound`), and building destruction/respawn emitters all play with
+  authored 3D distance roll-off and mute cutoffs.
+- **Hero powers, thrown sabers and bot lightsabers.**
+  `Swbf2PowerBank` (`rust/audio-control/src/swbf2/powers.rs`), `SaberBank`
+  (`rust/audio-control/src/swbf2/saber.rs`), and `Sound::sync_hero_audio` read
+  the preallocated `HeroAudioSnapshot` (`rust/sim/src/units/infantry/hero_audio.rs`)
+  for both player and bot heroes. Force Push, Pull, Lightning cast and impact,
+  continuous Force Choke holds (played once as authored from `FireSound` without
+  double-playing the initial cast, and faded out cleanly on early release or
+  caster death), aura
+  buffs, melee combo ground blasts, thrown lightsaber launch and moving twirl
+  loops (suspending in-hand hum without bogus turn-off or turn-on cues), and
+  player and bot lightsaber ignition, hum, combo swings, hits, blocks and
+  deflections all play from the classes' authored properties. `sound_data_swbf2`
+  flattens `classes.json` inheritance, resolves hex-keyed ODF sound properties,
+  and loads `combos.json` across all four factions for Hero Assault.
+- **Voice, layer-group and stream budgets.** A 2005 battle caps playback at
+  32 heard voices, 64 virtual voices, 64 active non-parameterized layered
+  groups for ordinary asks (protected local-player weapon fire and power casts
+  may use the remaining layer-group headroom up to `GROUPS = 128`, while all
+  child voices still share the 64-voice virtual pool), and 6 active stream
+  channels. Virtual voice stealing scores 3D candidates with distance
+  attenuation (initialized on voice creation) so distant battles drop instead
+  of evicting close craft or hero sounds, local player weapon fire and hero
+  power casts are protected from pool refusal, stealing, and real-slot
+  demotion under saturation (a port rule rather than the 2005 game's, which
+  scores all emitters by distance gain and authored priority), 2005 loop
+  controllers request playback on state change (entering range, starting
+  fire/spin/turn/throw, or catching a saber) and recover refused or stolen
+  loops immediately when free or silent pool capacity opens or on a bounded
+  0.10 s per-slot cadence under saturation when the candidate outranks the
+  lowest active voice rather than retrying every tick, 3D layered sounds
+  whose children are all beyond `MuteDistance` pre-cull before consuming a
+  layer-group slot, and all steady-state battle-loop paths perform zero heap
+  allocations.
+- **Music and low-reinforcements VO.** Ambient music tracks enforce
+  optional `MaxPlaybackTime` fade-to-idle and preserve raw authored
+  stage fractions (`1.0 / 0.99 / 0.10`) without ticket truncation.
+  Mission `enableHeroMusic`, `enableHeroVo`, and 5-element
+  `lowReinforcementsVo` rules (`[watchedTeam, threshold, sound,
+  isFraction, listenerTeam]`) load at mission admission and fire
+  automatically as tickets drop.
+
+### Implemented in the control layer, waiting for callers
+
+These zero-allocation 2005 interfaces exist on `audio_control::phase::Phase`
+and `Sound::swbf2_*` (keyed by Zero FNV-1a hashes so callers do not need
+loader-internal indices) and are verified by synthetic and offline tests,
+but are not yet fed by the script-host or front-end pumps:
+
+- **Mission script runtime calls.** `set_mode_score_progress` (for
+  points-based modes), `broadcast_voice_over`, `play_in_game_music` /
+  `stop_in_game_music`, `trigger_sound_region_enable`,
+  `notify_hero_event` (`SndHeroSpawned`, `SndHeroDefeated`,
+  `SndHeroKiller`), `play_vo_tag` (`VOSound`), `set_own_hero` (`SoldierMusic`),
+  and mid-battle `set_doppler_factor` / `scale_sound_parameter`.
+  Ambient music follows its usual schedule until a script track starts.
+  An interval-blocked choice or a failed load leaves the ambient track playing.
+- **Voice-line selection.** The 2005 game requires every specified condition
+  field to match. It scores a match by counting the specified fields among
+  elevation, direction, distance, target type, speaker state and unit number.
+  Highest score wins. The port counts distinct matching tags and skips rules
+  with more than eight. In 90 stock rows it requires and scores a vehicle
+  condition that the game leaves unset. The port's rule of “first authored
+  on an equal score” is provisional.
+- **Movie audio conditioning (`rust/bfe-video/src/swbf2_audio.rs`).**
+  2005 movies remain silent in live playback today. An unwired
+  decode-thread helper gated strictly to `GameFamily::Swbf2`
+  (`GameFamily::Swbf1` is unconditionally refused) resamples 44.1 kHz
+  tracks to 48 kHz, soft-limits peaks above 0.95 before bus scaling, and
+  applies an adjustable movie bus gain (default 0.725).
+
+### Planned and not yet settled
+
+- Wiring live script-host, multiplayer wire, and front-end movie playback
+  callers into the interfaces above.
+- Retail rules and provisional constants still to be checked against the
+  retail 2005 PC game:
+  - Whether 2005 `voiceover` `Attenuation = 0.65` ducks `main` *to*
+    `0.65` or *by* `0.65` (currently implemented as `1 - 0.65 = 0.35`,
+    -9.1 dB).
+  - What a `soundtrigger` world region plays when enabled (no sound
+    object in the prepared space bank resolves to the region names).
+  - `SoundProperties` key `0x47c87922`, unmatched space interior and
+    open-space `soundstream` region names, `INTERIOR_SPACE_BLEND = 0.65`,
+    `Proximity` default range (`5..150 m`), lightsaber hum vs swing mix
+    levels, and movie bus loudness against menu clicks.

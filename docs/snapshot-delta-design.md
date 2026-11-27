@@ -1,76 +1,87 @@
-# Snapshot & Delta Encoding Design (`rust/sim`)
+# Snapshot and delta encoding
 
-## 1. Overview & Bandwidth Targets
+The authority steps at 60 Hz and normally captures every third tick. The same
+publisher runs for Instant Action and a dedicated server. The transport carries
+`BNS1` entity and world datagrams and `BNO1` own-player datagrams on its state
+lane. Each datagram is at most 1,100 bytes. All fixed-width integers are little
+endian.
 
-The authoritative simulation runs at 60 Hz (`SIM_DT = 1/60s`) and broadcasts snapshots at 20 to 30 Hz (every 2 to 3 ticks).
-For a 32-player match with 64 AI bots, 12 vehicles, 8 command posts, and active ordnance:
-- **Uncompressed JSON full snapshot**: ~35 to 50 KB/snapshot (700 to 1500 KB/s per client; unviable for 32 clients).
-- **Quantized Delta Snapshot (`rust/sim`, `wire` module)**:
-  - Steady-state delta snapshot (20 Hz): **~800 to 1,800 bytes** (~16 to 36 KB/s per client).
-  - Full keyframe snapshot (on join / baseline reset): **~4,500 to 6,500 bytes**.
+## Position bounds
 
----
+Every Battlefront (2004) map uses X and Z from -1024 m to 1024 m and Y from
+-400 m to 300 m. The codec takes the resolved battle family and the original
+map metadata at admission. A Battlefront II map supplies the unpadded playable extents in a top-level `map.json` field
+`wireBounds`, with `min` and `max` arrays in world XYZ metres. Preparation takes
+the union of the playable bounds across the map's supported layers, including
+flight limits, reachable geometry and spawn locations. Admission rounds each
+minimum down and maximum up to whole metres and adds a provisional 64 m at
+each face. The importer writes the unpadded extents. Before enabling a map,
+measure how far replicated entities travel past each face during a flight-limit
+exit and return, knockback, or debris travel until retirement. Size the margin
+from the greatest supported excursion, including travel between captures.
+Admission requires finite, strictly ordered source coordinates, padded faces within
+±1,048,576 m and padded spans of at most 65,536 m. A 2004 map always uses the
+fixed box, regardless of this field.
 
-## 2. Quantization Rules
+The codec implements per-map boxes and wide positions. Every 2004 battle uses
+the fixed 2004 box; a 2005 battle uses its map's box. A protocol 3 client
+ignores position flag bit 1 and reads three u16 codes from a wide absolute
+group, so it would desynchronise on that datagram; protocol 4 admission
+refuses it with the version text first.
 
-All authoritative state fields are quantized to fixed-point integers before hashing and serialization so that:
-1. `stateHash` is 100% deterministic across architectures and matches between encoder and decoder.
-2. Small floating-point jitter below perceptual thresholds does not trigger unnecessary entity delta updates.
+Capture, the cosmetic journal, the client decoder and item prediction take
+the same immutable box. For Battlefront II the codec derives it from the
+resolved family and the prepared map. The gameplay fingerprint includes its
+`map.json`. When any
+padded axis is wider than the corresponding 2004 axis, all three axes use
+24-bit absolute codes. Otherwise they use 16-bit codes.
 
-| Field Category | Precision | Quantization Formula | Wire Type |
-|---|---|---|---|
-| Position (`x, y, z`) | `1 mm` (`0.001 m`) | `Math.round(v * 1000)` | `i32` |
-| Velocity (`vx, vy, vz`) | `1 cm/s` (`0.01 m/s`) | `clamp(Math.round(v * 100), -32768, 32767)` | `i16` |
-| Angles (`yaw, pitch`) | `0.001 rad` (~`0.057°`) | `clamp(Math.round(v * 1000), -32768, 32767)` | `i16` |
-| Unit Quaternion (`qx, qy, qz, qw`) | `1 / 32767` | `clamp(Math.round(v * 32767), -32767, 32767)` | `i16` |
-| Normalized Progress (`controlProgress`) | `0.001` (`0.1%`) | `clamp(Math.round(v * 1000), -1000, 1000)` | `i16` |
-| Health / Shield / Fuel / Heat | `0.1` units | `clamp(Math.round(v * 10), 0, 65535)` | `u16` |
-| Timers (`bleed`, `reload`, `respawn`) | `1 ms` | `clamp(Math.round(v * 1000), 0, 65535)` | `u16` |
+| Field | Encoding |
+|---|---|
+| Position | Code = `clamp(round((position - min) / extent * maxCode), 0, maxCode)`, rounding midpoint ties up. Decode as `min + code / maxCode * extent`. The maximum code is 65,535 for u16 and 16,777,215 for u24. In the fixed box a step is about 31.25 mm in X/Z and 10.68 mm in Y. |
+| Position delta | Group flag bit 0 selects absolute codes. Otherwise three signed i8 differences in [-127, 127] add to the matching baseline codes. Bit 1 selects wide codes and is set for both absolute and delta positions on a wide map. Bit 7 marks discontinuity independently. |
+| Velocity | A width byte followed by three signed i8 codes at 0.25 m/s, or three signed i16 codes at 0.03125 m/s. Items always use the latter. Other bodies use it when a component exceeds 31.75 m/s in magnitude. |
+| Body aim | Unsigned yaw and signed pitch at 65536 steps per turn. Turrets and mount angles instead use signed codes with 32767 steps per half turn. |
+| Hull orientation | Smallest-three quaternion in six bytes. The omitted component's index uses two bits and the three retained components each use 15 bits. |
+| Health and status | Health uses integer u16 units. Other status fields depend on the entity class, for example soldier posture and charge share a byte. |
 
----
+For a 16 km axis, u16 would step by about 244.14 mm. A u24 step there is about
+0.954 mm with at most 0.477 mm of rounding error. Even at the 65,536 m span
+limit a u24 code has less than 1.954 mm of in-range rounding error. Both faces
+of the box are represented exactly. Item prediction uses half a code step on
+each axis plus its existing 2 mm tolerance.
 
-## 3. Baseline & Delta Compression Protocol
+Position saturation is only an encoding limit. It does not constrain the world
+simulation. Turret transforms are authored, so their entity records carry aim
+and status groups without a position group. The own correction carries replay
+state in its own schema. It does not use the entity position codes. Compact bolt
+launches and impacts use the map's position codes when the origin fits the box
+and the launch offset fits its signed fields. The tags are 1 (launch) and 2
+(impact) for u16, or 3 (launch) and 4 (impact) for u24. Other events and
+out-of-box origins keep their raw payloads under tag 0.
 
-1. **Per-Client Baseline Tracking (`BaselineTracker` in `rust/sim`)**:
-   - The server stores a ring buffer of recent quantized `WorldSnapshot` keyframes (e.g., last 32 emitted snapshots, covering ~1.0 to 1.6 seconds at 20 to 30 Hz).
-   - Each `ClientInputPacket` carries `ackSnapshotTick`: the latest authoritative `simTick` the client has received and applied.
-   - When encoding a packet for client $C$ at `simTick`:
-     - Look up `baseline = ringBuffer.get(C.ackSnapshotTick)`.
-     - If found, encode a **Delta Snapshot** (`baselineTick = C.ackSnapshotTick`) containing only entities that were added, removed, or mutated relative to `baseline`.
-     - If `C.ackSnapshotTick == 0` or the baseline has aged out of the ring buffer, encode a **Full Snapshot** (`baselineTick = 0`).
+## Baselines and records
 
-2. **Entity-Level & Field-Mask Delta Encoding**:
-   - **Match State**: Included only if `phase`, `tickets[0]`, `tickets[1]`, or `bleedTimer` changed since `baseline`.
-   - **Command Posts**: Sparse array of `[cpId, ownerTeam, capturingTeam, controlProgress]` for posts whose state changed.
-   - **Players / Bots (`units`)**:
-     - Each unit has a stable `unitId` (`0 .. maxUnits - 1`).
-     - A 1-byte `changeMask` indicates which field groups changed since `baseline`:
-       - `0x01`: Identity/Meta (`team`, `classIndex`, `alive`, `isBot`, `vehicleId`, `seatIndex`)
-       - `0x02`: Transform (`pos`, `vel`)
-       - `0x04`: Orientation & Stance (`yaw`, `pitch`, `stance`, `jetpackFuel`)
-       - `0x08`: Vitals (`hp`, `shield`)
-       - `0x10`: Weapon & Ammo (`weaponSlot`, `ammoInClip`, `ammoReserve`, `heat`, `reloadingTimer`)
-       - `0x20`: Input Ack (`lastProcessedInputSeq`; human slots only)
-     - Removed/despawned unit IDs are listed in `removedUnits[]`.
-   - **Vehicles**:
-     - 1-byte `changeMask`:
-       - `0x01`: Vitals & Respawn (`alive`, `hp`, `respawnTimer`)
-       - `0x02`: Transform (`pos`, `quat`, `vel`)
-       - `0x04`: Turret Aim (`aimYaw`, `aimPitch`)
-       - `0x08`: Occupants (`occupants[]`)
-   - **Projectiles**:
-     - Newly spawned or trajectory-corrected projectiles (`spawned[]`) and destroyed/expired projectile IDs (`removed[]`).
-   - **Gameplay Events**:
-     - Reliable event log slice for ticks `(baselineTick, simTick]`, deduplicated by `eventSeq`.
+The host retains 128 snapshot ticks per battle. Recipients acknowledge a
+complete snapshot by epoch and tick in input or a standalone keepalive. The
+publisher groups clients with compatible held baselines and encodes each
+group's shared bytes once. Baseline tick 0 denotes a keyframe. An unavailable
+baseline makes the host select another held baseline or send a keyframe.
 
----
+Each shared part starts with a world-field section. Fields are keyed by schema
+and identity, with a generation and either an absolute payload, a removal, or a
+bitmap of changed eight-byte words when the delta saves space. Entity records
+follow in ascending slot order. The record byte has a two-bit operation
+(update, new identity, removal) and a six-bit mask of class-specific field
+groups. An identity change writes the complete record. A change may omit
+groups that match the baseline. Mounted riders and their hull pack into one
+part when their records change together. The part counters use the compact
+header for up to 15 parts and the extended counters for larger snapshots.
 
-## 4. Client Reconstruction & Verification
-
-When the client receives a delta packet `(simTick, baselineTick, stateHash, delta)`:
-1. Look up local baseline snapshot at `baselineTick`.
-2. Reconstruct full quantized `WorldSnapshot` for `simTick` by cloning `baseline` and applying `delta` masks and removals.
-3. Compute `computedHash = computeSnapshotHash(reconstructedSnapshot)`.
-4. Assert `computedHash === packet.stateHash`.
-   - If the hash matches, commit `reconstructedSnapshot` into the client's baseline ring buffer and advance `ackSnapshotTick = simTick`.
-   - If a hash mismatch ever occurs (e.g., corrupted state), drop the packet and set `ackSnapshotTick = 0` to request a full keyframe on the next server broadcast.
+An own datagram can carry the player's correction, private world fields and a
+length-prefixed cosmetic bundle. Cosmetics may occupy a second own datagram.
+Damage and death feedback use the reliable events lane. The receiver keeps
+integer position codes in its baselines and widens them to metres when
+publishing records and pose samples. It applies each part to its named
+baseline, waits for the required parts before acknowledging the tick and treats
+a missing baseline as recoverable loss.

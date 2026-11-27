@@ -237,12 +237,32 @@ folder. RESET TO DEFAULTS resets that page's settings.
 
 ## The CONTROL page and the keys
 
-The CONTROL OPTIONS page lists every key, as the original's
+In Battlefront (2004), the CONTROL OPTIONS page lists every key, as the original's
 `ifs_opt_pccontrols` does: MOUSE SENSITIVITY (0.5 to 10, in steps of 0.1)
 and INVERT Y AXIS in a window, then CONFIG BINDINGS: INFANTRY, VEHICLE and
 STARFIGHTER tabs over an "ACTION: | KEYS" list, several keys joined with ", "
 in the original's key names (MOUSE BUTTON 1, SPACE, CONTROL, MOUSE WHEEL
 UP...).
+
+When the build enables Battlefront II (2005), the GAME row switches between
+the two games' controls. The 2005 page has Infantry, Vehicle, Starfighter,
+Jedi and Turret tabs. Its key labels distinguish left and right modifiers.
+Each 2005 tab has its own defaults, saved overrides and key conflicts. Resetting
+a tab restores its bindings and the shared tuning. The page
+lists supported controls in their installed order. Infantry zoom and Jedi
+block both accept middle mouse. The pilot uses left Alt or right Ctrl for a
+trick, C or keypad 1 for an Immelmann, and left Ctrl or middle mouse for roll
+lock. Mouse and flight tuning are shared. Local and online battles select
+controls from the active actor or seat. On the 2005 page, a key, mouse button
+or wheel notch assigns a binding. Backspace clears it and Escape cancels.
+Chat, team chat and the player list can also be rebound per tab. Spawn and
+scoreboard navigation keep their own keys and mouse buttons. The same
+capture works in paused Controls. The sampler reports sprint, roll, saber
+block, ground lock, vehicle boost, directional turret zoom, squad command
+and accept/decline as local input intentions. Pilot target lock uses the
+existing flight command. The 2005 game is currently gated.
+
+On the 2004 page the released controls work as follows.
 
 - The rows come from the bindings (`rust/bfe-interface` `hotkeys`: axes, presses, holds), so
   they follow them; keys the game reads directly (vehicle brake and climb,

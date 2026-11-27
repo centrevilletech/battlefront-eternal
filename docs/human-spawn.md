@@ -219,6 +219,77 @@ id, generation, team and Character. With the new body:
 Recon droids already out keep flying after he changes class; they know every
 side's fire points.
 
+### Soldier movement profiles
+
+The simulation selects a profile for the battle before it builds any soldier
+movers. Changing families after allocating movers requires a fresh world.
+The `swbf1` profile uses the existing standing, crouching, prone,
+jump, sideways dive and jetpack solver. Store soldiers and prediction use the
+same profile entry and return its firearm permission for the tick. The
+80-word movement exchange reports missing profile data for a `swbf2` mover.
+
+The replay checkpoint for `swbf2` needs the exact stamina balance, exhaustion
+flag, sprint ramp time when active, and roll direction and elapsed time
+when active. Authority and prediction also need the equipped action and
+class tuning. A zero-length step validates these inputs and preserves the
+body, its look history and its timers.
+
+The `swbf2` profile takes resolved class settings and state for one soldier
+life. A standing soldier holding sprint walks until his forward velocity
+exceeds 90% of maximum speed. Starting requires stick length at least 0.9,
+positive forward input and absolute side input below 0.577 times forward.
+The sprint row must be faster than the standing row. Holding sprint keeps
+the same stick length requirement, widens the steering limit to 1.732 times
+forward and requires forward speed above 0.2. The forward target rises from
+maximum speed to the class sprint target over its acceleration time. The
+exact time the body takes to reach that speed is still provisional.
+
+A positive stamina cost can overdraw the remaining balance. Overdraw latches
+exhaustion, even on a class whose floor is zero. Spending the exact balance
+leaves the latch clear. Ordinary recovery runs while standing or crouching
+on the ground. It uses the idle rate below horizontal speed 1 and the moving
+rate otherwise. Reaching the class recovery threshold clears exhaustion.
+A soldier still running forward with sprint held resumes automatically.
+
+An eligible roll press takes precedence over crouch, jump and sprint. It
+requires a strong forward or side input. A backward diagonal needs side
+input greater than 0.839 times the magnitude of the backward input. The
+class roll cost is paid on entry. The boost acts on existing forward and
+side motion, and the class roll row handles steering thereafter. Travel
+depends on incoming speed, inputs and collisions. The roll ends when elapsed
+time exceeds three quarters of the equipped action's duration, using
+(frame count minus one) / 30 seconds. It requests standing on expiry. A
+soldier who released the stick can still coast as the ground brake takes effect.
+Rolling uses crouched presentation and provisional crouch contact geometry.
+The profile exposes that posture for future combat hit tests. Sprint and
+roll restrict firearm use through the final active movement step.
+
+Ordinary jumps add a vertical speed of sqrt(2 × 18 × JumpHeight). Unsupported
+flight loses 18 units of vertical speed per second. Positive forward momentum
+uses the forward jump factor. Sideways and backward momentum use the strafe
+factor. Forward travel can continue after landing until the ground brake
+brings the soldier to rest. From crouch, jump requests standing and checks overhead clearance.
+A subsequent jump press can launch. From standing, crouch takes precedence
+when both buttons are pressed. Sprint accepts jump and ignores crouch.
+The PC prone command has no effect. Classes can supply jet controls and acceleration and draw
+from a fuel tank or the stamina bar. A fully funded energy-jet step gets
+thrust through its end. An underfunded step enters a fall and advances in
+the same tick. Horizontal jet controls affect movement in the forward and
+sideways directions. Vertical hover climb uses the unscaled forward stick.
+
+An equipped combat action can supply a movement override for the tick.
+Its input mask filters movement axes, turning and posture buttons before
+the mover handles them. Authored planar velocity replaces stick drive,
+braking and slope pull before displacement. A locomotion lock can also
+carry the current velocity. The mover applies vertical impulse, gravity
+and any fall-speed limit before displacement, then resolves contacts.
+Movement and combat share the same stamina balance and exhaustion latch.
+
+Local and dedicated admission select `swbf1` at the shared content stage.
+Changing the family with retained movers requires a fresh world. Prepared class tuning, live
+`swbf2` inputs and state, pose and combat integration, and multiplayer
+prediction and publication are planned.
+
 ## Switching team
 
 A team switch applies only while he has no unit, and only between

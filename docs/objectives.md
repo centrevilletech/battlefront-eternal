@@ -79,15 +79,53 @@ by name).
 3. The kill region, once: 15 effects at points drawn
    uniformly through the region's box, each `explosion`, `med_explosion`
    or `small_explosion` at random; then up to 64 soldiers and vehicles whose
-   origin is inside are killed outright, no one credited. Single player or
+   origin is inside are killed outright. The region has no attacker. In
+   Conquest a damaged hull can still credit its previous attacker with a
+   vehicle destroyed. Single player or
    the host only. The port: `rust/sim/src/battle/objectives.rs` (`killRegion`),
    from `objectiveDestroyed` in `rust/sim/src/battle/phase.rs`.
 4. From then on the post iterators skip it: it is no
    spawn point, no AI objective, adds no `ValueBleed` and counts neither as
-   held nor as neutral, so a team left with nothing else starts its 20 s
-   no-post countdown. The port marks the post `active: false`, which every
-   iterator already honoured for the command vehicles' posts, and the maps
-   no longer draw it.
+   held nor as neutral. In Conquest, a team left with nothing else starts its
+   20 s no-post countdown. The port marks the post `active: false`. The
+   iterators already honour that flag for command vehicles' posts, and the
+   maps no longer draw the post.
+
+For event-driven rules the authority queues a placed building or trap losing
+its last health, a hull's destruction, and character deaths. A trap struck
+lethally reports its attacker when it springs. A nearby vehicle can also
+trigger its swing. That expiry reports the trap with no killer character.
+Placed posts report capture,
+neutralisation and loss. Mobile posts report a change of occupant team or
+loss of their hull. Region entry, region exit and flags have reserved event
+types without native producers. These events let a
+mode associate its own score with an objective's identity. In an event-driven
+battle a rules command that sets hull health to zero or a post's kill region
+clears the hull's attacker. When a vehicle leaves the battlefield and its
+countdown expires, both modes destroy it and its crew without awarding a kill
+or vehicle-destruction credit to the last shooter.
+
+The authority-side
+2005 mission script host (`rust/sim/src/battle/script/`) implements
+`EventRules` over this interface to drive scripted objective scoring, timers,
+object operations, and match completion (`MissionVictory` / `MissionDefeat`).
+Conquest applies its awards and reinforcement rules in the order described
+above and does not instantiate the script host.
+
+Scripted missions share 20 goal slots across the eight team numbers. Adding
+a goal takes the lowest free slot and returns a fresh handle. The bot reader
+sees occupied slots in order, with the declared weight and both subjects.
+A character subject follows the character across body respawns. For a
+placed object the reader can resolve its current life after a repair.
+Clearing a team or deleting a handle changes the table revision.
+
+Conquest spends its reinforcement at the native death hook. In an event-driven
+mode the handler receives the death and chooses whether to adjust tickets.
+An unlimited count keeps classic respawn eligibility open. Team points,
+score limits and timers are authority-side. A declared victory or defeat
+sets the losing side and a zero victory clock in the match summary, then
+uses the usual game-over and finish delays. A draw has no losing side or
+victory clock and uses those same delays.
 
 ## The maps
 

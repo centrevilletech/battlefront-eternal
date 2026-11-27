@@ -3,7 +3,7 @@
 `rust/bfe-server` and `rust/bfe-client` share one frozen `NETWORK_CONTRACT`.
 There is one required simulation revision, not independently negotiated features.
 
-Protocol 3 is the native UDP transport, BFE-UDP/1 (`rust/bfe-transport`,
+Protocol 4 runs on the native UDP transport, BFE-UDP/1 (`rust/bfe-transport`,
 [native-udp-transport.md](native-udp-transport.md)). Both `bfeserver` and
 `bfe-client` link `rust/bfe-transport` and `rust/sim` from the same workspace,
 so a server and the clients of the same release speak the same wire. Both hellos
@@ -19,7 +19,7 @@ world. Its readiness state carries the validated contract to the LAN listener,
 master listing, transport hello and game session. Health checks (`/healthz`)
 inspect the advertised contract as well as process liveness.
 
-The current engine requires `bfe-sim-29`, adapter ABI 4, and own-player
+The current engine requires `bfe-sim-30`, adapter ABI 4, and own-player
 correction schema 11. The server sends the verified entity registry followed by
 a `snapshot-delta-v1` welcome and starts the shared snapshot publisher directly.
 Local and remote worlds use the same records and the same snapshot codec
@@ -38,6 +38,16 @@ The wire contract pins these interfaces between the client and the server:
   carries the snapshot acknowledgement), snapshot publication and gameplay
   lifecycle.
 - The simulation capture, codec, snapshot publisher and combat record shapes.
+
+Every 2004 battle uses the 2004 fixed position box and u16 codes. A 2005
+battle takes its box from its map and uses u24 positions when the box is wider
+than the 2004 one. A larger box changes the absolute position width while
+retaining the existing packet framing. A protocol 3 client would ignore the
+wide position bit and read a wide datagram at the wrong offsets; protocol 4
+admission refuses it before any datagram is sent. The codebook and rounding
+rules are in [Snapshot and delta encoding](snapshot-delta-design.md), and
+everything protocol 4 adds for the 2005 game is in
+[Network contract for both games](network-two-games.md).
 
 ## Simulation revisions
 
@@ -70,6 +80,32 @@ height from foot rays) and fires their guns by the original game's aimer and
 barrel records, with `FireOutsideLimits` per aimer ([vehicles.md](vehicles.md)).
 A client predicting its own walker must run the same rules as the host. Map
 content generation 11 carries the records.
+
+A Battlefront II battle also writes combat displays as world schema 0x0205, the
+2005 record kind 5 (a hero's combat display) at revision 2 (identity 100000 + its
+slot): every living, unseated saber wielder's, and any other soldier's while a cast
+or a choke shows on it and for two seconds after. A display never takes the last 32
+world payloads for a new field. It holds the revision, a byte of part flags and each
+part present: the melee pose of a saber wielder (34 bytes: combo state, the tick its
+clip clock read zero, loop, clip length, blade mask, guard reaction, swing turn), the cast pose
+of a power it casts or holds (13 bytes: weapon class hash, fire slot, the tick its
+clock read zero; a flag marks it held) and the choke that holds it (4 bytes: the
+clip its power names). A display with no part is 3 bytes, so a viewer sees a cast or
+a choke end: a viewer never sees a world field leave, only its new content, and the
+two seconds let the display without the part arrive first. The display is sent again only when a part changes, since every clock
+travels as the tick at which it read zero. A Battlefront (2004) battle writes none, and a
+client that does not read the schema ignores it, so it needs no simulation change.
+Saber contact effects use the existing named-effect presentation event.
+
+A Battlefront II battle also writes world schema 518, each throw-carrying hero's
+throw (identity 100000 + its slot, 72 bytes): the tick its throw animation began and,
+once the blade has left the hand, the launch tick, origin, direction, speed, the
+outbound and return times, the spin rate and the release point in the hero's own
+frame. The payload stays the same from the press to the launch and from the launch to
+the catch, so the codec sends it once per press and once per launch; the viewer steps
+the battle's own flight rule from it and draws the blade for every hero, in Instant
+Action and online alike. A Battlefront (2004) battle writes none, and a client that
+does not read the schema ignores it.
 
 Simulation `bfe-sim-24` adds world schema 10, the state of Endor's Ewok log
 traps ([live-objects.md](live-objects.md) "Ewok log traps"): each trap's phase
@@ -135,6 +171,26 @@ blast measures him to, a hover's widened by its springs (as blasts on vehicles
 now are too). Clients and servers on `bfe-sim-28` must update together: a mixed
 join is refused with "Update required" rather than allowing prediction to
 disagree. The wire format remains protocol 3; no content generation changes.
+
+Simulation `bfe-sim-30` with application protocol 4 carries the 2005 game;
+neither is released yet. A 2004 battle simulates, publishes and exchanges
+exactly what it did under `bfe-sim-29` and protocol 3: the same input tables,
+numeric adapter and decoder, the same snapshot and own-correction bytes, the
+same hellos, announcements and `/info` apart from the two version values, and
+the same admission on any rotation. A 2005 match names itself and its record
+revisions in a `battle` descriptor in the signed server hello, and a joining
+client names the match it asks for and the revisions it implements; a client
+that lacks a required revision is refused for that match alone. Every 2005
+record names its kind and revision on its carrier, so a reader skips an
+optional kind it does not implement by the carrier's extent. Its records are
+the roll and block press and release actions and the soldier's own holds, the
+own-body correction `0x82`, the display field `0x0203` and a scripted battle's
+mission (state, systems, notices and roster), with per-map position boxes, the whole 512-slot entity domain and up to 256 parts a
+snapshot ([network-two-games.md](network-two-games.md)). A 2005 match admits
+a client without its verified content to sit the battle out with chat and the
+score table. Clients and servers on `bfe-sim-29` must update together: each
+refuses the other with the existing version text. No content generation
+changes.
 
 Desktop releases package `bfeserver` and `bfe-client` from the same workspace.
 The desktop boot updater installs the paired release before online play. The

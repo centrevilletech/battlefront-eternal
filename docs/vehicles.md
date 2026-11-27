@@ -1064,3 +1064,415 @@ position, velocity and orientation. The extractor exports springs and walker
 foot bottoms. Rhen Var Harbor has vehicles; Citadel does not.
 The Hailfire collision-mesh centre remains a separate parity finding;
 walkers' body pitch from their legs is in "Standing on the ground".
+
+## 2005 space battlefields
+
+On a 2005 map with no terrain, the simulation admits capital ships, their
+systems and turrets, hangar doors, landing regions and a fixed set of fighter
+slots. The released ground and vehicle simulation runs 2004 battles.
+
+Ship systems use the placed building's current F4 life, hull, team and collision
+look. That building's F3 entry holds its shield charge, capacity and recharge
+rate. Native infantry hits and fighter weapons pass through the same building
+mutation. A fully absorbed hit can notify mission rules. Passive recharge runs
+once per tick. The mission assigns objective points.
+
+A 2005 craft or ship system shows its damage records only after its health
+has changed in its present life, as the 2005 game evaluates them only when
+the health changes: a system built at full health shows none, even a record
+whose band starts at 100 %. From its earliest change on, each record burns while
+the health share is below its start (plus one ten-thousandth) and, for a
+positive stop, at or above its stop (minus one ten-thousandth), while any
+health is left; a system mended back to full keeps a record whose band
+reaches full health. The 2004 rule above is unchanged.
+
+The content loader builds the triangles of a moving frigate or attached turret
+in model space. Admission records each collision body, its model bounds and its
+placement. Each tick the ship's animation supplies the transform, inverse and
+world bounds. Hangar doors carry a lock, a proximity trigger and two opening
+fractions for interpolation. A map-local opening clip binds to the model's
+skeleton by bone CRC. Mission-controlled passage barriers can follow their door
+through the named navigation interface.
+
+A pilot boards a reachable parked craft. Seat input identifies both the fighter
+life and the living occupant. The pilot controls flight, throttle, boost and
+takeoff or landing. Each occupied seat controls its selected mounted weapons,
+aim and lock. The flight profile reads chassis rates separately from turret
+rates. Fighter collision sweeps use the hull and wing extremities. Each of a
+craft's collision bodies meets only what the pack marks it for: shots its
+ordnance bodies, and while it flies its flyer bodies too; soldiers its soldier
+bodies; other craft its building bodies. Ordnance retains its launch
+attribution, generation and previous position.
+
+Soldiers' shots and bots' sight end at a craft's bodies for shots, parked or
+flying; a bot aboard one sees past it, and past the craft its target is aboard.
+A shot hurts the craft at the next step of the battlefield, by its scale for
+vehicles and the friendly-fire rule; a craft it destroys loses its crew, to the
+shooter's credit. The blasts of soldiers' weapons do not reach craft yet.
+
+Ship self-turrets test range, line of sight, angle and warm-up before firing. A
+ship gun's placed class, its weapon, the weapon's ordnance and the ordnance's
+blast each take every field through the classes they inherit (a class's own
+keys after its parent's), and the weapon is read as a craft's is. A gun no
+player works looks for the targets its `AITarget*` flags name from `MinRange`
+to `MaxRange`; its rounds go their `Velocity` for their `LifeSpan`, and a beam
+reaches its ordnance's `Range`, whatever those ranges are. Such a gun aims
+as the game's stationary bot controller aims it: at a craft's lead point
+moved by the craft's sphere of miss (the sphere the 2005 soldier bots aim
+with; a craft hands it a quarter of its box's diagonal across, doubled as a
+flyer and doubled again as a diameter; it widens with the
+craft's speed and sudden turns and narrows with the skill of the bots firing
+at it), along a direction the gun's controller lets drift over the sphere. The
+weapon takes `AIBubbleSizeMultiplier` of the sphere (default 1), which grows
+by one for every `AIBubbleScaleDistDivider` metres (default 20) up to
+`AIBubbleScaleClamp` times (default 10); a craft with nobody human aboard
+takes three tenths of it. A ship object or a soldier is aimed at exactly. A
+bot in a craft's turret seat (a gunship's or a bomber's gun) aims the same way
+with its seat's own drifting direction: the 2005 game builds those seats as the
+same turret objects and gives their bots the same controller. A bot at a
+remote turret chair aims the chair's gun so too, with that gun's own drifting
+direction (the chair has no aim of its own; its gun's turret step is the only
+one that turns it). A
+weapon's
+`BarrageMin`, `BarrageMax` and `BarrageDelay` pace a bot's trigger, in a craft,
+at a chair or in a gun of its own; a player's held trigger never pauses for
+them. An empty chair's gun runs on with its trigger up: its shot delay,
+cool-down and heat go on, and its kick falls.
+
+A shot is `SalvoCount` salvos. The first goes `InitialSalvoDelay` after the shot
+begins, in each shot of a held trigger anew, and the others `SalvoDelay` apart:
+where the class gives two values, a random time between them. Only then does
+`ShotDelay` count, from the next tick on (at once when the salvos follow each
+other at once); the part of a tick a gun does not wait out counts towards its
+next wait, so its rate does not depend on the tick. A capital ship's box turret
+(four salvos 0.25 to 0.5 s apart, then a second) fires its four rounds in about
+2.1 s. A shot begun is finished with the trigger up too, a ship gun's whose
+target is gone the way it points; leaving or switching away from the gun,
+emptying its clip or overheating it drops the rest.
+
+A craft's round is pulled onto the best aligned enemy within its weapon's
+auto-aim cone: `AutoAimSize` times 0.072 radians, as the weapon class keeps the
+key (a size of 1 is about 4 degrees).
+
+A salvo fires its `ShotsPerSalvo` rounds at once, each from the next fire point
+and with its own share of the clip: the V-wing's cannon fires two salvos of
+five. A tracer goes out with the first round and every
+`SecondaryOrdnancePeriod`th after it, from a craft or a ship gun (the chairs'
+chain guns, the V-wing's and the tri-fighter's cannons: every third). Each round leaves its aim by the gun's spread times the difference of two
+uniform draws, pitch first, in the craft's or the gun mounting's frame. The
+spread is `PitchSpread` and `YawSpread` in degrees, or `MaxSpread` at 0.025
+(pitch) and 0.05 (yaw) of its value in radians, the later key winning on each
+axis. The V-wing's cannon spreads 3 degrees each way, the tri-fighter's 0.25,
+the turret chairs' chain guns 0.3. Each salvo also kicks: it adds
+`SpreadPerShot` (degrees) to both spreads, up to `SpreadLimit` (a gun without
+one gathers no kick). The kick falls by `SpreadRecoverRate` a second, to zero
+for a bot and to minus `SpreadThreshold` for a player, so a player's first
+salvos after a rest fly true. It does not fall while the gun warms up with its
+trigger held, nor for `CoolDownTime` after the gun stops: its trigger let go,
+or the gun overheated or reloading, its trigger held or not (the warmed share
+of that time when the trigger is let go during the warm-up). The tri-fighter's
+cannon kicks 0.1 degree a salvo up to 1.5, falls 1 degree a second, rests at
+minus 1 for a player and cools for 1.25 s; the chain guns fall 0.75 a second.
+
+A round strikes the first thing on its way: a craft, a soldier, a ship object or
+a surface without health.
+
+A beam whose ordnance sets `PassThrough` goes on behind the craft and soldiers
+it strikes, hurting each once, up to the first thing that is neither: terrain, a
+ship, a ship object, a door. The gunships' ball turret beams, the turret chairs'
+beam and the two long-range guns' beams set it, and no other ordnance in a space
+battle does. Any other beam ends at the first thing it strikes.
+
+It deals its direct damage there, by the scale for what it struck.
+
+It also sets off the blast its ordnance names (`ExplosionName`, `Explosion` or
+`ExplosionImpact`, the last one given), 0.2 m off the surface. A beam sets off
+none. A guided rocket is a craft of its own: it goes up by its class's
+`ExplosionDestruct`, past its boost threshold by `ExplosionCritical`. A blast
+does its `Damage` inside `DamageRadiusInner`, falling to nothing at
+`DamageRadiusOuter` (`DamageRadius` is the outer radius alone), times
+`HealthScale` to people, animals and droids, `ArmorScale` to vehicles and
+buildings, the scales of their own after those, and `ShieldScale` to a shield.
+The distance is to the centre of the bounding sphere of the thing's model (a
+craft's prepared `sphere`) less half its radius, so a blast at the skin of
+something big does not reach it. Terrain and buildings between the blast and
+that centre shield the thing; craft and soldiers shield nothing. The bombs and
+the V-wing's torpedo do 1,000 within 4.5 m, to 30 m; the gunship's missile and
+the droid torpedo 500 to 30 m.
+
+One that strikes nothing is gone after its `LifeSpan`.
+
+Its last step is as long as the life left. There it bursts if its ordnance names
+a blast for that (`ExplosionExpire`) and vanishes otherwise; a beam vanishes. Of
+the weapons in a space battle only the capital ships' box turrets fire flak,
+which bursts about 780 m out (150 within 80 m, falling to nothing at 120 m, to
+craft and shields, with zero scale against buildings and soldiers). A guided
+rocket goes up by the blast it would strike with; one
+whose pilot has left or died goes up where it is, by the plain one.
+
+The developer simulation provides previous and current fighter, projectile,
+door and ship state to consumers. The battle client, mission host and navigation
+system must connect their own inputs, drawing and planning to these interfaces.
+The space event buffer reports overflow. Authoritative damage and admitted
+detonations are processed independently of presentation event capacity.
+
+On a prepared space map, an exterior portal belonging to the shield’s hangar sector defines the flyer opening. Its orientation, width and height place the window on the static shield triangles. Moving objects at the opening still collide with aircraft.
+
+### Starfighter flight and the pilot's camera
+
+A seat with no pilot animation, or one that does not expose its pilot, hides
+its soldier, who rides at the seat's pilot point; every Space Mygeeto craft
+hides its crew this way, and a destroyed craft's crew stays hidden.
+
+Turn and pitch rates move linearly toward the stick times the craft's rate, at
+TurnFilter and PitchFilter while speeding up and at TurnFilterDecel and
+PitchFilterDecel while slowing or reversing. Below 0.7 of full stick an axis
+turns at the smaller of TurnRate and PitchRate, blending to its own rate at
+full stick; a long full deflection builds up by the buildup multipliers; above
+MaxSpeed the rates fall to 0.7 at BoostSpeed (0.5 for a command flyer). The velocity follows the nose at
+MomentumFilter while the forward speed stays the airspeed, so a hard turn
+slides a little. A and D roll past 0.3 of the key's travel, eased at
+RollRateFilter, at RollRate; the craft stays rolled when they are let go, and
+its wings level at LevelFilter only after 14 seconds without steering once a
+yaw past 0.3 has started that wait. Roll lock turns the yaw axis into roll. The
+drawn hull leans into a turn by BankAngle times the forward speed times the
+yaw rate over the larger of MaxSpeed and BoostSpeed, eased at BankFilter; the
+craft flies by the frame that does not lean. Nothing turns a craft back at the
+battlefield's edge: a craft with anyone aboard that stays outside the boundary
+(tested across the ground plane only) for 6.5 seconds is destroyed, and the
+time starts again whenever it is back inside; an empty craft is left alone. Bot
+pilots turn back toward the middle themselves within 150 m of the edge, floor
+or ceiling. The floor and ceiling are the mission's fly heights
+(SetMinFlyHeight, SetMaxFlyHeight); a mission without them keeps the
+battlefield's vertical extent, 1800 m either side of its middle unless the map
+gives one. Within two seconds of either at the present climb, the
+pitch stick is drawn toward the input that levels the nose, by one minus the
+square of that time over two seconds, wholly at the limit, unless the nose
+already points away from it.
+
+The pilot's chase camera follows the frame that does not lean: TrackCenter
+plus an offset that moves from FOVEFFectMinCamOffset3rd to
+FOVEFFectMaxCamOffset3rd as the forward speed approaches the larger of MaxSpeed
+and BoostSpeed, while the horizontal field of view moves from ThirdPersonFOV
+to FOVEffect3rd (eased at 25 per second; the cockpit uses FirstPersonFOV and
+FOVEffect1st). The position eases toward that point along each camera axis at
+MoveTensionX, MoveTensionY and MoveTensionZ, so the camera trails further back
+at speed. It turns with the hull at once and looks 0.0877 rad down; only a
+trick with a camera detach eases its aim, at 20 per second at full detach
+tightening to 50 as the detach decays at 0.9 per second. Walls and decks pull
+it in as the game's chase camera does: one ray a frame from 1.5 m over the
+craft's middle toward the camera, cycling through five starts 0.4 m to its
+sides; the nearest clear share of the last five rays is taken at once, a gain
+of up to 0.15 is held while anything is still in the way, and the rest lets out
+at 0.75 of the boom a second; the hit stops the near plane (0.3 m), and only a
+jump past 250 m snaps the camera. While a seat steers a guided rocket the view
+is the rocket's own chase camera, from the rocket class's camera keys, and it
+comes back to the craft at once when the rocket is gone. Fields of view are horizontal at 4:3;
+wider screens keep the vertical. Engine exhaust burns while a craft takes off,
+flies and lands; its scale ramps from ThrustEffectScaleStart of the way from
+MinSpeed to MaxSpeed up to the larger of MaxSpeed and BoostSpeed, clamped only
+below. Contrails show only past MaxSpeed and a tenth of the way on to BoostSpeed
+(in practice while boosting), growing from ContrailEffectMinScale to
+ContrailEffectMaxScale at BoostSpeed; a contrail whose ContrailEffectMinSpeed is
+under 0.5 is never drawn (the class default is 1.1).
+
+A craft takes off and lands by the same rules as the 2004 game's craft: taking
+off it rises at TakeoffSpeed, an eighth of it on
+the deck and all of it TakeoffHeight up; once TakeoffHeight above where it rests
+it goes over to flight in TakeoffTime, its climb fading and its speed along the
+nose, which follows the throttle, growing. Landing, the lift runs out over
+LandingTime while it sinks at LandingSpeed, an eighth of it at the deck and all
+of it TakeoffHeight up. As in flight, the speed it moves toward the throttle's
+target starts each update from the craft's own motion along its nose; while the
+lift is partial that motion is only part of the speed, so the speed stays low
+and a craft that lifts off and lands again settles a few metres from its pad.
+Meanwhile the stick yaws it as much as it has risen and pitches it as much as it
+is lifted, and its nose and wings level at LevelFilterLanding; it sets down on
+the deck found by a ray straight down under it (the landing region's or the
+pad's floor only where the ray finds nothing) once its up axis is within 0.9375
+of straight up. A class without these keys takes the game's defaults
+(TakeoffHeight 5, TakeoffTime 5, TakeoffSpeed 3, LandingTime 5, LandingSpeed 3).
+Inside a landing region MinSpeed falls to a fifth of itself and at most 10,
+MidSpeed to at most 20 and MaxSpeed to at most 60, and the craft slows three
+times faster than it speeds up; with the throttle at rest it flies at MidSpeed
+there too, so it never stops in the air. A landing may start anywhere inside a
+landing region, at any speed; outside every region the key does nothing.
+
+### Seats in a craft
+
+A craft's seats are its chassis (the pilot's) and then each seat section in
+order (a gunship's co-pilot, its gunners and, on the droid gunship, two
+passengers). Each section names its own weapons: `WeaponSection` n is the
+seat's n-th weapon, the first fired by the primary attack and the second by
+the secondary; there is no weapon to cycle. A person boarding a landed craft
+takes the earliest seat that is free or that a bot holds; that bot moves on to
+the next free seat after its own, or gets out. The seat keys (1 and 2, the
+wheel) move him to the next seat that way that no other person holds, a bot
+there trading places with him; the seat he leaves lets go of its controls. A
+gunner's aim keeps to his seat's `YawLimits` and `PitchLimits` (yaw from the
+nose, left positive; pitch down positive), and a bot gunner takes only targets
+inside that arc. A gunner's camera hangs from his seat's turret node, else the
+craft's origin, looking along his aim; `TrackCenter`, `TrackOffset`,
+`EyePointOffset`, `TiltValue` and the fields of view are the seat's own. Bots
+never fire a weapon that launches a steered craft (the gunships' guided
+rocket).
+
+### Bot pilots
+
+In a 2005 space battle, bots fly (`rust/sim/src/space/pilots/`). The pilots
+run once per fixed tick after the bot controller's phase and before the
+soldier phase, and only while a space battlefield is attached; a 2004 battle
+never reaches them. They write the intent of the bots they steer and send
+craft controls through the seat input a player's controls use, so the next
+tick's flight step consumes them. Nothing else of a craft is written.
+
+- **Boarding.** A bot on foot weighs the four nearest free, intact, landed
+  craft of its team within the mission's AI vehicle notify radius
+  (`SetAIVehicleNotifyRadius`, which the mission host passes through
+  `World::space_set_pilot_notify_radius`; without it the battle's bot
+  controller's radius, 50 m when the mission sets none) and walks to the
+  first it can reach in a straight line (one ray each), so a blocked nearest
+  seat does not hide a reachable one. A human on foot heading for the free
+  craft nearest them (closing on it, or standing at it) keeps that craft's
+  pilot seat: no bot claims it, and a bot walking to it gives it up when the
+  human is nearer. The released bot controller has no such rule; its bots
+  may take any free craft. It claims the seat, walks to the nearest side of the hull and
+  boards through the seat call's reach, team and occupancy check. Two bots
+  never claim one seat. A walk that makes no progress for three seconds or
+  lasts 25 s gives up; a craft taken or lost frees the bot to choose again. A
+  second bot may take a free gunner seat of a craft whose pilot seat is taken,
+  and on a transport any free seat; marines prefer riding a transport to
+  flying a fighter.
+- **Leaving.** Half a second after boarding the pilot presses the action key;
+  a transport pilot waits up to 30 s for crew first. Inside the landing region
+  it hovers while it turns, crosses the hangar at a walking pace by short
+  throttle taps and leaves along the track ahead of its pad (pads face their
+  opening). Outside it follows the map's launch path: the flyer path whose
+  first node lies nearest outside that opening; a node not reached in 12 s is
+  skipped.
+- **Fighting.** Every half second (staggered by unit slot, also when nothing
+  is in view) a pilot picks among enemy craft it can see within 1,500 m and
+  the other team's lockable ship systems, self-piloted guns and, while a
+  ship's shared shield is up, the hull sections that carry it; objects stay
+  destinations without sight. Objects with an AI damage floor are left alone:
+  bots cannot destroy them. Each weapon is used on what its `AITarget*` flags
+  allow, within its `MinRange` and `MaxRange`; a weapon that fires only on a
+  lock counts only against objects the mission makes lockable. An object ranks
+  by the distance to its surface, divided by what the pilot's weapons do to it
+  a second in its present state (its shield while up, the object after), times
+  its cover by its own team's guns that fire on craft, and nearer the less is
+  left of its shield or hull; a
+  craft that carries building-only ordnance (a bomber) prefers objects and
+  counts a craft as four times farther.
+- **Attack runs.** A run on an object is laid out for the weapon that hurts it
+  most: from far out on the first of six sides (above, below and the four
+  level ways, nearest first) whose line toward the object's centre meets the
+  object before anything else, the run aims at the point of the surface that
+  line meets and starts that weapon's reach (at most 600 m) plus 150 m back
+  along it. Run points ride in the object's own frame, so a run on a moving
+  frigate moves with it, and the aim leads the object's motion. The pilot
+  flies out to the start, then dives along the line; a dive with ordnance
+  (bombs, lock-on missiles) is flown at the craft's least speed. It keeps to
+  its object until it breaks off, 150 m out or farther when the craft needs
+  more room to turn, then heads back out to the start for another pass; a body
+  in the way other than the object (a friendly frigate beside the line) is
+  steered round and the dive goes on. At a craft a pilot leads with the weapon
+  that will fire and fires it when its nose, along which rounds leave, lies
+  within 2.6 degrees of that lead point or
+  the target's angular size, and the line from the muzzle to the target meets
+  no other body; at an object it fires when the path its rounds take from the
+  muzzle (along the nose, falling by their gravity on the way) meets the
+  object before anything else. Lock weapons hold the lock key inside their cone
+  and range and fire when the lock is theirs. No round is fired with a craft of
+  the shooter's team on the line. Bombs are released anywhere in their range.
+  A pilot that has had no shot at a craft for 20 s (two craft circling each
+  other) gives it up and leaves it alone for 15 s; an object no side reaches
+  is left alone for as long. A sharp hull loss starts a barrel roll.
+- **Avoidance.** One flyer ray a tick alternates between the flight path (from
+  the centre or a hull edge in turn) and the way the pilot wants to turn, and
+  reaches 2.6 s of flight plus 1.6 turning radii; a surface there turns the
+  craft along it and away from it at its slowest speed, and a traffic turn
+  does not overrule that. Below the avoidance speed inside a hangar the craft
+  keeps to its pad's clear track. Every tick the closest approach to each
+  other craft within 150 m is tested, and a coming collision turns the craft
+  away. A hull contact turns the craft away from the touched surface; contact
+  lasting 45 ticks pins it, and it backs off and lines up again.
+- **Mending and landing.** Below half its hull, after a sharp loss, or below
+  three quarters inside the reach of enemy self-piloted guns that fire on
+  craft (a gun that fires only on ship objects is no danger, however far it
+  reaches), a pilot breaks off; inside the guns' reach it first flies clear of
+  them (up to 8 s). Only a
+  seated pilot of a repairing class mends a craft, on the deck as in flight,
+  so such a pilot mends it flying away from the middle of the enemy's ship
+  objects at full throttle and fights again at 90% hull; one that cannot
+  repair gains nothing at home and fights on. Still under half its hull within
+  150 m of its patrol point, a pilot heads home: to a
+  line-up point out on its track, along the opening's axis by following the
+  line, round again if off the axis halfway in, through the opening, and the
+  action key at landing speed over a spot inside the landing region in the gap
+  across the opening farthest from every pad track and parked craft; the
+  landing state brakes the craft. It leaves again at 90% hull or after 45 s.
+  Transports fly to the enemy hangar and land there; their crew leave and
+  fight on foot.
+- **Chairs and gunners.** A free bot with no waiting craft in reach takes a free
+  remote turret chair on its own ship within the battle's AI vehicle notify
+  radius (`SetAIVehicleNotifyRadius`), walking straight on the same deck when
+  clear or routing through interior navigation up ramps and through proximity
+  doors, for up to two minutes. Unless the mission keeps bots in turrets
+  (`SetStayInTurrets`), as the 2005 game does it takes one only while its
+  controller has a target that the chair's gun can turn to (inside the gun's
+  yaw and pitch arcs; no range is asked), and leaves it after 10 s without a
+  target (10,000 s when the mission keeps bots in turrets). A soldier's target
+  is the soldier his controller fires at, or else the nearest enemy craft with
+  someone aboard he sees as the 2005 game's sight has it: in front of him
+  (within 77.5 degrees of his facing, or within 10 m), no farther than the
+  craft's model sphere radius times 20 plus 30 m (twice that with someone human
+  aboard), and a clear line from his eyes (a hangar's shield does not stop
+  it). A craft he saw earlier is not remembered. A chair whose
+  class sets a `PilotAnimation` and `IsPilotExposed` puts whoever works it at
+  its `PilotPosition` node, as the 2005 game seats an exposed rider: the body
+  is there, where shots meet it, and is drawn sitting in the `PilotAnimation`
+  (the soldier bank's clip of that name); he gets up where he stood when he
+  took the chair. Chairs and
+  gunners choose among the nearest enemy craft in reach only those they can
+  see, fire when their sight (for a chair, the gun's barrel) lies on its lead
+  point and the line is clear, and let go of the trigger without a target. A
+  gunner with no craft in reach whose gun may be used on ship objects takes
+  the nearest enemy object in reach it can see. Both work their guns within the
+  weapon's `MaxRange`, and they and pilots aim a beam, which strikes at once, at
+  its target and not ahead of it.
+- **Difficulty.** Aim follows the wanted line through the released bot aim
+  filter with the battle's skill curves for the team, handed the chosen
+  weapon as the released aim code expects: a guided rocket counts as remote
+  (half the aim response, no spread scale); missiles and torpedoes count as
+  launchers and every other weapon as a cannon, and the released code treats
+  the two alike: the full aim response and the skill's spread scale. That
+  scale reaches only the kick a weapon gathers shot by shot (`SpreadPerShot`
+  times the scale each salvo, up to `SpreadLimit`): a weapon's own spread is
+  the same in a bot's hands as in a player's. Each seat hands its guns the
+  scale its aim filter returned (a chair hands it to its gun with the aim), so
+  the tier changes the aim's acceleration and damping and how fast a kicking
+  gun spreads in a burst. With no player in the battle every team has the
+  enemy skill: a scale of 2.68 at easy, 1.6 at medium and 1.3 at hard (with a
+  player, the player's team 2.46, 2.68 and 2.68). The bot aims along the
+  filter's line itself.
+
+Storage is reserved at admission (one row a unit slot, one claim row a craft)
+and a warm tick allocates nothing. The scans state their limits: craft up to
+the battle's admitted fighter slots, 256 ship objects rescanned twice a
+second, four seats a choice and two candidates a sight choice; anything past
+a limit is counted in the census. `World::space_pilot_view`,
+`space_pilot_hold` (keep one soldier life on foot; it ends a walk to a seat
+or chair, a stale reference is refused and the slot's next life starts
+unheld), `space_pilot_rows`, `space_pilot_census`, `space_pilot_routes`,
+`space_pilot_notify_radius`, `space_ray` and `space_walk_blocker` (the body a
+soldier's straight walk meets, as the pilots test a walk to a seat) expose the
+pilots to tools and to the goal bots. The distances, times and shares above are named `PROVISIONAL_`
+constants until measurements of the 2005 game settle them. The headless test
+`bfe-content-native/tests/space_pilots.rs` runs a prepared Space Assault
+battle with them.
+
+In the developer Space Assault battle, pilots come from the mission roster.
+Set `BFE_DEV_SWBF2_SCRIPTED_PILOTS=1` before launch to use the two scripted
+target pilots for a repeatable sortie. In that mode ordinary soldiers leave
+the parked craft available to the player. The same mission script scores both modes.

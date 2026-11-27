@@ -10,8 +10,8 @@ on Linux over Mesa software OpenGL (`LIBGL_ALWAYS_SOFTWARE=1`,
 `renderer-smoke-native.jsonl`.
 
 It cross-checks `rust/bfe-render/shaders/*/manifest.json` across all 6 families
-(`world`: 536, `actors`: 310, `effects`: 149, `interface`: 15, `post-hud`: 12,
-`utility`: 24; total 1,046), then runs `render-smoke` over surfaceless EGL
+(`world`: 674, `actors`: 554, `effects`: 152, `interface`: 15, `post-hud`: 14,
+`utility`: 24; total 1,433), then runs `render-smoke` over surfaceless EGL
 software OpenGL. `render-smoke` compiles and links every variant uncached through
 `bfe-render`'s own program builder and draws one representative scene per family
 into an offscreen framebuffer, checking for non-clear pixels, at least two
