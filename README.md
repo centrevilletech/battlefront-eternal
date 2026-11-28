@@ -2,9 +2,11 @@
 
 A fan-made engine, written in Rust, that plays *Star Wars: Battlefront* (2004)
 from your own Steam or GOG copy, with *Star Wars: Battlefront II* (2005)
-arriving in the next preview. One OpenGL renderer, one 60 Hz simulation,
-Instant Action against bots and online battles on dedicated servers, on
-Windows, Linux (x64 and ARM64) and macOS.
+arriving in the next preview. One OpenGL renderer, one 60 Hz simulation
+and a new sound engine that plays each battle's original mix exactly or as a
+spatial sound stage up to 7.1.4 and on headphones. Instant Action against
+bots and online battles on dedicated servers, on Windows, Linux (x64 and
+ARM64) and macOS.
 
 > **Battlefront II arrives in the next preview.** Today's download plays
 > Battlefront (2004). The next preview opens Battlefront II (2005) for
@@ -68,6 +70,70 @@ battles are identical on both.
   on the widest range of computers.
 
 Dates depend on testing and are not promised.
+
+## How it sounds
+
+These games sound good, and the sound is a large part of why they are still
+played. Battlefront Eternal gives it a new sound engine, written in Rust,
+that mixes every battle at 48 kHz with the original game's own voice budget
+(64 voices tracked, the 32 that matter most heard). It has two modes,
+CLASSIC and ENHANCED, and you can switch between them in the middle of a
+battle in AUDIO OPTIONS.
+
+**Classic: the original sound, exactly.** Classic plays what Battlefront
+(2004) plays, when and how it plays it: the same sounds from your own game
+files, picked, mixed and placed by the game's own sound rules (its distance
+curves, voice priorities, Doppler, the voice-over ducking the battle, and the
+reverb of the room you stand in). Even the Steam build's output stage, the
+OpenAL Soft 1.20.1 speaker decoders and front stabilizer, is translated to
+Rust, and the music and ambience decode with the game's own ADPCM rule.
+
+**Enhanced: the same decisions, a modern sound stage.** Enhanced keeps every
+one of Classic's decisions (which sound, when, how loud in the mix, from
+where) and renders them for a 2026 room:
+
+- **Speakers:** stereo, 5.1, 7.1 and 7.1.4 as discrete channels, panned
+  around the speaker ring, with the height speakers of 7.1.4 in use, a centre
+  speaker that anchors what is ahead of you, and explosions in the LFE.
+- **Headphones:** every 3D sound is encoded into third-order ambisonics and
+  decoded to your ears through measured head-related filters (a Neumann KU
+  100 dummy head from the SADIE II set, or the IRCAM HRTF set), so a
+  starfighter passes overhead and a blaster fires from behind you.
+- **Rooms and walls from the map itself:** rays cast through the map's own
+  collision measure the walls and roof around you and shape the reverb, and
+  a firefight behind a building is muffled rather than lost.
+- **Air:** distant battles lose their highs as they would outdoors, while a
+  fight across the plaza keeps its edge.
+- **A mix that breathes:** a close blast pulls the ambience down for a
+  moment and lets it back.
+- **Clarity:** a stage (on by default, with its own setting) adds the
+  presence and air the original mix lacks and lets shots and footsteps land
+  harder.
+- **Upscaled samples (optional, prepared on your computer):** each sample and
+  stream is resampled to 48 kHz, its missing highs filled in from its own
+  top octave, and then compared with its original; anything that does not match closely enough
+  plays its original, and nothing new is composed. Music also gets 5.1 and
+  7.1 upmixes.
+
+**Loudness you can trust.** Both modes end in one master chain: three
+dynamics profiles (Home theater, Normal and Night) aimed at published game
+audio loudness targets (ASWG-R001), and a true-peak limiter at -1 dBTP.
+Classic and Enhanced are calibrated to the same average loudness, so
+switching compares the sound, not the volume.
+
+**Tested like code.** Every CI run renders frozen reference scenes and
+compares them: the strict cases must match byte for byte, the rest to within
+-96 dB. A fixed-seed harness plays real 2004 battles and fingerprints every
+sound command and every rendered sample, so work on Battlefront II can be
+shown to leave the 2004 game's sound unchanged.
+
+**Battlefront II (next preview).** A 2005 battle runs through the same
+engine, in both modes, with that game's own buses, weapons, engines, rooms,
+hero powers and lightsabers. Its sound is still being tuned against the 2005
+game, in Classic and Enhanced, on the ground and in Space: the sound stage,
+the Space voice lines and some sounds that do not play yet.
+
+The details, with every number, are in [docs/audio.md](docs/audio.md).
 
 ## What you can play today
 
@@ -163,8 +229,8 @@ Not there yet in Battlefront II, even in the next preview:
   60 Hz simulation tick, whatever the frame rate. The picture is drawn on its
   own schedule, at the display's refresh rate or a frame limit from 30 to 240
   frames a second, and the graphics settings never change the rules.
-- **Sound.** Classic and Enhanced modes, with 3D audio on headphones and
-  speaker layouts up to 7.1.4.
+- **Sound.** The original mix exactly, or a spatial sound stage on
+  headphones and speakers up to 7.1.4 ([How it sounds](#how-it-sounds)).
 - **Multiplayer.** Server-authoritative battles at 60 Hz over an encrypted
   UDP transport, with bots filling empty slots. An online server browser with
   measured ping (from the next preview it also shows which game each
@@ -192,10 +258,9 @@ additions as options, each one CLASSIC or ENHANCED in the menus:
   change what players asked to change: stronger allies, bots that reach their
   command posts, and the same aim for both teams ([Classic AI](docs/ai.md),
   [Enhanced AI](docs/ai-enhanced.md)).
-- **Sound.** Classic plays what the original game plays, mixed and placed by
-  its rules; Enhanced keeps every one of those decisions and renders them as
-  a spatial sound stage with rooms, occlusion and upscaled samples, at the
-  same loudness ([audio](docs/audio.md)).
+- **Sound.** Classic is the original game's own mix; Enhanced renders the
+  same decisions as a spatial sound stage, at the same loudness
+  ([How it sounds](#how-it-sounds)).
 - **Picture.** In Battlefront (2004), terrain shading, foliage, water and
   steam effects, and the ocean and sky can each be drawn the 2004 way or the
   enhanced way ([rendering](docs/rendering.md)). From the next preview,
